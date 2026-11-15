@@ -1,88 +1,85 @@
 /**
  * @file App.jsx
- * @description Enrutador principal de TrustLink Web con arquitectura modular y diseño minimalista
- * inspirado en los estándares de UX/UI de Mercado Libre.
+ * @description Enrutador principal de TrustLink Web. Permite alternar mediante
+ * un menú superior entre el Portal del Residente, la Consola de la Garita, el Login y el Registro.
  * @location /trustlink-web/src/App.jsx
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
-import { ShieldCheck, Star, QrCode, Search } from 'lucide-react';
+import SecurityScanner from './modules/security/SecurityScanner';
+import LoginView from './modules/auth/LoginView';
+import RegisterView from './modules/auth/RegisterView';
+import { ShieldCheck, Star, QrCode, Search, Home, ShieldAlert, LogIn, UserPlus } from 'lucide-react';
 
-/**
- * Componente que simula el Dashboard del Residente con un enfoque visual limpio.
- */
-const ResidentDashboardMock = () => {
+const ResidentDashboard = () => {
   const { brand } = useBranding();
 
   return (
-    <div className="min-h-screen bg-trust-surface text-trust-dark font-sans">
-      {/* Barra de Navegación Superior */}
-      <header className="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center shadow-sm">
+    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans">
+      <header className="bg-slate-950 border-b border-slate-800 px-8 py-4 flex justify-between items-center shadow-lg">
         <div className="flex items-center space-x-3">
-          <div 
+          <div
             className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md"
             style={{ backgroundColor: brand.primaryColor }}
           >
             {brand.countryName.charAt(0)}
           </div>
           <div>
-            <h1 className="font-bold text-lg leading-tight">{brand.countryName}</h1>
-            <span className="text-xs text-gray-500">Portal de Servicios y Accesos Residenciales</span>
+            <h1 className="font-bold text-lg leading-tight text-white">{brand.countryName}</h1>
+            <span className="text-xs text-slate-400">Portal de Servicios y Accesos Residenciales</span>
           </div>
         </div>
         <div className="flex items-center space-x-4">
-          <span className="text-xs font-semibold bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full flex items-center gap-1 shadow-sm">
-            <ShieldCheck size={14} /> Lote 15 - Verificado
+          <span className="text-xs font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800 px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm">
+            <ShieldCheck size={14} className="text-emerald-400" /> Lote 15 - Verificado
           </span>
-          <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center font-bold text-slate-700 shadow-inner">
+          <div className="w-10 h-10 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-slate-200 shadow-inner">
             AV
           </div>
         </div>
       </header>
 
-      {/* Contenido Principal */}
       <main className="max-w-7xl mx-auto px-8 py-8">
-        {/* Barra de Búsqueda y Acciones Rápidas */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
           <div>
-            <h2 className="text-2xl font-black tracking-tight text-trust-dark">Directorio de Prestadores</h2>
-            <p className="text-gray-500 text-sm mt-1">Profesionales auditados con antecedentes penales y seguros al día.</p>
+            <h2 className="text-2xl font-black tracking-tight text-white">Directorio de Prestadores</h2>
+            <p className="text-slate-400 text-sm mt-1">Profesionales auditados con antecedentes penales y seguros al día.</p>
           </div>
           <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-            <input 
-              type="text" 
-              placeholder="Buscar electricista, plomero..." 
-              className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 shadow-sm transition-all"
+            <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar electricista, plomero..."
+              className="w-full pl-10 pr-4 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm transition-all"
             />
           </div>
         </div>
 
-        {/* Tarjeta de Prestador (Estilo optimizado para confianza) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm hover:shadow-md transition-all">
+          <div className="bg-slate-800/80 rounded-2xl p-6 border border-slate-700 shadow-xl hover:border-slate-600 transition-all">
             <div className="flex justify-between items-start mb-4">
               <div>
-                <span className="text-xs font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-1 rounded-lg">
+                <span className="text-xs font-bold uppercase tracking-wider text-blue-300 bg-blue-950/60 border border-blue-800 px-2.5 py-1 rounded-lg">
                   Electricista Matriculado
                 </span>
-                <h3 className="text-lg font-bold mt-2 text-slate-800">Federico Gómez</h3>
+                <h3 className="text-lg font-bold mt-2 text-white">Federico Gómez</h3>
               </div>
-              <span className="text-amber-700 font-bold text-xs bg-amber-50 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+              <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
                 <Star size={14} className="fill-amber-400 text-amber-400" /> 4.9 (32)
               </span>
             </div>
-            <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+            <p className="text-xs text-slate-400 mb-6 leading-relaxed">
               Instalaciones tableros seccionales, urgencias 24hs y asistencia general en domicilios.
             </p>
-            <div className="border-t border-gray-100 pt-4 flex justify-between items-center">
-              <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
+            <div className="border-t border-slate-700/60 pt-4 flex justify-between items-center">
+              <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
                 <ShieldCheck size={14} /> Compliance OK
               </span>
-              <button 
-                className="text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-md transition-transform active:scale-95 flex items-center gap-1.5"
+              <button
+                className="text-white text-xs font-semibold px-4 py-2.5 rounded-xl shadow-md transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer"
                 style={{ backgroundColor: brand.primaryColor }}
+                onClick={() => alert('Generando pase QR de acceso para Federico Gómez...')}
               >
                 <QrCode size={14} /> Contratar y Generar QR
               </button>
@@ -95,9 +92,56 @@ const ResidentDashboardMock = () => {
 };
 
 export default function App() {
+  const [currentView, setCurrentView] = useState('resident'); // 'resident', 'security', 'login', 'register'
+
   return (
     <BrandingProvider>
-      <ResidentDashboardMock />
+      <div className="min-h-screen bg-slate-900 flex flex-col">
+        {/* Barra de Navegación Superior / Selector de Vistas MVP */}
+        <nav className="bg-slate-950 border-b border-slate-800 px-6 py-2.5 flex justify-center items-center gap-3 sticky top-0 z-50 shadow-2xl flex-wrap">
+          <span className="text-xs text-slate-400 font-medium mr-2">Modo de Vista (MVP Demo):</span>
+          <button
+            onClick={() => setCurrentView('resident')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'resident' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <Home size={14} /> Portal Residente
+          </button>
+          <button
+            onClick={() => setCurrentView('security')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'security' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <ShieldAlert size={14} /> Consola Garita
+          </button>
+          <button
+            onClick={() => setCurrentView('login')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'login' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <LogIn size={14} /> Iniciar Sesión
+          </button>
+          <button
+            onClick={() => setCurrentView('register')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'register' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <UserPlus size={14} /> Registrarse
+          </button>
+        </nav>
+
+        {/* Renderizado Condicional */}
+        <div className="flex-grow">
+          {currentView === 'resident' && <ResidentDashboard />}
+          {currentView === 'security' && <SecurityScanner />}
+          {currentView === 'login' && <LoginView onLoginSuccess={(user) => { alert(`¡Bienvenido de nuevo, ${user.first_name}!`); setCurrentView('resident'); }} />}
+          {currentView === 'register' && <RegisterView onRegisterSuccess={() => setCurrentView('login')} />}
+        </div>
+      </div>
     </BrandingProvider>
   );
 }

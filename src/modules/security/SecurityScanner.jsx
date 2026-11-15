@@ -1,178 +1,191 @@
 /**
  * @file SecurityScanner.jsx
- * @description Interfaz ultrarrápida para la garita de seguridad. Permite validar pases QR
- * y verificar la identidad y vehículos de los prestadores en tiempo real contra el backend de TrustLink.
+ * @description Interfaz ultrarrápida para el personal de seguridad en garita. 
+ * Permite ingresar o escanear el token QR para validar el acceso en tiempo real contra el backend,
+ * mostrando el estado de compliance del prestador, sus datos y los del vehículo.
  * @location /trustlink-web/src/modules/security/SecurityScanner.jsx
  */
 
 import React, { useState } from 'react';
 import { ShieldCheck, QrCode, Search, CheckCircle2, XCircle, Car, User } from 'lucide-react';
+import { useBranding } from '../branding/BrandingContext';
 
 export default function SecurityScanner() {
+  const { brand } = useBranding();
   const [qrToken, setQrToken] = useState('');
   const [loading, setLoading] = useState(false);
-  const [verificationResult, setVerificationResult] = useState(null);
-  const [error, setError] = useState(null);
+  const [scanResult, setScanResult] = useState(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // Función para ejecutar la petición real al endpoint de la garita del backend
+  // Función para ejecutar la petición real de validación al backend (/api/v1/passes/verify)
   const handleVerifyPass = async (e) => {
     e.preventDefault();
     if (!qrToken.trim()) return;
 
     setLoading(true);
-    setError(null);
-    setVerificationResult(null);
+    setScanResult(null);
+    setErrorMsg('');
 
     try {
       const response = await fetch('http://localhost:4000/api/v1/passes/verify', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('security_token') || ''}`
+        headers: { 
+          'Content-Type': 'application/json', 
+          'Authorization': `Bearer ${localStorage.getItem('security_token') || ''}` 
         },
         body: JSON.stringify({ qr_token: qrToken.trim() })
       });
-
       const data = await response.json();
 
       if (response.ok && data.authorized) {
-        setVerificationResult(data.details);
+        setScanResult({
+          authorized: true,
+          details: data.details
+        });
       } else {
-        setError(data.error || 'Acceso denegado por el sistema.');
+        setScanResult({
+          authorized: false,
+          error: data.error || 'Pase inexistente, expirado o no autorizado.'
+        });
       }
-    } catch (err) {
-      console.error('Error de conexión con el servidor:', err);
-      setError('No se pudo conectar con el servidor central de TrustLink.');
-    } finally {
+      setLoading(false);
+
+    } catch (error) {
+      console.error('Error al verificar pase:', error);
+      setErrorMsg('Error de conexión con el servidor de seguridad de TrustLink (Backend inactivo o puerto incorrecto).');
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-trust-surface p-6 font-sans">
-      {/* Cabecera de la Garita */}
-      <header className="max-w-4xl mx-auto bg-white rounded-2xl shadow-sm p-6 mb-6 flex items-center justify-between border border-slate-200">
+    <div className="min-h-[calc(100vh-45px)] bg-slate-900 text-slate-100 font-sans flex flex-col justify-between">
+      {/* Barra Superior Institucional */}
+      <header className="bg-slate-950 border-b border-slate-800 px-8 py-4 flex justify-between items-center shadow-lg">
         <div className="flex items-center space-x-3">
-          <div className="bg-trust-primary p-3 rounded-xl text-white shadow-md">
-            <ShieldCheck size={28} />
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-xl shadow-md"
+            style={{ backgroundColor: brand.primaryColor }}
+          >
+            {brand.countryName.charAt(0)}
           </div>
           <div>
-            <h1 className="text-xl font-bold text-trust-dark">TrustLink Community - Control Perimetral</h1>
-            <p className="text-xs text-slate-500">Terminal de Validación Ultrarrápida para Garita</p>
+            <h1 className="font-bold text-lg leading-tight tracking-wide">{brand.countryName}</h1>
+            <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Control Perimetral - Garita Activa
+            </span>
           </div>
         </div>
-        <div className="hidden md:flex items-center gap-1.5 bg-emerald-50 text-emerald-700 px-4 py-2 rounded-full text-xs font-semibold border border-emerald-200 shadow-sm">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          Sistema en Línea (Garita Norte)
+        <div className="text-xs font-semibold bg-slate-800 text-slate-300 px-4 py-2 rounded-xl border border-slate-700">
+          Guardia: Operador Turno Activo
         </div>
       </header>
 
-      {/* Contenedor Principal de Escaneo */}
-      <main className="max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        {/* Panel Izquierdo: Input de Código QR / Lector */}
-        <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200 flex flex-col justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-trust-dark mb-2 flex items-center gap-2">
-              <QrCode className="text-trust-primary" size={20} />
-              Escanear o Ingresar Token QR
-            </h2>
-            <p className="text-xs text-slate-500 mb-6 leading-relaxed">
-              Coloque el lector láser sobre el código QR del prestador o ingrese el token de acceso manualmente para validar su ingreso.
-            </p>
+      {/* Contenido Principal / Consola de Escaneo */}
+      <main className="max-w-4xl mx-auto px-6 py-12 w-full flex-grow flex flex-col justify-center">
+        <div className="text-center mb-10">
+          <h2 className="text-3xl font-black tracking-tight text-white mb-2">Validación Ultrarrápida de Accesos</h2>
+          <p className="text-slate-400 text-sm">Escanee el código QR o ingrese el token digital presentado por el prestador.</p>
+        </div>
 
-            <form onSubmit={handleVerifyPass} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">Token Criptográfico QR</label>
-                <div className="relative">
-                  <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                    <Search size={18} />
-                  </span>
-                  <input
-                    type="text"
-                    value={qrToken}
-                    onChange={(e) => setQrToken(e.target.value)}
-                    placeholder="Ej: 6c014b85045464462e28..."
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-trust-primary text-sm font-mono transition-all"
-                  />
+        {/* Input de Búsqueda / Pistola Escáner */}
+        <form onSubmit={handleVerifyPass} className="bg-slate-800/60 p-4 rounded-2xl border border-slate-700 shadow-xl mb-8 flex gap-3">
+          <div className="relative flex-grow">
+            <QrCode className="absolute left-4 top-3.5 text-slate-400" size={22} />
+            <input
+              type="text"
+              value={qrToken}
+              onChange={(e) => setQrToken(e.target.value)}
+              placeholder="Ingrese o pistolee el Token QR (ej. 6c014b85...)"
+              className="w-full pl-12 pr-4 py-3 bg-slate-900 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 text-base transition-all font-mono"
+            />
+          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg flex items-center gap-2 active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            <Search size={20} /> {loading ? 'Verificando...' : 'Validar Pase'}
+          </button>
+        </form>
+
+        {/* Mensaje de Error de Red */}
+        {errorMsg && (
+          <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-center font-medium mb-6">
+            {errorMsg}
+          </div>
+        )}
+
+        {/* Panel de Resultado de Validación */}
+        {scanResult && (
+          <div className={`rounded-2xl p-8 border shadow-2xl transition-all ${
+            scanResult.authorized 
+              ? 'bg-emerald-950/30 border-emerald-600/50' 
+              : 'bg-rose-950/30 border-rose-600/50'
+          }`}>
+            <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
+              <div className="flex items-center gap-3">
+                {scanResult.authorized ? (
+                  <CheckCircle2 size={40} className="text-emerald-400" />
+                ) : (
+                  <XCircle size={40} className="text-rose-400" />
+                )}
+                <div>
+                  <h3 className="text-2xl font-black tracking-wide">
+                    {scanResult.authorized ? 'ACCESO AUTORIZADO' : 'ACCESO DENEGADO'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {scanResult.authorized ? 'Verificación perimetral exitosa y compliance al día.' : scanResult.error}
+                  </p>
                 </div>
               </div>
+              <span className={`text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wider ${
+                scanResult.authorized ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+              }`}>
+                {scanResult.authorized ? 'Pase Válido' : 'Bloqueado'}
+              </span>
+            </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-trust-primary hover:bg-slate-800 text-white font-semibold py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-md active:scale-95 cursor-pointer"
-              >
-                {loading ? 'Verificando en Base de Datos...' : 'Validar Ingreso en Garita'}
-              </button>
-            </form>
+            {scanResult.authorized && scanResult.details && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+                {/* Datos del Prestador */}
+                <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-3">
+                    <User size={16} className="text-emerald-400" /> Datos del Prestador
+                  </span>
+                  <p className="text-lg font-bold text-white mb-1">
+                    {scanResult.details.provider}
+                  </p>
+                  <p className="text-slate-400 text-xs mb-3">DNI: {scanResult.details.dni}</p>
+                  <span className="inline-block text-xs font-semibold bg-emerald-950 text-emerald-300 px-2.5 py-1 rounded border border-emerald-800">
+                    ✓ Compliance Aprobado
+                  </span>
+                </div>
+
+                {/* Datos del Vehículo y Destino */}
+                <div className="bg-slate-900/80 p-5 rounded-xl border border-slate-800 flex flex-col justify-between">
+                  <div>
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-3">
+                      <Car size={16} className="text-blue-400" /> Vehículo y Destino
+                    </span>
+                    <p className="text-base font-bold text-white mb-1">
+                      {scanResult.details.vehicle}
+                    </p>
+                  </div>
+                  <div className="border-t border-slate-800 pt-3 text-xs text-slate-400 flex justify-between">
+                    <span>Destino: <strong>{scanResult.details.destination}</strong></span>
+                    <span>Autorizado por: <strong>{scanResult.details.authorized_by}</strong></span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-
-          <div className="mt-6 pt-4 border-t border-slate-100 text-xs text-slate-400 text-center font-medium">
-            Protocolo de seguridad verificado por antecedentes y ART.
-          </div>
-        </div>
-
-        {/* Panel Derecho: Resultados de la Validación */}
-        <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200 flex flex-col justify-center">
-          <h2 className="text-lg font-bold text-trust-dark mb-4">Estado de Autorización</h2>
-
-          {/* Estado Inicial / Sin consulta */}
-          {!verificationResult && !error && !loading && (
-            <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-xl">
-              <QrCode size={48} className="mx-auto mb-3 opacity-30 text-trust-primary" />
-              <p className="text-sm font-medium">Esperando lectura de pase o código QR...</p>
-            </div>
-          )}
-
-          {/* Estado de Carga */}
-          {loading && (
-            <div className="text-center py-12 text-trust-primary">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-trust-primary mx-auto mb-3"></div>
-              <p className="text-sm font-semibold">Validando Compliance y Patentes...</p>
-            </div>
-          )}
-
-          {/* Resultado: Acceso Autorizado (Éxito) */}
-          {verificationResult && (
-            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 text-emerald-900 space-y-3 shadow-sm animate-fade-in">
-              <div className="flex items-center gap-2 font-black text-emerald-700 text-base">
-                <CheckCircle2 size={24} />
-                ACCESO AUTORIZADO
-              </div>
-              <div className="text-xs space-y-2 pt-2 border-t border-emerald-200/60 font-medium">
-                <p className="flex items-center gap-2">
-                  <User size={16} className="text-emerald-600" />
-                  <span><strong>Prestador:</strong> {verificationResult.provider} (DNI: {verificationResult.dni})</span>
-                </p>
-                <p className="flex items-center gap-2">
-                  <Car size={16} className="text-emerald-600" />
-                  <span><strong>Vehículo:</strong> {verificationResult.vehicle}</span>
-                </p>
-                <p className="flex items-center gap-2">
-                  <ShieldCheck size={16} className="text-emerald-600" />
-                  <span><strong>Destino:</strong> {verificationResult.destination}</span>
-                </p>
-                <p className="text-xs text-emerald-700 pt-1 font-semibold">
-                  Autorizado por residente: {verificationResult.authorized_by}
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Resultado: Acceso Denegado (Error) */}
-          {error && (
-            <div className="bg-rose-50 border border-rose-200 rounded-xl p-5 text-rose-900 space-y-2 shadow-sm animate-fade-in">
-              <div className="flex items-center gap-2 font-black text-rose-700 text-base">
-                <XCircle size={24} />
-                ACCESO DENEGADO
-              </div>
-              <p className="text-sm text-rose-800 font-medium">{error}</p>
-            </div>
-          )}
-        </div>
-
+        )}
       </main>
+
+      {/* Pie de página */}
+      <footer className="bg-slate-950 border-t border-slate-800 py-4 text-center text-xs text-slate-500">
+        TrustLink Security Node — Sistema Criptográfico de Validación Perimetral © 2026
+      </footer>
     </div>
   );
 }
