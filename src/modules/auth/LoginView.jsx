@@ -1,16 +1,17 @@
 /**
  * @file LoginView.jsx
- * @description Vista minimalista de inicio de sesión para TrustLink. Permite a los usuarios
- * (propietarios, prestadores, personal de seguridad y administradores) autenticarse mediante JWT.
+ * @description Vista minimalista de inicio de sesión integrada con AuthContext para TrustLink.
  * @location /trustlink-web/src/modules/auth/LoginView.jsx
  */
 
 import React, { useState } from 'react';
-import { ShieldCheck, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+import { useAuth } from './AuthContext';
 
 export default function LoginView({ onLoginSuccess }) {
   const { brand } = useBranding();
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -36,14 +37,11 @@ export default function LoginView({ onLoginSuccess }) {
       const data = await response.json();
 
       if (response.ok && data.token) {
-        // Guardar token y datos del usuario en localStorage
-        localStorage.setItem('trustlink_token', data.token);
-        localStorage.setItem('trustlink_user', JSON.stringify(data.user));
+        // Guardar sesión mediante el hook de autenticación global
+        login(data.token, data.user);
         
         if (onLoginSuccess) {
           onLoginSuccess(data.user);
-        } else {
-          alert(`¡Bienvenido de nuevo, ${data.user.first_name}!`);
         }
       } else {
         setErrorMsg(data.error || 'Credenciales inválidas.');
@@ -57,10 +55,8 @@ export default function LoginView({ onLoginSuccess }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-center items-center px-4 font-sans">
-      {/* Tarjeta de Login */}
+    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 flex flex-col justify-center items-center px-4 font-sans">
       <div className="max-w-md w-full bg-slate-950 p-8 rounded-2xl border border-slate-800 shadow-2xl">
-        {/* Cabecera institucional */}
         <div className="text-center mb-8">
           <div
             className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center text-white font-black text-2xl shadow-lg mb-4"
@@ -72,7 +68,6 @@ export default function LoginView({ onLoginSuccess }) {
           <p className="text-xs text-slate-400 mt-1">Plataforma Segura de Accesos y Prestadores</p>
         </div>
 
-        {/* Formulario */}
         <form onSubmit={handleLogin} className="space-y-5">
           {errorMsg && (
             <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-3 rounded-xl text-xs font-medium flex items-center gap-2">
@@ -119,19 +114,7 @@ export default function LoginView({ onLoginSuccess }) {
             {loading ? 'Iniciando sesión...' : 'Ingresar a la Plataforma'} <ArrowRight size={16} />
           </button>
         </form>
-
-        {/* Enlace de Registro */}
-        <div className="mt-8 pt-6 border-t border-slate-800 text-center text-xs text-slate-400">
-          ¿No tienes una cuenta?{' '}
-          <a href="#register" className="text-emerald-400 font-bold hover:underline">
-            Regístrate aquí
-          </a>
-        </div>
       </div>
-
-      <footer className="mt-8 text-center text-xs text-slate-500">
-        TrustLink Security Node © 2026 — Todos los derechos reservados
-      </footer>
     </div>
   );
 }
