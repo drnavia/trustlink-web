@@ -1,6 +1,7 @@
 /**
  * @file App.jsx
- * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext).
+ * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext)
+ * y restricción dinámica de vistas según el rol del usuario autenticado.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -107,52 +108,75 @@ function MainAppContent() {
   const [currentView, setCurrentView] = useState('resident');
   const { user, isAuthenticated, logout } = useAuth();
 
+  // Obtener el rol del usuario actual (si no está logueado, se asume invitado para pruebas MVP)
+  const userRole = user ? user.role : 'guest';
+
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
-      {/* Barra de Navegación Superior / Selector de Vistas MVP y Estado de Sesión */}
+      {/* Barra de Navegación Superior con Control de Roles */}
       <nav className="bg-slate-950 border-b border-slate-800 px-6 py-2.5 flex justify-between items-center gap-2 sticky top-0 z-50 shadow-2xl flex-wrap">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-400 font-medium mr-2">Modo de Vista:</span>
-          <button
-            onClick={() => setCurrentView('resident')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentView === 'resident' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Home size={14} /> Portal Residente
-          </button>
-          <button
-            onClick={() => setCurrentView('security')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentView === 'security' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <ShieldAlert size={14} /> Consola Garita
-          </button>
-          <button
-            onClick={() => setCurrentView('payments')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentView === 'payments' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <CreditCard size={14} /> Pagos
-          </button>
-          <button
-            onClick={() => setCurrentView('admin')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentView === 'admin' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <UserCheck size={14} /> Panel Admin
-          </button>
-          <button
-            onClick={() => setCurrentView('provider')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentView === 'provider' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Wrench size={14} /> Panel Prestador
-          </button>
+          <span className="text-xs text-slate-400 font-medium mr-2">Módulos Disponibles:</span>
+          
+          {/* Vistas comunes o de Residente */}
+          {(!user || userRole === 'owner' || userRole === 'family' || userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('resident')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'resident' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <Home size={14} /> Portal Residente
+            </button>
+          )}
+
+          {/* Consola de Garita (Solo Seguridad, Admin o Superadmin) */}
+          {(!user || userRole === 'security' || userRole === 'admin' || userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('security')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'security' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <ShieldAlert size={14} /> Consola Garita
+            </button>
+          )}
+
+          {/* Pagos y Contratos (Residentes y Prestadores) */}
+          {(!user || userRole === 'owner' || userRole === 'provider' || userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('payments')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'payments' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <CreditCard size={14} /> Pagos
+            </button>
+          )}
+
+          {/* Ops TrustLink (Exclusivo Superadmin / Operaciones Centrales) */}
+          {(userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('admin')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'admin' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <UserCheck size={14} /> Ops TrustLink
+            </button>
+          )}
+
+          {/* Panel Prestador (Exclusivo rol provider) */}
+          {(userRole === 'provider' || userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('provider')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'provider' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <Wrench size={14} /> Panel Prestador
+            </button>
+          )}
         </div>
 
         {/* Sección de Autenticación en la Barra */}
@@ -203,7 +227,13 @@ function MainAppContent() {
         {currentView === 'payments' && <ContractPaymentView />}
         {currentView === 'admin' && <AdminComplianceView />}
         {currentView === 'provider' && <ProviderDashboard />}
-        {currentView === 'login' && <LoginView onLoginSuccess={() => setCurrentView('resident')} />}
+        {currentView === 'login' && <LoginView onLoginSuccess={(loggedInUser) => {
+          // Redirigir según el rol al iniciar sesión con éxito
+          if (loggedInUser.role === 'provider') setCurrentView('provider');
+          else if (loggedInUser.role === 'superadmin') setCurrentView('admin');
+          else if (loggedInUser.role === 'security') setCurrentView('security');
+          else setCurrentView('resident');
+        }} />}
         {currentView === 'register' && <RegisterView onRegisterSuccess={() => setCurrentView('login')} />}
       </div>
     </div>

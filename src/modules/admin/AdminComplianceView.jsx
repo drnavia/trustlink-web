@@ -1,7 +1,7 @@
 /**
  * @file AdminComplianceView.jsx
- * @description Panel de control para que los administradores del Country gestionen
- * y aprueben/rechacen el compliance (antecedentes y seguros) de los prestadores postulados.
+ * @description Panel de control central para que el equipo de Operaciones de TrustLink
+ * audite y apruebe/rechace el compliance (antecedentes y seguros) de los prestadores de la red.
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
 
@@ -16,12 +16,10 @@ export default function AdminComplianceView() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Función para obtener la lista de prestadores pendientes de aprobación (Simulada o conectada a API)
   const fetchPendingProviders = async () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      // Simulación de datos para demostración visual inmediata en el panel de administración
       setTimeout(() => {
         setProviders([
           {
@@ -58,7 +56,6 @@ export default function AdminComplianceView() {
     fetchPendingProviders();
   }, []);
 
-  // Función para actualizar el estado de compliance (Aprobar o Rechazar) contra /api/v1/providers/compliance
   const handleUpdateCompliance = async (providerId, newStatus) => {
     setErrorMsg('');
     setSuccessMsg('');
@@ -80,7 +77,6 @@ export default function AdminComplianceView() {
 
       if (response.ok) {
         setSuccessMsg(`Prestador actualizado exitosamente a estado: ${newStatus}`);
-        // Actualizar estado localmente para reflejar el cambio en la tabla
         setProviders(providers.map(p => p.id === providerId ? { ...p, status: newStatus } : p));
       } else {
         setErrorMsg(data.error || 'No se pudo actualizar el compliance.');
@@ -93,23 +89,21 @@ export default function AdminComplianceView() {
 
   return (
     <div className="max-w-6xl mx-auto p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
-      {/* Cabecera del Panel */}
       <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
             <UserCheck size={26} />
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">Panel de Administración y Compliance</h2>
-            <p className="text-xs text-slate-400">Auditoría de antecedentes y habilitación de prestadores en {brand.countryName}</p>
+            <h2 className="text-2xl font-black tracking-tight text-white">Panel de Operaciones Centrales - TrustLink</h2>
+            <p className="text-xs text-slate-400">Auditoría global de antecedentes y certificación de prestadores para la red</p>
           </div>
         </div>
-        <span className="text-xs font-bold bg-slate-900 text-slate-300 px-4 py-2 rounded-xl border border-slate-800">
-          Rol: Administrador Country
+        <span className="text-xs font-bold bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl border border-slate-800">
+          Rol: TrustLink Superadmin / Ops
         </span>
       </div>
 
-      {/* Mensajes de Alerta y Éxito */}
       {errorMsg && (
         <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
           <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -123,17 +117,16 @@ export default function AdminComplianceView() {
         </div>
       )}
 
-      {/* Tabla de Postulaciones */}
       <div className="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden shadow-lg">
         <div className="px-6 py-4 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">Prestadores Postulados (Pendientes de Auditoría)</h3>
+          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300">Prestadores Postulados a la Red (Pendientes de Certificación)</h3>
           <span className="text-xs bg-slate-800 text-slate-400 px-2.5 py-1 rounded-lg">{providers.length} registros</span>
         </div>
 
         {loading ? (
           <div className="text-center py-12 text-slate-400 text-sm">Cargando postulaciones...</div>
         ) : providers.length === 0 ? (
-          <div className="text-center py-12 text-slate-400 text-sm">No hay prestadores pendientes de aprobación.</div>
+          <div className="text-center py-12 text-slate-400 text-sm">No hay prestadores pendientes de certificación.</div>
         ) : (
           <div className="divide-y divide-slate-800">
             {providers.map((p) => (
@@ -156,11 +149,10 @@ export default function AdminComplianceView() {
                   </div>
                 </div>
 
-                {/* Acciones de Aprobación */}
                 <div className="flex items-center gap-3 w-full md:w-auto justify-end">
                   {p.status === 'approved' ? (
                     <span className="text-xs font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
-                      <CheckCircle2 size={14} /> Aprobado
+                      <CheckCircle2 size={14} /> Certificado
                     </span>
                   ) : p.status === 'rejected' ? (
                     <span className="text-xs font-bold bg-rose-950 text-rose-300 border border-rose-800 px-3.5 py-1.5 rounded-lg flex items-center gap-1.5">
@@ -172,7 +164,7 @@ export default function AdminComplianceView() {
                         onClick={() => handleUpdateCompliance(p.id, 'approved')}
                         className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition-all shadow-md active:scale-95 flex items-center gap-1 cursor-pointer"
                       >
-                        <CheckCircle2 size={14} /> Aprobar
+                        <CheckCircle2 size={14} /> Certificar / Aprobar
                       </button>
                       <button
                         onClick={() => handleUpdateCompliance(p.id, 'rejected')}
