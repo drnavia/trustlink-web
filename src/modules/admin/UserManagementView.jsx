@@ -1,11 +1,11 @@
 /**
  * @file UserManagementView.jsx
  * @description Panel maestro para el rol 'superadmin'. Permite gestionar, dar de alta y auditar
- * los usuarios con roles críticos (superadmin y admin de countries) en la plataforma TrustLink.
+ * los usuarios con roles críticos (superadmin y admin) en la plataforma TrustLink de forma segura.
  * @location /trustlink-web/src/modules/admin/UserManagementView.jsx
  */
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, UserPlus, ShieldCheck, CheckCircle2, AlertCircle, Users, Lock } from 'lucide-react';
+import { ShieldAlert, UserPlus, CheckCircle2, AlertCircle, Users, Lock } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 export default function UserManagementView() {
@@ -15,18 +15,16 @@ export default function UserManagementView() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Estado para el formulario de alta de Superadmin / Admin
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
     dni: '',
     email: '',
     password: '',
-    role: 'admin', // por defecto admin de country o superadmin
+    role: 'admin',
     country_id: 1
   });
 
-  // Cargar usuarios administradores y superadmins
   const fetchPrivilegedUsers = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -40,19 +38,17 @@ export default function UserManagementView() {
       if (response.ok) {
         setUsersList(data.users || []);
       } else {
-        // Datos mock de respaldo para prueba visual si el endpoint backend está pendiente de ruta
         setUsersList([
           { id: 1, first_name: 'Damián', last_name: 'Navia', email: 'damian.navia@trustlink.com', role: 'superadmin', dni: '30123456', is_active: true },
-          { id: 2, first_name: 'Martín', last_name: 'Administración', email: 'admin@losrobles.com', role: 'admin', dni: '25654321', is_active: true }
+          { id: 2, first_name: 'Martín', last_name: 'Operaciones', email: 'admin@trustlink.com', role: 'admin', dni: '25654321', is_active: true }
         ]);
       }
       setLoading(false);
     } catch (error) {
       console.error('Error al cargar usuarios privilegiados:', error);
-      // Fallback visual mock ante error de red
       setUsersList([
         { id: 1, first_name: 'Damián', last_name: 'Navia', email: 'damian.navia@trustlink.com', role: 'superadmin', dni: '30123456', is_active: true },
-        { id: 2, first_name: 'Martín', last_name: 'Administración', email: 'admin@losrobles.com', role: 'admin', dni: '25654321', is_active: true }
+        { id: 2, first_name: 'Martín', last_name: 'Operaciones', email: 'admin@trustlink.com', role: 'admin', dni: '25654321', is_active: true }
       ]);
       setLoading(false);
     }
@@ -96,14 +92,13 @@ export default function UserManagementView() {
 
   return (
     <div className="max-w-6xl mx-auto p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
-      {/* Cabecera del Panel */}
       <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-8">
         <div className="flex items-center gap-3">
           <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
             <ShieldAlert size={26} />
           </div>
           <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">Ops TrustLink — Gestión de Superadmins y Admins</h2>
+            <h2 className="text-2xl font-black tracking-tight text-white">Ops Master — Gestión de Superadmins y Admins</h2>
             <p className="text-xs text-slate-400">Control maestro de accesos y gobernanza global de la plataforma</p>
           </div>
         </div>
@@ -112,7 +107,6 @@ export default function UserManagementView() {
         </span>
       </div>
 
-      {/* Alertas */}
       {errorMsg && (
         <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
           <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -128,7 +122,6 @@ export default function UserManagementView() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Formulario de Alta */}
         <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800 h-fit">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
             <UserPlus size={16} className="text-emerald-400" /> Registrar Nuevo Administrador
@@ -141,7 +134,7 @@ export default function UserManagementView() {
                 onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
               >
-                <option value="admin">Administrador de Country (Admin)</option>
+                <option value="admin">Administrador Operativo (Admin)</option>
                 <option value="superadmin">Superadministrador TrustLink (Superadmin)</option>
               </select>
             </div>
@@ -212,7 +205,6 @@ export default function UserManagementView() {
           </form>
         </div>
 
-        {/* Listado de Cuentas Privilegiadas */}
         <div className="lg:col-span-2 bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
           <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
             <Users size={16} className="text-emerald-400" /> Cuentas con Privilegios Activos ({usersList.length})
