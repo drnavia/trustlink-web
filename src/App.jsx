@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web. Permite alternar mediante
- * un menú superior interactivo entre todos los módulos de la plataforma (Residente, Garita, Auth, Pagos y Admin).
+ * un menú superior interactivo entre todos los módulos de la plataforma (Residente, Garita, Pagos, Admin, Prestador y Auth).
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -12,7 +12,8 @@ import LoginView from './modules/auth/LoginView';
 import RegisterView from './modules/auth/RegisterView';
 import ContractPaymentView from './modules/owner/ContractPaymentView';
 import AdminComplianceView from './modules/admin/AdminComplianceView';
-import { ShieldCheck, Star, QrCode, Search, Home, ShieldAlert, LogIn, UserPlus, CreditCard, UserCheck } from 'lucide-react';
+import ProviderDashboard from './modules/provider/ProviderDashboard';
+import { ShieldCheck, Star, QrCode, Search, Home, ShieldAlert, LogIn, UserPlus, CreditCard, UserCheck, Wrench } from 'lucide-react';
 
 /**
  * Componente del Dashboard del Residente con diseño UX/UI minimalista.
@@ -105,7 +106,7 @@ const ResidentDashboard = ({ onViewChange }) => {
 };
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('resident'); // 'resident', 'security', 'payments', 'admin', 'login', 'register'
+  const [currentView, setCurrentView] = useState('resident'); // 'resident', 'security', 'payments', 'admin', 'provider', 'login', 'register'
 
   return (
     <BrandingProvider>
@@ -146,6 +147,14 @@ export default function App() {
             <UserCheck size={14} /> Panel Admin
           </button>
           <button
+            onClick={() => setCurrentView('provider')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'provider' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <Wrench size={14} /> Panel Prestador
+          </button>
+          <button
             onClick={() => setCurrentView('login')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
               currentView === 'login' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
@@ -169,6 +178,7 @@ export default function App() {
           {currentView === 'security' && <SecurityScanner />}
           {currentView === 'payments' && <ContractPaymentView />}
           {currentView === 'admin' && <AdminComplianceView />}
+          {currentView === 'provider' && <ProviderDashboard />}
           {currentView === 'login' && <LoginView onLoginSuccess={(user) => { alert(`¡Bienvenido de nuevo, ${user.first_name}!`); setCurrentView('resident'); }} />}
           {currentView === 'register' && <RegisterView onRegisterSuccess={() => setCurrentView('login')} />}
         </div>
