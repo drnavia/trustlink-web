@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web. Permite alternar mediante
- * un menú superior interactivo entre todos los módulos de la plataforma (Residente, Garita, Auth y Pagos).
+ * un menú superior interactivo entre todos los módulos de la plataforma (Residente, Garita, Auth, Pagos y Admin).
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -11,7 +11,8 @@ import SecurityScanner from './modules/security/SecurityScanner';
 import LoginView from './modules/auth/LoginView';
 import RegisterView from './modules/auth/RegisterView';
 import ContractPaymentView from './modules/owner/ContractPaymentView';
-import { ShieldCheck, Star, QrCode, Search, Home, ShieldAlert, LogIn, UserPlus, CreditCard } from 'lucide-react';
+import AdminComplianceView from './modules/admin/AdminComplianceView';
+import { ShieldCheck, Star, QrCode, Search, Home, ShieldAlert, LogIn, UserPlus, CreditCard, UserCheck } from 'lucide-react';
 
 /**
  * Componente del Dashboard del Residente con diseño UX/UI minimalista.
@@ -50,8 +51,8 @@ const ResidentDashboard = ({ onViewChange }) => {
             <h2 className="text-2xl font-black tracking-tight text-white">Directorio de Prestadores</h2>
             <p className="text-slate-400 text-sm mt-1">Profesionales auditados con antecedentes penales y seguros al día.</p>
           </div>
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="relative w-full md:w-80">
+          <div className="flex items-center gap-3 w-full md:w-auto flex-wrap">
+            <div className="relative w-full md:w-72">
               <Search className="absolute left-3.5 top-3 text-slate-400" size={18} />
               <input
                 type="text"
@@ -104,13 +105,13 @@ const ResidentDashboard = ({ onViewChange }) => {
 };
 
 export default function App() {
-  const [currentView, setCurrentView] = useState('resident'); // 'resident', 'security', 'login', 'register', 'payments'
+  const [currentView, setCurrentView] = useState('resident'); // 'resident', 'security', 'payments', 'admin', 'login', 'register'
 
   return (
     <BrandingProvider>
       <div className="min-h-screen bg-slate-900 flex flex-col">
         {/* Barra de Navegación Superior / Selector de Vistas MVP */}
-        <nav className="bg-slate-950 border-b border-slate-800 px-6 py-2.5 flex justify-center items-center gap-3 sticky top-0 z-50 shadow-2xl flex-wrap">
+        <nav className="bg-slate-950 border-b border-slate-800 px-6 py-2.5 flex justify-center items-center gap-2 sticky top-0 z-50 shadow-2xl flex-wrap">
           <span className="text-xs text-slate-400 font-medium mr-2">Modo de Vista (MVP Demo):</span>
           <button
             onClick={() => setCurrentView('resident')}
@@ -134,7 +135,15 @@ export default function App() {
               currentView === 'payments' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
             }`}
           >
-            <CreditCard size={14} /> Presupuestos y Pagos
+            <CreditCard size={14} /> Pagos
+          </button>
+          <button
+            onClick={() => setCurrentView('admin')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              currentView === 'admin' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <UserCheck size={14} /> Panel Admin
           </button>
           <button
             onClick={() => setCurrentView('login')}
@@ -159,6 +168,7 @@ export default function App() {
           {currentView === 'resident' && <ResidentDashboard onViewChange={setCurrentView} />}
           {currentView === 'security' && <SecurityScanner />}
           {currentView === 'payments' && <ContractPaymentView />}
+          {currentView === 'admin' && <AdminComplianceView />}
           {currentView === 'login' && <LoginView onLoginSuccess={(user) => { alert(`¡Bienvenido de nuevo, ${user.first_name}!`); setCurrentView('resident'); }} />}
           {currentView === 'register' && <RegisterView onRegisterSuccess={() => setCurrentView('login')} />}
         </div>
