@@ -1,7 +1,7 @@
 /**
  * @file LandingHome.jsx
  * @description Vista pública de la raíz (/) para TrustLink optimizada con diseño compacto above-the-fold,
- * alta jerarquía visual, fondo unificado en slate-950 y sin footer interno propio.
+ * alta jerarquía visual, fondo unificado 100% en slate-950 sin cortes de color y footer visible.
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
@@ -13,10 +13,10 @@ export default function LandingHome({ onViewChange }) {
   const { brand } = useBranding();
 
   return (
-    <div className="bg-slate-950 text-slate-100 flex flex-col items-center justify-center font-sans selection:bg-emerald-500 selection:text-white px-6 py-8">
+    <div className="bg-slate-950 text-slate-100 min-h-[calc(100vh-60px)] flex flex-col justify-center font-sans selection:bg-emerald-500 selection:text-white px-6 py-8">
       
       {/* Contenido Principal / Hero Section Compacto */}
-      <main className="max-w-5xl mx-auto text-center flex flex-col items-center w-full">
+      <main className="max-w-5xl mx-auto text-center flex flex-col items-center w-full my-auto">
         
         {/* Badge Superior Institucional */}
         <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-1.5 rounded-full text-emerald-400 text-xs font-bold tracking-wide uppercase mb-5 shadow-inner">
