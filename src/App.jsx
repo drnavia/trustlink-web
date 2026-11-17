@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca y un footer institucional unificado para toda la aplicación.
+ * manejo de marca blanca, orden lógico de módulos optimizado y un footer institucional unificado.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -125,7 +125,7 @@ function MainAppContent() {
                   👤 {user.first_name} <span className="text-slate-400 font-normal">({user.role})</span>
                 </span>
                 
-                {/* Acceso Ops Master (Solo Superadmin) */}
+                {/* Acceso Ops Master Reubicado junto al Perfil (Solo Superadmin) */}
                 {userRole === 'superadmin' && (
                   <button
                     onClick={() => setCurrentView('users_master')}
