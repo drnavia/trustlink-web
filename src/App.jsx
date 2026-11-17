@@ -200,7 +200,7 @@ function MainAppContent() {
     </div>
   );
 }
-
+ 
 export default function App() {
   return (
     <BrandingProvider>
@@ -209,4 +209,4 @@ export default function App() {
       </AuthProvider>
     </BrandingProvider>
   );
-}
+} 
