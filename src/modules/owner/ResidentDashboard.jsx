@@ -1,7 +1,7 @@
 /**
  * @file ResidentDashboard.jsx
  * @description Dashboard completo del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
- * Permite visualizar el directorio de prestadores verificados, buscar por especialidad y gestionar contratos/pases QR.
+ * Muestra el directorio de prestadores verificados, buscador y acceso a contratos/pagos.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 import React, { useState, useEffect } from 'react';
@@ -56,40 +56,13 @@ export default function ResidentDashboard({ onViewChange }) {
   });
 
   return (
-    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-8">
-      {/* Cabecera del Portal */}
-      <header className="bg-slate-950 border border-slate-800 px-8 py-6 rounded-2xl flex flex-col md:flex-row justify-between items-center shadow-xl mb-8 gap-4">
-        <div className="flex items-center space-x-4">
-          <div 
-            className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-2xl shadow-md" 
-            style={{ backgroundColor: brand.primaryColor || '#10b981' }}
-          >
-            {brand.countryName ? brand.countryName.charAt(0) : 'TL'}
-          </div>
-          <div>
-            <h1 className="text-xl font-black text-white">{brand.countryName || 'TrustLink Community'}</h1>
-            <p className="text-xs text-slate-400">Portal del Residente — Red de Servicios Verificados</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-xs bg-emerald-950 border border-emerald-800 text-emerald-300 px-4 py-2 rounded-xl font-bold flex items-center gap-1.5 shadow-sm">
-            <ShieldCheck size={14} className="text-emerald-400" /> {user ? `${user.first_name} (${user.role})` : 'Lote Verificado'}
-          </span>
-          <button
-            onClick={() => onViewChange && onViewChange('payments')}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer"
-          >
-            <QrCode size={14} /> Contratar y Generar QR
-          </button>
-        </div>
-      </header>
-
+    <div className="max-w-7xl mx-auto p-8 font-sans">
       {/* Sección del Directorio de Prestadores */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl">
         <div className="flex flex-col md:flex-row justify-between items-center mb-6 pb-4 border-b border-slate-800 gap-4">
           <div>
-            <h2 className="text-lg font-bold text-white">Directorio de Prestadores Verificados</h2>
-            <p className="text-xs text-slate-400">Profesionales con compliance aprobado en la base de datos de TrustLink.</p>
+            <h2 className="text-xl font-black text-white">Directorio de Prestadores Verificados</h2>
+            <p className="text-xs text-slate-400 mt-1">Profesionales con compliance aprobado en la base de datos de TrustLink para ingreso seguro por QR.</p>
           </div>
           <div className="flex items-center gap-3 w-full md:w-auto">
             <div className="relative w-full md:w-64">
@@ -102,9 +75,12 @@ export default function ResidentDashboard({ onViewChange }) {
                 className="w-full pl-9 pr-4 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
               />
             </div>
-            <span className="text-xs bg-slate-900 border border-slate-800 text-slate-300 px-3 py-2 rounded-xl font-bold shrink-0">
-              {filteredProviders.length} Disponibles
-            </span>
+            <button
+              onClick={() => onViewChange && onViewChange('payments')}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-lg flex items-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <QrCode size={14} /> Contratar y Generar QR
+            </button>
           </div>
         </div>
 

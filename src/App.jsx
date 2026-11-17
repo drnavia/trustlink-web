@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * manejo de marca blanca y enrutamiento modular seguro por roles.
+ * marca blanca y reubicación del indicador/acceso de Modo Maestro hacia el panel de usuario superior derecho.
  * @location /trustlink-web/src/App.jsx
  */
 import React, { useState } from 'react';
@@ -15,20 +15,34 @@ import AdminComplianceView from './modules/admin/AdminComplianceView';
 import UserManagementView from './modules/admin/UserManagementView';
 import ProviderDashboard from './modules/provider/ProviderDashboard';
 import ResidentDashboard from './modules/owner/ResidentDashboard';
-import { ShieldCheck, QrCode, Home, ShieldAlert, LogIn, UserPlus, CreditCard, UserCheck, Wrench, LogOut, Lock } from 'lucide-react';
+import { ShieldCheck, QrCode, Home, ShieldAlert, LogIn, UserPlus, CreditCard, UserCheck, Wrench, LogOut, Lock, Layers } from 'lucide-react';
 
 function MainAppContent() {
   const [currentView, setCurrentView] = useState('resident');
   const { user, isAuthenticated, logout } = useAuth();
+  const { brand } = useBranding();
   const userRole = user ? user.role : 'guest';
 
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
-      {/* Barra de Navegación Superior / Selector de Vistas MVP y Estado de Sesión */}
-      <nav className="bg-slate-950 border-b border-slate-800 px-6 py-2.5 flex justify-between items-center gap-2 sticky top-0 z-50 shadow-2xl flex-wrap">
+      {/* Barra de Navegación Superior Global */}
+      <nav className="bg-slate-950 border-b border-slate-800 px-6 py-3 flex justify-between items-center gap-4 sticky top-0 z-50 shadow-2xl flex-wrap">
+        {/* Lado Izquierdo: Branding Global "TrustLink Community" */}
+        <div className="flex items-center space-x-3">
+          <div 
+            className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md"
+            style={{ backgroundColor: brand.primaryColor || '#10b981' }}
+          >
+            {brand.countryName ? brand.countryName.charAt(0) : 'TL'}
+          </div>
+          <div>
+            <h1 className="font-bold text-sm leading-tight text-white">{brand.countryName || 'TrustLink Community'}</h1>
+            <span className="text-[10px] text-slate-400">Red de Servicios y Accesos</span>
+          </div>
+        </div>
+
+        {/* Centro: Selector de Módulos Operativos (Limpio y sin botones maestros) */}
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-slate-400 font-medium mr-2">Módulos Disponibles:</span>
-          
           {/* Portal Residente */}
           {(!user || userRole === 'owner' || userRole === 'family' || userRole === 'superadmin') && (
             <button
@@ -41,7 +55,7 @@ function MainAppContent() {
             </button>
           )}
 
-          {/* Consola de Garita */}
+          {/* Consola Garita */}
           {(!user || userRole === 'security' || userRole === 'admin' || userRole === 'superadmin') && (
             <button
               onClick={() => setCurrentView('security')}
@@ -53,7 +67,7 @@ function MainAppContent() {
             </button>
           )}
 
-          {/* Pagos y Contratos */}
+          {/* Pagos & Contratos */}
           {(!user || userRole === 'owner' || userRole === 'provider' || userRole === 'superadmin') && (
             <button
               onClick={() => setCurrentView('payments')}
@@ -65,7 +79,7 @@ function MainAppContent() {
             </button>
           )}
 
-          {/* Ops TrustLink (Compliance) */}
+          {/* Ops TrustLink */}
           {userRole === 'superadmin' && (
             <button
               onClick={() => setCurrentView('admin')}
@@ -88,37 +102,42 @@ function MainAppContent() {
               <Wrench size={14} /> Panel Prestador
             </button>
           )}
-
-          {/* Ruta Privada / Ops Master */}
-          {userRole === 'superadmin' && (
-            <button
-              onClick={() => setCurrentView('users_master')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                currentView === 'users_master' ? 'bg-purple-600 border-purple-500 text-white shadow-lg' : 'bg-purple-950/40 border-purple-800/60 text-purple-300 hover:bg-purple-900/50'
-              }`}
-            >
-              <Lock size={12} /> 🔒 Ops Master
-            </button>
-          )}
         </div>
 
-        {/* Zona de Autenticación Activa */}
+        {/* Lado Derecho: Zona de Autenticación y Modo Maestro Reubicado */}
         <div className="flex items-center gap-3">
-          {isAuthenticated ? (
-            <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl">
-              <span className="text-xs text-emerald-400 font-bold">
-                👤 {user?.first_name} <span className="text-slate-400 font-normal">({user?.role})</span>
-              </span>
-              <button
-                onClick={() => {
-                  logout();
-                  setCurrentView('login');
-                }}
-                className="bg-rose-600/80 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
-                title="Cerrar Sesión"
-              >
-                <LogOut size={12} /> Salir
-              </button>
+          {isAuthenticated && user ? (
+            <div className="flex items-center gap-3">
+              {/* Badge y Botón de Acceso a Modo Maestro Reubicado en el Perfil */}
+              {userRole === 'superadmin' && (
+                <button
+                  onClick={() => setCurrentView('users_master')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border shadow-md ${
+                    currentView === 'users_master' 
+                      ? 'bg-purple-600 border-purple-400 text-white' 
+                      : 'bg-purple-950/60 border-purple-800/80 text-purple-300 hover:bg-purple-900/60'
+                  }`}
+                  title="Panel Maestro de Gestión de Superadmins y Admins"
+                >
+                  <Layers size={13} /> Modo Maestro Activo 🔒
+                </button>
+              )}
+
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl">
+                <span className="text-xs text-emerald-400 font-bold">
+                  👤 {user.first_name} <span className="text-slate-400 font-normal">({user.role})</span>
+                </span>
+                <button
+                  onClick={() => {
+                    logout();
+                    setCurrentView('login');
+                  }}
+                  className="bg-rose-600/80 hover:bg-rose-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                  title="Cerrar Sesión"
+                >
+                  <LogOut size={12} /> Salir
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
