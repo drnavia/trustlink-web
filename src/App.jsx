@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca y reubicación del indicador/acceso de Modo Maestro hacia el panel de usuario superior derecho.
+ * manejo de marca blanca y orden lógico de módulos optimizado según el flujo de negocio.
  * @location /trustlink-web/src/App.jsx
  */
 import React, { useState } from 'react';
@@ -41,9 +41,9 @@ function MainAppContent() {
           </div>
         </div>
 
-        {/* Centro: Selector de Módulos Operativos (Limpio y sin botones maestros) */}
+        {/* Centro: Selector de Módulos Operativos en Orden Lógico de Negocio */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Portal Residente */}
+          {/* 1. Portal Residente */}
           {(!user || userRole === 'owner' || userRole === 'family' || userRole === 'superadmin') && (
             <button
               onClick={() => setCurrentView('resident')}
@@ -55,19 +55,7 @@ function MainAppContent() {
             </button>
           )}
 
-          {/* Consola Garita */}
-          {(!user || userRole === 'security' || userRole === 'admin' || userRole === 'superadmin') && (
-            <button
-              onClick={() => setCurrentView('security')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentView === 'security' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <ShieldAlert size={14} /> Consola Garita
-            </button>
-          )}
-
-          {/* Pagos & Contratos */}
+          {/* 2. Pagos & Contratos */}
           {(!user || userRole === 'owner' || userRole === 'provider' || userRole === 'superadmin') && (
             <button
               onClick={() => setCurrentView('payments')}
@@ -79,19 +67,7 @@ function MainAppContent() {
             </button>
           )}
 
-          {/* Ops TrustLink */}
-          {userRole === 'superadmin' && (
-            <button
-              onClick={() => setCurrentView('admin')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                currentView === 'admin' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              <UserCheck size={14} /> Ops TrustLink
-            </button>
-          )}
-
-          {/* Panel Prestador */}
+          {/* 3. Panel Prestador */}
           {(userRole === 'provider' || userRole === 'superadmin') && (
             <button
               onClick={() => setCurrentView('provider')}
@@ -102,13 +78,37 @@ function MainAppContent() {
               <Wrench size={14} /> Panel Prestador
             </button>
           )}
+
+          {/* 4. Consola Garita */}
+          {(!user || userRole === 'security' || userRole === 'admin' || userRole === 'superadmin') && (
+            <button
+              onClick={() => setCurrentView('security')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'security' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <ShieldAlert size={14} /> Consola Garita
+            </button>
+          )}
+
+          {/* 5. Ops TrustLink */}
+          {userRole === 'superadmin' && (
+            <button
+              onClick={() => setCurrentView('admin')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                currentView === 'admin' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+              }`}
+            >
+              <UserCheck size={14} /> Ops TrustLink
+            </button>
+          )}
         </div>
 
-        {/* Lado Derecho: Zona de Autenticación y Modo Maestro Reubicado */}
+        {/* Lado Derecho: Zona de Autenticación, Modo Maestro y Perfil */}
         <div className="flex items-center gap-3">
           {isAuthenticated && user ? (
             <div className="flex items-center gap-3">
-              {/* Badge y Botón de Acceso a Modo Maestro Reubicado en el Perfil */}
+              {/* Botón de Acceso a Modo Maestro Reubicado en el Perfil */}
               {userRole === 'superadmin' && (
                 <button
                   onClick={() => setCurrentView('users_master')}
