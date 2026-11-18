@@ -1,12 +1,12 @@
 /**
  * @file ContractPaymentView.jsx
  * @description Vista del residente para visualizar contratos pendientes reales desde PostgreSQL,
- * aprobar presupuestos acordados in situ y procesar el pago seguro con cálculo automático de Take Rate.
+ * mostrando la especialidad real del prestador, scoring y cálculo de Take Rate.
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
 import React, { useState, useEffect } from 'react';
-import { CreditCard, CheckCircle2, ShieldCheck, FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { CreditCard, CheckCircle2, ShieldCheck, FileText, AlertCircle, Loader2, Star, Wrench } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 export default function ContractPaymentView() {
@@ -18,7 +18,6 @@ export default function ContractPaymentView() {
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // 1. Obtener contratos pendientes de pago reales desde la Base de Datos
   const fetchPendingContract = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -31,7 +30,6 @@ export default function ContractPaymentView() {
       });
       const data = await response.json();
       if (response.ok) {
-        // Tomar el primer contrato pendiente o activo disponible
         if (data.contracts && data.contracts.length > 0) {
           setContract(data.contracts[0]);
         } else {
@@ -52,7 +50,6 @@ export default function ContractPaymentView() {
     fetchPendingContract();
   }, []);
 
-  // 2. Procesar el pago contra el endpoint del backend
   const handleProcessPayment = async () => {
     if (!contract) return;
     setPaying(true);
@@ -83,7 +80,6 @@ export default function ContractPaymentView() {
     }
   };
 
-  // Cálculos dinámicos del Take Rate (7% institucional)
   const totalAmount = contract ? Number(contract.agreed_amount) : 0;
   const platformFee = Number((totalAmount * 0.07).toFixed(2));
   const providerPayout = Number((totalAmount - platformFee).toFixed(2));
@@ -117,18 +113,37 @@ export default function ContractPaymentView() {
         </div>
       ) : (
         <>
-          {/* Detalle del Contrato Real */}
+          {/* Detalle del Contrato Real con Especialidad Dinámica */}
           <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 mb-6 space-y-4">
-            <div className="flex justify-between items-start">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
               <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md">
-                  Contrato #{contract.id}
-                </span>
-                <h3 className="text-base font-bold text-white mt-2">Prestador: {contract.provider_name || 'Profesional Verificado'}</h3>
-                <p className="text-xs text-slate-400 mt-1">
-                  <strong>Detalle del trabajo:</strong> {contract.description}
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md">
+                    Contrato #{contract.id}
+                  </span>
+                  {contract.provider_status === 'approved' && (
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                      <ShieldCheck size={12} /> Compliance Verificado
+                    </span>
+                  )}
+                </div>
+                <h3 className="text-lg font-bold text-white">{contract.provider_name || 'Profesional Verificado'}</h3>
+                {/* Especialidad Real Extraída de la Base de Datos */}
+                <p className="text-xs text-emerald-400 font-medium mt-0.5 flex items-center gap-1">
+                  <Wrench size={12} /> {contract.specialty}
                 </p>
               </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-amber-400 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                  <Star size={12} className="fill-amber-400" /> {Number(contract.rating_avg || 5.0).toFixed(1)} Scoring
+                </span>
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800 pt-3">
+              <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider block mb-1">Detalle del Trabajo (Acordado In Situ)</span>
+              <p className="text-xs text-slate-200 leading-relaxed">{contract.description}</p>
             </div>
 
             {/* Desglose Financiero Dinámico */}
@@ -148,7 +163,6 @@ export default function ContractPaymentView() {
             </div>
           </div>
 
-          {/* Mensaje de Error */}
           {errorMsg && (
             <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-center font-medium mb-6 text-xs flex items-center gap-2">
               <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -156,7 +170,6 @@ export default function ContractPaymentView() {
             </div>
           )}
 
-          {/* Acciones de Pago */}
           {paymentUrl ? (
             <div className="bg-emerald-950/40 border border-emerald-600/50 p-6 rounded-2xl text-center space-y-4">
               <CheckCircle2 size={36} className="text-emerald-400 mx-auto" />
