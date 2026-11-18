@@ -1,7 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Panel completo del Prestador conectado 100% a PostgreSQL. Permite gestionar
- * credenciales de compliance (antecedentes y ART) y flota vehicular con capacidades de edición en vivo.
+ * credenciales de compliance con todos sus campos y flota vehicular con edición completa.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -31,13 +31,17 @@ export default function ProviderDashboard() {
   const [vehColor, setVehColor] = useState('');
   const [vehPlate, setVehPlate] = useState('');
 
-  // Estados de edición
+  // Estados de edición de Compliance (con todos los campos)
   const [editingProviderId, setEditingProviderId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
+  const [editCrimUrl, setEditCrimUrl] = useState('');
   const [editCrimExp, setEditCrimExp] = useState('');
+  const [editArtUrl, setEditArtUrl] = useState('');
   const [editArtExp, setEditArtExp] = useState('');
 
+  // Estados de edición de Vehículo (con tipo, color, etc.)
   const [editingVehicleId, setEditingVehicleId] = useState(null);
+  const [editVehType, setEditVehType] = useState('Automóvil');
   const [editVehBrand, setEditVehBrand] = useState('');
   const [editVehModel, setEditVehModel] = useState('');
   const [editVehColor, setEditVehColor] = useState('');
@@ -108,7 +112,7 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Guardar edición de compliance
+  // Guardar edición de compliance (con todos los campos)
   const handleSaveComplianceEdit = async (id) => {
     setErrorMsg('');
     try {
@@ -120,7 +124,9 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           specialty: editSpecialty,
+          criminal_record_url: editCrimUrl || null,
           criminal_record_expiry: editCrimExp || null,
+          insurance_policy_url: editArtUrl || null,
           insurance_expiry: editArtExp || null
         })
       });
@@ -173,7 +179,7 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Guardar edición de vehículo
+  // Guardar edición de vehículo (con todos los campos)
   const handleSaveVehicleEdit = async (id) => {
     setErrorMsg('');
     try {
@@ -184,6 +190,7 @@ export default function ProviderDashboard() {
           'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
         },
         body: JSON.stringify({
+          vehicle_type: editVehType,
           brand: editVehBrand,
           model: editVehModel,
           color: editVehColor,
@@ -203,395 +210,444 @@ export default function ProviderDashboard() {
     }
   };
 
+  const providerStatus = profileData.providers[0]?.status || 'PENDING';
+
   return (
     <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       
-      {/* Cabecera del Panel */}
-      <header className="bg-slate-950 border border-slate-800 px-8 py-8 rounded-3xl flex flex-col md:flex-row justify-between items-center shadow-2xl mb-8 gap-6">
-        <div className="flex items-center space-x-4">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg"
-            style={{ backgroundColor: brand.primaryColor || '#10b981' }}
-          >
-            <Wrench size={26} />
+      <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* Cabecera del Panel */}
+        <header className="bg-slate-950 border border-slate-800 px-6 py-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center space-x-4">
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-md shrink-0"
+              style={{ backgroundColor: brand.primaryColor || '#10b981' }}
+            >
+              <Wrench size={22} />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tight text-white">Panel de Gestión del Prestador</h1>
+              <p className="text-xs text-slate-400 mt-0.5">Administre su especialidad, historial de compliance y flota vehicular autorizada.</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-white">Panel de Gestión del Prestador</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Administre su especialidad, historial de compliance y flota vehicular autorizada.</p>
-          </div>
-        </div>
-        <div className="bg-slate-900 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold text-amber-400 flex items-center gap-2">
-          <span>Estado Actual:</span>
-          <span className="uppercase tracking-wider">{profileData.providers[0]?.status || 'PENDING'}</span>
-        </div>
-      </header>
-
-      {successMsg && (
-        <div className="max-w-6xl mx-auto mb-6 bg-emerald-950/50 border border-emerald-600 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} /> <span>{successMsg}</span>
-        </div>
-      )}
-
-      {errorMsg && (
-        <div className="max-w-6xl mx-auto mb-6 bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <AlertCircle size={16} /> <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="text-center py-20 text-slate-400 text-xs">Cargando perfil desde PostgreSQL...</div>
-      ) : (
-        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
           
-          {/* SECCIÓN 1: Credenciales y Compliance */}
-          <div className="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-6">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <ShieldCheck size={20} className="text-emerald-400" /> Credenciales y Compliance (Historial)
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">Gestione o actualice su documentación con sus fechas de vigencia.</p>
-            </div>
-
-            {/* Listado de perfiles cargados con opción de edición */}
-            <div className="space-y-4">
-              {profileData.providers.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No hay credenciales registradas aún.</p>
-              ) : (
-                profileData.providers.map((p) => (
-                  <div key={p.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
-                    {editingProviderId === p.id ? (
-                      <div className="space-y-3">
-                        <div>
-                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Especialidad</label>
-                          <input
-                            type="text"
-                            value={editSpecialty}
-                            onChange={(e) => setEditSpecialty(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence Antecedentes</label>
-                            <input
-                              type="date"
-                              value={editCrimExp}
-                              onChange={(e) => setEditCrimExp(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence ART</label>
-                            <input
-                              type="date"
-                              value={editArtExp}
-                              onChange={(e) => setEditArtExp(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <button
-                            onClick={() => setEditingProviderId(null)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => handleSaveComplianceEdit(p.id)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
-                          >
-                            <Save size={14} /> Guardar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-white text-sm">{p.specialty}</span>
-                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
-                              p.status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'
-                            }`}>
-                              {p.status.toUpperCase()}
-                            </span>
-                          </div>
-                          <p className="text-xs text-slate-400 mt-2">
-                            Antecedentes Vence: <strong className="text-slate-200">{p.criminal_record_expiry ? new Date(p.criminal_record_expiry).toLocaleDateString() : 'N/D'}</strong> | 
-                            ART Vence: <strong className="text-slate-200">{p.insurance_expiry ? new Date(p.insurance_expiry).toLocaleDateString() : 'N/D'}</strong>
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setEditingProviderId(p.id);
-                            setEditSpecialty(p.specialty || '');
-                            setEditCrimExp(p.criminal_record_expiry ? p.criminal_record_expiry.split('T')[0] : '');
-                            setEditArtExp(p.insurance_expiry ? p.insurance_expiry.split('T')[0] : '');
-                          }}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
-                          title="Editar Credencial"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            {/* Formulario para Registrar Nuevo Perfil / Renovación */}
-            <form onSubmit={handleRegisterCompliance} className="border-t border-slate-900 pt-6 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Registrar Nuevo Perfil / Renovación</h3>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Especialidad Principal / Oficio</label>
-                <input
-                  type="text"
-                  required
-                  value={newSpecialty}
-                  onChange={(e) => setNewSpecialty(e.target.value)}
-                  placeholder="Ej: Electricista Matriculado"
-                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">URL Antecedentes (PDF)</label>
-                  <input
-                    type="url"
-                    value={newCrimUrl}
-                    onChange={(e) => setNewCrimUrl(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">Vigencia Antecedentes</label>
-                  <input
-                    type="date"
-                    value={newCrimExp}
-                    onChange={(e) => setNewCrimExp(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">URL Póliza ART (PDF)</label>
-                  <input
-                    type="url"
-                    value={newArtUrl}
-                    onChange={(e) => setNewArtUrl(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">Vigencia Póliza ART</label>
-                  <input
-                    type="date"
-                    value={newArtExp}
-                    onChange={(e) => setNewArtExp(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-                style={{ backgroundColor: brand.primaryColor || '#10b981' }}
-              >
-                <Plus size={16} /> Registrar Nuevo Compliance
-              </button>
-            </form>
+          <div className="bg-slate-900 border border-slate-700 px-3.5 py-1.5 rounded-xl text-xs font-bold text-amber-400 flex items-center gap-2 shrink-0 shadow-sm">
+            <span className="text-slate-400 font-normal">Estado Actual:</span>
+            <span className="uppercase tracking-wider">{providerStatus}</span>
           </div>
+        </header>
 
-          {/* SECCIÓN 2: Flota Vehicular Autorizada */}
-          <div className="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-6">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <Car size={20} className="text-emerald-400" /> Flota Vehicular Autorizada
-              </h2>
-              <p className="text-xs text-slate-400 mt-1">Gestione los vehículos habilitados para el ingreso perimetral.</p>
-            </div>
+        {successMsg && (
+          <div className="bg-emerald-950/50 border border-emerald-600 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2 shadow-sm">
+            <CheckCircle2 size={16} /> <span>{successMsg}</span>
+          </div>
+        )}
 
-            {/* Listado de vehículos con opción de edición */}
-            <div className="space-y-4">
-              {profileData.vehicles.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No hay vehículos registrados en su flota.</p>
-              ) : (
-                profileData.vehicles.map((v) => (
-                  <div key={v.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
-                    {editingVehicleId === v.id ? (
-                      <div className="space-y-3">
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Marca</label>
-                            <input
-                              type="text"
-                              value={editVehBrand}
-                              onChange={(e) => setEditVehBrand(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Modelo</label>
-                            <input
-                              type="text"
-                              value={editVehModel}
-                              onChange={(e) => setEditVehModel(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Color</label>
-                            <input
-                              type="text"
-                              value={editVehColor}
-                              onChange={(e) => setEditVehColor(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Patente</label>
-                            <input
-                              type="text"
-                              value={editVehPlate}
-                              onChange={(e) => setEditVehPlate(e.target.value)}
-                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex justify-end gap-2 pt-2">
-                          <button
-                            onClick={() => setEditingVehicleId(null)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
-                          >
-                            Cancelar
-                          </button>
-                          <button
-                            onClick={() => handleSaveVehicleEdit(v.id)}
-                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
-                          >
-                            <Save size={14} /> Guardar
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md">
-                            {v.vehicle_type}
-                          </span>
-                          <h3 className="text-sm font-bold text-white mt-1.5">{v.brand} {v.model}</h3>
-                          <p className="text-xs text-slate-400 mt-1">
-                            Patente: <strong className="text-emerald-400 font-mono">{v.plate}</strong> | Color: {v.color}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setEditingVehicleId(v.id);
-                            setEditVehBrand(v.brand || '');
-                            setEditVehModel(v.model || '');
-                            setEditVehColor(v.color || '');
-                            setEditVehPlate(v.plate || '');
-                          }}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
-                          title="Editar Vehículo"
-                        >
-                          <Edit3 size={14} />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
+        {errorMsg && (
+          <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2 shadow-sm">
+            <AlertCircle size={16} /> <span>{errorMsg}</span>
+          </div>
+        )}
 
-            {/* Formulario para Asociar Nuevo Vehículo */}
-            <form onSubmit={handleRegisterVehicle} className="border-t border-slate-900 pt-6 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Asociar Nuevo Vehículo</h3>
-              
+        {loading ? (
+          <div className="text-center py-20 text-slate-400 text-xs">Cargando perfil desde PostgreSQL...</div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            {/* SECCIÓN 1: Credenciales y Compliance */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-6">
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Tipo de Vehículo</label>
-                <select
-                  value={vehType}
-                  onChange={(e) => setVehType(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-400" /> Credenciales y Compliance (Historial)
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">Gestione o actualice su documentación con sus fechas de vigencia.</p>
+              </div>
+
+              {/* Listado de perfiles cargados */}
+              <div className="space-y-3">
+                {profileData.providers.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic">No hay credenciales registradas aún.</p>
+                ) : (
+                  profileData.providers.map((p) => (
+                    <div key={p.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
+                      {editingProviderId === p.id ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Especialidad</label>
+                            <input
+                              type="text"
+                              value={editSpecialty}
+                              onChange={(e) => setEditSpecialty(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">URL Antecedentes</label>
+                              <input
+                                type="url"
+                                value={editCrimUrl}
+                                onChange={(e) => setEditCrimUrl(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence Antecedentes</label>
+                              <input
+                                type="date"
+                                value={editCrimExp}
+                                onChange={(e) => setEditCrimExp(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">URL Póliza ART</label>
+                              <input
+                                type="url"
+                                value={editArtUrl}
+                                onChange={(e) => setEditArtUrl(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence ART</label>
+                              <input
+                                type="date"
+                                value={editArtExp}
+                                onChange={(e) => setEditArtExp(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              onClick={() => setEditingProviderId(null)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => handleSaveComplianceEdit(p.id)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <Save size={14} /> Guardar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-white text-xs">{p.specialty}</span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                p.status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'
+                              }`}>
+                                {p.status.toUpperCase()}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 mt-1.5">
+                              Antecedentes Vence: <strong className="text-slate-200">{p.criminal_record_expiry ? new Date(p.criminal_record_expiry).toLocaleDateString() : 'N/D'}</strong> | 
+                              ART Vence: <strong className="text-slate-200">{p.insurance_expiry ? new Date(p.insurance_expiry).toLocaleDateString() : 'N/D'}</strong>
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setEditingProviderId(p.id);
+                              setEditSpecialty(p.specialty || '');
+                              setEditCrimUrl(p.criminal_record_url || '');
+                              setEditCrimExp(p.criminal_record_expiry ? p.criminal_record_expiry.split('T')[0] : '');
+                              setEditArtUrl(p.insurance_policy_url || '');
+                              setEditArtExp(p.insurance_expiry ? p.insurance_expiry.split('T')[0] : '');
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
+                            title="Editar Credencial"
+                          >
+                            <Edit3 size={13} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+
+              {/* Formulario para Registrar Nuevo Perfil / Renovación */}
+              <form onSubmit={handleRegisterCompliance} className="border-t border-slate-900 pt-5 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Registrar Nuevo Perfil / Renovación</h3>
+                
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Especialidad Principal / Oficio</label>
+                  <input
+                    type="text"
+                    required
+                    value={newSpecialty}
+                    onChange={(e) => setNewSpecialty(e.target.value)}
+                    placeholder="Ej: Electricista Matriculado"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">URL Antecedentes (PDF)</label>
+                    <input
+                      type="url"
+                      value={newCrimUrl}
+                      onChange={(e) => setNewCrimUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">Vigencia Antecedentes</label>
+                    <input
+                      type="date"
+                      value={newCrimExp}
+                      onChange={(e) => setNewCrimExp(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">URL Póliza ART (PDF)</label>
+                    <input
+                      type="url"
+                      value={newArtUrl}
+                      onChange={(e) => setNewArtUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">Vigencia Póliza ART</label>
+                    <input
+                      type="date"
+                      value={newArtExp}
+                      onChange={(e) => setNewArtExp(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                  style={{ backgroundColor: brand.primaryColor || '#10b981' }}
                 >
-                  <option value="Automóvil">Automóvil</option>
-                  <option value="Utilitario">Utilitario</option>
-                  <option value="Motocicleta">Motocicleta</option>
-                  <option value="Camión / Flete">Camión / Flete</option>
-                </select>
-              </div>
+                  <Plus size={15} /> Registrar Nuevo Compliance
+                </button>
+              </form>
+            </div>
 
+            {/* SECCIÓN 2: Flota Vehicular Autorizada */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-6">
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">Patente / Dominio</label>
-                <input
-                  type="text"
-                  required
-                  value={vehPlate}
-                  onChange={(e) => setVehPlate(e.target.value)}
-                  placeholder="Ej: AB123CD"
-                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white uppercase font-mono"
-                />
+                <h2 className="text-base font-bold text-white flex items-center gap-2">
+                  <Car size={18} className="text-emerald-400" /> Flota Vehicular Autorizada
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">Gestione los vehículos habilitados para el ingreso perimetral.</p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">Marca</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehBrand}
-                    onChange={(e) => setVehBrand(e.target.value)}
-                    placeholder="Ej: Ford"
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">Modelo</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehModel}
-                    onChange={(e) => setVehModel(e.target.value)}
-                    placeholder="Ej: Ranger"
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-400 mb-1">Color</label>
-                  <input
-                    type="text"
-                    required
-                    value={vehColor}
-                    onChange={(e) => setVehColor(e.target.value)}
-                    placeholder="Ej: Blanco"
-                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
-                  />
-                </div>
+              {/* Listado de vehículos */}
+              <div className="space-y-3">
+                {profileData.vehicles.length === 0 ? (
+                  <p className="text-xs text-slate-500 italic">No hay vehículos registrados en su flota.</p>
+                ) : (
+                  profileData.vehicles.map((v) => (
+                    <div key={v.id} className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-3">
+                      {editingVehicleId === v.id ? (
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Tipo de Vehículo</label>
+                            <select
+                              value={editVehType}
+                              onChange={(e) => setEditVehType(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            >
+                              <option value="Automóvil">Automóvil</option>
+                              <option value="Utilitario">Utilitario</option>
+                              <option value="Motocicleta">Motocicleta</option>
+                              <option value="Camión / Flete">Camión / Flete</option>
+                            </select>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Marca</label>
+                              <input
+                                type="text"
+                                value={editVehBrand}
+                                onChange={(e) => setEditVehBrand(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Modelo</label>
+                              <input
+                                type="text"
+                                value={editVehModel}
+                                onChange={(e) => setEditVehModel(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Color</label>
+                              <input
+                                type="text"
+                                value={editVehColor}
+                                onChange={(e) => setEditVehColor(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Patente</label>
+                              <input
+                                type="text"
+                                value={editVehPlate}
+                                onChange={(e) => setEditVehPlate(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button
+                              onClick={() => setEditingVehicleId(null)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              onClick={() => handleSaveVehicleEdit(v.id)}
+                              className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
+                            >
+                              <Save size={14} /> Guardar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded-md">
+                              {v.vehicle_type}
+                            </span>
+                            <h3 className="text-xs font-bold text-white mt-1.5">{v.brand} {v.model}</h3>
+                            <p className="text-[11px] text-slate-400 mt-0.5">
+                              Patente: <strong className="text-emerald-400 font-mono">{v.plate}</strong> | Color: {v.color}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setEditingVehicleId(v.id);
+                              setEditVehType(v.vehicle_type || 'Automóvil');
+                              setEditVehBrand(v.brand || '');
+                              setEditVehModel(v.model || '');
+                              setEditVehColor(v.color || '');
+                              setEditVehPlate(v.plate || '');
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
+                            title="Editar Vehículo"
+                          >
+                            <Edit3 size={13} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
 
-              <button
-                type="submit"
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
-                style={{ backgroundColor: brand.primaryColor || '#10b981' }}
-              >
-                <Plus size={16} /> Registrar y Asociar Vehículo
-              </button>
-            </form>
+              {/* Formulario para Asociar Nuevo Vehículo */}
+              <form onSubmit={handleRegisterVehicle} className="border-t border-slate-900 pt-5 space-y-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Asociar Nuevo Vehículo</h3>
+                
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Tipo de Vehículo</label>
+                  <select
+                    value={vehType}
+                    onChange={(e) => setVehType(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                  >
+                    <option value="Automóvil">Automóvil</option>
+                    <option value="Utilitario">Utilitario</option>
+                    <option value="Motocicleta">Motocicleta</option>
+                    <option value="Camión / Flete">Camión / Flete</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Patente / Dominio</label>
+                  <input
+                    type="text"
+                    required
+                    value={vehPlate}
+                    onChange={(e) => setVehPlate(e.target.value)}
+                    placeholder="Ej: AB123CD"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white uppercase font-mono"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">Marca</label>
+                    <input
+                      type="text"
+                      required
+                      value={vehBrand}
+                      onChange={(e) => setVehBrand(e.target.value)}
+                      placeholder="Ej: Ford"
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">Modelo</label>
+                    <input
+                      type="text"
+                      required
+                      value={vehModel}
+                      onChange={(e) => setVehModel(e.target.value)}
+                      placeholder="Ej: Ranger"
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-400 mb-1">Color</label>
+                    <input
+                      type="text"
+                      required
+                      value={vehColor}
+                      onChange={(e) => setVehColor(e.target.value)}
+                      placeholder="Ej: Blanco"
+                      className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                  style={{ backgroundColor: brand.primaryColor || '#10b981' }}
+                >
+                  <Plus size={15} /> Registrar y Asociar Vehículo
+                </button>
+              </form>
+            </div>
+
           </div>
+        )}
 
-        </div>
-      )}
+      </div>
 
     </div>
   );
