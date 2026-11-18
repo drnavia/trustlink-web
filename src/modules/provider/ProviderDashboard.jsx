@@ -1,63 +1,81 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Panel completo de gestión del prestador con soporte para historial, edición de registros
- * existentes y adición de nuevos elementos en Credenciales y Compliance y Flota Vehicular.
+ * @description Panel completo del Prestador conectado 100% a PostgreSQL. Permite gestionar
+ * credenciales de compliance (antecedentes y ART) y flota vehicular con capacidades de edición en vivo.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
+
 import React, { useState, useEffect } from 'react';
-import { Wrench, ShieldCheck, Car, FileText, CheckCircle2, AlertCircle, Plus, Upload, Loader2, Edit3, Calendar } from 'lucide-react';
+import { Wrench, ShieldCheck, Car, Plus, Edit3, Save, X, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
   
-  const [providerProfiles, setProviderProfiles] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [fetching, setFetching] = useState(true);
-  const [loadingAction, setLoadingAction] = useState(false);
-  const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  // Formulario de Compliance
-  const [specialty, setSpecialty] = useState('');
-  const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
-  const [criminalExpiry, setCriminalExpiry] = useState('');
-  const [insurancePolicyUrl, setInsurancePolicyUrl] = useState('');
-  const [insuranceExpiry, setInsuranceExpiry] = useState('');
+  // Estados para nuevo compliance
+  const [newSpecialty, setNewSpecialty] = useState('');
+  const [newCrimUrl, setNewCrimUrl] = useState('');
+  const [newCrimExp, setNewCrimExp] = useState('');
+  const [newArtUrl, setNewArtUrl] = useState('');
+  const [newArtExp, setNewArtExp] = useState('');
 
-  // Formulario de Vehículo
-  const [vehicleType, setVehicleType] = useState('Automóvil');
-  const [brandCar, setBrandCar] = useState('');
-  const [modelCar, setModelCar] = useState('');
-  const [plateCar, setPlateCar] = useState('');
-  const [colorCar, setColorCar] = useState('');
-  const [vehicleInsurance, setVehicleInsurance] = useState('');
+  // Estados para nuevo vehículo
+  const [vehType, setVehType] = useState('Automóvil');
+  const [vehBrand, setVehBrand] = useState('');
+  const [vehModel, setVehModel] = useState('');
+  const [vehColor, setVehColor] = useState('');
+  const [vehPlate, setVehPlate] = useState('');
 
-  const fetchProviderData = async () => {
-    setFetching(true);
+  // Estados de edición
+  const [editingProviderId, setEditingProviderId] = useState(null);
+  const [editSpecialty, setEditSpecialty] = useState('');
+  const [editCrimExp, setEditCrimExp] = useState('');
+  const [editArtExp, setEditArtExp] = useState('');
+
+  const [editingVehicleId, setEditingVehicleId] = useState(null);
+  const [editVehBrand, setEditVehBrand] = useState('');
+  const [editVehModel, setEditVehModel] = useState('');
+  const [editVehColor, setEditVehColor] = useState('');
+  const [editVehPlate, setEditVehPlate] = useState('');
+
+  const fetchProfile = async () => {
+    setLoading(true);
+    setErrorMsg('');
     try {
       const response = await fetch('http://localhost:4000/api/v1/providers/me', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+        }
       });
       const data = await response.json();
       if (response.ok) {
-        setProviderProfiles(data.providers || []);
-        setVehicles(data.vehicles || []);
+        setProfileData(data);
+      } else {
+        setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
       }
     } catch (error) {
-      console.error('Error al cargar datos del prestador:', error);
+      console.error('Error al conectar con el servidor:', error);
+      setErrorMsg('Error de conexión con el backend.');
     } finally {
-      setFetching(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchProviderData();
+    fetchProfile();
   }, []);
 
-  const handleAddCompliance = async (e) => {
+  // Registrar nuevo compliance
+  const handleRegisterCompliance = async (e) => {
     e.preventDefault();
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+    setErrorMsg('');
+    setSuccessMsg('');
     try {
       const response = await fetch('http://localhost:4000/api/v1/providers/profile', {
         method: 'POST',
@@ -66,314 +84,515 @@ export default function ProviderDashboard() {
           'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
         },
         body: JSON.stringify({
-          specialty,
-          criminal_record_url: criminalRecordUrl,
-          criminal_record_expiry: criminalExpiry,
-          insurance_policy_url: insurancePolicyUrl,
-          insurance_expiry: insuranceExpiry
+          specialty: newSpecialty,
+          criminal_record_url: newCrimUrl || 'https://storage.trustlink.com/antecedentes.pdf',
+          criminal_record_expiry: newCrimExp || null,
+          insurance_policy_url: newArtUrl || 'https://storage.trustlink.com/art.pdf',
+          insurance_expiry: newArtExp || null
         })
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: '¡Nuevo registro de compliance agregado con éxito!' });
-        fetchProviderData();
-        setSpecialty('');
-        setCriminalRecordUrl('');
-        setCriminalExpiry('');
-        setInsurancePolicyUrl('');
-        setInsuranceExpiry('');
+        setSuccessMsg('Credencial de compliance registrada con éxito.');
+        setNewSpecialty('');
+        setNewCrimUrl('');
+        setNewCrimExp('');
+        setNewArtUrl('');
+        setNewArtExp('');
+        fetchProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'Error al guardar compliance.' });
+        setErrorMsg(data.error || 'Error al registrar compliance.');
       }
-    } catch (error) {
-      setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
-    } finally {
-      setLoadingAction(false);
+    } catch (err) {
+      setErrorMsg('Error de red al registrar compliance.');
     }
   };
 
-  const handleAddVehicle = async (e) => {
-    e.preventDefault();
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+  // Guardar edición de compliance
+  const handleSaveComplianceEdit = async (id) => {
+    setErrorMsg('');
     try {
-      const response = await fetch('http://localhost:4000/api/v1/providers/vehicle', {
+      const response = await fetch(`http://localhost:4000/api/v1/providers/profile/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+        },
+        body: JSON.stringify({
+          specialty: editSpecialty,
+          criminal_record_expiry: editCrimExp || null,
+          insurance_expiry: editArtExp || null
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg('Credencial actualizada con éxito.');
+        setEditingProviderId(null);
+        fetchProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la credencial.');
+      }
+    } catch (err) {
+      setErrorMsg('Error de red al actualizar credencial.');
+    }
+  };
+
+  // Registrar vehículo
+  const handleRegisterVehicle = async (e) => {
+    e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch('http://localhost:4000/api/v1/providers/vehicles', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
         },
         body: JSON.stringify({
-          vehicle_type: vehicleType,
-          brand: brandCar,
-          model: modelCar,
-          plate: plateCar,
-          color: colorCar,
-          vehicle_insurance_url: vehicleInsurance
+          vehicle_type: vehType,
+          brand: vehBrand,
+          model: vehModel,
+          color: vehColor,
+          plate: vehPlate
         })
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: '¡Vehículo asociado con éxito!' });
-        fetchProviderData();
-        setBrandCar('');
-        setModelCar('');
-        setPlateCar('');
-        setColorCar('');
-        setVehicleInsurance('');
+        setSuccessMsg('Vehículo asociado con éxito a su flota.');
+        setVehBrand('');
+        setVehModel('');
+        setVehColor('');
+        setVehPlate('');
+        fetchProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'Error al registrar vehículo.' });
+        setErrorMsg(data.error || 'Error al registrar vehículo.');
       }
-    } catch (error) {
-      setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
-    } finally {
-      setLoadingAction(false);
+    } catch (err) {
+      setErrorMsg('Error de red al registrar vehículo.');
+    }
+  };
+
+  // Guardar edición de vehículo
+  const handleSaveVehicleEdit = async (id) => {
+    setErrorMsg('');
+    try {
+      const response = await fetch(`http://localhost:4000/api/v1/providers/vehicles/${id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+        },
+        body: JSON.stringify({
+          brand: editVehBrand,
+          model: editVehModel,
+          color: editVehColor,
+          plate: editVehPlate
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg('Vehículo actualizado con éxito.');
+        setEditingVehicleId(null);
+        fetchProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar el vehículo.');
+      }
+    } catch (err) {
+      setErrorMsg('Error de red al actualizar vehículo.');
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 space-y-8 animate-fadeIn">
-      {/* Encabezado del Panel */}
-      <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-xl font-black text-white flex items-center gap-2">
-            <Wrench className="text-emerald-400" size={24} /> Panel de Gestión del Prestador
-          </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Administre su especialidad, historial de compliance (antecedentes y ART) y flota vehicular autorizada.
-          </p>
+    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+      
+      {/* Cabecera del Panel */}
+      <header className="bg-slate-950 border border-slate-800 px-8 py-8 rounded-3xl flex flex-col md:flex-row justify-between items-center shadow-2xl mb-8 gap-6">
+        <div className="flex items-center space-x-4">
+          <div
+            className="w-14 h-14 rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-lg"
+            style={{ backgroundColor: brand.primaryColor || '#10b981' }}
+          >
+            <Wrench size={26} />
+          </div>
+          <div>
+            <h1 className="text-2xl font-black text-white">Panel de Gestión del Prestador</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Administre su especialidad, historial de compliance y flota vehicular autorizada.</p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-mono">
-            Estado Actual: <strong className="text-amber-400 uppercase">{providerProfiles[0]?.status || 'Sin Perfil'}</strong>
-          </span>
+        <div className="bg-slate-900 border border-slate-700 px-4 py-2 rounded-xl text-xs font-bold text-amber-400 flex items-center gap-2">
+          <span>Estado Actual:</span>
+          <span className="uppercase tracking-wider">{profileData.providers[0]?.status || 'PENDING'}</span>
         </div>
-      </div>
+      </header>
 
-      {feedback.text && (
-        <div className={`p-4 rounded-2xl text-xs flex items-center gap-2 border ${
-          feedback.type === 'success' ? 'bg-emerald-950/40 border-emerald-900 text-emerald-300' : 'bg-rose-950/40 border-rose-900 text-rose-300'
-        }`}>
-          {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-          {feedback.text}
+      {successMsg && (
+        <div className="max-w-6xl mx-auto mb-6 bg-emerald-950/50 border border-emerald-600 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} /> <span>{successMsg}</span>
         </div>
       )}
 
-      {fetching ? (
-        <div className="text-center py-20">
-          <Loader2 className="animate-spin mx-auto text-emerald-400 mb-3" size={32} />
-          <p className="text-xs text-slate-400">Cargando información desde la base de datos...</p>
+      {errorMsg && (
+        <div className="max-w-6xl mx-auto mb-6 bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle size={16} /> <span>{errorMsg}</span>
         </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-20 text-slate-400 text-xs">Cargando perfil desde PostgreSQL...</div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
           
-          {/* SECCIÓN 1: CREDENCIALES Y COMPLIANCE */}
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
-            <div className="border-b border-slate-800 pb-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <ShieldCheck className="text-emerald-400" size={18} /> Credenciales y Compliance (Historial)
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Agregue o actualice su documentación con sus fechas de vigencia.</p>
+          {/* SECCIÓN 1: Credenciales y Compliance */}
+          <div className="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <ShieldCheck size={20} className="text-emerald-400" /> Credenciales y Compliance (Historial)
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">Gestione o actualice su documentación con sus fechas de vigencia.</p>
             </div>
 
-            {/* Listado Histórico */}
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-              {providerProfiles.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No hay registros de compliance cargados aún.</p>
+            {/* Listado de perfiles cargados con opción de edición */}
+            <div className="space-y-4">
+              {profileData.providers.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No hay credenciales registradas aún.</p>
               ) : (
-                providerProfiles.map((p, idx) => (
-                  <div key={p.id || idx} className="bg-slate-900 border border-slate-800/80 rounded-2xl p-3.5 space-y-1.5">
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-white"># {p.specialty}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-950 text-amber-400 border border-slate-800 font-mono uppercase">
-                        {p.status}
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-slate-400 grid grid-cols-2 gap-2 pt-1">
-                      <div>Antecedentes Vence: <strong className="text-slate-200">{p.criminal_record_expiry ? new Date(p.criminal_record_expiry).toLocaleDateString() : 'N/D'}</strong></div>
-                      <div>ART Vence: <strong className="text-slate-200">{p.insurance_expiry ? new Date(p.insurance_expiry).toLocaleDateString() : 'N/D'}</strong></div>
-                    </div>
+                profileData.providers.map((p) => (
+                  <div key={p.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
+                    {editingProviderId === p.id ? (
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Especialidad</label>
+                          <input
+                            type="text"
+                            value={editSpecialty}
+                            onChange={(e) => setEditSpecialty(e.target.value)}
+                            className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence Antecedentes</label>
+                            <input
+                              type="date"
+                              value={editCrimExp}
+                              onChange={(e) => setEditCrimExp(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Vence ART</label>
+                            <input
+                              type="date"
+                              value={editArtExp}
+                              onChange={(e) => setEditArtExp(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <button
+                            onClick={() => setEditingProviderId(null)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => handleSaveComplianceEdit(p.id)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
+                          >
+                            <Save size={14} /> Guardar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-sm">{p.specialty}</span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                              p.status === 'approved' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-amber-950 text-amber-400 border border-amber-800'
+                            }`}>
+                              {p.status.toUpperCase()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 mt-2">
+                            Antecedentes Vence: <strong className="text-slate-200">{p.criminal_record_expiry ? new Date(p.criminal_record_expiry).toLocaleDateString() : 'N/D'}</strong> | 
+                            ART Vence: <strong className="text-slate-200">{p.insurance_expiry ? new Date(p.insurance_expiry).toLocaleDateString() : 'N/D'}</strong>
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingProviderId(p.id);
+                            setEditSpecialty(p.specialty || '');
+                            setEditCrimExp(p.criminal_record_expiry ? p.criminal_record_expiry.split('T')[0] : '');
+                            setEditArtExp(p.insurance_expiry ? p.insurance_expiry.split('T')[0] : '');
+                          }}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
+                          title="Editar Credencial"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </div>
 
-            {/* Formulario Nuevo Compliance */}
-            <form onSubmit={handleAddCompliance} className="space-y-4 pt-2 border-t border-slate-800">
-              <h4 className="text-xs font-bold text-slate-300">Registrar Nuevo Perfil / Renovación</h4>
+            {/* Formulario para Registrar Nuevo Perfil / Renovación */}
+            <form onSubmit={handleRegisterCompliance} className="border-t border-slate-900 pt-6 space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Registrar Nuevo Perfil / Renovación</h3>
               
               <div>
-                <label className="block text-[11px] font-bold text-slate-400 mb-1">Especialidad Principal / Oficio</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Especialidad Principal / Oficio</label>
                 <input
                   type="text"
                   required
+                  value={newSpecialty}
+                  onChange={(e) => setNewSpecialty(e.target.value)}
                   placeholder="Ej: Electricista Matriculado"
-                  value={specialty}
-                  onChange={(e) => setSpecialty(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">URL Antecedentes (PDF)</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">URL Antecedentes (PDF)</label>
                   <input
-                    type="text"
+                    type="url"
+                    value={newCrimUrl}
+                    onChange={(e) => setNewCrimUrl(e.target.value)}
                     placeholder="https://..."
-                    value={criminalRecordUrl}
-                    onChange={(e) => setCriminalRecordUrl(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Vigencia Antecedentes</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Vigencia Antecedentes</label>
                   <input
                     type="date"
-                    value={criminalExpiry}
-                    onChange={(e) => setCriminalExpiry(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    value={newCrimExp}
+                    onChange={(e) => setNewCrimExp(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">URL Póliza ART (PDF)</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">URL Póliza ART (PDF)</label>
                   <input
-                    type="text"
+                    type="url"
+                    value={newArtUrl}
+                    onChange={(e) => setNewArtUrl(e.target.value)}
                     placeholder="https://..."
-                    value={insurancePolicyUrl}
-                    onChange={(e) => setInsurancePolicyUrl(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Vigencia Póliza ART</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Vigencia Póliza ART</label>
                   <input
                     type="date"
-                    value={insuranceExpiry}
-                    onChange={(e) => setInsuranceExpiry(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    value={newArtExp}
+                    onChange={(e) => setNewArtExp(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loadingAction}
-                className="w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
-                style={{ backgroundColor: brand.primaryColor }}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                style={{ backgroundColor: brand.primaryColor || '#10b981' }}
               >
-                {loadingAction ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />} 
-                Registrar Nuevo Compliance
+                <Plus size={16} /> Registrar Nuevo Compliance
               </button>
             </form>
           </div>
 
-          {/* SECCIÓN 2: FLOTA VEHICULAR AUTORIZADA */}
-          <div className="bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-xl space-y-6">
-            <div className="border-b border-slate-800 pb-4">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Car className="text-blue-400" size={18} /> Flota Vehicular Autorizada
-              </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Gestione los vehículos habilitados para el ingreso perimetral.</p>
+          {/* SECCIÓN 2: Flota Vehicular Autorizada */}
+          <div className="bg-slate-950 border border-slate-800 p-6 rounded-3xl shadow-xl space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <Car size={20} className="text-emerald-400" /> Flota Vehicular Autorizada
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">Gestione los vehículos habilitados para el ingreso perimetral.</p>
             </div>
 
-            {/* Listado de Vehículos */}
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-              {vehicles.length === 0 ? (
-                <p className="text-xs text-slate-500 italic">No hay vehículos asociados en la base de datos.</p>
+            {/* Listado de vehículos con opción de edición */}
+            <div className="space-y-4">
+              {profileData.vehicles.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No hay vehículos registrados en su flota.</p>
               ) : (
-                vehicles.map((v) => (
-                  <div key={v.id} className="bg-slate-900 border border-slate-800/80 rounded-2xl p-3.5 flex justify-between items-center">
-                    <div>
-                      <span className="text-xs font-bold text-white">{v.brand} {v.model} ({v.vehicle_type})</span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">Patente: <strong className="text-emerald-400">{v.plate}</strong> | Color: {v.color}</p>
-                    </div>
+                profileData.vehicles.map((v) => (
+                  <div key={v.id} className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-3">
+                    {editingVehicleId === v.id ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Marca</label>
+                            <input
+                              type="text"
+                              value={editVehBrand}
+                              onChange={(e) => setEditVehBrand(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Modelo</label>
+                            <input
+                              type="text"
+                              value={editVehModel}
+                              onChange={(e) => setEditVehModel(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Color</label>
+                            <input
+                              type="text"
+                              value={editVehColor}
+                              onChange={(e) => setEditVehColor(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">Patente</label>
+                            <input
+                              type="text"
+                              value={editVehPlate}
+                              onChange={(e) => setEditVehPlate(e.target.value)}
+                              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-2">
+                          <button
+                            onClick={() => setEditingVehicleId(null)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            onClick={() => handleSaveVehicleEdit(v.id)}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1"
+                          >
+                            <Save size={14} /> Guardar
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md">
+                            {v.vehicle_type}
+                          </span>
+                          <h3 className="text-sm font-bold text-white mt-1.5">{v.brand} {v.model}</h3>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Patente: <strong className="text-emerald-400 font-mono">{v.plate}</strong> | Color: {v.color}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => {
+                            setEditingVehicleId(v.id);
+                            setEditVehBrand(v.brand || '');
+                            setEditVehModel(v.model || '');
+                            setEditVehColor(v.color || '');
+                            setEditVehPlate(v.plate || '');
+                          }}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-300 p-2 rounded-xl transition-colors cursor-pointer"
+                          title="Editar Vehículo"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))
               )}
             </div>
 
-            {/* Formulario Nuevo Vehículo */}
-            <form onSubmit={handleAddVehicle} className="space-y-4 pt-2 border-t border-slate-800">
-              <h4 className="text-xs font-bold text-slate-300">Asociar Nuevo Vehículo</h4>
+            {/* Formulario para Asociar Nuevo Vehículo */}
+            <form onSubmit={handleRegisterVehicle} className="border-t border-slate-900 pt-6 space-y-4">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">Asociar Nuevo Vehículo</h3>
               
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Tipo de Vehículo</label>
-                  <select
-                    value={vehicleType}
-                    onChange={(e) => setVehicleType(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="Automóvil">Automóvil</option>
-                    <option value="Utilitario / Furgón">Utilitario / Furgón</option>
-                    <option value="Camión / Logística">Camión / Logística</option>
-                    <option value="Moto">Moto</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Patente / Dominio</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: AB123CD"
-                    value={plateCar}
-                    onChange={(e) => setPlateCar(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white uppercase font-mono focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Tipo de Vehículo</label>
+                <select
+                  value={vehType}
+                  onChange={(e) => setVehType(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
+                >
+                  <option value="Automóvil">Automóvil</option>
+                  <option value="Utilitario">Utilitario</option>
+                  <option value="Motocicleta">Motocicleta</option>
+                  <option value="Camión / Flete">Camión / Flete</option>
+                </select>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">Patente / Dominio</label>
+                <input
+                  type="text"
+                  required
+                  value={vehPlate}
+                  onChange={(e) => setVehPlate(e.target.value)}
+                  placeholder="Ej: AB123CD"
+                  className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white uppercase font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Marca</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Marca</label>
                   <input
                     type="text"
                     required
+                    value={vehBrand}
+                    onChange={(e) => setVehBrand(e.target.value)}
                     placeholder="Ej: Ford"
-                    value={brandCar}
-                    onChange={(e) => setBrandCar(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 mb-1">Modelo</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Modelo</label>
                   <input
                     type="text"
                     required
+                    value={vehModel}
+                    onChange={(e) => setVehModel(e.target.value)}
                     placeholder="Ej: Ranger"
-                    value={modelCar}
-                    onChange={(e) => setModelCar(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-400 MB-1">Color</label>
+                  <label className="block text-xs font-bold text-slate-400 mb-1">Color</label>
                   <input
                     type="text"
+                    required
+                    value={vehColor}
+                    onChange={(e) => setVehColor(e.target.value)}
                     placeholder="Ej: Blanco"
-                    value={colorCar}
-                    onChange={(e) => setColorCar(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500"
+                    className="w-full bg-slate-900 border border-slate-800 px-3 py-2 rounded-xl text-xs text-white"
                   />
                 </div>
               </div>
 
               <button
                 type="submit"
-                disabled={loadingAction}
-                className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer"
+                style={{ backgroundColor: brand.primaryColor || '#10b981' }}
               >
-                {loadingAction ? <Loader2 className="animate-spin" size={16} /> : <Plus size={16} />} 
-                Registrar y Asociar Vehículo
+                <Plus size={16} /> Registrar y Asociar Vehículo
               </button>
             </form>
           </div>
 
         </div>
       )}
+
     </div>
   );
 }
