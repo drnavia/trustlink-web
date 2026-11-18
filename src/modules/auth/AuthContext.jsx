@@ -1,40 +1,60 @@
 /**
  * @file AuthContext.jsx
- * @description Proveedor de contexto global para la gestión de sesión de usuarios en TrustLink.
- * Almacena el token JWT y los datos del usuario logueado en el estado de React y en localStorage.
+ * @description Proveedor de contexto global para la gestión de sesión de usuarios en TrustLink,
+ * con limpieza automática de storage ante errores de autenticación.
  * @location /trustlink-web/src/modules/auth/AuthContext.jsx
  */
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Al iniciar la aplicación, recupera la sesión almacenada en el localStorage si existe
   useEffect(() => {
     const storedToken = localStorage.getItem('trustlink_token');
     const storedUser = localStorage.getItem('trustlink_user');
-
     if (storedToken && storedUser) {
       setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      try {
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        logout();
+      }
     }
     setLoading(false);
   }, []);
 
-  // Función para iniciar sesión y guardar credenciales
-  const login = (newToken, userData) => {
-    localStorage.setItem('trustlink_token', newToken);
-    localStorage.setItem('trustlink_user', JSON.stringify(userData));
-    setToken(newToken);
-    setUser(userData);
+  const login = async (email, password) => {
+    try {
+      const response = await fetch('http://localhost:4000/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.token) {
+        localStorage.setItem('trustlink_token', data.token);
+        localStorage.setItem('trustlink_user', JSON.stringify(data.user));
+        setToken(data.token);
+        setUser(data.user);
+        return true;
+      } else {
+        logout(); // Limpiar rastro anterior si falla
+        return false;
+      }
+    } catch (error) {
+      console.error('Error en contexto de login:', error);
+      logout();
+      return false;
+    }
   };
 
-  // Función para cerrar sesión y limpiar el almacenamiento
   const logout = () => {
     localStorage.removeItem('trustlink_token');
     localStorage.removeItem('trustlink_user');
