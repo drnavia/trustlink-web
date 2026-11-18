@@ -1,35 +1,32 @@
 /**
  * @file LandingHome.jsx
  * @description Vista pública de la raíz (/) para TrustLink optimizada con badge comercial refinado,
- * textos de alto impacto, diseño compacto above-the-fold, fondo 100% unificado en slate-950 y footer visible.
+ * textos de alto impacto, diseño compacto above-the-fold, fondo unificado en slate-950 y footer visible.
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
 import React from 'react';
 import { ShieldCheck, QrCode, LogIn, UserPlus, ArrowRight, CheckCircle2 } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
 
 export default function LandingHome({ onViewChange }) {
-  const { brand } = useBranding();
-
   return (
     <div className="bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white min-h-[calc(100vh-60px)] justify-between">
       
       {/* Contenido Principal / Hero Section */}
       <main className="max-w-5xl mx-auto px-6 py-10 text-center flex flex-col items-center w-full my-auto">
         
-        {/* Badge Superior Institucional con texto comercial refinado */}
+        {/* Badge Superior Institucional Refinado */}
         <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-1.5 rounded-full text-emerald-400 text-xs font-bold tracking-wide uppercase mb-6 shadow-inner">
           <ShieldCheck size={16} />
-          Acceso Perimetral Inteligente
+          Plataforma de Accesos Verificados
         </div>
 
-        {/* Título Principal Refinado (Simple y de Alto Impacto) */}
+        {/* Título Principal de Alto Impacto */}
         <h1 className="text-3xl md:text-5xl font-black tracking-tight text-white max-w-4xl leading-tight mb-4">
           La red de confianza para <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">comunidades privadas</span>
         </h1>
 
-        {/* Subtítulo Refinado (Directo al valor) */}
+        {/* Subtítulo Descriptivo */}
         <p className="text-xs md:text-sm text-slate-400 max-w-2xl leading-relaxed mb-10">
           Conectamos propietarios y prestadores auditados con accesos QR instantáneos y pagos protegidos de punta a punta.
         </p>
@@ -73,7 +70,6 @@ export default function LandingHome({ onViewChange }) {
             <button
               onClick={() => onViewChange('register')}
               className="mt-6 w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg active:scale-95"
-              style={{ backgroundColor: brand.primaryColor || '#0A2540' }}
             >
               Crear Cuenta <ArrowRight size={14} />
             </button>
