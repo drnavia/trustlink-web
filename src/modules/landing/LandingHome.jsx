@@ -1,7 +1,7 @@
 /**
  * @file LandingHome.jsx
- * @description Vista pública de la raíz (/) para TrustLink optimizada con textos refinados de alto impacto,
- * diseño compacto above-the-fold, fondo 100% unificado en slate-950 y footer visible.
+ * @description Vista pública de la raíz (/) para TrustLink optimizada con badge comercial refinado,
+ * textos de alto impacto, diseño compacto above-the-fold, fondo 100% unificado en slate-950 y footer visible.
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
@@ -18,10 +18,10 @@ export default function LandingHome({ onViewChange }) {
       {/* Contenido Principal / Hero Section */}
       <main className="max-w-5xl mx-auto px-6 py-10 text-center flex flex-col items-center w-full my-auto">
         
-        {/* Badge Superior Institucional */}
+        {/* Badge Superior Institucional con texto comercial refinado */}
         <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-1.5 rounded-full text-emerald-400 text-xs font-bold tracking-wide uppercase mb-6 shadow-inner">
           <ShieldCheck size={16} />
-          Plataforma Criptográfica de Accesos y Servicios — {brand.countryName || 'TrustLink Community'}
+          Red de Confianza Residencial — {brand.countryName || 'TrustLink Community'}
         </div>
 
         {/* Título Principal Refinado (Simple y de Alto Impacto) */}
