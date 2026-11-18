@@ -1,7 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Panel completo del Prestador conectado 100% a PostgreSQL. Permite gestionar
- * credenciales de compliance y flota vehicular con diseño optimizado (tipo de vehículo junto al modelo).
+ * credenciales de compliance y flota vehicular con diseño estilizado de badges en los tipos de vehículos.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -456,7 +456,7 @@ export default function ProviderDashboard() {
                 <p className="text-xs text-slate-400 mt-0.5">Gestione los vehículos habilitados para el ingreso perimetral.</p>
               </div>
 
-              {/* Listado de vehículos con el tipo ubicado junto al modelo en dos líneas */}
+              {/* Listado de vehículos con badge estilizado para el tipo */}
               <div className="space-y-3">
                 {profileData.vehicles.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No hay vehículos registrados en su flota.</p>
@@ -539,9 +539,12 @@ export default function ProviderDashboard() {
                       ) : (
                         <div className="flex justify-between items-start">
                           <div>
-                            {/* Información estructurada en dos líneas con el tipo junto al modelo */}
-                            <h3 className="text-xs font-bold text-white">
-                              {v.brand} {v.model} <span className="text-[11px] font-normal text-slate-400">({v.vehicle_type || 'Vehículo'})</span>
+                            {/* Información estructurada en dos líneas con el tipo convertido en un badge estilizado */}
+                            <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                              {v.brand} {v.model} 
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-950 text-sky-400 border border-sky-800 uppercase tracking-wider">
+                                {v.vehicle_type || 'Vehículo'}
+                              </span>
                             </h3>
                             <p className="text-[11px] text-slate-400 mt-1">
                               Patente: <strong className="text-emerald-400 font-mono">{v.plate}</strong> | Color: {v.color}
