@@ -21,7 +21,7 @@ export default function LandingHome({ onViewChange }) {
         {/* Badge Superior Institucional con texto comercial refinado */}
         <div className="inline-flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/20 px-4 py-1.5 rounded-full text-emerald-400 text-xs font-bold tracking-wide uppercase mb-6 shadow-inner">
           <ShieldCheck size={16} />
-          Red de Confianza Residencial — {brand.countryName || 'TrustLink Community'}
+          Acceso Perimetral Inteligente
         </div>
 
         {/* Título Principal Refinado (Simple y de Alto Impacto) */}
