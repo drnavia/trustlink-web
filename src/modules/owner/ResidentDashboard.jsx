@@ -1,13 +1,12 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Dashboard completo del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
- * Muestra el directorio de prestadores verificados, buscador inteligente y acceso rápido a contratos/pagos,
- * sin bloques redundantes y con visibilidad perfecta al cargar.
+ * @description Portal del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
+ * Muestra el directorio real de prestadores verificados con scoring, especialidad y contrataciones exitosas.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
 import React, { useState, useEffect } from 'react';
-import { ShieldCheck, Star, QrCode, Search, Wrench, AlertCircle, Phone, Mail } from 'lucide-react';
+import { ShieldCheck, Star, QrCode, Search, Wrench, AlertCircle, Phone, Mail, Briefcase } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 
@@ -20,7 +19,6 @@ export default function ResidentDashboard({ onViewChange }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Consumir el directorio real de prestadores aprobados desde PostgreSQL
   const fetchVerifiedProviders = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -38,8 +36,8 @@ export default function ResidentDashboard({ onViewChange }) {
         setErrorMsg(data.error || 'No se pudo cargar el directorio de prestadores.');
       }
     } catch (error) {
-      console.error('Error al conectar con la base de datos:', error);
-      setErrorMsg('Error de conexión con el servidor backend.');
+      console.error('Error de red al obtener prestadores:', error);
+      setErrorMsg('Error de conexión con el servidor backend de TrustLink.');
     } finally {
       setLoading(false);
     }
@@ -49,7 +47,6 @@ export default function ResidentDashboard({ onViewChange }) {
     fetchVerifiedProviders();
   }, []);
 
-  // Filtrado dinámico por nombre o especialidad
   const filteredProviders = providers.filter((p) => {
     const fullName = `${p.first_name} ${p.last_name}`.toLowerCase();
     const specialty = (p.specialty || '').toLowerCase();
@@ -58,12 +55,11 @@ export default function ResidentDashboard({ onViewChange }) {
   });
 
   return (
-    <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       
-      {/* Contenedor Principal del Directorio */}
       <main className="max-w-6xl mx-auto space-y-6">
         
-        {/* Cabecera del Directorio y Buscador */}
+        {/* Cabecera y Buscador */}
         <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h2 className="text-xl font-black tracking-tight text-white">Directorio de Prestadores Verificados</h2>
@@ -73,7 +69,6 @@ export default function ResidentDashboard({ onViewChange }) {
           </div>
 
           <div className="flex items-center gap-3 w-full md:w-auto">
-            {/* Buscador Inteligente */}
             <div className="relative w-full md:w-80">
               <Search className="absolute left-3.5 top-3 text-slate-500" size={16} />
               <input
@@ -124,9 +119,14 @@ export default function ResidentDashboard({ onViewChange }) {
                     </span>
                   </div>
 
-                  <h3 className="text-sm font-bold text-white mb-2">{p.first_name} {p.last_name}</h3>
+                  <h3 className="text-sm font-bold text-white mb-1">{p.first_name} {p.last_name}</h3>
                   
-                  <div className="space-y-1 text-[11px] text-slate-400 mb-3">
+                  {/* Métrica Real de Contrataciones */}
+                  <p className="text-[11px] text-emerald-400 font-medium mb-3 flex items-center gap-1">
+                    <Briefcase size={12} /> {p.total_contracts || 0} contrataciones en la red
+                  </p>
+
+                  <div className="space-y-1 text-[11px] text-slate-400 mb-2">
                     <p className="flex items-center gap-1.5"><Phone size={12} className="text-slate-500" /> {p.phone || 'Teléfono no especificado'}</p>
                     <p className="flex items-center gap-1.5"><Mail size={12} className="text-slate-500" /> {p.email}</p>
                   </div>
