@@ -1,7 +1,7 @@
 /**
  * @file LandingHome.jsx
- * @description Vista pública de la raíz (/) para TrustLink optimizada con diseño fluido,
- * fondo 100% unificado en slate-950 sin divisiones de color y footer integrado visible de manera natural.
+ * @description Vista pública de la raíz (/) para TrustLink optimizada con textos refinados de alto impacto,
+ * diseño compacto above-the-fold, fondo 100% unificado en slate-950 y footer visible.
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
@@ -24,14 +24,14 @@ export default function LandingHome({ onViewChange }) {
           Plataforma Criptográfica de Accesos y Servicios — {brand.countryName || 'TrustLink Community'}
         </div>
 
-        {/* Título Principal de Alto Impacto */}
+        {/* Título Principal Refinado (Simple y de Alto Impacto) */}
         <h1 className="text-3xl md:text-5xl font-black tracking-tight text-white max-w-4xl leading-tight mb-4">
-          Seguridad Perimetral y <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Prestadores Verificados</span>
+          La red de confianza para <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">comunidades privadas</span>
         </h1>
 
-        {/* Subtítulo Descriptivo */}
+        {/* Subtítulo Refinado (Directo al valor) */}
         <p className="text-xs md:text-sm text-slate-400 max-w-2xl leading-relaxed mb-10">
-          Conectamos barrios cerrados y comunidades inteligentes bajo un estricto control de compliance, ingresos ágiles por código QR y pasarela de pagos integrada para residentes.
+          Conectamos propietarios y prestadores auditados con accesos QR instantáneos y pagos protegidos de punta a punta.
         </p>
 
         {/* Tarjetas de Acceso Rápido (Grid Modular UX/UI) */}
