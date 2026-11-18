@@ -1,7 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Panel completo del Prestador conectado 100% a PostgreSQL. Permite gestionar
- * credenciales de compliance con todos sus campos y flota vehicular con edición completa.
+ * credenciales de compliance y flota vehicular con diseño optimizado (tipo de vehículo junto al modelo).
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -31,7 +31,7 @@ export default function ProviderDashboard() {
   const [vehColor, setVehColor] = useState('');
   const [vehPlate, setVehPlate] = useState('');
 
-  // Estados de edición de Compliance (con todos los campos)
+  // Estados de edición de Compliance
   const [editingProviderId, setEditingProviderId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
   const [editCrimUrl, setEditCrimUrl] = useState('');
@@ -39,7 +39,7 @@ export default function ProviderDashboard() {
   const [editArtUrl, setEditArtUrl] = useState('');
   const [editArtExp, setEditArtExp] = useState('');
 
-  // Estados de edición de Vehículo (con tipo, color, etc.)
+  // Estados de edición de Vehículo
   const [editingVehicleId, setEditingVehicleId] = useState(null);
   const [editVehType, setEditVehType] = useState('Automóvil');
   const [editVehBrand, setEditVehBrand] = useState('');
@@ -112,7 +112,7 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Guardar edición de compliance (con todos los campos)
+  // Guardar edición de compliance
   const handleSaveComplianceEdit = async (id) => {
     setErrorMsg('');
     try {
@@ -149,7 +149,7 @@ export default function ProviderDashboard() {
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const response = await fetch('http://localhost:4000/api/v1/providers/vehicles', {
+      const response = await fetch('http://localhost:4000/api/v1/providers/vehicle', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -179,11 +179,11 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Guardar edición de vehículo (con todos los campos)
+  // Guardar edición de vehículo
   const handleSaveVehicleEdit = async (id) => {
     setErrorMsg('');
     try {
-      const response = await fetch(`http://localhost:4000/api/v1/providers/vehicles/${id}`, {
+      const response = await fetch(`http://localhost:4000/api/v1/providers/vehicle/${id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -199,7 +199,7 @@ export default function ProviderDashboard() {
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Vehículo actualizado con éxito.');
+        setSuccessMsg('Vehículo actualizado con éxito en PostgreSQL.');
         setEditingVehicleId(null);
         fetchProfile();
       } else {
@@ -456,7 +456,7 @@ export default function ProviderDashboard() {
                 <p className="text-xs text-slate-400 mt-0.5">Gestione los vehículos habilitados para el ingreso perimetral.</p>
               </div>
 
-              {/* Listado de vehículos */}
+              {/* Listado de vehículos con el tipo ubicado junto al modelo en dos líneas */}
               <div className="space-y-3">
                 {profileData.vehicles.length === 0 ? (
                   <p className="text-xs text-slate-500 italic">No hay vehículos registrados en su flota.</p>
@@ -516,7 +516,7 @@ export default function ProviderDashboard() {
                                 type="text"
                                 value={editVehPlate}
                                 onChange={(e) => setEditVehPlate(e.target.value)}
-                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white"
+                                className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white uppercase font-mono"
                               />
                             </div>
                           </div>
@@ -539,11 +539,11 @@ export default function ProviderDashboard() {
                       ) : (
                         <div className="flex justify-between items-start">
                           <div>
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2 py-0.5 rounded-md">
-                              {v.vehicle_type}
-                            </span>
-                            <h3 className="text-xs font-bold text-white mt-1.5">{v.brand} {v.model}</h3>
-                            <p className="text-[11px] text-slate-400 mt-0.5">
+                            {/* Información estructurada en dos líneas con el tipo junto al modelo */}
+                            <h3 className="text-xs font-bold text-white">
+                              {v.brand} {v.model} <span className="text-[11px] font-normal text-slate-400">({v.vehicle_type || 'Vehículo'})</span>
+                            </h3>
+                            <p className="text-[11px] text-slate-400 mt-1">
                               Patente: <strong className="text-emerald-400 font-mono">{v.plate}</strong> | Color: {v.color}
                             </p>
                           </div>
