@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * manejo de marca blanca y un footer institucional unificado y limpio para toda la plataforma.
+ * manejo de marca blanca, orden lógico de módulos optimizado y barra superior con subtítulo marketinero refinado.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -34,7 +34,7 @@ function MainAppContent() {
         {/* Barra de Navegación Superior Global */}
         <nav className="bg-slate-950 border-b border-slate-800 px-6 py-3 flex justify-between items-center gap-4 sticky top-0 z-50 shadow-2xl flex-wrap">
           
-          {/* Branding Global */}
+          {/* Branding Global "TrustLink Community" con subtítulo refinado y marketinero */}
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => setCurrentView(isAuthenticated ? 'resident' : 'landing')}>
             <div
               className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md"
@@ -49,7 +49,8 @@ function MainAppContent() {
                   Community
                 </span>
               </h1>
-              <p className="text-[10px] text-slate-400">Acceso Perimetral Inteligente</p>
+              {/* Subtítulo marketinero refinado y sin tecnicismos fríos */}
+              <p className="text-[10px] text-emerald-400 font-medium">Red de Servicios Verificados</p>
             </div>
           </div>
 
@@ -128,7 +129,7 @@ function MainAppContent() {
                     className={`px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 ${
                       currentView === 'users_master' ? 'bg-purple-600 border-purple-400 text-white' : 'bg-purple-950/60 border-purple-800 text-purple-300 hover:bg-purple-900'
                     }`}
-                    title="Panel Maestro de Gestión de Superadmins"
+                    title="Panel Maestro de Gestión de Superadmins y Admins"
                   >
                     <Layers size={13} /> Modo Maestro 🔒
                   </button>
@@ -218,3 +219,4 @@ export default function App() {
     </BrandingProvider>
   );
 }
+// FIN
