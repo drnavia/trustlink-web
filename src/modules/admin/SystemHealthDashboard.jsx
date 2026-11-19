@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, integraciones y claves por comunidad (con copiar clave, rotar y revocar),
- * gestión de comunidades, pases QR recientes (con comunidad/barrio visible, filtros y paginación),
+ * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
+ * pases QR recientes, trazabilidad de eventos / auditoría de accesos y transacciones (Punto 5),
  * y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
@@ -30,7 +30,9 @@ import {
   RotateCw,
   ShieldCheck,
   Users,
-  ArrowUpRight
+  ArrowUpRight,
+  ClipboardList,
+  Receipt
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:4000';
@@ -86,6 +88,28 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [copiedTokenId, setCopiedTokenId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passActionMsg, setPassActionMsg] = useState({ type: '', text: '' });
+
+  // Punto 5: Trazabilidad de eventos / auditoría de accesos y transacciones
+  const [loadingAudit, setLoadingAudit] = useState(true);
+  const [auditTab, setAuditTab] = useState('access'); // 'access' | 'transactions'
+  const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all'); // 'all' | 'authorized' | 'denied'
+  const [auditSearch, setAuditSearch] = useState('');
+  const [accessSummary, setAccessSummary] = useState({
+    total_attempts: 0,
+    authorized_count: 0,
+    denied_count: 0
+  });
+  const [accessLogs, setAccessLogs] = useState([]);
+  const [financialSummary, setFinancialSummary] = useState({
+    total_contracts: 0,
+    pending_contracts: 0,
+    completed_contracts: 0,
+    total_transactions: 0,
+    gross_volume: '0.00',
+    platform_fees: '0.00',
+    provider_payouts: '0.00'
+  });
+  const [transactions, setTransactions] = useState([]);
 
   // Sandbox endpoint externo
   const [testQrToken, setTestQrToken] = useState('');
@@ -225,11 +249,51 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
+  const fetchAuditOverview = async (
+    outcomeToLoad = auditOutcomeFilter,
+    searchToLoad = auditSearch
+  ) => {
+    setLoadingAudit(true);
+    try {
+      const params = new URLSearchParams({
+        outcome: outcomeToLoad,
+        search: searchToLoad
+      });
+      const res = await fetch(`${API_BASE}/api/v1/external/audit?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setAccessSummary(data.access_summary || {
+          total_attempts: 0,
+          authorized_count: 0,
+          denied_count: 0
+        });
+        setAccessLogs(data.access_logs || []);
+        setFinancialSummary(data.financial_summary || {
+          total_contracts: 0,
+          pending_contracts: 0,
+          completed_contracts: 0,
+          total_transactions: 0,
+          gross_volume: '0.00',
+          platform_fees: '0.00',
+          provider_payouts: '0.00'
+        });
+        setTransactions(data.transactions || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar auditoría:', error);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
   useEffect(() => {
     fetchSystemHealth();
     fetchCountries(1, '', 'all');
     fetchIntegrations();
     fetchRecentPasses(1, '', 'all');
+    fetchAuditOverview('all', '');
   }, []);
 
   useEffect(() => {
@@ -240,6 +304,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
   useEffect(() => {
     fetchRecentPasses(passPage, passSearch, passStatusFilter);
   }, [passPage, passStatusFilter]);
+
+  useEffect(() => {
+    fetchAuditOverview(auditOutcomeFilter, auditSearch);
+  }, [auditOutcomeFilter]);
 
   const handleCountrySearchSubmit = (e) => {
     e.preventDefault();
@@ -258,6 +326,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
     } else {
       setPassPage(1);
     }
+  };
+
+  const handleAuditSearchSubmit = (e) => {
+    e.preventDefault();
+    fetchAuditOverview(auditOutcomeFilter, auditSearch);
   };
 
   const handleCreateCountry = async (e) => {
@@ -546,7 +619,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
       const elapsed = Math.round(performance.now() - startedAt);
       const body = await res.json();
       setSandboxResponse({ status: res.status, ok: res.ok, latencyMs: elapsed, body });
-      await fetchIntegrations();
+      await Promise.all([fetchIntegrations(), fetchAuditOverview(auditOutcomeFilter, auditSearch)]);
     } catch (error) {
       setSandboxResponse({
         status: 0,
@@ -554,6 +627,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         latencyMs: Math.round(performance.now() - startedAt),
         body: { error: 'Error de conexión con el servidor backend.' }
       });
+      await fetchAuditOverview(auditOutcomeFilter, auditSearch);
     } finally {
       setTestingEndpoint(false);
     }
@@ -575,7 +649,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               Salud del Sistema & API Externa
             </h2>
             <p className="text-xs text-slate-400">
-              Diagnóstico en tiempo real, gobernanza de comunidades, claves por barrio y sandbox
+              Diagnóstico en tiempo real, gobernanza de comunidades, claves por barrio, auditoría y sandbox
             </p>
           </div>
         </div>
@@ -586,6 +660,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             fetchCountries(countryPage, countrySearch, countryStatusFilter);
             fetchIntegrations();
             fetchRecentPasses(passPage, passSearch, passStatusFilter);
+            fetchAuditOverview(auditOutcomeFilter, auditSearch);
           }}
           disabled={loadingStatus}
           className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer self-start sm:self-auto"
@@ -1109,7 +1184,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         )}
       </div>
 
-      {/* Pases QR Recientes con Comunidad / Barrio, Paginación y Filtros */}
+      {/* Pases QR Recientes */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
           <div>
@@ -1282,6 +1357,217 @@ export default function SystemHealthDashboard({ onNavigate }) {
         )}
       </div>
 
+      {/* Punto 5: Trazabilidad de Eventos / Auditoría de Accesos y Transacciones */}
+      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
+        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-3">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <ClipboardList size={18} className="text-emerald-400" />
+              Trazabilidad de Eventos & Auditoría de Accesos y Transacciones
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Inspeccioná intentos de validación autorizados vs. denegados (con su código de motivo) y el resumen financiero de contratos/transacciones.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAuditTab('access')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border ${
+                auditTab === 'access'
+                  ? 'bg-emerald-600 text-white border-emerald-500'
+                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+              }`}
+            >
+              Accesos y Validaciones
+            </button>
+            <button
+              type="button"
+              onClick={() => setAuditTab('transactions')}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border inline-flex items-center gap-1.5 ${
+                auditTab === 'transactions'
+                  ? 'bg-indigo-600 text-white border-indigo-500'
+                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
+              }`}
+            >
+              <Receipt size={13} /> Contratos y Transacciones
+            </button>
+          </div>
+        </div>
+
+        {auditTab === 'access' ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Intentos Auditados</span>
+                <strong className="text-white text-base">{accessSummary.total_attempts ?? 0}</strong>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Autorizados</span>
+                <strong className="text-emerald-400 text-base">{accessSummary.authorized_count ?? 0}</strong>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Denegados</span>
+                <strong className="text-rose-400 text-base">{accessSummary.denied_count ?? 0}</strong>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <form onSubmit={handleAuditSearchSubmit} className="flex-1 flex gap-2">
+                <input
+                  type="text"
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  placeholder="Filtrar por código (OUT_OF_TIME_WINDOW, COMPLIANCE_NOT_APPROVED...), token o comunidad..."
+                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                />
+                <button
+                  type="submit"
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer"
+                >
+                  Filtrar
+                </button>
+              </form>
+              <select
+                value={auditOutcomeFilter}
+                onChange={(e) => setAuditOutcomeFilter(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+              >
+                <option value="all">Todos los resultados</option>
+                <option value="authorized">Solo autorizados</option>
+                <option value="denied">Solo denegados</option>
+              </select>
+            </div>
+
+            {loadingAudit ? (
+              <p className="text-xs text-slate-400 py-3">Cargando trazabilidad de accesos...</p>
+            ) : accessLogs.length === 0 ? (
+              <p className="text-xs text-slate-400 py-3">
+                Aún no hay intentos registrados en la bitácora. Ejecutá una prueba en el Sandbox para generar eventos.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                      <th className="py-2.5 px-3">ID</th>
+                      <th className="py-2.5 px-3">Resultado</th>
+                      <th className="py-2.5 px-3">Código / Motivo</th>
+                      <th className="py-2.5 px-3">Comunidad / Origen</th>
+                      <th className="py-2.5 px-3">Token / Pase</th>
+                      <th className="py-2.5 px-3">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {accessLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-slate-900/40">
+                        <td className="py-2.5 px-3 font-mono text-slate-400">#{log.id}</td>
+                        <td className="py-2.5 px-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                            log.authorized
+                              ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                              : 'bg-rose-950 text-rose-300 border-rose-800'
+                          }`}>
+                            {log.authorized ? 'AUTORIZADO' : 'DENEGADO'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-mono font-bold text-amber-300 block">{log.reason_code}</span>
+                          <span className="text-[11px] text-slate-400">{log.message}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          <span className="block font-bold text-white">
+                            {log.country_name || (log.country_id ? `Comunidad #${log.country_id}` : 'Sin comunidad')}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {log.integration_label || log.auth_mode} · HTTP {log.http_status}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-400">
+                          {log.pass_id ? `Pase #${log.pass_id} · ` : ''}
+                          {log.qr_token ? `${log.qr_token.slice(0, 10)}...` : '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 text-[11px]">
+                          {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Contratos (Total / Pend. / Comp.)</span>
+                <strong className="text-white text-sm">
+                  {financialSummary.total_contracts ?? 0} / {financialSummary.pending_contracts ?? 0} / {financialSummary.completed_contracts ?? 0}
+                </strong>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Volumen Bruto Transaccionado</span>
+                <strong className="text-white text-sm">${financialSummary.gross_volume ?? '0.00'}</strong>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Comisión TrustLink (Take Rate)</span>
+                <strong className="text-emerald-400 text-sm">${financialSummary.platform_fees ?? '0.00'}</strong>
+              </div>
+              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
+                <span className="text-slate-400 block">Neto a Prestadores</span>
+                <strong className="text-sky-400 text-sm">${financialSummary.provider_payouts ?? '0.00'}</strong>
+              </div>
+            </div>
+
+            {loadingAudit ? (
+              <p className="text-xs text-slate-400 py-3">Cargando transacciones...</p>
+            ) : transactions.length === 0 ? (
+              <p className="text-xs text-slate-400 py-3">No hay transacciones registradas todavía en la tabla transactions.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                      <th className="py-2.5 px-3">ID</th>
+                      <th className="py-2.5 px-3">Contrato / Prestador</th>
+                      <th className="py-2.5 px-3">Monto Total</th>
+                      <th className="py-2.5 px-3">Take Rate</th>
+                      <th className="py-2.5 px-3">Neto Prestador</th>
+                      <th className="py-2.5 px-3">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {transactions.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-900/40">
+                        <td className="py-2.5 px-3 font-mono text-slate-400">#{tx.id}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-white block">
+                            Contrato #{tx.contract_id} · {`${tx.provider_first_name || ''} ${tx.provider_last_name || ''}`.trim() || 'Prestador'}
+                          </span>
+                          <span className="text-[11px] text-slate-400">
+                            {tx.contract_description || tx.gateway_provider || '—'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-white">${tx.total_amount}</td>
+                        <td className="py-2.5 px-3 font-mono text-emerald-400">${tx.platform_fee}</td>
+                        <td className="py-2.5 px-3 font-mono text-sky-300">${tx.provider_payout}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold border bg-slate-800 text-slate-200 border-slate-700">
+                            {tx.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Sandbox Endpoint Externo */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
         <div className="border-b border-slate-800 pb-4">
@@ -1290,7 +1576,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             Sandbox POST /api/v1/external/passes/verify
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Probá la validación externa con una clave por comunidad, clave global o sesión Bearer.
+            Probá la validación externa con una clave por comunidad, clave global o sesión Bearer. Cada ejecución queda registrada en Auditoría.
           </p>
         </div>
 
