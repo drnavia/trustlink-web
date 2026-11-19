@@ -1,11 +1,34 @@
 /**
  * @file SecurityScanner.jsx
  * @description Interfaz ultrarrápida para validación de pases QR en garita conectada al backend de TrustLink.
+ * Muestra datos del prestador, especialidad, compliance, vehículo y destino para control perimetral.
  * @location /trustlink-web/src/modules/security/SecurityScanner.jsx
  */
 
 import React, { useState } from 'react';
 import { QrCode, Search, CheckCircle2, XCircle, Car, User, ShieldCheck, AlertCircle } from 'lucide-react';
+
+const formatFieldValue = (prefix, value) => {
+  if (!value) return '-';
+  const clean = String(value).trim();
+  const normalizedPrefix = `${prefix.toLowerCase()} `;
+  if (clean.toLowerCase().startsWith(normalizedPrefix)) {
+    return clean.slice(normalizedPrefix.length).trim();
+  }
+  return clean;
+};
+
+const formatDateTime = (isoString) => {
+  if (!isoString) return '-';
+  const date = new Date(isoString);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
 
 export default function SecurityScanner() {
   const [qrToken, setQrToken] = useState('');
@@ -52,6 +75,13 @@ export default function SecurityScanner() {
       setLoading(false);
     }
   };
+
+  const fractionDisplay = scanResult?.details
+    ? formatFieldValue('Fracción', scanResult.details.fraction_number)
+    : '-';
+  const lotDisplay = scanResult?.details
+    ? formatFieldValue('Lote', scanResult.details.lot_number)
+    : '-';
 
   return (
     <div className="flex-grow bg-slate-900 text-slate-100 font-sans flex flex-col justify-center px-6 py-10">
@@ -134,6 +164,9 @@ export default function SecurityScanner() {
                     {scanResult.details.provider_first_name} {scanResult.details.provider_last_name}
                   </p>
                   <p className="text-slate-400">DNI: {scanResult.details.provider_dni || 'No registrado'}</p>
+                  <p className="text-slate-300">
+                    Especialidad: <strong className="text-white">{scanResult.details.provider_specialty || 'No especificada'}</strong>
+                  </p>
                   <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-emerald-950 text-emerald-300 px-2.5 py-0.5 rounded border border-emerald-800 mt-1">
                     <ShieldCheck size={12} /> Compliance Aprobado
                   </span>
@@ -145,14 +178,20 @@ export default function SecurityScanner() {
                   </p>
                   <p className="text-sm font-bold text-white">
                     {scanResult.details.brand
-                      ? `${scanResult.details.brand} ${scanResult.details.model || ''} (${scanResult.details.color || 'S/C'})`
+                      ? `${scanResult.details.brand} ${scanResult.details.model || ''}${scanResult.details.vehicle_type ? ` · ${scanResult.details.vehicle_type}` : ''} (${scanResult.details.color || 'S/C'})`
                       : 'Ingreso peatonal / Sin vehículo'}
                   </p>
                   {scanResult.details.plate && (
                     <p className="text-emerald-400 font-mono font-bold">Patente: {scanResult.details.plate}</p>
                   )}
                   <p className="text-slate-300">
-                    Destino: Fracción {scanResult.details.fraction_number || '-'} / Lote {scanResult.details.lot_number || '-'}
+                    Destino: Fracción {fractionDisplay} / Lote {lotDisplay}
+                  </p>
+                  <p className="text-slate-400">
+                    Autorizó: <strong className="text-slate-200">{scanResult.details.authorized_by || '-'}</strong>
+                  </p>
+                  <p className="text-slate-400">
+                    Vigencia: {formatDateTime(scanResult.details.valid_from)} — {formatDateTime(scanResult.details.valid_to)}
                   </p>
                 </div>
               </div>
