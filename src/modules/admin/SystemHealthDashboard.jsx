@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, gestión de comunidades, integraciones y claves por comunidad,
- * pases QR recientes y sandbox del endpoint externo.
+ * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
+ * pases QR recientes con paginación y filtros, y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -15,7 +15,6 @@ import {
   RefreshCw,
   Send,
   CheckCircle2,
-  XCircle,
   AlertCircle,
   Terminal,
   Clock,
@@ -62,7 +61,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [countryTotalCount, setCountryTotalCount] = useState(0);
   const COUNTRIES_PER_PAGE = 6;
 
-  // Punto 4: Integraciones y claves por comunidad
+  // Integraciones y claves por comunidad
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
   const [selectedCountryId, setSelectedCountryId] = useState('');
@@ -73,9 +72,15 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [busyIntegrationId, setBusyIntegrationId] = useState(null);
 
-  // Pases QR recientes
+  // Pases QR recientes con paginación y filtros
   const [recentPasses, setRecentPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
+  const [passPage, setPassPage] = useState(1);
+  const [passTotalPages, setPassTotalPages] = useState(1);
+  const [passTotalCount, setPassTotalCount] = useState(0);
+  const [passStatusFilter, setPassStatusFilter] = useState('all');
+  const [passSearch, setPassSearch] = useState('');
+  const PASSES_PER_PAGE = 8;
   const [copiedTokenId, setCopiedTokenId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passActionMsg, setPassActionMsg] = useState({ type: '', text: '' });
@@ -136,7 +141,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  const fetchCountries = async (pageToLoad = countryPage, searchToLoad = countrySearch, statusToLoad = countryStatusFilter) => {
+  const fetchCountries = async (
+    pageToLoad = countryPage,
+    searchToLoad = countrySearch,
+    statusToLoad = countryStatusFilter
+  ) => {
     setLoadingCountries(true);
     try {
       const params = new URLSearchParams({
@@ -184,15 +193,28 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  const fetchRecentPasses = async () => {
+  const fetchRecentPasses = async (
+    pageToLoad = passPage,
+    searchToLoad = passSearch,
+    statusToLoad = passStatusFilter
+  ) => {
     setLoadingPasses(true);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/external/passes`, {
+      const params = new URLSearchParams({
+        page: String(pageToLoad),
+        limit: String(PASSES_PER_PAGE),
+        status: statusToLoad,
+        search: searchToLoad
+      });
+      const res = await fetch(`${API_BASE}/api/v1/external/passes?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
       });
       const data = await res.json();
       if (res.ok) {
         setRecentPasses(data.passes || []);
+        setPassTotalCount(data.total ?? (data.passes || []).length);
+        setPassTotalPages(data.totalPages ?? 1);
+        setPassPage(data.page ?? pageToLoad);
       }
     } catch (error) {
       console.error('Error al cargar pases recientes:', error);
@@ -205,13 +227,17 @@ export default function SystemHealthDashboard({ onNavigate }) {
     fetchSystemHealth();
     fetchCountries(1, '', 'all');
     fetchIntegrations();
-    fetchRecentPasses();
+    fetchRecentPasses(1, '', 'all');
   }, []);
 
   useEffect(() => {
     setEditingCountryId(null);
     fetchCountries(countryPage, countrySearch, countryStatusFilter);
   }, [countryPage, countryStatusFilter]);
+
+  useEffect(() => {
+    fetchRecentPasses(passPage, passSearch, passStatusFilter);
+  }, [passPage, passStatusFilter]);
 
   const handleCountrySearchSubmit = (e) => {
     e.preventDefault();
@@ -220,6 +246,15 @@ export default function SystemHealthDashboard({ onNavigate }) {
       fetchCountries(1, countrySearch, countryStatusFilter);
     } else {
       setCountryPage(1);
+    }
+  };
+
+  const handlePassSearchSubmit = (e) => {
+    e.preventDefault();
+    if (passPage === 1) {
+      fetchRecentPasses(1, passSearch, passStatusFilter);
+    } else {
+      setPassPage(1);
     }
   };
 
@@ -336,7 +371,6 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  // Punto 4 handlers
   const handleCreateIntegration = async (e) => {
     e.preventDefault();
     setIntegrationFeedback({ type: '', message: '' });
@@ -459,7 +493,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
       const data = await res.json();
       if (res.ok) {
         setPassActionMsg({ type: 'success', text: `Pase #${passId} cancelado.` });
-        await Promise.all([fetchRecentPasses(), fetchSystemHealth()]);
+        await Promise.all([
+          fetchRecentPasses(passPage, passSearch, passStatusFilter),
+          fetchSystemHealth()
+        ]);
       } else {
         setPassActionMsg({ type: 'error', text: data.error || 'No se pudo cancelar el pase.' });
       }
@@ -532,7 +569,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             fetchSystemHealth();
             fetchCountries(countryPage, countrySearch, countryStatusFilter);
             fetchIntegrations();
-            fetchRecentPasses();
+            fetchRecentPasses(passPage, passSearch, passStatusFilter);
           }}
           disabled={loadingStatus}
           className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer self-start sm:self-auto"
@@ -542,7 +579,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         </button>
       </div>
 
-      {/* Punto 1: Resumen Ejecutivo de Gobernanza */}
+      {/* Resumen Ejecutivo de Gobernanza */}
       <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
@@ -667,7 +704,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         </div>
       </div>
 
-      {/* Punto 4: Integraciones y Claves API por Comunidad */}
+      {/* Integraciones y Claves API por Comunidad */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-4">
           <h3 className="text-base font-black text-white flex items-center gap-2">
@@ -1047,9 +1084,9 @@ export default function SystemHealthDashboard({ onNavigate }) {
         )}
       </div>
 
-      {/* Pases QR Recientes */}
+      {/* Pases QR Recientes con Paginación y Filtros */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
           <div>
             <h3 className="text-base font-black text-white flex items-center gap-2">
               <QrCode size={18} className="text-indigo-400" />
@@ -1059,6 +1096,41 @@ export default function SystemHealthDashboard({ onNavigate }) {
               Copiá tokens para probar en el sandbox o cancelá pases activos/pendientes.
             </p>
           </div>
+          <span className="text-xs text-slate-400">
+            Total filtrados: <strong className="text-white">{passTotalCount}</strong>
+          </span>
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <form onSubmit={handlePassSearchSubmit} className="flex-1 flex gap-2">
+            <input
+              type="text"
+              value={passSearch}
+              onChange={(e) => setPassSearch(e.target.value)}
+              placeholder="Buscar por ID, prestador, fracción o lote..."
+              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer"
+            >
+              Buscar
+            </button>
+          </form>
+          <select
+            value={passStatusFilter}
+            onChange={(e) => {
+              setPassStatusFilter(e.target.value);
+              setPassPage(1);
+            }}
+            className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
+          >
+            <option value="all">Todos los estados</option>
+            <option value="pending">Pendientes</option>
+            <option value="used">Usados</option>
+            <option value="expired">Expirados</option>
+            <option value="cancelled">Cancelados</option>
+          </select>
         </div>
 
         {passActionMsg.text && (
@@ -1074,72 +1146,110 @@ export default function SystemHealthDashboard({ onNavigate }) {
         {loadingPasses ? (
           <p className="text-xs text-slate-400 py-3">Cargando pases recientes...</p>
         ) : recentPasses.length === 0 ? (
-          <p className="text-xs text-slate-400 py-3">No hay pases QR registrados.</p>
+          <p className="text-xs text-slate-400 py-3">No hay pases QR registrados para los filtros aplicados.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                  <th className="py-2.5 px-3">ID</th>
-                  <th className="py-2.5 px-3">Prestador</th>
-                  <th className="py-2.5 px-3">Destino</th>
-                  <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3">Token</th>
-                  <th className="py-2.5 px-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {recentPasses.slice(0, 10).map((p) => (
-                  <tr key={p.id} className="hover:bg-slate-900/40">
-                    <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
-                    <td className="py-2.5 px-3 font-bold text-white">
-                      {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-300">
-                      {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                        p.status === 'cancelled'
-                          ? 'bg-rose-950 text-rose-300 border-rose-800'
-                          : 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                      }`}>
-                        {p.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-400">
-                      {p.qr_token ? `${p.qr_token.slice(0, 12)}...` : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <div className="inline-flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setTestQrToken(p.qr_token || '');
-                            handleCopyToken(p.id, p.qr_token || '');
-                          }}
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
-                          {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
-                        </button>
-                        {p.status !== 'cancelled' && (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                    <th className="py-2.5 px-3">ID</th>
+                    <th className="py-2.5 px-3">Prestador</th>
+                    <th className="py-2.5 px-3">Destino</th>
+                    <th className="py-2.5 px-3">Vigencia</th>
+                    <th className="py-2.5 px-3">Estado</th>
+                    <th className="py-2.5 px-3">Token</th>
+                    <th className="py-2.5 px-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {recentPasses.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-900/40">
+                      <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
+                      <td className="py-2.5 px-3 font-bold text-white">
+                        {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
+                        {p.provider_specialty && (
+                          <span className="block text-[11px] font-normal text-slate-400">
+                            {p.provider_specialty}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-300">
+                        {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-400 text-[11px]">
+                        {p.start_time ? new Date(p.start_time).toLocaleString() : '—'}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                          p.status === 'cancelled'
+                            ? 'bg-rose-950 text-rose-300 border-rose-800'
+                            : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 font-mono text-slate-400">
+                        {p.qr_token ? `${p.qr_token.slice(0, 12)}...` : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right">
+                        <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => handleCancelPass(p.id)}
-                            disabled={cancellingPassId === p.id}
-                            className="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            onClick={() => {
+                              setTestQrToken(p.qr_token || '');
+                              handleCopyToken(p.id, p.qr_token || '');
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                           >
-                            <Ban size={12} /> Cancelar
+                            {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
                           </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                          {p.status !== 'cancelled' && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelPass(p.id)}
+                              disabled={cancellingPassId === p.id}
+                              className="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              <Ban size={12} /> Cancelar
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {passTotalPages > 1 && (
+              <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+                <span>
+                  Página <strong className="text-white">{passPage}</strong> de{' '}
+                  <strong className="text-white">{passTotalPages}</strong>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={passPage <= 1}
+                    onClick={() => setPassPage((p) => Math.max(p - 1, 1))}
+                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    disabled={passPage >= passTotalPages}
+                    onClick={() => setPassPage((p) => Math.min(p + 1, passTotalPages))}
+                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
