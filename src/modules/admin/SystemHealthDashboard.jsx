@@ -1,10 +1,9 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
- * pases QR recientes (con ingreso y salida en Vigencia, indicador visual de pase vencido/próximo,
- * copia a portapapeles + sandbox + clave de comunidad), trazabilidad de eventos / auditoría
- * de accesos y transacciones, y sandbox del endpoint externo.
+ * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades
+ * (nombre, dirección, código postal, localidad, provincia y estado), pases QR recientes,
+ * trazabilidad de eventos / auditoría de accesos y transacciones con paginación, y sandbox.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -45,25 +44,37 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [healthData, setHealthData] = useState(null);
   const [diagnosticsData, setDiagnosticsData] = useState(null);
 
-  // Comunidades
+  // Comunidades (nombre, dirección, código postal, localidad, provincia, estado)
   const [countries, setCountries] = useState([]);
   const [allCountriesForSelect, setAllCountriesForSelect] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
-  const [newCountryName, setNewCountryName] = useState('');
-  const [newCountryLocation, setNewCountryLocation] = useState('');
+  const [newCountryForm, setNewCountryForm] = useState({
+    name: '',
+    address: '',
+    postal_code: '',
+    locality: '',
+    province: '',
+    is_active: true
+  });
   const [creatingCountry, setCreatingCountry] = useState(false);
   const [countryFeedback, setCountryFeedback] = useState({ type: '', message: '' });
   const [togglingCountryId, setTogglingCountryId] = useState(null);
   const [editingCountryId, setEditingCountryId] = useState(null);
-  const [editCountryName, setEditCountryName] = useState('');
-  const [editCountryLocation, setEditCountryLocation] = useState('');
+  const [editCountryForm, setEditCountryForm] = useState({
+    name: '',
+    address: '',
+    postal_code: '',
+    locality: '',
+    province: '',
+    is_active: true
+  });
   const [savingCountryId, setSavingCountryId] = useState(null);
   const [countrySearch, setCountrySearch] = useState('');
   const [countryStatusFilter, setCountryStatusFilter] = useState('all');
   const [countryPage, setCountryPage] = useState(1);
   const [countryTotalPages, setCountryTotalPages] = useState(1);
   const [countryTotalCount, setCountryTotalCount] = useState(0);
-  const COUNTRIES_PER_PAGE = 6;
+  const [countriesPerPage, setCountriesPerPage] = useState(6);
 
   // Integraciones y claves por comunidad
   const [integrations, setIntegrations] = useState([]);
@@ -85,16 +96,20 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [passTotalCount, setPassTotalCount] = useState(0);
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passSearch, setPassSearch] = useState('');
-  const PASSES_PER_PAGE = 8;
+  const [passesPerPage, setPassesPerPage] = useState(8);
   const [copiedTokenId, setCopiedTokenId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passActionMsg, setPassActionMsg] = useState({ type: '', text: '' });
 
-  // Auditoría de accesos y transacciones
+  // Auditoría de accesos y transacciones con paginación
   const [loadingAudit, setLoadingAudit] = useState(true);
   const [auditTab, setAuditTab] = useState('access');
   const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all');
   const [auditSearch, setAuditSearch] = useState('');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
+  const [auditTotalCount, setAuditTotalCount] = useState(0);
+  const [auditPerPage, setAuditPerPage] = useState(6);
   const [accessSummary, setAccessSummary] = useState({
     total_attempts: 0,
     authorized_count: 0,
@@ -150,10 +165,6 @@ export default function SystemHealthDashboard({ onNavigate }) {
     });
   };
 
-  /**
-   * Evalúa el estado visual efectivo del pase combinando el status en DB
-   * con la ventana horaria (start_time / end_time).
-   */
   const getPassEffectiveStatus = (passItem) => {
     const rawStatus = String(passItem?.status || 'pending').toLowerCase();
     if (rawStatus === 'cancelled') {
@@ -247,13 +258,14 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const fetchCountries = async (
     pageToLoad = countryPage,
     searchToLoad = countrySearch,
-    statusToLoad = countryStatusFilter
+    statusToLoad = countryStatusFilter,
+    limitToLoad = countriesPerPage
   ) => {
     setLoadingCountries(true);
     try {
       const params = new URLSearchParams({
         page: String(pageToLoad),
-        limit: String(COUNTRIES_PER_PAGE),
+        limit: String(limitToLoad),
         status: statusToLoad,
         search: searchToLoad
       });
@@ -299,14 +311,15 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const fetchRecentPasses = async (
     pageToLoad = passPage,
     searchToLoad = passSearch,
-    statusToLoad = passStatusFilter
+    statusToLoad = passStatusFilter,
+    limitToLoad = passesPerPage
   ) => {
     setLoadingPasses(true);
     try {
       const queryStatus = statusToLoad === 'expired' ? 'all' : statusToLoad;
       const params = new URLSearchParams({
         page: String(pageToLoad),
-        limit: String(statusToLoad === 'expired' ? 50 : PASSES_PER_PAGE),
+        limit: String(statusToLoad === 'expired' ? 50 : limitToLoad),
         status: queryStatus,
         search: searchToLoad
       });
@@ -340,13 +353,17 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   const fetchAuditOverview = async (
     outcomeToLoad = auditOutcomeFilter,
-    searchToLoad = auditSearch
+    searchToLoad = auditSearch,
+    pageToLoad = auditPage,
+    limitToLoad = auditPerPage
   ) => {
     setLoadingAudit(true);
     try {
       const params = new URLSearchParams({
         outcome: outcomeToLoad,
-        search: searchToLoad
+        search: searchToLoad,
+        page: String(pageToLoad),
+        limit: String(limitToLoad)
       });
       const res = await fetch(`${API_BASE}/api/v1/external/audit?${params.toString()}`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
@@ -359,6 +376,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
           denied_count: 0
         });
         setAccessLogs(data.access_logs || []);
+        const pagination = data.access_pagination || {};
+        setAuditTotalCount(pagination.total ?? (data.access_logs || []).length);
+        setAuditTotalPages(pagination.totalPages ?? 1);
+        setAuditPage(pagination.page ?? pageToLoad);
+
         setFinancialSummary(data.financial_summary || {
           total_contracts: 0,
           pending_contracts: 0,
@@ -379,30 +401,30 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   useEffect(() => {
     fetchSystemHealth();
-    fetchCountries(1, '', 'all');
+    fetchCountries(1, '', 'all', countriesPerPage);
     fetchIntegrations();
-    fetchRecentPasses(1, '', 'all');
-    fetchAuditOverview('all', '');
+    fetchRecentPasses(1, '', 'all', passesPerPage);
+    fetchAuditOverview('all', '', 1, auditPerPage);
   }, []);
 
   useEffect(() => {
     setEditingCountryId(null);
-    fetchCountries(countryPage, countrySearch, countryStatusFilter);
-  }, [countryPage, countryStatusFilter]);
+    fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage);
+  }, [countryPage, countryStatusFilter, countriesPerPage]);
 
   useEffect(() => {
-    fetchRecentPasses(passPage, passSearch, passStatusFilter);
-  }, [passPage, passStatusFilter]);
+    fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage);
+  }, [passPage, passStatusFilter, passesPerPage]);
 
   useEffect(() => {
-    fetchAuditOverview(auditOutcomeFilter, auditSearch);
-  }, [auditOutcomeFilter]);
+    fetchAuditOverview(auditOutcomeFilter, auditSearch, auditPage, auditPerPage);
+  }, [auditOutcomeFilter, auditPage, auditPerPage]);
 
   const handleCountrySearchSubmit = (e) => {
     e.preventDefault();
     setEditingCountryId(null);
     if (countryPage === 1) {
-      fetchCountries(1, countrySearch, countryStatusFilter);
+      fetchCountries(1, countrySearch, countryStatusFilter, countriesPerPage);
     } else {
       setCountryPage(1);
     }
@@ -411,7 +433,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const handlePassSearchSubmit = (e) => {
     e.preventDefault();
     if (passPage === 1) {
-      fetchRecentPasses(1, passSearch, passStatusFilter);
+      fetchRecentPasses(1, passSearch, passStatusFilter, passesPerPage);
     } else {
       setPassPage(1);
     }
@@ -419,14 +441,18 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   const handleAuditSearchSubmit = (e) => {
     e.preventDefault();
-    fetchAuditOverview(auditOutcomeFilter, auditSearch);
+    if (auditPage === 1) {
+      fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage);
+    } else {
+      setAuditPage(1);
+    }
   };
 
   const handleCreateCountry = async (e) => {
     e.preventDefault();
     setCountryFeedback({ type: '', message: '' });
-    if (!newCountryName.trim()) {
-      setCountryFeedback({ type: 'error', message: 'Ingresá el nombre de la comunidad.' });
+    if (!newCountryForm.name.trim()) {
+      setCountryFeedback({ type: 'error', message: 'Ingresá el nombre de la comunidad / barrio.' });
       return;
     }
 
@@ -436,19 +462,28 @@ export default function SystemHealthDashboard({ onNavigate }) {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          name: newCountryName.trim(),
-          location: newCountryLocation.trim() || null,
-          is_active: true
+          name: newCountryForm.name.trim(),
+          address: newCountryForm.address.trim() || null,
+          postal_code: newCountryForm.postal_code.trim() || null,
+          locality: newCountryForm.locality.trim() || null,
+          province: newCountryForm.province.trim() || null,
+          is_active: Boolean(newCountryForm.is_active)
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setNewCountryName('');
-        setNewCountryLocation('');
+        setNewCountryForm({
+          name: '',
+          address: '',
+          postal_code: '',
+          locality: '',
+          province: '',
+          is_active: true
+        });
         setCountryFeedback({ type: 'success', message: data.message || 'Comunidad creada.' });
         setCountryPage(1);
         await Promise.all([
-          fetchCountries(1, countrySearch, countryStatusFilter),
+          fetchCountries(1, countrySearch, countryStatusFilter, countriesPerPage),
           fetchIntegrations(),
           fetchSystemHealth()
         ]);
@@ -465,20 +500,32 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const startEditingCountry = (country) => {
     setCountryFeedback({ type: '', message: '' });
     setEditingCountryId(country.id);
-    setEditCountryName(country.name || '');
-    setEditCountryLocation(country.location || '');
+    setEditCountryForm({
+      name: country.name || '',
+      address: country.address || '',
+      postal_code: country.postal_code || '',
+      locality: country.locality || '',
+      province: country.province || '',
+      is_active: Boolean(country.is_active)
+    });
   };
 
   const cancelEditingCountry = () => {
     setEditingCountryId(null);
-    setEditCountryName('');
-    setEditCountryLocation('');
+    setEditCountryForm({
+      name: '',
+      address: '',
+      postal_code: '',
+      locality: '',
+      province: '',
+      is_active: true
+    });
   };
 
   const handleSaveCountryEdit = async (id) => {
     setCountryFeedback({ type: '', message: '' });
-    if (!editCountryName.trim()) {
-      setCountryFeedback({ type: 'error', message: 'El nombre de la comunidad es obligatorio.' });
+    if (!editCountryForm.name.trim()) {
+      setCountryFeedback({ type: 'error', message: 'El nombre de la comunidad / barrio es obligatorio.' });
       return;
     }
     setSavingCountryId(id);
@@ -487,8 +534,12 @@ export default function SystemHealthDashboard({ onNavigate }) {
         method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          name: editCountryName.trim(),
-          location: editCountryLocation.trim() || null
+          name: editCountryForm.name.trim(),
+          address: editCountryForm.address.trim() || null,
+          postal_code: editCountryForm.postal_code.trim() || null,
+          locality: editCountryForm.locality.trim() || null,
+          province: editCountryForm.province.trim() || null,
+          is_active: Boolean(editCountryForm.is_active)
         })
       });
       const data = await res.json();
@@ -496,9 +547,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
         setCountryFeedback({ type: 'success', message: data.message || 'Comunidad actualizada.' });
         setEditingCountryId(null);
         await Promise.all([
-          fetchCountries(countryPage, countrySearch, countryStatusFilter),
+          fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage),
           fetchIntegrations(),
-          fetchRecentPasses(passPage, passSearch, passStatusFilter)
+          fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage),
+          fetchSystemHealth()
         ]);
       } else {
         setCountryFeedback({ type: 'error', message: data.error || 'No se pudo actualizar.' });
@@ -522,7 +574,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
       if (res.ok) {
         setCountryFeedback({ type: 'success', message: data.message || 'Estado actualizado.' });
         await Promise.all([
-          fetchCountries(countryPage, countrySearch, countryStatusFilter),
+          fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage),
           fetchIntegrations(),
           fetchSystemHealth()
         ]);
@@ -704,7 +756,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
       if (res.ok) {
         setPassActionMsg({ type: 'success', text: `Pase #${passId} cancelado.` });
         await Promise.all([
-          fetchRecentPasses(passPage, passSearch, passStatusFilter),
+          fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage),
           fetchSystemHealth()
         ]);
       } else {
@@ -740,7 +792,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
       const elapsed = Math.round(performance.now() - startedAt);
       const body = await res.json();
       setSandboxResponse({ status: res.status, ok: res.ok, latencyMs: elapsed, body });
-      await Promise.all([fetchIntegrations(), fetchAuditOverview(auditOutcomeFilter, auditSearch)]);
+      await Promise.all([
+        fetchIntegrations(),
+        fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage)
+      ]);
     } catch (error) {
       setSandboxResponse({
         status: 0,
@@ -748,7 +803,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         latencyMs: Math.round(performance.now() - startedAt),
         body: { error: 'Error de conexión con el servidor backend.' }
       });
-      await fetchAuditOverview(auditOutcomeFilter, auditSearch);
+      await fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage);
     } finally {
       setTestingEndpoint(false);
     }
@@ -778,10 +833,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
         <button
           onClick={() => {
             fetchSystemHealth();
-            fetchCountries(countryPage, countrySearch, countryStatusFilter);
+            fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage);
             fetchIntegrations();
-            fetchRecentPasses(passPage, passSearch, passStatusFilter);
-            fetchAuditOverview(auditOutcomeFilter, auditSearch);
+            fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage);
+            fetchAuditOverview(auditOutcomeFilter, auditSearch, auditPage, auditPerPage);
           }}
           disabled={loadingStatus}
           className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer self-start sm:self-auto"
@@ -1096,7 +1151,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               Gestión de Comunidades / Barrios Privados
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Alta, edición, activación y búsqueda paginada de comunidades en la red TrustLink.
+              Alta y modificación de datos de comunidad/barrio: Nombre, Dirección, Código Postal, Localidad, Provincia y Estado.
             </p>
           </div>
           <span className="text-xs text-slate-400">
@@ -1104,30 +1159,85 @@ export default function SystemHealthDashboard({ onNavigate }) {
           </span>
         </div>
 
-        <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-5">
+        <form onSubmit={handleCreateCountry} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+          <div className="lg:col-span-4">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Nombre Comunidad / Barrio *
+            </label>
             <input
               type="text"
-              value={newCountryName}
-              onChange={(e) => setNewCountryName(e.target.value)}
-              placeholder="Nombre de la comunidad (ej. Barrio Las Lomas)"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              value={newCountryForm.name}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="Ej. Barrio Las Lomas"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
             />
           </div>
-          <div className="md:col-span-4">
+          <div className="lg:col-span-4">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Dirección
+            </label>
             <input
               type="text"
-              value={newCountryLocation}
-              onChange={(e) => setNewCountryLocation(e.target.value)}
-              placeholder="Ubicación (ej. Pilar - Buenos Aires)"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+              value={newCountryForm.address}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, address: e.target.value }))}
+              placeholder="Ej. Ruta 58 Km 12.5"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
             />
           </div>
-          <div className="md:col-span-3">
+          <div className="lg:col-span-2">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Código Postal
+            </label>
+            <input
+              type="text"
+              value={newCountryForm.postal_code}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, postal_code: e.target.value }))}
+              placeholder="Ej. B1814"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="lg:col-span-2">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Estado
+            </label>
+            <select
+              value={newCountryForm.is_active ? 'true' : 'false'}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+            >
+              <option value="true">Activa</option>
+              <option value="false">Inactiva</option>
+            </select>
+          </div>
+          <div className="lg:col-span-5">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Localidad
+            </label>
+            <input
+              type="text"
+              value={newCountryForm.locality}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, locality: e.target.value }))}
+              placeholder="Ej. Canning / Ezeiza"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="lg:col-span-4">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+              Provincia
+            </label>
+            <input
+              type="text"
+              value={newCountryForm.province}
+              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, province: e.target.value }))}
+              placeholder="Ej. Buenos Aires"
+              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          <div className="lg:col-span-3 flex items-end">
             <button
               type="submit"
               disabled={creatingCountry}
-              className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <Plus size={14} /> {creatingCountry ? 'Guardando...' : 'Agregar Comunidad'}
             </button>
@@ -1140,7 +1250,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               type="text"
               value={countrySearch}
               onChange={(e) => setCountrySearch(e.target.value)}
-              placeholder="Buscar por ID, nombre o ubicación..."
+              placeholder="Buscar por ID, nombre, dirección, CP, localidad o provincia..."
               className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
             />
             <button
@@ -1186,8 +1296,9 @@ export default function SystemHealthDashboard({ onNavigate }) {
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
                     <th className="py-2.5 px-3">ID</th>
-                    <th className="py-2.5 px-3">Nombre</th>
-                    <th className="py-2.5 px-3">Ubicación</th>
+                    <th className="py-2.5 px-3">Nombre Comunidad / Barrio</th>
+                    <th className="py-2.5 px-3">Dirección & CP</th>
+                    <th className="py-2.5 px-3">Localidad & Provincia</th>
                     <th className="py-2.5 px-3">Estado</th>
                     <th className="py-2.5 px-3 text-right">Acciones</th>
                   </tr>
@@ -1196,68 +1307,37 @@ export default function SystemHealthDashboard({ onNavigate }) {
                   {countries.map((c) => {
                     const isEditing = editingCountryId === c.id;
                     return (
-                      <tr key={c.id} className="hover:bg-slate-900/40">
-                        <td className="py-3 px-3 font-mono text-slate-400">#{c.id}</td>
-                        <td className="py-3 px-3 font-bold text-white">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editCountryName}
-                              onChange={(e) => setEditCountryName(e.target.value)}
-                              className="w-full bg-slate-900 border border-sky-500 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                            />
-                          ) : (
-                            c.name
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-slate-300">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editCountryLocation}
-                              onChange={(e) => setEditCountryLocation(e.target.value)}
-                              className="w-full bg-slate-900 border border-sky-500 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                            />
-                          ) : (
-                            c.location || '—'
-                          )}
-                        </td>
-                        <td className="py-3 px-3">
-                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
-                            c.is_active
-                              ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
-                          }`}>
-                            {c.is_active ? 'Activa' : 'Inactiva'}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          {isEditing ? (
+                      <React.Fragment key={c.id}>
+                        <tr className="hover:bg-slate-900/40">
+                          <td className="py-3 px-3 font-mono text-slate-400">#{c.id}</td>
+                          <td className="py-3 px-3 font-bold text-white">{c.name}</td>
+                          <td className="py-3 px-3 text-slate-300">
+                            <span className="block">{c.address || c.location || '—'}</span>
+                            {c.postal_code && (
+                              <span className="text-[11px] text-slate-400 font-mono">CP: {c.postal_code}</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-slate-300">
+                            <span className="block">{c.locality || '—'}</span>
+                            <span className="text-[11px] text-slate-400">{c.province || ''}</span>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                              c.is_active
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                                : 'bg-slate-800 text-slate-400 border-slate-700'
+                            }`}>
+                              {c.is_active ? 'Activa' : 'Inactiva'}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right">
                             <div className="inline-flex items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => handleSaveCountryEdit(c.id)}
-                                disabled={savingCountryId === c.id}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Check size={12} /> Guardar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEditingCountry}
-                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-2.5 py-1.5 rounded-lg text-[11px] font-bold cursor-pointer"
-                              >
-                                Cancelar
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => startEditingCountry(c)}
+                                onClick={() => (isEditing ? cancelEditingCountry() : startEditingCountry(c))}
                                 className="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                               >
-                                <Pencil size={12} /> Editar
+                                <Pencil size={12} /> {isEditing ? 'Cerrar' : 'Editar'}
                               </button>
                               <button
                                 type="button"
@@ -1272,41 +1352,150 @@ export default function SystemHealthDashboard({ onNavigate }) {
                                 <Power size={12} /> {c.is_active ? 'Desactivar' : 'Activar'}
                               </button>
                             </div>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                        </tr>
+
+                        {isEditing && (
+                          <tr className="bg-slate-900/80">
+                            <td colSpan={6} className="p-4 border-t border-slate-800">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
+                                <div className="lg:col-span-4">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Nombre Comunidad / Barrio *
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editCountryForm.name}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, name: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-sky-500 rounded-lg px-3 py-1.5 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="lg:col-span-4">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Dirección
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editCountryForm.address}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, address: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="lg:col-span-2">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Código Postal
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editCountryForm.postal_code}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, postal_code: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="lg:col-span-2">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Estado
+                                  </label>
+                                  <select
+                                    value={editCountryForm.is_active ? 'true' : 'false'}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
+                                  >
+                                    <option value="true">Activa</option>
+                                    <option value="false">Inactiva</option>
+                                  </select>
+                                </div>
+                                <div className="lg:col-span-4">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Localidad
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editCountryForm.locality}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, locality: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="lg:col-span-4">
+                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                                    Provincia
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={editCountryForm.province}
+                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, province: e.target.value }))}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
+                                  />
+                                </div>
+                                <div className="lg:col-span-4 flex items-end justify-end gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleSaveCountryEdit(c.id)}
+                                    disabled={savingCountryId === c.id}
+                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Check size={13} /> {savingCountryId === c.id ? 'Guardando...' : 'Guardar Cambios'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditingCountry}
+                                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                                  >
+                                    Cancelar
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
                 </tbody>
               </table>
             </div>
 
-            {countryTotalPages > 1 && (
-              <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+              <div className="flex items-center gap-3">
                 <span>
                   Página <strong className="text-white">{countryPage}</strong> de{' '}
                   <strong className="text-white">{countryTotalPages}</strong>
                 </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={countryPage <= 1}
-                    onClick={() => setCountryPage((p) => Math.max(p - 1, 1))}
-                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                <label className="inline-flex items-center gap-1.5">
+                  <span>Por página:</span>
+                  <select
+                    value={countriesPerPage}
+                    onChange={(e) => {
+                      setCountriesPerPage(Number(e.target.value));
+                      setCountryPage(1);
+                    }}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
                   >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={countryPage >= countryTotalPages}
-                    onClick={() => setCountryPage((p) => Math.min(p + 1, countryTotalPages))}
-                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                  >
-                    Siguiente
-                  </button>
-                </div>
+                    <option value={4}>4</option>
+                    <option value={6}>6</option>
+                    <option value={10}>10</option>
+                  </select>
+                </label>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={countryPage <= 1}
+                  onClick={() => setCountryPage((p) => Math.max(p - 1, 1))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={countryPage >= countryTotalPages}
+                  onClick={() => setCountryPage((p) => Math.min(p + 1, countryTotalPages))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -1461,32 +1650,47 @@ export default function SystemHealthDashboard({ onNavigate }) {
               </table>
             </div>
 
-            {passTotalPages > 1 && (
-              <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+              <div className="flex items-center gap-3">
                 <span>
                   Página <strong className="text-white">{passPage}</strong> de{' '}
                   <strong className="text-white">{passTotalPages}</strong>
                 </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    disabled={passPage <= 1}
-                    onClick={() => setPassPage((p) => Math.max(p - 1, 1))}
-                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                <label className="inline-flex items-center gap-1.5">
+                  <span>Por página:</span>
+                  <select
+                    value={passesPerPage}
+                    onChange={(e) => {
+                      setPassesPerPage(Number(e.target.value));
+                      setPassPage(1);
+                    }}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
                   >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    disabled={passPage >= passTotalPages}
-                    onClick={() => setPassPage((p) => Math.min(p + 1, passTotalPages))}
-                    className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                  >
-                    Siguiente
-                  </button>
-                </div>
+                    <option value={4}>4</option>
+                    <option value={8}>8</option>
+                    <option value={15}>15</option>
+                  </select>
+                </label>
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={passPage <= 1}
+                  onClick={() => setPassPage((p) => Math.max(p - 1, 1))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={passPage >= passTotalPages}
+                  onClick={() => setPassPage((p) => Math.min(p + 1, passTotalPages))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -1507,7 +1711,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={() => setAuditTab('access')}
+              onClick={() => {
+                setAuditTab('access');
+                setAuditPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border ${
                 auditTab === 'access'
                   ? 'bg-emerald-600 text-white border-emerald-500'
@@ -1518,7 +1725,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
             </button>
             <button
               type="button"
-              onClick={() => setAuditTab('transactions')}
+              onClick={() => {
+                setAuditTab('transactions');
+                setAuditPage(1);
+              }}
               className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border inline-flex items-center gap-1.5 ${
                 auditTab === 'transactions'
                   ? 'bg-indigo-600 text-white border-indigo-500'
@@ -1565,7 +1775,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
               </form>
               <select
                 value={auditOutcomeFilter}
-                onChange={(e) => setAuditOutcomeFilter(e.target.value)}
+                onChange={(e) => {
+                  setAuditOutcomeFilter(e.target.value);
+                  setAuditPage(1);
+                }}
                 className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
               >
                 <option value="all">Todos los resultados</option>
@@ -1578,58 +1791,103 @@ export default function SystemHealthDashboard({ onNavigate }) {
               <p className="text-xs text-slate-400 py-3">Cargando trazabilidad de accesos...</p>
             ) : accessLogs.length === 0 ? (
               <p className="text-xs text-slate-400 py-3">
-                Aún no hay intentos registrados en la bitácora. Ejecutá una prueba en el Sandbox para generar eventos.
+                Aún no hay intentos registrados para los filtros actuales.
               </p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                      <th className="py-2.5 px-3">ID</th>
-                      <th className="py-2.5 px-3">Resultado</th>
-                      <th className="py-2.5 px-3">Código / Motivo</th>
-                      <th className="py-2.5 px-3">Comunidad / Origen</th>
-                      <th className="py-2.5 px-3">Token / Pase</th>
-                      <th className="py-2.5 px-3">Fecha</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {accessLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-slate-900/40">
-                        <td className="py-2.5 px-3 font-mono text-slate-400">#{log.id}</td>
-                        <td className="py-2.5 px-3">
-                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                            log.authorized
-                              ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                              : 'bg-rose-950 text-rose-300 border-rose-800'
-                          }`}>
-                            {log.authorized ? 'AUTORIZADO' : 'DENEGADO'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="font-mono font-bold text-amber-300 block">{log.reason_code}</span>
-                          <span className="text-[11px] text-slate-400">{log.message}</span>
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300">
-                          <span className="block font-bold text-white">
-                            {log.country_name || (log.country_id ? `Comunidad #${log.country_id}` : 'Sin comunidad')}
-                          </span>
-                          <span className="text-[11px] text-slate-400">
-                            {log.integration_label || log.auth_mode} · HTTP {log.http_status}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400">
-                          {log.pass_id ? `Pase #${log.pass_id} · ` : ''}
-                          {log.qr_token ? `${log.qr_token.slice(0, 10)}...` : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-400 text-[11px]">
-                          {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                        <th className="py-2.5 px-3">ID</th>
+                        <th className="py-2.5 px-3">Resultado</th>
+                        <th className="py-2.5 px-3">Código / Motivo</th>
+                        <th className="py-2.5 px-3">Comunidad / Origen</th>
+                        <th className="py-2.5 px-3">Token / Pase</th>
+                        <th className="py-2.5 px-3">Fecha</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {accessLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-900/40">
+                          <td className="py-2.5 px-3 font-mono text-slate-400">#{log.id}</td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                              log.authorized
+                                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                                : 'bg-rose-950 text-rose-300 border-rose-800'
+                            }`}>
+                              {log.authorized ? 'AUTORIZADO' : 'DENEGADO'}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className="font-mono font-bold text-amber-300 block">{log.reason_code}</span>
+                            <span className="text-[11px] text-slate-400">{log.message}</span>
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-300">
+                            <span className="block font-bold text-white">
+                              {log.country_name || (log.country_id ? `Comunidad #${log.country_id}` : 'Sin comunidad')}
+                            </span>
+                            <span className="text-[11px] text-slate-400">
+                              {log.integration_label || log.auth_mode} · HTTP {log.http_status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-400">
+                            {log.pass_id ? `Pase #${log.pass_id} · ` : ''}
+                            {log.qr_token ? `${log.qr_token.slice(0, 10)}...` : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-400 text-[11px]">
+                            {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Total filtrados: <strong className="text-white">{auditTotalCount}</strong> · Página{' '}
+                      <strong className="text-white">{auditPage}</strong> de{' '}
+                      <strong className="text-white">{auditTotalPages}</strong>
+                    </span>
+                    <label className="inline-flex items-center gap-1.5">
+                      <span>Por página:</span>
+                      <select
+                        value={auditPerPage}
+                        onChange={(e) => {
+                          setAuditPerPage(Number(e.target.value));
+                          setAuditPage(1);
+                        }}
+                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
+                      >
+                        <option value={3}>3</option>
+                        <option value={6}>6</option>
+                        <option value={10}>10</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={auditPage <= 1}
+                      onClick={() => setAuditPage((p) => Math.max(p - 1, 1))}
+                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={auditPage >= auditTotalPages}
+                      onClick={() => setAuditPage((p) => Math.min(p + 1, auditTotalPages))}
+                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         ) : (
@@ -1660,43 +1918,96 @@ export default function SystemHealthDashboard({ onNavigate }) {
             ) : transactions.length === 0 ? (
               <p className="text-xs text-slate-400 py-3">No hay transacciones registradas todavía en la tabla transactions.</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                      <th className="py-2.5 px-3">ID</th>
-                      <th className="py-2.5 px-3">Contrato / Prestador</th>
-                      <th className="py-2.5 px-3">Monto Total</th>
-                      <th className="py-2.5 px-3">Take Rate</th>
-                      <th className="py-2.5 px-3">Neto Prestador</th>
-                      <th className="py-2.5 px-3">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/70">
-                    {transactions.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-slate-900/40">
-                        <td className="py-2.5 px-3 font-mono text-slate-400">#{tx.id}</td>
-                        <td className="py-2.5 px-3">
-                          <span className="font-bold text-white block">
-                            Contrato #{tx.contract_id} · {`${tx.provider_first_name || ''} ${tx.provider_last_name || ''}`.trim() || 'Prestador'}
-                          </span>
-                          <span className="text-[11px] text-slate-400">
-                            {tx.contract_description || tx.gateway_provider || '—'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-white">${tx.total_amount}</td>
-                        <td className="py-2.5 px-3 font-mono text-emerald-400">${tx.platform_fee}</td>
-                        <td className="py-2.5 px-3 font-mono text-sky-300">${tx.provider_payout}</td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold border bg-slate-800 text-slate-200 border-slate-700">
-                            {tx.status}
-                          </span>
-                        </td>
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                        <th className="py-2.5 px-3">ID</th>
+                        <th className="py-2.5 px-3">Contrato / Prestador</th>
+                        <th className="py-2.5 px-3">Monto Total</th>
+                        <th className="py-2.5 px-3">Take Rate</th>
+                        <th className="py-2.5 px-3">Neto Prestador</th>
+                        <th className="py-2.5 px-3">Estado</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/70">
+                      {transactions
+                        .slice((auditPage - 1) * auditPerPage, auditPage * auditPerPage)
+                        .map((tx) => (
+                          <tr key={tx.id} className="hover:bg-slate-900/40">
+                            <td className="py-2.5 px-3 font-mono text-slate-400">#{tx.id}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="font-bold text-white block">
+                                Contrato #{tx.contract_id} · {`${tx.provider_first_name || ''} ${tx.provider_last_name || ''}`.trim() || 'Prestador'}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                {tx.contract_description || tx.gateway_provider || '—'}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 font-bold text-white">${tx.total_amount}</td>
+                            <td className="py-2.5 px-3 font-mono text-emerald-400">${tx.platform_fee}</td>
+                            <td className="py-2.5 px-3 font-mono text-sky-300">${tx.provider_payout}</td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold border bg-slate-800 text-slate-200 border-slate-700">
+                                {tx.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+                  <div className="flex items-center gap-3">
+                    <span>
+                      Total transacciones: <strong className="text-white">{transactions.length}</strong> · Página{' '}
+                      <strong className="text-white">{auditPage}</strong> de{' '}
+                      <strong className="text-white">
+                        {Math.max(1, Math.ceil(transactions.length / auditPerPage))}
+                      </strong>
+                    </span>
+                    <label className="inline-flex items-center gap-1.5">
+                      <span>Por página:</span>
+                      <select
+                        value={auditPerPage}
+                        onChange={(e) => {
+                          setAuditPerPage(Number(e.target.value));
+                          setAuditPage(1);
+                        }}
+                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
+                      >
+                        <option value={3}>3</option>
+                        <option value={6}>6</option>
+                        <option value={10}>10</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={auditPage <= 1}
+                      onClick={() => setAuditPage((p) => Math.max(p - 1, 1))}
+                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={auditPage >= Math.max(1, Math.ceil(transactions.length / auditPerPage))}
+                      onClick={() =>
+                        setAuditPage((p) =>
+                          Math.min(p + 1, Math.max(1, Math.ceil(transactions.length / auditPerPage)))
+                        )
+                      }
+                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                    >
+                      Siguiente
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}
