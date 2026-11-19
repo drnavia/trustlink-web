@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Dashboard técnico exclusivo para el rol 'superadmin'. Permite monitorear la salud
- * del servidor backend, la latencia de PostgreSQL, el estado de configuración del endpoint externo
- * y ejecutar pruebas en vivo sobre POST /api/v1/external/passes/verify sin usar terminal/CURL.
+ * @description Dashboard técnico y operativo exclusivo para el rol 'superadmin'.
+ * Monitorea servidor, PostgreSQL y API externa, permite probar pases QR en vivo
+ * y administrar pases QR recientes (copiar token o cancelar pase).
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -18,8 +18,11 @@ import {
   XCircle,
   AlertCircle,
   Terminal,
-  ShieldCheck,
-  Clock
+  Clock,
+  QrCode,
+  Copy,
+  Ban,
+  Check
 } from 'lucide-react';
 
 export default function SystemHealthDashboard() {
@@ -29,12 +32,39 @@ export default function SystemHealthDashboard() {
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [httpLatencyMs, setHttpLatencyMs] = useState(null);
 
+  // Estado de pases QR recientes
+  const [recentPasses, setRecentPasses] = useState([]);
+  const [loadingPasses, setLoadingPasses] = useState(false);
+  const [copiedPassId, setCopiedPassId] = useState(null);
+  const [cancellingPassId, setCancellingPassId] = useState(null);
+  const [passActionFeedback, setPassActionFeedback] = useState(null);
+
   // Estados del Sandbox de prueba para POST /api/v1/external/passes/verify
   const [testQrToken, setTestQrToken] = useState('');
-  const [testApiKey, setTestApiKey] = useState('');
+  const [testApiKey, setTestApiKey] = useState('tl_gate_dev_key_123456');
   const [authMode, setAuthMode] = useState('api_key'); // 'api_key' | 'bearer'
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
+
+  const fetchRecentPasses = async () => {
+    setLoadingPasses(true);
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch('http://localhost:4000/api/v1/external/passes', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setRecentPasses(data.passes || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar pases recientes:', error);
+    } finally {
+      setLoadingPasses(false);
+    }
+  };
 
   const fetchSystemHealth = async () => {
     setLoadingStatus(true);
@@ -69,6 +99,8 @@ export default function SystemHealthDashboard() {
       } else {
         setStatusError(diagJson.error || 'No se pudo obtener el diagnóstico técnico del backend.');
       }
+
+      await fetchRecentPasses();
     } catch (error) {
       console.error('Error al consultar salud del sistema:', error);
       setStatusError('No se pudo conectar con el servidor backend en http://localhost:4000.');
@@ -82,6 +114,53 @@ export default function SystemHealthDashboard() {
   useEffect(() => {
     fetchSystemHealth();
   }, []);
+
+  const handleCopyToken = async (passId, tokenStr) => {
+    try {
+      await navigator.clipboard.writeText(tokenStr);
+      setCopiedPassId(passId);
+      setTimeout(() => setCopiedPassId(null), 2000);
+    } catch (err) {
+      console.error('No se pudo copiar el token:', err);
+    }
+  };
+
+  const handleCancelPass = async (passId) => {
+    setCancellingPassId(passId);
+    setPassActionFeedback(null);
+
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch(`http://localhost:4000/api/v1/external/passes/${passId}/cancel`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        setPassActionFeedback({
+          type: 'success',
+          message: data.message || `Pase #${passId} cancelado con éxito.`
+        });
+        await fetchRecentPasses();
+      } else {
+        setPassActionFeedback({
+          type: 'error',
+          message: data.error || `No se pudo cancelar el pase #${passId}.`
+        });
+      }
+    } catch (error) {
+      console.error('Error al cancelar pase:', error);
+      setPassActionFeedback({
+        type: 'error',
+        message: 'Error de conexión al cancelar el pase.'
+      });
+    } finally {
+      setCancellingPassId(null);
+    }
+  };
 
   const handleRunExternalTest = async (e) => {
     e.preventDefault();
@@ -147,6 +226,28 @@ export default function SystemHealthDashboard() {
     return `${hrs}h ${mins}m ${secs}s`;
   };
 
+  const renderStatusBadge = (status) => {
+    if (status === 'cancelled') {
+      return (
+        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+          CANCELADO
+        </span>
+      );
+    }
+    if (status === 'expired') {
+      return (
+        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+          EXPIRADO
+        </span>
+      );
+    }
+    return (
+      <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+        {status || 'PENDING'}
+      </span>
+    );
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-6 md:p-8 text-slate-100 font-sans space-y-6">
       {/* Cabecera */}
@@ -160,7 +261,7 @@ export default function SystemHealthDashboard() {
               Salud del Sistema & Sandbox de Integraciones
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Monitoreo en tiempo real del servidor Express, PostgreSQL y el endpoint externo para barrios privados.
+              Monitoreo del servidor Express, PostgreSQL, gestión de pases QR y prueba del endpoint externo.
             </p>
           </div>
         </div>
@@ -185,7 +286,6 @@ export default function SystemHealthDashboard() {
 
       {/* Tarjetas de Salud Técnica */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* 1. Servidor Backend */}
         <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-lg space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">
@@ -215,7 +315,6 @@ export default function SystemHealthDashboard() {
           </div>
         </div>
 
-        {/* 2. Base de Datos PostgreSQL */}
         <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-lg space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">
@@ -245,7 +344,6 @@ export default function SystemHealthDashboard() {
           </div>
         </div>
 
-        {/* 3. Endpoint Externo Barrios Privados */}
         <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-lg space-y-3">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold text-slate-400 uppercase flex items-center gap-1.5">
@@ -276,6 +374,128 @@ export default function SystemHealthDashboard() {
         </div>
       </div>
 
+      {/* 1. Pases QR Recientes (Copiar Token / Cancelar Pase) */}
+      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-4">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <QrCode size={18} className="text-emerald-400" /> Pases QR Recientes
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Copiá el token QR de cualquier pase para probarlo o cancelá pases activos/pendientes sin tocar la base de datos.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchRecentPasses}
+            disabled={loadingPasses}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} /> Actualizar Pases
+          </button>
+        </div>
+
+        {passActionFeedback && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+              passActionFeedback.type === 'success'
+                ? 'bg-emerald-950/50 border-emerald-700 text-emerald-200'
+                : 'bg-rose-950/50 border-rose-800 text-rose-200'
+            }`}
+          >
+            {passActionFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+            <span>{passActionFeedback.message}</span>
+          </div>
+        )}
+
+        {loadingPasses ? (
+          <div className="text-center py-8 text-xs text-slate-400">Cargando pases QR desde PostgreSQL...</div>
+        ) : recentPasses.length === 0 ? (
+          <div className="text-center py-8 text-xs text-slate-500">No hay pases QR registrados aún.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                  <th className="py-2.5 px-3">ID</th>
+                  <th className="py-2.5 px-3">Prestador</th>
+                  <th className="py-2.5 px-3">Destino</th>
+                  <th className="py-2.5 px-3">Token QR</th>
+                  <th className="py-2.5 px-3">Estado</th>
+                  <th className="py-2.5 px-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-900">
+                {recentPasses.map((passItem) => {
+                  const isCancelled = passItem.status === 'cancelled';
+                  const isExpired = passItem.status === 'expired';
+
+                  return (
+                    <tr key={passItem.id} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="py-3 px-3 font-mono text-slate-300">#{passItem.id}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-bold text-white">
+                          {passItem.provider_first_name || 'Prestador'} {passItem.provider_last_name || ''}
+                        </div>
+                        <div className="text-[11px] text-slate-400">
+                          {passItem.provider_specialty || 'Sin especialidad'} · {passItem.country_name || 'Comunidad'}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">
+                        {passItem.fraction_number || '-'} / {passItem.lot_number || '-'}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[11px] text-emerald-400">
+                        {passItem.qr_token ? `${passItem.qr_token.slice(0, 14)}...` : '-'}
+                      </td>
+                      <td className="py-3 px-3">{renderStatusBadge(passItem.status)}</td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyToken(passItem.id, passItem.qr_token)}
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="Copiar Token QR completo"
+                          >
+                            {copiedPassId === passItem.id ? (
+                              <>
+                                <Check size={12} className="text-emerald-400" /> Copiado
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} /> Copiar Token
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setTestQrToken(passItem.qr_token)}
+                            className="bg-sky-950/60 hover:bg-sky-900 text-sky-300 border border-sky-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="Cargar en el probador de abajo"
+                          >
+                            Cargar en Sandbox
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isCancelled || isExpired || cancellingPassId === passItem.id}
+                            onClick={() => handleCancelPass(passItem.id)}
+                            className="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Cancelar pase QR"
+                          >
+                            <Ban size={12} /> {cancellingPassId === passItem.id ? 'Cancelando...' : 'Cancelar Pase'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Sandbox Interactivo de Prueba de Integración Externa */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -303,7 +523,7 @@ export default function SystemHealthDashboard() {
                 required
                 value={testQrToken}
                 onChange={(e) => setTestQrToken(e.target.value)}
-                placeholder="Pegue aquí el qr_token generado desde el Portal Residente..."
+                placeholder="Pegue aquí el qr_token o haga clic en 'Cargar en Sandbox' arriba..."
                 className="w-full bg-slate-900 border border-slate-700 px-3.5 py-2.5 rounded-xl text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
