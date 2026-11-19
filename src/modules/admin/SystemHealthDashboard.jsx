@@ -1,7 +1,7 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico y operativo exclusivo para el rol 'superadmin'.
- * Monitorea servidor, PostgreSQL y API externa, administra comunidades (countries),
+ * Monitorea servidor, PostgreSQL y API externa, administra comunidades (crear, editar, activar/desactivar),
  * gestiona pases QR recientes y permite probar el endpoint externo en vivo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
@@ -25,7 +25,10 @@ import {
   Check,
   Building2,
   Plus,
-  Power
+  Power,
+  Pencil,
+  Save,
+  X
 } from 'lucide-react';
 
 export default function SystemHealthDashboard() {
@@ -42,6 +45,10 @@ export default function SystemHealthDashboard() {
   const [countryLocation, setCountryLocation] = useState('');
   const [countryActive, setCountryActive] = useState(true);
   const [creatingCountry, setCreatingCountry] = useState(false);
+  const [editingCountryId, setEditingCountryId] = useState(null);
+  const [editCountryName, setEditCountryName] = useState('');
+  const [editCountryLocation, setEditCountryLocation] = useState('');
+  const [savingCountryId, setSavingCountryId] = useState(null);
   const [togglingCountryId, setTogglingCountryId] = useState(null);
   const [countryFeedback, setCountryFeedback] = useState(null);
 
@@ -195,6 +202,71 @@ export default function SystemHealthDashboard() {
       });
     } finally {
       setCreatingCountry(false);
+    }
+  };
+
+  const startEditingCountry = (country) => {
+    setEditingCountryId(country.id);
+    setEditCountryName(country.name || '');
+    setEditCountryLocation(country.location || '');
+    setCountryFeedback(null);
+  };
+
+  const cancelEditingCountry = () => {
+    setEditingCountryId(null);
+    setEditCountryName('');
+    setEditCountryLocation('');
+  };
+
+  const handleSaveCountryEdit = async (countryId) => {
+    if (!editCountryName.trim()) {
+      setCountryFeedback({
+        type: 'error',
+        message: 'El nombre de la comunidad es obligatorio.'
+      });
+      return;
+    }
+
+    setSavingCountryId(countryId);
+    setCountryFeedback(null);
+
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch(`http://localhost:4000/api/v1/external/countries/${countryId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: editCountryName.trim(),
+          location: editCountryLocation.trim() || null
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || `Comunidad #${countryId} actualizada con éxito.`
+        });
+        setEditingCountryId(null);
+        await fetchCountries();
+      } else {
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo actualizar la comunidad.'
+        });
+      }
+    } catch (error) {
+      console.error('Error al guardar edición de comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al actualizar la comunidad.'
+      });
+    } finally {
+      setSavingCountryId(null);
     }
   };
 
@@ -486,7 +558,7 @@ export default function SystemHealthDashboard() {
               POST {diagnosticsData?.external_endpoint?.route || '/api/v1/external/passes/verify'}
             </p>
             <p className="text-slate-400">
-              Comunidades activas: <strong className="text-white">{diagnosticsData?.metrics?.active_countries ?? countries.filter((c) => c.is_active).length}</strong>
+              Comunidades activas: <strong className="text-white">{countries.filter((c) => c.is_active).length}</strong>
             </p>
             <p className="text-[11px] text-slate-400">
               Autenticación: <span className="text-slate-200">x-api-key / Bearer JWT</span>
@@ -495,7 +567,7 @@ export default function SystemHealthDashboard() {
         </div>
       </div>
 
-      {/* 2. Gestión de Comunidades / Barrios Privados (countries) */}
+      {/* 2. Gestión de Comunidades / Barrios Privados */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
@@ -503,7 +575,7 @@ export default function SystemHealthDashboard() {
               <Building2 size={18} className="text-sky-400" /> Gestión de Comunidades / Barrios Privados
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Registrá nuevas comunidades (`countries`) y administrá su estado activo/inactivo sin tocar código ni SQL[cite: 10].
+              Registrá, editá o activá/desactivá comunidades desde el panel sin tocar código ni base de datos.
             </p>
           </div>
           <button
@@ -596,47 +668,104 @@ export default function SystemHealthDashboard() {
                   <th className="py-2.5 px-3">Comunidad</th>
                   <th className="py-2.5 px-3">Ubicación</th>
                   <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3 text-right">Acción</th>
+                  <th className="py-2.5 px-3 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-900">
-                {countries.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
-                    <td className="py-3 px-3 font-mono text-slate-300">#{c.id}</td>
-                    <td className="py-3 px-3 font-bold text-white">{c.name}</td>
-                    <td className="py-3 px-3 text-slate-300">{c.location || '-'}</td>
-                    <td className="py-3 px-3">
-                      {c.is_active ? (
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                          ACTIVA
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                          INACTIVA
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <button
-                        type="button"
-                        disabled={togglingCountryId === c.id}
-                        onClick={() => handleToggleCountry(c.id)}
-                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border cursor-pointer disabled:opacity-40 ${
-                          c.is_active
-                            ? 'bg-amber-950/60 hover:bg-amber-900 text-amber-300 border-amber-800'
-                            : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
-                        }`}
-                      >
-                        <Power size={12} />
-                        {togglingCountryId === c.id
-                          ? 'Actualizando...'
-                          : c.is_active
-                          ? 'Desactivar'
-                          : 'Activar'}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {countries.map((c) => {
+                  const isEditing = editingCountryId === c.id;
+
+                  return (
+                    <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
+                      <td className="py-3 px-3 font-mono text-slate-300">#{c.id}</td>
+                      <td className="py-3 px-3 font-bold text-white">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editCountryName}
+                            onChange={(e) => setEditCountryName(e.target.value)}
+                            className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
+                          />
+                        ) : (
+                          c.name
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            value={editCountryLocation}
+                            onChange={(e) => setEditCountryLocation(e.target.value)}
+                            placeholder="Ubicación / Zona"
+                            className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
+                          />
+                        ) : (
+                          c.location || '-'
+                        )}
+                      </td>
+                      <td className="py-3 px-3">
+                        {c.is_active ? (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                            ACTIVA
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                            INACTIVA
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                          {isEditing ? (
+                            <>
+                              <button
+                                type="button"
+                                disabled={savingCountryId === c.id}
+                                onClick={() => handleSaveCountryEdit(c.id)}
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                              >
+                                <Save size={12} /> {savingCountryId === c.id ? 'Guardando...' : 'Guardar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={cancelEditingCountry}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <X size={12} /> Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => startEditingCountry(c)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            >
+                              <Pencil size={12} /> Editar
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            disabled={togglingCountryId === c.id || isEditing}
+                            onClick={() => handleToggleCountry(c.id)}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border cursor-pointer disabled:opacity-40 ${
+                              c.is_active
+                                ? 'bg-amber-950/60 hover:bg-amber-900 text-amber-300 border-amber-800'
+                                : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
+                            }`}
+                          >
+                            <Power size={12} />
+                            {togglingCountryId === c.id
+                              ? 'Actualizando...'
+                              : c.is_active
+                              ? 'Desactivar'
+                              : 'Activar'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
