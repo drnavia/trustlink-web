@@ -1,8 +1,9 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
- * pases QR recientes con paginación y filtros, y sandbox del endpoint externo.
+ * resumen ejecutivo de gobernanza, integraciones y claves por comunidad (con copiar clave, rotar y revocar),
+ * gestión de comunidades, pases QR recientes (con comunidad/barrio visible, filtros y paginación),
+ * y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -70,6 +71,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [integrationFeedback, setIntegrationFeedback] = useState({ type: '', message: '' });
   const [freshSecretKey, setFreshSecretKey] = useState(null);
   const [copiedSecret, setCopiedSecret] = useState(false);
+  const [copiedIntegrationId, setCopiedIntegrationId] = useState(null);
   const [busyIntegrationId, setBusyIntegrationId] = useState(null);
 
   // Pases QR recientes con paginación y filtros
@@ -333,7 +335,8 @@ export default function SystemHealthDashboard({ onNavigate }) {
         setEditingCountryId(null);
         await Promise.all([
           fetchCountries(countryPage, countrySearch, countryStatusFilter),
-          fetchIntegrations()
+          fetchIntegrations(),
+          fetchRecentPasses(passPage, passSearch, passStatusFilter)
         ]);
       } else {
         setCountryFeedback({ type: 'error', message: data.error || 'No se pudo actualizar.' });
@@ -458,6 +461,19 @@ export default function SystemHealthDashboard({ onNavigate }) {
       setIntegrationFeedback({ type: 'error', message: 'Error de red al actualizar la integración.' });
     } finally {
       setBusyIntegrationId(null);
+    }
+  };
+
+  const handleCopyIntegrationKey = async (integrationId, rawKey) => {
+    if (!rawKey) return;
+    try {
+      await navigator.clipboard.writeText(rawKey);
+      setCopiedIntegrationId(integrationId);
+      setTestApiKey(rawKey);
+      setAuthMode('api_key');
+      setTimeout(() => setCopiedIntegrationId(null), 2000);
+    } catch {
+      setIntegrationFeedback({ type: 'error', message: 'No se pudo copiar la clave al portapapeles.' });
     }
   };
 
@@ -712,7 +728,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             Integraciones y Claves API por Comunidad
           </h3>
           <p className="text-xs text-slate-400 mt-1">
-            Generá, rotá o revocá claves <code className="text-slate-300">x-api-key</code> por barrio privado sin editar archivos <code className="text-slate-300">.env</code>.
+            Generá, copiá, rotá o revocá claves <code className="text-slate-300">x-api-key</code> por barrio privado sin editar archivos <code className="text-slate-300">.env</code>.
           </p>
         </div>
 
@@ -829,6 +845,15 @@ export default function SystemHealthDashboard({ onNavigate }) {
                     </td>
                     <td className="py-3 px-3 text-right">
                       <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyIntegrationKey(item.id, item.api_key)}
+                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                          title="Copiar clave API y cargarla en el Sandbox"
+                        >
+                          {copiedIntegrationId === item.id ? <Check size={12} /> : <Copy size={12} />}
+                          {copiedIntegrationId === item.id ? 'Copiada' : 'Copiar'}
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleRotateIntegration(item.id)}
@@ -1084,7 +1109,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         )}
       </div>
 
-      {/* Pases QR Recientes con Paginación y Filtros */}
+      {/* Pases QR Recientes con Comunidad / Barrio, Paginación y Filtros */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
           <div>
@@ -1093,7 +1118,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               Pases QR Recientes
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Copiá tokens para probar en el sandbox o cancelá pases activos/pendientes.
+              Consultá la comunidad o barrio de cada pase, copiá tokens para el sandbox o cancelá pases activos/pendientes.
             </p>
           </div>
           <span className="text-xs text-slate-400">
@@ -1107,7 +1132,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               type="text"
               value={passSearch}
               onChange={(e) => setPassSearch(e.target.value)}
-              placeholder="Buscar por ID, prestador, fracción o lote..."
+              placeholder="Buscar por ID, comunidad, prestador, fracción o lote..."
               className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
             />
             <button
@@ -1154,6 +1179,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
                     <th className="py-2.5 px-3">ID</th>
+                    <th className="py-2.5 px-3">Comunidad / Barrio</th>
                     <th className="py-2.5 px-3">Prestador</th>
                     <th className="py-2.5 px-3">Destino</th>
                     <th className="py-2.5 px-3">Vigencia</th>
@@ -1166,6 +1192,9 @@ export default function SystemHealthDashboard({ onNavigate }) {
                   {recentPasses.map((p) => (
                     <tr key={p.id} className="hover:bg-slate-900/40">
                       <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
+                      <td className="py-2.5 px-3 font-bold text-sky-300">
+                        {p.country_name || (p.country_id ? `Comunidad #${p.country_id}` : '—')}
+                      </td>
                       <td className="py-2.5 px-3 font-bold text-white">
                         {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
                         {p.provider_specialty && (
