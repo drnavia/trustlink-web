@@ -2,8 +2,8 @@
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
  * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
- * pases QR recientes, trazabilidad de eventos / auditoría de accesos y transacciones (Punto 5),
- * y sandbox del endpoint externo.
+ * pases QR recientes (con copia a portapapeles + sandbox + autocompletado de clave de su comunidad),
+ * trazabilidad de eventos / auditoría de accesos y transacciones, y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -89,10 +89,10 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passActionMsg, setPassActionMsg] = useState({ type: '', text: '' });
 
-  // Punto 5: Trazabilidad de eventos / auditoría de accesos y transacciones
+  // Auditoría de accesos y transacciones
   const [loadingAudit, setLoadingAudit] = useState(true);
-  const [auditTab, setAuditTab] = useState('access'); // 'access' | 'transactions'
-  const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all'); // 'all' | 'authorized' | 'denied'
+  const [auditTab, setAuditTab] = useState('access');
+  const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all');
   const [auditSearch, setAuditSearch] = useState('');
   const [accessSummary, setAccessSummary] = useState({
     total_attempts: 0,
@@ -114,6 +114,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
   // Sandbox endpoint externo
   const [testQrToken, setTestQrToken] = useState('');
   const [testApiKey, setTestApiKey] = useState('tl_gate_dev_key_123456');
+  const [sandboxKeyMeta, setSandboxKeyMeta] = useState('');
   const [authMode, setAuthMode] = useState('api_key');
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
@@ -473,6 +474,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
           label: `${data.integration?.country_name || ''} — ${data.integration?.label || ''}`
         });
         setTestApiKey(data.plain_api_key);
+        setSandboxKeyMeta(`${data.integration?.country_name || ''} (${data.integration?.masked_key || ''})`);
         setAuthMode('api_key');
         setIntegrationFeedback({ type: 'success', message: data.message || 'Clave generada.' });
         await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
@@ -502,6 +504,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
           label: `${data.integration?.country_name || ''} — ${data.integration?.label || ''}`
         });
         setTestApiKey(data.plain_api_key);
+        setSandboxKeyMeta(`${data.integration?.country_name || ''} (${data.integration?.masked_key || ''})`);
         setAuthMode('api_key');
         setIntegrationFeedback({ type: 'success', message: data.message || 'Clave rotada.' });
         await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
@@ -537,12 +540,13 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  const handleCopyIntegrationKey = async (integrationId, rawKey) => {
+  const handleCopyIntegrationKey = async (integrationId, rawKey, metaLabel = '') => {
     if (!rawKey) return;
     try {
       await navigator.clipboard.writeText(rawKey);
       setCopiedIntegrationId(integrationId);
       setTestApiKey(rawKey);
+      setSandboxKeyMeta(metaLabel);
       setAuthMode('api_key');
       setTimeout(() => setCopiedIntegrationId(null), 2000);
     } catch {
@@ -561,13 +565,42 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  const handleCopyToken = async (passId, token) => {
+  const handleCopyPassForSandbox = async (passItem) => {
+    const token = passItem?.qr_token || '';
+    const matchingIntegration = integrations.find(
+      (intg) => Number(intg.country_id) === Number(passItem?.country_id) && intg.is_active
+    );
+
+    setTestQrToken(token);
+    setAuthMode('api_key');
+
+    if (matchingIntegration?.api_key) {
+      setTestApiKey(matchingIntegration.api_key);
+      setSandboxKeyMeta(
+        `${matchingIntegration.country_name} · ${matchingIntegration.masked_key}`
+      );
+      setPassActionMsg({
+        type: 'success',
+        text: `Token #${passItem.id} copiado al portapapeles y Sandbox con clave activa de ${matchingIntegration.country_name} (${matchingIntegration.masked_key}).`
+      });
+    } else {
+      setSandboxKeyMeta(
+        passItem?.country_name
+          ? `${passItem.country_name} (sin clave activa en tabla; usando clave actual)`
+          : ''
+      );
+      setPassActionMsg({
+        type: 'success',
+        text: `Token #${passItem.id} copiado al portapapeles y Sandbox.`
+      });
+    }
+
     try {
       await navigator.clipboard.writeText(token);
-      setCopiedTokenId(passId);
+      setCopiedTokenId(passItem.id);
       setTimeout(() => setCopiedTokenId(null), 1800);
     } catch {
-      setPassActionMsg({ type: 'error', text: 'No se pudo copiar el token.' });
+      setPassActionMsg({ type: 'error', text: 'Se cargó en el Sandbox, pero no se pudo copiar al portapapeles.' });
     }
   };
 
@@ -922,7 +955,13 @@ export default function SystemHealthDashboard({ onNavigate }) {
                       <div className="inline-flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => handleCopyIntegrationKey(item.id, item.api_key)}
+                          onClick={() =>
+                            handleCopyIntegrationKey(
+                              item.id,
+                              item.api_key,
+                              `${item.country_name} · ${item.masked_key}`
+                            )
+                          }
                           className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
                           title="Copiar clave API y cargarla en el Sandbox"
                         >
@@ -1193,7 +1232,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
               Pases QR Recientes
             </h3>
             <p className="text-xs text-slate-400 mt-1">
-              Consultá la comunidad o barrio de cada pase, copiá tokens para el sandbox o cancelá pases activos/pendientes.
+              Al presionar Copiar se copia el token al portapapeles y al Sandbox junto con la clave activa de su comunidad.
             </p>
           </div>
           <span className="text-xs text-slate-400">
@@ -1300,11 +1339,9 @@ export default function SystemHealthDashboard({ onNavigate }) {
                         <div className="inline-flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => {
-                              setTestQrToken(p.qr_token || '');
-                              handleCopyToken(p.id, p.qr_token || '');
-                            }}
+                            onClick={() => handleCopyPassForSandbox(p)}
                             className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="Copiar token al portapapeles y cargar en Sandbox con la clave de su comunidad"
                           >
                             {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
                             {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
@@ -1357,7 +1394,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         )}
       </div>
 
-      {/* Punto 5: Trazabilidad de Eventos / Auditoría de Accesos y Transacciones */}
+      {/* Trazabilidad de Eventos / Auditoría de Accesos y Transacciones */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-3">
           <div>
@@ -1419,7 +1456,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
                   type="text"
                   value={auditSearch}
                   onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder="Filtrar por código (OUT_OF_TIME_WINDOW, COMPLIANCE_NOT_APPROVED...), token o comunidad..."
+                  placeholder="Filtrar por código (OUT_OF_TIME_WINDOW, COUNTRY_MISMATCH...), token o comunidad..."
                   className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
                 />
                 <button
@@ -1581,25 +1618,32 @@ export default function SystemHealthDashboard({ onNavigate }) {
         </div>
 
         <form onSubmit={handleRunExternalTest} className="space-y-3">
-          <div className="flex flex-wrap gap-4 text-xs">
-            <label className="inline-flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="radio"
-                name="authMode"
-                checked={authMode === 'api_key'}
-                onChange={() => setAuthMode('api_key')}
-              />
-              <span>x-api-key</span>
-            </label>
-            <label className="inline-flex items-center gap-1.5 cursor-pointer">
-              <input
-                type="radio"
-                name="authMode"
-                checked={authMode === 'bearer'}
-                onChange={() => setAuthMode('bearer')}
-              />
-              <span>Bearer JWT (superadmin)</span>
-            </label>
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div className="flex flex-wrap gap-4">
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="authMode"
+                  checked={authMode === 'api_key'}
+                  onChange={() => setAuthMode('api_key')}
+                />
+                <span>x-api-key</span>
+              </label>
+              <label className="inline-flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="authMode"
+                  checked={authMode === 'bearer'}
+                  onChange={() => setAuthMode('bearer')}
+                />
+                <span>Bearer JWT (superadmin)</span>
+              </label>
+            </div>
+            {sandboxKeyMeta && authMode === 'api_key' && (
+              <span className="text-[11px] text-sky-300 font-mono">
+                Clave vinculada: {sandboxKeyMeta}
+              </span>
+            )}
           </div>
 
           {authMode === 'api_key' && (
