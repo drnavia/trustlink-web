@@ -2,8 +2,9 @@
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
  * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
- * pases QR recientes (con ingreso y salida en Vigencia, copia a portapapeles + sandbox + clave de comunidad),
- * trazabilidad de eventos / auditoría de accesos y transacciones, y sandbox del endpoint externo.
+ * pases QR recientes (con ingreso y salida en Vigencia, indicador visual de pase vencido/próximo,
+ * copia a portapapeles + sandbox + clave de comunidad), trazabilidad de eventos / auditoría
+ * de accesos y transacciones, y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -127,16 +128,79 @@ export default function SystemHealthDashboard({ onNavigate }) {
     };
   };
 
+  const parsePassUtcMs = (value) => {
+    if (!value) return null;
+    const raw = String(value).trim();
+    const hasTz = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+    const normalized = hasTz ? raw : `${raw.replace(' ', 'T')}Z`;
+    const ms = new Date(normalized).getTime();
+    if (!Number.isNaN(ms)) return ms;
+    const fallback = new Date(raw).getTime();
+    return Number.isNaN(fallback) ? null : fallback;
+  };
+
   const formatDateTimeShort = (value) => {
-    if (!value) return '—';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleString('es-AR', {
+    const ms = parsePassUtcMs(value);
+    if (ms === null) return '—';
+    return new Date(ms).toLocaleString('es-AR', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit'
     });
+  };
+
+  /**
+   * Evalúa el estado visual efectivo del pase combinando el status en DB
+   * con la ventana horaria (start_time / end_time).
+   */
+  const getPassEffectiveStatus = (passItem) => {
+    const rawStatus = String(passItem?.status || 'pending').toLowerCase();
+    if (rawStatus === 'cancelled') {
+      return {
+        key: 'cancelled',
+        label: 'cancelled',
+        sublabel: null,
+        badgeClass: 'bg-rose-950 text-rose-300 border-rose-800'
+      };
+    }
+    if (rawStatus === 'used') {
+      return {
+        key: 'used',
+        label: 'used',
+        sublabel: null,
+        badgeClass: 'bg-sky-950 text-sky-300 border-sky-800'
+      };
+    }
+
+    const nowMs = Date.now();
+    const startMs = parsePassUtcMs(passItem?.start_time);
+    const endMs = parsePassUtcMs(passItem?.end_time);
+
+    if (rawStatus === 'expired' || (endMs !== null && nowMs > endMs)) {
+      return {
+        key: 'expired',
+        label: 'vencido',
+        sublabel: rawStatus === 'pending' ? 'fuera de horario' : null,
+        badgeClass: 'bg-amber-950 text-amber-300 border-amber-700'
+      };
+    }
+
+    if (startMs !== null && nowMs < startMs) {
+      return {
+        key: 'scheduled',
+        label: 'pending',
+        sublabel: 'aún no inicia',
+        badgeClass: 'bg-indigo-950 text-indigo-300 border-indigo-800'
+      };
+    }
+
+    return {
+      key: 'pending',
+      label: 'pending',
+      sublabel: 'vigente',
+      badgeClass: 'bg-emerald-950 text-emerald-300 border-emerald-800'
+    };
   };
 
   const fetchSystemHealth = async () => {
@@ -239,10 +303,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
   ) => {
     setLoadingPasses(true);
     try {
+      const queryStatus = statusToLoad === 'expired' ? 'all' : statusToLoad;
       const params = new URLSearchParams({
         page: String(pageToLoad),
-        limit: String(PASSES_PER_PAGE),
-        status: statusToLoad,
+        limit: String(statusToLoad === 'expired' ? 50 : PASSES_PER_PAGE),
+        status: queryStatus,
         search: searchToLoad
       });
       const res = await fetch(`${API_BASE}/api/v1/external/passes?${params.toString()}`, {
@@ -250,10 +315,21 @@ export default function SystemHealthDashboard({ onNavigate }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setRecentPasses(data.passes || []);
-        setPassTotalCount(data.total ?? (data.passes || []).length);
-        setPassTotalPages(data.totalPages ?? 1);
-        setPassPage(data.page ?? pageToLoad);
+        const rawList = data.passes || [];
+        if (statusToLoad === 'expired') {
+          const onlyExpired = rawList.filter(
+            (item) => getPassEffectiveStatus(item).key === 'expired'
+          );
+          setRecentPasses(onlyExpired);
+          setPassTotalCount(onlyExpired.length);
+          setPassTotalPages(1);
+          setPassPage(1);
+        } else {
+          setRecentPasses(rawList);
+          setPassTotalCount(data.total ?? rawList.length);
+          setPassTotalPages(data.totalPages ?? 1);
+          setPassPage(data.page ?? pageToLoad);
+        }
       }
     } catch (error) {
       console.error('Error al cargar pases recientes:', error);
@@ -1279,7 +1355,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             <option value="all">Todos los estados</option>
             <option value="pending">Pendientes</option>
             <option value="used">Usados</option>
-            <option value="expired">Expirados</option>
+            <option value="expired">Vencidos</option>
             <option value="cancelled">Cancelados</option>
           </select>
         </div>
@@ -1315,68 +1391,72 @@ export default function SystemHealthDashboard({ onNavigate }) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800/70">
-                  {recentPasses.map((p) => (
-                    <tr key={p.id} className="hover:bg-slate-900/40">
-                      <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
-                      <td className="py-2.5 px-3 font-bold text-sky-300">
-                        {p.country_name || (p.country_id ? `Comunidad #${p.country_id}` : '—')}
-                      </td>
-                      <td className="py-2.5 px-3 font-bold text-white">
-                        {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
-                        {p.provider_specialty && (
-                          <span className="block text-[11px] font-normal text-slate-400">
-                            {p.provider_specialty}
+                  {recentPasses.map((p) => {
+                    const effectiveStatus = getPassEffectiveStatus(p);
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-900/40">
+                        <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
+                        <td className="py-2.5 px-3 font-bold text-sky-300">
+                          {p.country_name || (p.country_id ? `Comunidad #${p.country_id}` : '—')}
+                        </td>
+                        <td className="py-2.5 px-3 font-bold text-white">
+                          {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
+                          {p.provider_specialty && (
+                            <span className="block text-[11px] font-normal text-slate-400">
+                              {p.provider_specialty}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300">
+                          {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-300 text-[11px] leading-relaxed">
+                          <span className="block">
+                            <strong className="text-emerald-400 font-semibold">In:</strong> {formatDateTimeShort(p.start_time)}
                           </span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-300">
-                        {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-slate-300 text-[11px] leading-relaxed">
-                        <span className="block">
-                          <strong className="text-emerald-400 font-semibold">In:</strong> {formatDateTimeShort(p.start_time)}
-                        </span>
-                        <span className="block">
-                          <strong className="text-amber-300 font-semibold">Out:</strong> {formatDateTimeShort(p.end_time)}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                          p.status === 'cancelled'
-                            ? 'bg-rose-950 text-rose-300 border-rose-800'
-                            : 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                        }`}>
-                          {p.status}
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-slate-400">
-                        {p.qr_token ? `${p.qr_token.slice(0, 12)}...` : '—'}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <div className="inline-flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyPassForSandbox(p)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            title="Copiar token al portapapeles y cargar en Sandbox con la clave de su comunidad"
-                          >
-                            {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
-                          </button>
-                          {p.status !== 'cancelled' && (
+                          <span className="block">
+                            <strong className="text-amber-300 font-semibold">Out:</strong> {formatDateTimeShort(p.end_time)}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${effectiveStatus.badgeClass}`}>
+                            {effectiveStatus.label}
+                          </span>
+                          {effectiveStatus.sublabel && (
+                            <span className="block text-[10px] text-slate-400 mt-0.5">
+                              {effectiveStatus.sublabel}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-400">
+                          {p.qr_token ? `${p.qr_token.slice(0, 12)}...` : '—'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className="inline-flex items-center gap-1.5">
                             <button
                               type="button"
-                              onClick={() => handleCancelPass(p.id)}
-                              disabled={cancellingPassId === p.id}
-                              className="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              onClick={() => handleCopyPassForSandbox(p)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              title="Copiar token al portapapeles y cargar en Sandbox con la clave de su comunidad"
                             >
-                              <Ban size={12} /> Cancelar
+                              {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
+                              {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                            {p.status !== 'cancelled' && effectiveStatus.key !== 'expired' && (
+                              <button
+                                type="button"
+                                onClick={() => handleCancelPass(p.id)}
+                                disabled={cancellingPassId === p.id}
+                                className="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <Ban size={12} /> Cancelar
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
