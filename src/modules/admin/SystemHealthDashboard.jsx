@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico y operativo exclusivo para el rol 'superadmin'.
- * Monitorea servidor, PostgreSQL y API externa, administra comunidades (crear, editar, activar/desactivar,
- * buscar, filtrar y paginar), gestiona pases QR con paginación/filtros y permite probar el endpoint externo en vivo.
+ * Incluye resumen ejecutivo de gobernanza con accesos directos, monitoreo de servidor/PostgreSQL/API externa,
+ * administración paginada de comunidades, gestión paginada de pases QR y probador del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -31,13 +31,17 @@ import {
   X,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  UserCheck,
+  Layers,
+  ArrowUpRight,
+  ShieldCheck
 } from 'lucide-react';
 
 const COUNTRIES_PAGE_SIZE = 6;
 const PASSES_PAGE_SIZE = 8;
 
-export default function SystemHealthDashboard() {
+export default function SystemHealthDashboard({ onNavigate }) {
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [statusError, setStatusError] = useState('');
   const [healthData, setHealthData] = useState(null);
@@ -520,10 +524,10 @@ export default function SystemHealthDashboard() {
           </div>
           <div>
             <h2 className="text-xl font-black tracking-tight text-white">
-              Salud del Sistema & Sandbox de Integraciones
+              Salud del Sistema & Centro Operativo Superadmin
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Monitoreo del servidor Express, PostgreSQL, comunidades, pases QR y prueba del endpoint externo.
+              Gobernanza, monitoreo del servidor Express/PostgreSQL, comunidades, pases QR y prueba del endpoint externo.
             </p>
           </div>
         </div>
@@ -537,6 +541,63 @@ export default function SystemHealthDashboard() {
           <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} />
           {loadingStatus ? 'Verificando...' : 'Refrescar Estado'}
         </button>
+      </div>
+
+      {/* Punto 1: Resumen Ejecutivo de Gobernanza y Accesos Directos */}
+      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800/80 pb-3.5">
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1">
+              <ShieldCheck size={12} /> Gobernanza Central
+            </span>
+            <h3 className="text-sm font-black text-white mt-0.5">
+              Resumen Operativo y Accesos Directos de Administración
+            </h3>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('admin')}
+              className="bg-emerald-950/60 hover:bg-emerald-900 text-emerald-200 border border-emerald-700/70 px-3 py-1.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <UserCheck size={14} /> Auditoría Compliance (Ops TrustLink) <ArrowUpRight size={13} />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onNavigate && onNavigate('users_master')}
+              className="bg-purple-950/60 hover:bg-purple-900 text-purple-200 border border-purple-700/70 px-3 py-1.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <Layers size={14} /> Cuentas Admin / Superadmin (Modo Maestro) <ArrowUpRight size={13} />
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl">
+            <p className="text-[10px] font-bold uppercase text-slate-400">Prestadores Aprobados</p>
+            <p className="text-lg font-black text-emerald-400 mt-1">
+              {diagnosticsData?.metrics?.approved_providers ?? '-'}
+            </p>
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl">
+            <p className="text-[10px] font-bold uppercase text-slate-400">Comunidades Activas</p>
+            <p className="text-lg font-black text-sky-400 mt-1">{activeCountriesCount}</p>
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl">
+            <p className="text-[10px] font-bold uppercase text-slate-400">Pases QR Emitidos</p>
+            <p className="text-lg font-black text-white mt-1">
+              {diagnosticsData?.metrics?.total_passes ?? passesTotalCount}
+            </p>
+          </div>
+          <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl">
+            <p className="text-[10px] font-bold uppercase text-slate-400">API Externa Garita</p>
+            <p className="text-sm font-black text-amber-300 mt-1.5">
+              {diagnosticsData?.external_endpoint?.api_key_configured ? 'CONFIGURADA' : 'FALLBACK LOCAL'}
+            </p>
+          </div>
+        </div>
       </div>
 
       {statusError && (

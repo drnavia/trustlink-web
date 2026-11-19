@@ -212,7 +212,7 @@ function MainAppContent() {
             )
           )}
           {currentView === 'system_health' && (
-            userRole === 'superadmin' ? <SystemHealthDashboard /> : (
+            userRole === 'superadmin' ? <SystemHealthDashboard onNavigate={setCurrentView} /> : (
               <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
                 <Lock size={32} className="mx-auto text-rose-400 mb-3" />
                 <h3 className="text-white font-bold text-lg mb-1">Acceso Restringido</h3>
