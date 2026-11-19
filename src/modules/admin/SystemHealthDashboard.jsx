@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico y operativo exclusivo para el rol 'superadmin'.
- * Monitorea servidor, PostgreSQL y API externa, permite probar pases QR en vivo
- * y administrar pases QR recientes (copiar token o cancelar pase).
+ * Monitorea servidor, PostgreSQL y API externa, administra comunidades (countries),
+ * gestiona pases QR recientes y permite probar el endpoint externo en vivo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -22,7 +22,10 @@ import {
   QrCode,
   Copy,
   Ban,
-  Check
+  Check,
+  Building2,
+  Plus,
+  Power
 } from 'lucide-react';
 
 export default function SystemHealthDashboard() {
@@ -31,6 +34,16 @@ export default function SystemHealthDashboard() {
   const [healthData, setHealthData] = useState(null);
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [httpLatencyMs, setHttpLatencyMs] = useState(null);
+
+  // Estado de comunidades (countries)
+  const [countries, setCountries] = useState([]);
+  const [loadingCountries, setLoadingCountries] = useState(false);
+  const [countryName, setCountryName] = useState('');
+  const [countryLocation, setCountryLocation] = useState('');
+  const [countryActive, setCountryActive] = useState(true);
+  const [creatingCountry, setCreatingCountry] = useState(false);
+  const [togglingCountryId, setTogglingCountryId] = useState(null);
+  const [countryFeedback, setCountryFeedback] = useState(null);
 
   // Estado de pases QR recientes
   const [recentPasses, setRecentPasses] = useState([]);
@@ -45,6 +58,26 @@ export default function SystemHealthDashboard() {
   const [authMode, setAuthMode] = useState('api_key'); // 'api_key' | 'bearer'
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
+
+  const fetchCountries = async () => {
+    setLoadingCountries(true);
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch('http://localhost:4000/api/v1/external/countries', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCountries(data.countries || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar comunidades:', error);
+    } finally {
+      setLoadingCountries(false);
+    }
+  };
 
   const fetchRecentPasses = async () => {
     setLoadingPasses(true);
@@ -100,7 +133,7 @@ export default function SystemHealthDashboard() {
         setStatusError(diagJson.error || 'No se pudo obtener el diagnóstico técnico del backend.');
       }
 
-      await fetchRecentPasses();
+      await Promise.all([fetchCountries(), fetchRecentPasses()]);
     } catch (error) {
       console.error('Error al consultar salud del sistema:', error);
       setStatusError('No se pudo conectar con el servidor backend en http://localhost:4000.');
@@ -114,6 +147,94 @@ export default function SystemHealthDashboard() {
   useEffect(() => {
     fetchSystemHealth();
   }, []);
+
+  const handleCreateCountry = async (e) => {
+    e.preventDefault();
+    if (!countryName.trim()) return;
+
+    setCreatingCountry(true);
+    setCountryFeedback(null);
+
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch('http://localhost:4000/api/v1/external/countries', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          name: countryName.trim(),
+          location: countryLocation.trim() || null,
+          is_active: countryActive
+        })
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || 'Comunidad creada exitosamente.'
+        });
+        setCountryName('');
+        setCountryLocation('');
+        setCountryActive(true);
+        await fetchCountries();
+      } else {
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo crear la comunidad.'
+        });
+      }
+    } catch (error) {
+      console.error('Error al crear comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al crear la comunidad.'
+      });
+    } finally {
+      setCreatingCountry(false);
+    }
+  };
+
+  const handleToggleCountry = async (countryId) => {
+    setTogglingCountryId(countryId);
+    setCountryFeedback(null);
+
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const res = await fetch(`http://localhost:4000/api/v1/external/countries/${countryId}/toggle`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || 'Estado de comunidad actualizado.'
+        });
+        await fetchCountries();
+      } else {
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo actualizar el estado de la comunidad.'
+        });
+      }
+    } catch (error) {
+      console.error('Error al cambiar estado de comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al actualizar la comunidad.'
+      });
+    } finally {
+      setTogglingCountryId(null);
+    }
+  };
 
   const handleCopyToken = async (passId, tokenStr) => {
     try {
@@ -261,7 +382,7 @@ export default function SystemHealthDashboard() {
               Salud del Sistema & Sandbox de Integraciones
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Monitoreo del servidor Express, PostgreSQL, gestión de pases QR y prueba del endpoint externo.
+              Monitoreo del servidor Express, PostgreSQL, comunidades, pases QR y prueba del endpoint externo.
             </p>
           </div>
         </div>
@@ -365,13 +486,161 @@ export default function SystemHealthDashboard() {
               POST {diagnosticsData?.external_endpoint?.route || '/api/v1/external/passes/verify'}
             </p>
             <p className="text-slate-400">
-              Comunidades activas: <strong className="text-white">{diagnosticsData?.metrics?.total_countries ?? '-'}</strong>
+              Comunidades activas: <strong className="text-white">{diagnosticsData?.metrics?.active_countries ?? countries.filter((c) => c.is_active).length}</strong>
             </p>
             <p className="text-[11px] text-slate-400">
               Autenticación: <span className="text-slate-200">x-api-key / Bearer JWT</span>
             </p>
           </div>
         </div>
+      </div>
+
+      {/* 2. Gestión de Comunidades / Barrios Privados (countries) */}
+      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
+        <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <Building2 size={18} className="text-sky-400" /> Gestión de Comunidades / Barrios Privados
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Registrá nuevas comunidades (`countries`) y administrá su estado activo/inactivo sin tocar código ni SQL[cite: 10].
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={fetchCountries}
+            disabled={loadingCountries}
+            className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+          >
+            <RefreshCw size={13} className={loadingCountries ? 'animate-spin' : ''} /> Actualizar Comunidades
+          </button>
+        </div>
+
+        {countryFeedback && (
+          <div
+            className={`p-3 rounded-xl text-xs flex items-center gap-2 border ${
+              countryFeedback.type === 'success'
+                ? 'bg-emerald-950/50 border-emerald-700 text-emerald-200'
+                : 'bg-rose-950/50 border-rose-800 text-rose-200'
+            }`}
+          >
+            {countryFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
+            <span>{countryFeedback.message}</span>
+          </div>
+        )}
+
+        <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-slate-900/60 p-4 rounded-xl border border-slate-800">
+          <div className="md:col-span-4">
+            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+              Nombre de la Comunidad *
+            </label>
+            <input
+              type="text"
+              required
+              maxLength={150}
+              value={countryName}
+              onChange={(e) => setCountryName(e.target.value)}
+              placeholder="Ej: Barrio Privado San Lucas"
+              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+
+          <div className="md:col-span-5">
+            <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+              Ubicación / Zona
+            </label>
+            <input
+              type="text"
+              maxLength={255}
+              value={countryLocation}
+              onChange={(e) => setCountryLocation(e.target.value)}
+              placeholder="Ej: Cañuelas / Ezeiza - Buenos Aires"
+              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+
+          <div className="md:col-span-1 flex items-center gap-2 pb-2">
+            <input
+              id="countryActiveCheckbox"
+              type="checkbox"
+              checked={countryActive}
+              onChange={(e) => setCountryActive(e.target.checked)}
+              className="w-4 h-4 accent-emerald-500 cursor-pointer"
+            />
+            <label htmlFor="countryActiveCheckbox" className="text-xs text-slate-300 cursor-pointer">
+              Activa
+            </label>
+          </div>
+
+          <div className="md:col-span-2">
+            <button
+              type="submit"
+              disabled={creatingCountry}
+              className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+            >
+              <Plus size={14} /> {creatingCountry ? 'Creando...' : 'Agregar'}
+            </button>
+          </div>
+        </form>
+
+        {loadingCountries ? (
+          <div className="text-center py-6 text-xs text-slate-400">Cargando comunidades desde PostgreSQL...</div>
+        ) : countries.length === 0 ? (
+          <div className="text-center py-6 text-xs text-slate-500">No hay comunidades registradas.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                  <th className="py-2.5 px-3">ID</th>
+                  <th className="py-2.5 px-3">Comunidad</th>
+                  <th className="py-2.5 px-3">Ubicación</th>
+                  <th className="py-2.5 px-3">Estado</th>
+                  <th className="py-2.5 px-3 text-right">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-900">
+                {countries.map((c) => (
+                  <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
+                    <td className="py-3 px-3 font-mono text-slate-300">#{c.id}</td>
+                    <td className="py-3 px-3 font-bold text-white">{c.name}</td>
+                    <td className="py-3 px-3 text-slate-300">{c.location || '-'}</td>
+                    <td className="py-3 px-3">
+                      {c.is_active ? (
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                          ACTIVA
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                          INACTIVA
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      <button
+                        type="button"
+                        disabled={togglingCountryId === c.id}
+                        onClick={() => handleToggleCountry(c.id)}
+                        className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border cursor-pointer disabled:opacity-40 ${
+                          c.is_active
+                            ? 'bg-amber-950/60 hover:bg-amber-900 text-amber-300 border-amber-800'
+                            : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
+                        }`}
+                      >
+                        <Power size={12} />
+                        {togglingCountryId === c.id
+                          ? 'Actualizando...'
+                          : c.is_active
+                          ? 'Desactivar'
+                          : 'Activar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* 1. Pases QR Recientes (Copiar Token / Cancelar Pase) */}
