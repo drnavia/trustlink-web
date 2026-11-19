@@ -2,7 +2,7 @@
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
  * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades,
- * pases QR recientes (con copia a portapapeles + sandbox + autocompletado de clave de su comunidad),
+ * pases QR recientes (con ingreso y salida en Vigencia, copia a portapapeles + sandbox + clave de comunidad),
  * trazabilidad de eventos / auditoría de accesos y transacciones, y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
@@ -125,6 +125,18 @@ export default function SystemHealthDashboard({ onNavigate }) {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     };
+  };
+
+  const formatDateTimeShort = (value) => {
+    if (!value) return '—';
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   const fetchSystemHealth = async () => {
@@ -1296,7 +1308,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
                     <th className="py-2.5 px-3">Comunidad / Barrio</th>
                     <th className="py-2.5 px-3">Prestador</th>
                     <th className="py-2.5 px-3">Destino</th>
-                    <th className="py-2.5 px-3">Vigencia</th>
+                    <th className="py-2.5 px-3">Vigencia (Ingreso / Salida)</th>
                     <th className="py-2.5 px-3">Estado</th>
                     <th className="py-2.5 px-3">Token</th>
                     <th className="py-2.5 px-3 text-right">Acciones</th>
@@ -1320,8 +1332,13 @@ export default function SystemHealthDashboard({ onNavigate }) {
                       <td className="py-2.5 px-3 text-slate-300">
                         {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
                       </td>
-                      <td className="py-2.5 px-3 text-slate-400 text-[11px]">
-                        {p.start_time ? new Date(p.start_time).toLocaleString() : '—'}
+                      <td className="py-2.5 px-3 text-slate-300 text-[11px] leading-relaxed">
+                        <span className="block">
+                          <strong className="text-emerald-400 font-semibold">In:</strong> {formatDateTimeShort(p.start_time)}
+                        </span>
+                        <span className="block">
+                          <strong className="text-amber-300 font-semibold">Out:</strong> {formatDateTimeShort(p.end_time)}
+                        </span>
                       </td>
                       <td className="py-2.5 px-3">
                         <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
