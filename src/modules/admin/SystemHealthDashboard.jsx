@@ -1,9 +1,9 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, integraciones y claves por comunidad, gestión de comunidades
- * (nombre, dirección, código postal, localidad, provincia y estado), pases QR recientes,
- * trazabilidad de eventos / auditoría de accesos y transacciones con paginación, y sandbox.
+ * resumen ejecutivo de gobernanza, integraciones y claves por comunidad (con paginación),
+ * gestión de comunidades, pases QR recientes, trazabilidad de eventos / auditoría de accesos
+ * y transacciones con paginación, y sandbox del endpoint externo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -76,7 +76,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [countryTotalCount, setCountryTotalCount] = useState(0);
   const [countriesPerPage, setCountriesPerPage] = useState(6);
 
-  // Integraciones y claves por comunidad
+  // Integraciones y claves por comunidad (con paginación)
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
   const [selectedCountryId, setSelectedCountryId] = useState('');
@@ -87,6 +87,8 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [copiedSecret, setCopiedSecret] = useState(false);
   const [copiedIntegrationId, setCopiedIntegrationId] = useState(null);
   const [busyIntegrationId, setBusyIntegrationId] = useState(null);
+  const [integrationPage, setIntegrationPage] = useState(1);
+  const [integrationsPerPage, setIntegrationsPerPage] = useState(6);
 
   // Pases QR recientes con paginación y filtros
   const [recentPasses, setRecentPasses] = useState([]);
@@ -295,8 +297,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
       const data = await res.json();
       if (res.ok) {
         const listCountries = data.countries || [];
+        const listIntegrations = data.integrations || [];
         setAllCountriesForSelect(listCountries);
-        setIntegrations(data.integrations || []);
+        setIntegrations(listIntegrations);
+        const maxPages = Math.max(1, Math.ceil(listIntegrations.length / integrationsPerPage));
+        setIntegrationPage((prev) => Math.min(prev, maxPages));
         if (!selectedCountryId && listCountries.length > 0) {
           setSelectedCountryId(String(listCountries[0].id));
         }
@@ -617,6 +622,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
         setSandboxKeyMeta(`${data.integration?.country_name || ''} (${data.integration?.masked_key || ''})`);
         setAuthMode('api_key');
         setIntegrationFeedback({ type: 'success', message: data.message || 'Clave generada.' });
+        setIntegrationPage(1);
         await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
       } else {
         setIntegrationFeedback({ type: 'error', message: data.error || 'No se pudo generar la clave.' });
@@ -809,6 +815,12 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
+  const integrationTotalPages = Math.max(1, Math.ceil(integrations.length / integrationsPerPage));
+  const paginatedIntegrations = integrations.slice(
+    (integrationPage - 1) * integrationsPerPage,
+    integrationPage * integrationsPerPage
+  );
+
   const metrics = diagnosticsData?.metrics || {};
   const isHealthy = healthData?.ok && diagnosticsData?.ok && diagnosticsData?.database?.connected;
 
@@ -973,14 +985,19 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
       {/* Integraciones y Claves API por Comunidad */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
-        <div className="border-b border-slate-800 pb-4">
-          <h3 className="text-base font-black text-white flex items-center gap-2">
-            <KeyRound size={18} className="text-amber-400" />
-            Integraciones y Claves API por Comunidad
-          </h3>
-          <p className="text-xs text-slate-400 mt-1">
-            Generá, copiá, rotá o revocá claves <code className="text-slate-300">x-api-key</code> por barrio privado sin editar archivos <code className="text-slate-300">.env</code>.
-          </p>
+        <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+          <div>
+            <h3 className="text-base font-black text-white flex items-center gap-2">
+              <KeyRound size={18} className="text-amber-400" />
+              Integraciones y Claves API por Comunidad
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Generá, copiá, rotá o revocá claves <code className="text-slate-300">x-api-key</code> por barrio privado sin editar archivos <code className="text-slate-300">.env</code>.
+            </p>
+          </div>
+          <span className="text-xs text-slate-400">
+            Total claves: <strong className="text-white">{integrations.length}</strong>
+          </span>
         </div>
 
         <form onSubmit={handleCreateIntegration} className="grid grid-cols-1 md:grid-cols-12 gap-3">
@@ -1062,83 +1079,127 @@ export default function SystemHealthDashboard({ onNavigate }) {
             Aún no hay claves por comunidad creadas. Podés generar una arriba o usar la clave de entorno.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                  <th className="py-2.5 px-3">Comunidad</th>
-                  <th className="py-2.5 px-3">Etiqueta</th>
-                  <th className="py-2.5 px-3">Clave (Enmascarada)</th>
-                  <th className="py-2.5 px-3">Último Uso</th>
-                  <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {integrations.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-900/40">
-                    <td className="py-3 px-3 font-bold text-white">
-                      #{item.country_id} · {item.country_name}
-                    </td>
-                    <td className="py-3 px-3 text-slate-300">{item.label}</td>
-                    <td className="py-3 px-3 font-mono text-slate-300">{item.masked_key}</td>
-                    <td className="py-3 px-3 text-slate-400">
-                      {item.last_used_at ? new Date(item.last_used_at).toLocaleString() : 'Sin uso aún'}
-                    </td>
-                    <td className="py-3 px-3">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
-                        item.is_active
-                          ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                          : 'bg-slate-800 text-slate-400 border-slate-700'
-                      }`}>
-                        {item.is_active ? 'Activa' : 'Revocada'}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      <div className="inline-flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleCopyIntegrationKey(
-                              item.id,
-                              item.api_key,
-                              `${item.country_name} · ${item.masked_key}`
-                            )
-                          }
-                          className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                          title="Copiar clave API y cargarla en el Sandbox"
-                        >
-                          {copiedIntegrationId === item.id ? <Check size={12} /> : <Copy size={12} />}
-                          {copiedIntegrationId === item.id ? 'Copiada' : 'Copiar'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleRotateIntegration(item.id)}
-                          disabled={busyIntegrationId === item.id}
-                          className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                          title="Rotar / regenerar clave"
-                        >
-                          <RotateCw size={12} /> Rotar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleToggleIntegration(item.id)}
-                          disabled={busyIntegrationId === item.id}
-                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 border ${
-                            item.is_active
-                              ? 'bg-rose-950/60 hover:bg-rose-900/60 text-rose-200 border-rose-800'
-                              : 'bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-200 border-emerald-800'
-                          }`}
-                        >
-                          <Power size={12} /> {item.is_active ? 'Revocar' : 'Activar'}
-                        </button>
-                      </div>
-                    </td>
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
+                    <th className="py-2.5 px-3">Comunidad</th>
+                    <th className="py-2.5 px-3">Etiqueta</th>
+                    <th className="py-2.5 px-3">Clave (Enmascarada)</th>
+                    <th className="py-2.5 px-3">Último Uso</th>
+                    <th className="py-2.5 px-3">Estado</th>
+                    <th className="py-2.5 px-3 text-right">Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {paginatedIntegrations.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-900/40">
+                      <td className="py-3 px-3 font-bold text-white">
+                        #{item.country_id} · {item.country_name}
+                      </td>
+                      <td className="py-3 px-3 text-slate-300">{item.label}</td>
+                      <td className="py-3 px-3 font-mono text-slate-300">{item.masked_key}</td>
+                      <td className="py-3 px-3 text-slate-400">
+                        {item.last_used_at ? new Date(item.last_used_at).toLocaleString() : 'Sin uso aún'}
+                      </td>
+                      <td className="py-3 px-3">
+                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                          item.is_active
+                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {item.is_active ? 'Activa' : 'Revocada'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCopyIntegrationKey(
+                                item.id,
+                                item.api_key,
+                                `${item.country_name} · ${item.masked_key}`
+                              )
+                            }
+                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                            title="Copiar clave API y cargarla en el Sandbox"
+                          >
+                            {copiedIntegrationId === item.id ? <Check size={12} /> : <Copy size={12} />}
+                            {copiedIntegrationId === item.id ? 'Copiada' : 'Copiar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRotateIntegration(item.id)}
+                            disabled={busyIntegrationId === item.id}
+                            className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            title="Rotar / regenerar clave"
+                          >
+                            <RotateCw size={12} /> Rotar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleIntegration(item.id)}
+                            disabled={busyIntegrationId === item.id}
+                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 border ${
+                              item.is_active
+                                ? 'bg-rose-950/60 hover:bg-rose-900/60 text-rose-200 border-rose-800'
+                                : 'bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-200 border-emerald-800'
+                            }`}
+                          >
+                            <Power size={12} /> {item.is_active ? 'Revocar' : 'Activar'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
+              <div className="flex items-center gap-3">
+                <span>
+                  Página <strong className="text-white">{integrationPage}</strong> de{' '}
+                  <strong className="text-white">{integrationTotalPages}</strong>
+                </span>
+                <label className="inline-flex items-center gap-1.5">
+                  <span>Por página:</span>
+                  <select
+                    value={integrationsPerPage}
+                    onChange={(e) => {
+                      setIntegrationsPerPage(Number(e.target.value));
+                      setIntegrationPage(1);
+                    }}
+                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
+                  >
+                    <option value={4}>4</option>
+                    <option value={6}>6</option>
+                    <option value={10}>10</option>
+                  </select>
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={integrationPage <= 1}
+                  onClick={() => setIntegrationPage((p) => Math.max(p - 1, 1))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={integrationPage >= integrationTotalPages}
+                  onClick={() => setIntegrationPage((p) => Math.min(p + 1, integrationTotalPages))}
+                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
