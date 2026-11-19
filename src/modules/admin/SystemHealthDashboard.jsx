@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Dashboard técnico y operativo exclusivo para el rol 'superadmin'.
- * Monitorea servidor, PostgreSQL y API externa, administra comunidades (crear, editar, activar/desactivar),
- * gestiona pases QR recientes y permite probar el endpoint externo en vivo.
+ * Monitorea servidor, PostgreSQL y API externa, administra comunidades (crear, editar, activar/desactivar,
+ * buscar, filtrar y paginar), gestiona pases QR con paginación/filtros y permite probar el endpoint externo en vivo.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -28,8 +28,14 @@ import {
   Power,
   Pencil,
   Save,
-  X
+  X,
+  Search,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+
+const COUNTRIES_PAGE_SIZE = 6;
+const PASSES_PAGE_SIZE = 8;
 
 export default function SystemHealthDashboard() {
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -38,9 +44,16 @@ export default function SystemHealthDashboard() {
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [httpLatencyMs, setHttpLatencyMs] = useState(null);
 
-  // Estado de comunidades (countries)
+  // Estado de comunidades (countries) con paginación + filtros
   const [countries, setCountries] = useState([]);
+  const [countriesPage, setCountriesPage] = useState(1);
+  const [countriesTotalPages, setCountriesTotalPages] = useState(1);
+  const [countriesTotalCount, setCountriesTotalCount] = useState(0);
+  const [activeCountriesCount, setActiveCountriesCount] = useState(0);
+  const [countryStatusFilter, setCountryStatusFilter] = useState('all');
+  const [countrySearchQuery, setCountrySearchQuery] = useState('');
   const [loadingCountries, setLoadingCountries] = useState(false);
+
   const [countryName, setCountryName] = useState('');
   const [countryLocation, setCountryLocation] = useState('');
   const [countryActive, setCountryActive] = useState(true);
@@ -52,8 +65,13 @@ export default function SystemHealthDashboard() {
   const [togglingCountryId, setTogglingCountryId] = useState(null);
   const [countryFeedback, setCountryFeedback] = useState(null);
 
-  // Estado de pases QR recientes
+  // Estado de pases QR recientes (paginado + filtros)
   const [recentPasses, setRecentPasses] = useState([]);
+  const [passesPage, setPassesPage] = useState(1);
+  const [passesTotalPages, setPassesTotalPages] = useState(1);
+  const [passesTotalCount, setPassesTotalCount] = useState(0);
+  const [passStatusFilter, setPassStatusFilter] = useState('all');
+  const [passSearchQuery, setPassSearchQuery] = useState('');
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
@@ -66,11 +84,22 @@ export default function SystemHealthDashboard() {
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
 
-  const fetchCountries = async () => {
+  const fetchCountries = async (
+    targetPage = countriesPage,
+    targetStatus = countryStatusFilter,
+    targetSearch = countrySearchQuery
+  ) => {
     setLoadingCountries(true);
     try {
       const token = localStorage.getItem('trustlink_token') || '';
-      const res = await fetch('http://localhost:4000/api/v1/external/countries', {
+      const params = new URLSearchParams({
+        page: String(targetPage),
+        limit: String(COUNTRIES_PAGE_SIZE),
+        status: targetStatus,
+        search: targetSearch.trim()
+      });
+
+      const res = await fetch(`http://localhost:4000/api/v1/external/countries?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -78,6 +107,14 @@ export default function SystemHealthDashboard() {
       const data = await res.json();
       if (res.ok) {
         setCountries(data.countries || []);
+        setCountriesPage(data.page || 1);
+        setCountriesTotalPages(data.totalPages || 1);
+        setCountriesTotalCount(data.total || 0);
+        setActiveCountriesCount(
+          typeof data.active_count === 'number'
+            ? data.active_count
+            : (data.countries || []).filter((c) => c.is_active).length
+        );
       }
     } catch (error) {
       console.error('Error al cargar comunidades:', error);
@@ -86,11 +123,22 @@ export default function SystemHealthDashboard() {
     }
   };
 
-  const fetchRecentPasses = async () => {
+  const fetchRecentPasses = async (
+    targetPage = passesPage,
+    targetStatus = passStatusFilter,
+    targetSearch = passSearchQuery
+  ) => {
     setLoadingPasses(true);
     try {
       const token = localStorage.getItem('trustlink_token') || '';
-      const res = await fetch('http://localhost:4000/api/v1/external/passes', {
+      const params = new URLSearchParams({
+        page: String(targetPage),
+        limit: String(PASSES_PAGE_SIZE),
+        status: targetStatus,
+        search: targetSearch.trim()
+      });
+
+      const res = await fetch(`http://localhost:4000/api/v1/external/passes?${params.toString()}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -98,6 +146,9 @@ export default function SystemHealthDashboard() {
       const data = await res.json();
       if (res.ok) {
         setRecentPasses(data.passes || []);
+        setPassesPage(data.page || 1);
+        setPassesTotalPages(data.totalPages || 1);
+        setPassesTotalCount(data.total || 0);
       }
     } catch (error) {
       console.error('Error al cargar pases recientes:', error);
@@ -140,7 +191,10 @@ export default function SystemHealthDashboard() {
         setStatusError(diagJson.error || 'No se pudo obtener el diagnóstico técnico del backend.');
       }
 
-      await Promise.all([fetchCountries(), fetchRecentPasses()]);
+      await Promise.all([
+        fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery),
+        fetchRecentPasses(passesPage, passStatusFilter, passSearchQuery)
+      ]);
     } catch (error) {
       console.error('Error al consultar salud del sistema:', error);
       setStatusError('No se pudo conectar con el servidor backend en http://localhost:4000.');
@@ -154,6 +208,21 @@ export default function SystemHealthDashboard() {
   useEffect(() => {
     fetchSystemHealth();
   }, []);
+
+  useEffect(() => {
+    setEditingCountryId(null);
+    const timer = setTimeout(() => {
+      fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [countriesPage, countryStatusFilter, countrySearchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchRecentPasses(passesPage, passStatusFilter, passSearchQuery);
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [passesPage, passStatusFilter, passSearchQuery]);
 
   const handleCreateCountry = async (e) => {
     e.preventDefault();
@@ -187,7 +256,7 @@ export default function SystemHealthDashboard() {
         setCountryName('');
         setCountryLocation('');
         setCountryActive(true);
-        await fetchCountries();
+        await fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery);
       } else {
         setCountryFeedback({
           type: 'error',
@@ -252,7 +321,7 @@ export default function SystemHealthDashboard() {
           message: data.message || `Comunidad #${countryId} actualizada con éxito.`
         });
         setEditingCountryId(null);
-        await fetchCountries();
+        await fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery);
       } else {
         setCountryFeedback({
           type: 'error',
@@ -290,7 +359,7 @@ export default function SystemHealthDashboard() {
           type: 'success',
           message: data.message || 'Estado de comunidad actualizado.'
         });
-        await fetchCountries();
+        await fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery);
       } else {
         setCountryFeedback({
           type: 'error',
@@ -337,7 +406,7 @@ export default function SystemHealthDashboard() {
           type: 'success',
           message: data.message || `Pase #${passId} cancelado con éxito.`
         });
-        await fetchRecentPasses();
+        await fetchRecentPasses(passesPage, passStatusFilter, passSearchQuery);
       } else {
         setPassActionFeedback({
           type: 'error',
@@ -558,7 +627,7 @@ export default function SystemHealthDashboard() {
               POST {diagnosticsData?.external_endpoint?.route || '/api/v1/external/passes/verify'}
             </p>
             <p className="text-slate-400">
-              Comunidades activas: <strong className="text-white">{countries.filter((c) => c.is_active).length}</strong>
+              Comunidades activas: <strong className="text-white">{activeCountriesCount}</strong>
             </p>
             <p className="text-[11px] text-slate-400">
               Autenticación: <span className="text-slate-200">x-api-key / Bearer JWT</span>
@@ -567,7 +636,7 @@ export default function SystemHealthDashboard() {
         </div>
       </div>
 
-      {/* 2. Gestión de Comunidades / Barrios Privados */}
+      {/* Gestión de Comunidades / Barrios Privados (Alta, Edición, Filtros y Paginación) */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
@@ -575,12 +644,12 @@ export default function SystemHealthDashboard() {
               <Building2 size={18} className="text-sky-400" /> Gestión de Comunidades / Barrios Privados
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Registrá, editá o activá/desactivá comunidades desde el panel sin tocar código ni base de datos.
+              Mostrando hasta {COUNTRIES_PAGE_SIZE} comunidades por página ({countriesTotalCount} en total). Creá, editá, filtrá o activá/desactivá sin tocar código ni base de datos.
             </p>
           </div>
           <button
             type="button"
-            onClick={fetchCountries}
+            onClick={() => fetchCountries(countriesPage, countryStatusFilter, countrySearchQuery)}
             disabled={loadingCountries}
             className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
           >
@@ -601,6 +670,7 @@ export default function SystemHealthDashboard() {
           </div>
         )}
 
+        {/* Formulario de Alta */}
         <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end bg-slate-900/60 p-4 rounded-xl border border-slate-800">
           <div className="md:col-span-4">
             <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
@@ -655,124 +725,187 @@ export default function SystemHealthDashboard() {
           </div>
         </form>
 
+        {/* Barra de Búsqueda y Filtro por Estado */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-900/50 p-3.5 rounded-xl border border-slate-800">
+          <div className="md:col-span-8 relative">
+            <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
+            <input
+              type="text"
+              value={countrySearchQuery}
+              onChange={(e) => {
+                setCountrySearchQuery(e.target.value);
+                setCountriesPage(1);
+              }}
+              placeholder="Buscar comunidad por ID, nombre o ubicación..."
+              className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-500"
+            />
+          </div>
+
+          <div className="md:col-span-4">
+            <select
+              value={countryStatusFilter}
+              onChange={(e) => {
+                setCountryStatusFilter(e.target.value);
+                setCountriesPage(1);
+              }}
+              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-sky-500"
+            >
+              <option value="all">Todas las comunidades</option>
+              <option value="active">Solo activas</option>
+              <option value="inactive">Solo inactivas</option>
+            </select>
+          </div>
+        </div>
+
         {loadingCountries ? (
           <div className="text-center py-6 text-xs text-slate-400">Cargando comunidades desde PostgreSQL...</div>
         ) : countries.length === 0 ? (
-          <div className="text-center py-6 text-xs text-slate-500">No hay comunidades registradas.</div>
+          <div className="text-center py-6 text-xs text-slate-500">
+            No se encontraron comunidades con los filtros actuales.
+          </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
-                  <th className="py-2.5 px-3">ID</th>
-                  <th className="py-2.5 px-3">Comunidad</th>
-                  <th className="py-2.5 px-3">Ubicación</th>
-                  <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-900">
-                {countries.map((c) => {
-                  const isEditing = editingCountryId === c.id;
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                    <th className="py-2.5 px-3">ID</th>
+                    <th className="py-2.5 px-3">Comunidad</th>
+                    <th className="py-2.5 px-3">Ubicación</th>
+                    <th className="py-2.5 px-3">Estado</th>
+                    <th className="py-2.5 px-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-900">
+                  {countries.map((c) => {
+                    const isEditing = editingCountryId === c.id;
 
-                  return (
-                    <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
-                      <td className="py-3 px-3 font-mono text-slate-300">#{c.id}</td>
-                      <td className="py-3 px-3 font-bold text-white">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editCountryName}
-                            onChange={(e) => setEditCountryName(e.target.value)}
-                            className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
-                          />
-                        ) : (
-                          c.name
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-slate-300">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editCountryLocation}
-                            onChange={(e) => setEditCountryLocation(e.target.value)}
-                            placeholder="Ubicación / Zona"
-                            className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
-                          />
-                        ) : (
-                          c.location || '-'
-                        )}
-                      </td>
-                      <td className="py-3 px-3">
-                        {c.is_active ? (
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                            ACTIVA
-                          </span>
-                        ) : (
-                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                            INACTIVA
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                    return (
+                      <tr key={c.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="py-3 px-3 font-mono text-slate-300">#{c.id}</td>
+                        <td className="py-3 px-3 font-bold text-white">
                           {isEditing ? (
-                            <>
-                              <button
-                                type="button"
-                                disabled={savingCountryId === c.id}
-                                onClick={() => handleSaveCountryEdit(c.id)}
-                                className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40"
-                              >
-                                <Save size={12} /> {savingCountryId === c.id ? 'Guardando...' : 'Guardar'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEditingCountry}
-                                className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <X size={12} /> Cancelar
-                              </button>
-                            </>
+                            <input
+                              type="text"
+                              value={editCountryName}
+                              onChange={(e) => setEditCountryName(e.target.value)}
+                              className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
+                            />
                           ) : (
+                            c.name
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-slate-300">
+                          {isEditing ? (
+                            <input
+                              type="text"
+                              value={editCountryLocation}
+                              onChange={(e) => setEditCountryLocation(e.target.value)}
+                              placeholder="Ubicación / Zona"
+                              className="w-full bg-slate-900 border border-sky-600 px-2.5 py-1.5 rounded-lg text-xs text-white focus:outline-none"
+                            />
+                          ) : (
+                            c.location || '-'
+                          )}
+                        </td>
+                        <td className="py-3 px-3">
+                          {c.is_active ? (
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                              ACTIVA
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                              INACTIVA
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                            {isEditing ? (
+                              <>
+                                <button
+                                  type="button"
+                                  disabled={savingCountryId === c.id}
+                                  onClick={() => handleSaveCountryEdit(c.id)}
+                                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40"
+                                >
+                                  <Save size={12} /> {savingCountryId === c.id ? 'Guardando...' : 'Guardar'}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelEditingCountry}
+                                  className="bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <X size={12} /> Cancelar
+                                </button>
+                              </>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startEditingCountry(c)}
+                                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              >
+                                <Pencil size={12} /> Editar
+                              </button>
+                            )}
+
                             <button
                               type="button"
-                              onClick={() => startEditingCountry(c)}
-                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              disabled={togglingCountryId === c.id || isEditing}
+                              onClick={() => handleToggleCountry(c.id)}
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border cursor-pointer disabled:opacity-40 ${
+                                c.is_active
+                                  ? 'bg-amber-950/60 hover:bg-amber-900 text-amber-300 border-amber-800'
+                                  : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
+                              }`}
                             >
-                              <Pencil size={12} /> Editar
+                              <Power size={12} />
+                              {togglingCountryId === c.id
+                                ? 'Actualizando...'
+                                : c.is_active
+                                ? 'Desactivar'
+                                : 'Activar'}
                             </button>
-                          )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
 
-                          <button
-                            type="button"
-                            disabled={togglingCountryId === c.id || isEditing}
-                            onClick={() => handleToggleCountry(c.id)}
-                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 border cursor-pointer disabled:opacity-40 ${
-                              c.is_active
-                                ? 'bg-amber-950/60 hover:bg-amber-900 text-amber-300 border-amber-800'
-                                : 'bg-emerald-950/60 hover:bg-emerald-900 text-emerald-300 border-emerald-800'
-                            }`}
-                          >
-                            <Power size={12} />
-                            {togglingCountryId === c.id
-                              ? 'Actualizando...'
-                              : c.is_active
-                              ? 'Desactivar'
-                              : 'Activar'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+            {/* Controles de Paginación de Comunidades */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">
+              <span className="text-slate-400">
+                Página <strong className="text-white">{countriesPage}</strong> de <strong className="text-white">{countriesTotalPages}</strong> · Total: <strong className="text-sky-400">{countriesTotalCount}</strong> comunidades
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={countriesPage <= 1 || loadingCountries}
+                  onClick={() => setCountriesPage((prev) => Math.max(1, prev - 1))}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={14} /> Anterior
+                </button>
+
+                <button
+                  type="button"
+                  disabled={countriesPage >= countriesTotalPages || loadingCountries}
+                  onClick={() => setCountriesPage((prev) => Math.min(countriesTotalPages, prev + 1))}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Siguiente <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* 1. Pases QR Recientes (Copiar Token / Cancelar Pase) */}
+      {/* Pases QR Recientes (Paginación + Filtros + Copiar Token / Cancelar Pase) */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-800 pb-4">
           <div>
@@ -780,17 +913,50 @@ export default function SystemHealthDashboard() {
               <QrCode size={18} className="text-emerald-400" /> Pases QR Recientes
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Copiá el token QR de cualquier pase para probarlo o cancelá pases activos/pendientes sin tocar la base de datos.
+              Mostrando hasta {PASSES_PAGE_SIZE} pases por página ({passesTotalCount} en total). Buscá, filtrá por estado, copiá tokens o cancelá pases.
             </p>
           </div>
           <button
             type="button"
-            onClick={fetchRecentPasses}
+            onClick={() => fetchRecentPasses(passesPage, passStatusFilter, passSearchQuery)}
             disabled={loadingPasses}
             className="bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
           >
             <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} /> Actualizar Pases
           </button>
+        </div>
+
+        {/* Barra de Filtro por Estado y Búsqueda */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-900/50 p-3.5 rounded-xl border border-slate-800">
+          <div className="md:col-span-8 relative">
+            <Search className="absolute left-3 top-2.5 text-slate-500" size={14} />
+            <input
+              type="text"
+              value={passSearchQuery}
+              onChange={(e) => {
+                setPassSearchQuery(e.target.value);
+                setPassesPage(1);
+              }}
+              placeholder="Buscar por ID, prestador, comunidad, fracción o lote..."
+              className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            />
+          </div>
+
+          <div className="md:col-span-4">
+            <select
+              value={passStatusFilter}
+              onChange={(e) => {
+                setPassStatusFilter(e.target.value);
+                setPassesPage(1);
+              }}
+              className="w-full bg-slate-950 border border-slate-700 px-3 py-2 rounded-xl text-xs text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="all">Todos los estados</option>
+              <option value="pending">Pendientes (pending)</option>
+              <option value="cancelled">Cancelados (cancelled)</option>
+              <option value="expired">Expirados (expired)</option>
+            </select>
+          </div>
         </div>
 
         {passActionFeedback && (
@@ -809,92 +975,123 @@ export default function SystemHealthDashboard() {
         {loadingPasses ? (
           <div className="text-center py-8 text-xs text-slate-400">Cargando pases QR desde PostgreSQL...</div>
         ) : recentPasses.length === 0 ? (
-          <div className="text-center py-8 text-xs text-slate-500">No hay pases QR registrados aún.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
-                  <th className="py-2.5 px-3">ID</th>
-                  <th className="py-2.5 px-3">Prestador</th>
-                  <th className="py-2.5 px-3">Destino</th>
-                  <th className="py-2.5 px-3">Token QR</th>
-                  <th className="py-2.5 px-3">Estado</th>
-                  <th className="py-2.5 px-3 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-900">
-                {recentPasses.map((passItem) => {
-                  const isCancelled = passItem.status === 'cancelled';
-                  const isExpired = passItem.status === 'expired';
-
-                  return (
-                    <tr key={passItem.id} className="hover:bg-slate-900/50 transition-colors">
-                      <td className="py-3 px-3 font-mono text-slate-300">#{passItem.id}</td>
-                      <td className="py-3 px-3">
-                        <div className="font-bold text-white">
-                          {passItem.provider_first_name || 'Prestador'} {passItem.provider_last_name || ''}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {passItem.provider_specialty || 'Sin especialidad'} · {passItem.country_name || 'Comunidad'}
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-slate-300">
-                        {passItem.fraction_number || '-'} / {passItem.lot_number || '-'}
-                      </td>
-                      <td className="py-3 px-3 font-mono text-[11px] text-emerald-400">
-                        {passItem.qr_token ? `${passItem.qr_token.slice(0, 14)}...` : '-'}
-                      </td>
-                      <td className="py-3 px-3">{renderStatusBadge(passItem.status)}</td>
-                      <td className="py-3 px-3 text-right">
-                        <div className="inline-flex items-center gap-2 justify-end flex-wrap">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyToken(passItem.id, passItem.qr_token)}
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            title="Copiar Token QR completo"
-                          >
-                            {copiedPassId === passItem.id ? (
-                              <>
-                                <Check size={12} className="text-emerald-400" /> Copiado
-                              </>
-                            ) : (
-                              <>
-                                <Copy size={12} /> Copiar Token
-                              </>
-                            )}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setTestQrToken(passItem.qr_token)}
-                            className="bg-sky-950/60 hover:bg-sky-900 text-sky-300 border border-sky-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            title="Cargar en el probador de abajo"
-                          >
-                            Cargar en Sandbox
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={isCancelled || isExpired || cancellingPassId === passItem.id}
-                            onClick={() => handleCancelPass(passItem.id)}
-                            className="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                            title="Cancelar pase QR"
-                          >
-                            <Ban size={12} /> {cancellingPassId === passItem.id ? 'Cancelando...' : 'Cancelar Pase'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="text-center py-8 text-xs text-slate-500">
+            No se encontraron pases QR con los filtros actuales.
           </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-slate-800 text-[10px] uppercase tracking-wider text-slate-400">
+                    <th className="py-2.5 px-3">ID</th>
+                    <th className="py-2.5 px-3">Prestador</th>
+                    <th className="py-2.5 px-3">Destino</th>
+                    <th className="py-2.5 px-3">Token QR</th>
+                    <th className="py-2.5 px-3">Estado</th>
+                    <th className="py-2.5 px-3 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-900">
+                  {recentPasses.map((passItem) => {
+                    const isCancelled = passItem.status === 'cancelled';
+                    const isExpired = passItem.status === 'expired';
+
+                    return (
+                      <tr key={passItem.id} className="hover:bg-slate-900/50 transition-colors">
+                        <td className="py-3 px-3 font-mono text-slate-300">#{passItem.id}</td>
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-white">
+                            {passItem.provider_first_name || 'Prestador'} {passItem.provider_last_name || ''}
+                          </div>
+                          <div className="text-[11px] text-slate-400">
+                            {passItem.provider_specialty || 'Sin especialidad'} · {passItem.country_name || 'Comunidad'}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-slate-300">
+                          {passItem.fraction_number || '-'} / {passItem.lot_number || '-'}
+                        </td>
+                        <td className="py-3 px-3 font-mono text-[11px] text-emerald-400">
+                          {passItem.qr_token ? `${passItem.qr_token.slice(0, 14)}...` : '-'}
+                        </td>
+                        <td className="py-3 px-3">{renderStatusBadge(passItem.status)}</td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyToken(passItem.id, passItem.qr_token)}
+                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              title="Copiar Token QR completo"
+                            >
+                              {copiedPassId === passItem.id ? (
+                                <>
+                                  <Check size={12} className="text-emerald-400" /> Copiado
+                                </>
+                              ) : (
+                                <>
+                                  <Copy size={12} /> Copiar Token
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setTestQrToken(passItem.qr_token)}
+                              className="bg-sky-950/60 hover:bg-sky-900 text-sky-300 border border-sky-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
+                              title="Cargar en el probador de abajo"
+                            >
+                              Cargar en Sandbox
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isCancelled || isExpired || cancellingPassId === passItem.id}
+                              onClick={() => handleCancelPass(passItem.id)}
+                              className="bg-rose-950/60 hover:bg-rose-900 text-rose-300 border border-rose-800 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                              title="Cancelar pase QR"
+                            >
+                              <Ban size={12} /> {cancellingPassId === passItem.id ? 'Cancelando...' : 'Cancelar Pase'}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Controles de Paginación de Pases */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">
+              <span className="text-slate-400">
+                Página <strong className="text-white">{passesPage}</strong> de <strong className="text-white">{passesTotalPages}</strong> · Total: <strong className="text-emerald-400">{passesTotalCount}</strong> pases
+              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={passesPage <= 1 || loadingPasses}
+                  onClick={() => setPassesPage((prev) => Math.max(1, prev - 1))}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <ChevronLeft size={14} /> Anterior
+                </button>
+
+                <button
+                  type="button"
+                  disabled={passesPage >= passesTotalPages || loadingPasses}
+                  onClick={() => setPassesPage((prev) => Math.min(passesTotalPages, prev + 1))}
+                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3 py-1.5 rounded-xl font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  Siguiente <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          </>
         )}
       </div>
 
-      {/* Sandbox Interactivo de Prueba de Integración Externa */}
+      {/* Probador en Vivo del Endpoint Externo */}
       <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
         <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
