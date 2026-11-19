@@ -79,12 +79,13 @@ export default function ResidentDashboard({ onViewChange }) {
 
   const openQrModal = (provider) => {
     const now = new Date();
+    const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
     const inFourHours = new Date(now.getTime() + 4 * 60 * 60 * 1000);
 
     setSelectedProviderForQr(provider);
     setFractionNumber(user?.fraction_number || '');
     setLotNumber(user?.lot_number || '');
-    setStartTime(toLocalDateTimeInput(now));
+    setStartTime(toLocalDateTimeInput(fiveMinAgo));
     setEndTime(toLocalDateTimeInput(inFourHours));
     setQrErrorMsg('');
     setGeneratedPass(null);
