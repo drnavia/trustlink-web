@@ -1,9 +1,12 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Dashboard técnico exclusivo para 'superadmin'. Incluye salud del sistema,
- * resumen ejecutivo de gobernanza, integraciones y claves por comunidad (con paginación),
- * gestión de comunidades, pases QR recientes, trazabilidad de eventos / auditoría de accesos
- * y transacciones con paginación, y sandbox del endpoint externo.
+ * @description Consola compacta y modular exclusiva para el rol 'superadmin':
+ * - Salud del sistema (Backend, PostgreSQL y Endpoint Externo)
+ * - Gestión compacta de Comunidades / Barrios (countries)
+ * - Integraciones y Claves API por Comunidad (con paginación)
+ * - Pases QR Recientes (copiar token al portapapeles y al Sandbox con clave de comunidad, cancelar y estado 'expired')
+ * - Sandbox interactivo para POST /api/v1/external/passes/verify
+ * - Auditoría compacta de accesos y transacciones / comisiones
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -16,81 +19,97 @@ import {
   RefreshCw,
   Send,
   CheckCircle2,
+  XCircle,
   AlertCircle,
-  Terminal,
-  Clock,
-  QrCode,
   Copy,
-  Ban,
   Check,
+  Ban,
   Building2,
   Plus,
-  Power,
+  Search,
+  ChevronLeft,
+  ChevronRight,
   Pencil,
   RotateCw,
   ShieldCheck,
-  Users,
-  ArrowUpRight,
-  ClipboardList,
-  Receipt
+  FileSpreadsheet,
+  Power
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:4000';
+const COUNTRIES_PER_PAGE = 3;
+const PASSES_PER_PAGE = 5;
+const AUDIT_LOGS_PER_PAGE = 8;
 
-export default function SystemHealthDashboard({ onNavigate }) {
+/**
+ * Interpreta un timestamp sin zona horaria devuelto por PostgreSQL (ej. "2026-11-19 22:49:00")
+ * como UTC, consistente con el almacenamiento y validación del backend.
+ */
+const parsePassTimestampMs = (rawValue) => {
+  if (!rawValue) return null;
+  const str = String(rawValue).trim();
+  const hasTimezone = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(str);
+  const normalized = hasTimezone ? str : `${str.replace(' ', 'T')}Z`;
+  const ms = new Date(normalized).getTime();
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const formatPassDateTime = (rawValue) => {
+  const ms = parsePassTimestampMs(rawValue);
+  if (ms === null) return '-';
+  return new Date(ms).toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+};
+
+export default function SystemHealthDashboard() {
+  const [activeTab, setActiveTab] = useState('health');
+
+  // Salud y métricas
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [statusError, setStatusError] = useState('');
-  const [httpLatencyMs, setHttpLatencyMs] = useState(null);
   const [healthData, setHealthData] = useState(null);
   const [diagnosticsData, setDiagnosticsData] = useState(null);
+  const [httpLatencyMs, setHttpLatencyMs] = useState(null);
 
-  // Comunidades (nombre, dirección, código postal, localidad, provincia, estado)
+  // Comunidades (countries)
   const [countries, setCountries] = useState([]);
   const [allCountriesForSelect, setAllCountriesForSelect] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
-  const [newCountryForm, setNewCountryForm] = useState({
-    name: '',
-    address: '',
-    postal_code: '',
-    locality: '',
-    province: '',
-    is_active: true
-  });
-  const [creatingCountry, setCreatingCountry] = useState(false);
-  const [countryFeedback, setCountryFeedback] = useState({ type: '', message: '' });
-  const [togglingCountryId, setTogglingCountryId] = useState(null);
-  const [editingCountryId, setEditingCountryId] = useState(null);
-  const [editCountryForm, setEditCountryForm] = useState({
-    name: '',
-    address: '',
-    postal_code: '',
-    locality: '',
-    province: '',
-    is_active: true
-  });
-  const [savingCountryId, setSavingCountryId] = useState(null);
-  const [countrySearch, setCountrySearch] = useState('');
-  const [countryStatusFilter, setCountryStatusFilter] = useState('all');
   const [countryPage, setCountryPage] = useState(1);
   const [countryTotalPages, setCountryTotalPages] = useState(1);
   const [countryTotalCount, setCountryTotalCount] = useState(0);
-  const [countriesPerPage, setCountriesPerPage] = useState(6);
+  const [countryStatusFilter, setCountryStatusFilter] = useState('all');
+  const [countrySearch, setCountrySearch] = useState('');
+  const [newCountryName, setNewCountryName] = useState('');
+  const [newCountryLocation, setNewCountryLocation] = useState('');
+  const [creatingCountry, setCreatingCountry] = useState(false);
+  const [countryFeedback, setCountryFeedback] = useState(null);
+  const [togglingCountryId, setTogglingCountryId] = useState(null);
+  const [editingCountryId, setEditingCountryId] = useState(null);
+  const [editCountryName, setEditCountryName] = useState('');
+  const [editCountryLocation, setEditCountryLocation] = useState('');
+  const [editCountryActive, setEditCountryActive] = useState(true);
+  const [savingEditCountry, setSavingEditCountry] = useState(false);
 
-  // Integraciones y claves por comunidad (con paginación)
+  // Integraciones por comunidad (con paginación)
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
-  const [selectedCountryId, setSelectedCountryId] = useState('');
-  const [integrationLabel, setIntegrationLabel] = useState('Garita Principal');
-  const [creatingIntegration, setCreatingIntegration] = useState(false);
-  const [integrationFeedback, setIntegrationFeedback] = useState({ type: '', message: '' });
-  const [freshSecretKey, setFreshSecretKey] = useState(null);
-  const [copiedSecret, setCopiedSecret] = useState(false);
-  const [copiedIntegrationId, setCopiedIntegrationId] = useState(null);
-  const [busyIntegrationId, setBusyIntegrationId] = useState(null);
   const [integrationPage, setIntegrationPage] = useState(1);
-  const [integrationsPerPage, setIntegrationsPerPage] = useState(6);
+  const [integrationsPerPage, setIntegrationsPerPage] = useState(4);
+  const [selectedIntegrationCountryId, setSelectedIntegrationCountryId] = useState('');
+  const [newIntegrationLabel, setNewIntegrationLabel] = useState('Garita Principal');
+  const [creatingIntegration, setCreatingIntegration] = useState(false);
+  const [integrationFeedback, setIntegrationFeedback] = useState(null);
+  const [latestPlainKey, setLatestPlainKey] = useState(null);
+  const [copiedIntegrationId, setCopiedIntegrationId] = useState(null);
+  const [rotatingIntegrationId, setRotatingIntegrationId] = useState(null);
+  const [togglingIntegrationId, setTogglingIntegrationId] = useState(null);
 
-  // Pases QR recientes con paginación y filtros
+  // Pases QR recientes
   const [recentPasses, setRecentPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [passPage, setPassPage] = useState(1);
@@ -98,20 +117,24 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [passTotalCount, setPassTotalCount] = useState(0);
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passSearch, setPassSearch] = useState('');
-  const [passesPerPage, setPassesPerPage] = useState(8);
-  const [copiedTokenId, setCopiedTokenId] = useState(null);
+  const [copiedPassId, setCopiedPassId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
-  const [passActionMsg, setPassActionMsg] = useState({ type: '', text: '' });
+  const [passActionFeedback, setPassActionFeedback] = useState(null);
+  const [sandboxCopiedHint, setSandboxCopiedHint] = useState(null);
 
-  // Auditoría de accesos y transacciones con paginación
-  const [loadingAudit, setLoadingAudit] = useState(true);
-  const [auditTab, setAuditTab] = useState('access');
+  // Sandbox endpoint externo
+  const [authMode, setAuthMode] = useState('api_key');
+  const [testApiKey, setTestApiKey] = useState('');
+  const [testQrToken, setTestQrToken] = useState('');
+  const [testingEndpoint, setTestingEndpoint] = useState(false);
+  const [sandboxResponse, setSandboxResponse] = useState(null);
+
+  // Auditoría de accesos y transacciones
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditError, setAuditError] = useState('');
   const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all');
   const [auditSearch, setAuditSearch] = useState('');
   const [auditPage, setAuditPage] = useState(1);
-  const [auditTotalPages, setAuditTotalPages] = useState(1);
-  const [auditTotalCount, setAuditTotalCount] = useState(0);
-  const [auditPerPage, setAuditPerPage] = useState(6);
   const [accessSummary, setAccessSummary] = useState({
     total_attempts: 0,
     authorized_count: 0,
@@ -127,105 +150,21 @@ export default function SystemHealthDashboard({ onNavigate }) {
     platform_fees: '0.00',
     provider_payouts: '0.00'
   });
-  const [transactions, setTransactions] = useState([]);
+  const [transactionsList, setTransactionsList] = useState([]);
 
-  // Sandbox endpoint externo
-  const [testQrToken, setTestQrToken] = useState('');
-  const [testApiKey, setTestApiKey] = useState('tl_gate_dev_key_123456');
-  const [sandboxKeyMeta, setSandboxKeyMeta] = useState('');
-  const [authMode, setAuthMode] = useState('api_key');
-  const [testingEndpoint, setTestingEndpoint] = useState(false);
-  const [sandboxResponse, setSandboxResponse] = useState(null);
-
-  const getAuthHeaders = () => {
-    const token = localStorage.getItem('trustlink_token') || '';
-    return {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    };
-  };
-
-  const parsePassUtcMs = (value) => {
-    if (!value) return null;
-    const raw = String(value).trim();
-    const hasTz = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
-    const normalized = hasTz ? raw : `${raw.replace(' ', 'T')}Z`;
-    const ms = new Date(normalized).getTime();
-    if (!Number.isNaN(ms)) return ms;
-    const fallback = new Date(raw).getTime();
-    return Number.isNaN(fallback) ? null : fallback;
-  };
-
-  const formatDateTimeShort = (value) => {
-    const ms = parsePassUtcMs(value);
-    if (ms === null) return '—';
-    return new Date(ms).toLocaleString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
-
-  const getPassEffectiveStatus = (passItem) => {
-    const rawStatus = String(passItem?.status || 'pending').toLowerCase();
-    if (rawStatus === 'cancelled') {
-      return {
-        key: 'cancelled',
-        label: 'cancelled',
-        sublabel: null,
-        badgeClass: 'bg-rose-950 text-rose-300 border-rose-800'
-      };
-    }
-    if (rawStatus === 'used') {
-      return {
-        key: 'used',
-        label: 'used',
-        sublabel: null,
-        badgeClass: 'bg-sky-950 text-sky-300 border-sky-800'
-      };
-    }
-
-    const nowMs = Date.now();
-    const startMs = parsePassUtcMs(passItem?.start_time);
-    const endMs = parsePassUtcMs(passItem?.end_time);
-
-    if (rawStatus === 'expired' || (endMs !== null && nowMs > endMs)) {
-      return {
-        key: 'expired',
-        label: 'vencido',
-        sublabel: rawStatus === 'pending' ? 'fuera de horario' : null,
-        badgeClass: 'bg-amber-950 text-amber-300 border-amber-700'
-      };
-    }
-
-    if (startMs !== null && nowMs < startMs) {
-      return {
-        key: 'scheduled',
-        label: 'pending',
-        sublabel: 'aún no inicia',
-        badgeClass: 'bg-indigo-950 text-indigo-300 border-indigo-800'
-      };
-    }
-
-    return {
-      key: 'pending',
-      label: 'pending',
-      sublabel: 'vigente',
-      badgeClass: 'bg-emerald-950 text-emerald-300 border-emerald-800'
-    };
-  };
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+  });
 
   const fetchSystemHealth = async () => {
     setLoadingStatus(true);
     setStatusError('');
     const startedAt = performance.now();
     try {
-      const token = localStorage.getItem('trustlink_token') || '';
       const [healthRes, diagRes] = await Promise.all([
         fetch(`${API_BASE}/health`),
         fetch(`${API_BASE}/api/v1/external/status`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: getAuthHeaders()
         })
       ]);
 
@@ -235,23 +174,23 @@ export default function SystemHealthDashboard({ onNavigate }) {
       const healthJson = await healthRes.json();
       setHealthData({
         ok: healthRes.ok,
-        httpStatus: healthRes.status,
-        payload: healthJson
+        status: healthRes.status,
+        data: healthJson
       });
 
-      const diagJson = await diagRes.json();
-      setDiagnosticsData({
-        ok: diagRes.ok,
-        httpStatus: diagRes.status,
-        ...diagJson
-      });
-
-      if (!diagRes.ok) {
-        setStatusError(diagJson.error || 'No se pudo obtener el diagnóstico técnico.');
+      if (diagRes.ok) {
+        const diagJson = await diagRes.json();
+        setDiagnosticsData(diagJson);
+      } else {
+        const errJson = await diagRes.json().catch(() => ({}));
+        setDiagnosticsData(null);
+        setStatusError(errJson.error || 'No se pudo obtener el diagnóstico técnico detallado.');
       }
     } catch (error) {
       console.error('Error al consultar salud del sistema:', error);
       setStatusError('No se pudo conectar con el servidor backend en http://localhost:4000.');
+      setHealthData(null);
+      setDiagnosticsData(null);
     } finally {
       setLoadingStatus(false);
     }
@@ -260,19 +199,18 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const fetchCountries = async (
     pageToLoad = countryPage,
     searchToLoad = countrySearch,
-    statusToLoad = countryStatusFilter,
-    limitToLoad = countriesPerPage
+    statusToLoad = countryStatusFilter
   ) => {
     setLoadingCountries(true);
     try {
       const params = new URLSearchParams({
         page: String(pageToLoad),
-        limit: String(limitToLoad),
+        limit: String(COUNTRIES_PER_PAGE),
         status: statusToLoad,
         search: searchToLoad
       });
       const res = await fetch(`${API_BASE}/api/v1/external/countries?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
@@ -288,26 +226,30 @@ export default function SystemHealthDashboard({ onNavigate }) {
     }
   };
 
-  const fetchIntegrations = async () => {
+  const fetchCommunityIntegrations = async () => {
     setLoadingIntegrations(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/integrations`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        const listCountries = data.countries || [];
-        const listIntegrations = data.integrations || [];
-        setAllCountriesForSelect(listCountries);
-        setIntegrations(listIntegrations);
-        const maxPages = Math.max(1, Math.ceil(listIntegrations.length / integrationsPerPage));
+        const loadedCountries = data.countries || [];
+        const loadedIntegrations = data.integrations || [];
+        setAllCountriesForSelect(loadedCountries);
+        setIntegrations(loadedIntegrations);
+        const maxPages = Math.max(1, Math.ceil(loadedIntegrations.length / integrationsPerPage));
         setIntegrationPage((prev) => Math.min(prev, maxPages));
-        if (!selectedCountryId && listCountries.length > 0) {
-          setSelectedCountryId(String(listCountries[0].id));
+        if (loadedCountries.length > 0) {
+          setSelectedIntegrationCountryId((prev) =>
+            prev && loadedCountries.some((c) => String(c.id) === String(prev))
+              ? prev
+              : String(loadedCountries[0].id)
+          );
         }
       }
     } catch (error) {
-      console.error('Error al cargar integraciones:', error);
+      console.error('Error al cargar integraciones por comunidad:', error);
     } finally {
       setLoadingIntegrations(false);
     }
@@ -316,38 +258,25 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const fetchRecentPasses = async (
     pageToLoad = passPage,
     searchToLoad = passSearch,
-    statusToLoad = passStatusFilter,
-    limitToLoad = passesPerPage
+    statusToLoad = passStatusFilter
   ) => {
     setLoadingPasses(true);
     try {
-      const queryStatus = statusToLoad === 'expired' ? 'all' : statusToLoad;
       const params = new URLSearchParams({
         page: String(pageToLoad),
-        limit: String(statusToLoad === 'expired' ? 50 : limitToLoad),
-        status: queryStatus,
+        limit: String(PASSES_PER_PAGE),
+        status: statusToLoad,
         search: searchToLoad
       });
       const res = await fetch(`${API_BASE}/api/v1/external/passes?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        const rawList = data.passes || [];
-        if (statusToLoad === 'expired') {
-          const onlyExpired = rawList.filter(
-            (item) => getPassEffectiveStatus(item).key === 'expired'
-          );
-          setRecentPasses(onlyExpired);
-          setPassTotalCount(onlyExpired.length);
-          setPassTotalPages(1);
-          setPassPage(1);
-        } else {
-          setRecentPasses(rawList);
-          setPassTotalCount(data.total ?? rawList.length);
-          setPassTotalPages(data.totalPages ?? 1);
-          setPassPage(data.page ?? pageToLoad);
-        }
+        setRecentPasses(data.passes || []);
+        setPassTotalCount(data.total ?? (data.passes || []).length);
+        setPassTotalPages(data.totalPages ?? 1);
+        setPassPage(data.page ?? pageToLoad);
       }
     } catch (error) {
       console.error('Error al cargar pases recientes:', error);
@@ -358,47 +287,43 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   const fetchAuditOverview = async (
     outcomeToLoad = auditOutcomeFilter,
-    searchToLoad = auditSearch,
-    pageToLoad = auditPage,
-    limitToLoad = auditPerPage
+    searchToLoad = auditSearch
   ) => {
     setLoadingAudit(true);
+    setAuditError('');
     try {
       const params = new URLSearchParams({
         outcome: outcomeToLoad,
-        search: searchToLoad,
-        page: String(pageToLoad),
-        limit: String(limitToLoad)
+        search: searchToLoad
       });
       const res = await fetch(`${API_BASE}/api/v1/external/audit?${params.toString()}`, {
-        headers: { Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}` }
+        headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        setAccessSummary(data.access_summary || {
-          total_attempts: 0,
-          authorized_count: 0,
-          denied_count: 0
-        });
+        setAccessSummary(
+          data.access_summary || { total_attempts: 0, authorized_count: 0, denied_count: 0 }
+        );
         setAccessLogs(data.access_logs || []);
-        const pagination = data.access_pagination || {};
-        setAuditTotalCount(pagination.total ?? (data.access_logs || []).length);
-        setAuditTotalPages(pagination.totalPages ?? 1);
-        setAuditPage(pagination.page ?? pageToLoad);
-
-        setFinancialSummary(data.financial_summary || {
-          total_contracts: 0,
-          pending_contracts: 0,
-          completed_contracts: 0,
-          total_transactions: 0,
-          gross_volume: '0.00',
-          platform_fees: '0.00',
-          provider_payouts: '0.00'
-        });
-        setTransactions(data.transactions || []);
+        setAuditPage(1);
+        setFinancialSummary(
+          data.financial_summary || {
+            total_contracts: 0,
+            pending_contracts: 0,
+            completed_contracts: 0,
+            total_transactions: 0,
+            gross_volume: '0.00',
+            platform_fees: '0.00',
+            provider_payouts: '0.00'
+          }
+        );
+        setTransactionsList(data.transactions || []);
+      } else {
+        setAuditError(data.error || 'No se pudo cargar la auditoría.');
       }
     } catch (error) {
       console.error('Error al cargar auditoría:', error);
+      setAuditError('Error de red al consultar la auditoría.');
     } finally {
       setLoadingAudit(false);
     }
@@ -406,188 +331,185 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   useEffect(() => {
     fetchSystemHealth();
-    fetchCountries(1, '', 'all', countriesPerPage);
-    fetchIntegrations();
-    fetchRecentPasses(1, '', 'all', passesPerPage);
-    fetchAuditOverview('all', '', 1, auditPerPage);
+    fetchCommunityIntegrations();
   }, []);
 
   useEffect(() => {
-    setEditingCountryId(null);
-    fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage);
-  }, [countryPage, countryStatusFilter, countriesPerPage]);
+    fetchCountries(countryPage, countrySearch, countryStatusFilter);
+  }, [countryPage, countryStatusFilter]);
 
   useEffect(() => {
-    fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage);
-  }, [passPage, passStatusFilter, passesPerPage]);
+    fetchRecentPasses(passPage, passSearch, passStatusFilter);
+  }, [passPage, passStatusFilter]);
 
   useEffect(() => {
-    fetchAuditOverview(auditOutcomeFilter, auditSearch, auditPage, auditPerPage);
-  }, [auditOutcomeFilter, auditPage, auditPerPage]);
+    if (activeTab === 'audit') {
+      fetchAuditOverview(auditOutcomeFilter, auditSearch);
+    }
+  }, [activeTab, auditOutcomeFilter]);
+
+  const handleRefreshAll = () => {
+    fetchSystemHealth();
+    fetchCommunityIntegrations();
+    fetchCountries(countryPage, countrySearch, countryStatusFilter);
+    fetchRecentPasses(passPage, passSearch, passStatusFilter);
+    if (activeTab === 'audit') {
+      fetchAuditOverview(auditOutcomeFilter, auditSearch);
+    }
+  };
 
   const handleCountrySearchSubmit = (e) => {
     e.preventDefault();
-    setEditingCountryId(null);
-    if (countryPage === 1) {
-      fetchCountries(1, countrySearch, countryStatusFilter, countriesPerPage);
-    } else {
-      setCountryPage(1);
-    }
-  };
-
-  const handlePassSearchSubmit = (e) => {
-    e.preventDefault();
-    if (passPage === 1) {
-      fetchRecentPasses(1, passSearch, passStatusFilter, passesPerPage);
-    } else {
-      setPassPage(1);
-    }
-  };
-
-  const handleAuditSearchSubmit = (e) => {
-    e.preventDefault();
-    if (auditPage === 1) {
-      fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage);
-    } else {
-      setAuditPage(1);
-    }
+    setCountryPage(1);
+    fetchCountries(1, countrySearch, countryStatusFilter);
   };
 
   const handleCreateCountry = async (e) => {
     e.preventDefault();
-    setCountryFeedback({ type: '', message: '' });
-    if (!newCountryForm.name.trim()) {
-      setCountryFeedback({ type: 'error', message: 'Ingresá el nombre de la comunidad / barrio.' });
-      return;
-    }
-
+    if (!newCountryName.trim()) return;
     setCreatingCountry(true);
+    setCountryFeedback(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/countries`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
-          name: newCountryForm.name.trim(),
-          address: newCountryForm.address.trim() || null,
-          postal_code: newCountryForm.postal_code.trim() || null,
-          locality: newCountryForm.locality.trim() || null,
-          province: newCountryForm.province.trim() || null,
-          is_active: Boolean(newCountryForm.is_active)
+          name: newCountryName.trim(),
+          location: newCountryLocation.trim() || null,
+          is_active: true
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setNewCountryForm({
-          name: '',
-          address: '',
-          postal_code: '',
-          locality: '',
-          province: '',
-          is_active: true
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || 'Comunidad creada correctamente.'
         });
-        setCountryFeedback({ type: 'success', message: data.message || 'Comunidad creada.' });
-        setCountryPage(1);
+        setNewCountryName('');
+        setNewCountryLocation('');
         await Promise.all([
-          fetchCountries(1, countrySearch, countryStatusFilter, countriesPerPage),
-          fetchIntegrations(),
+          fetchCountries(1, countrySearch, countryStatusFilter),
+          fetchCommunityIntegrations(),
           fetchSystemHealth()
         ]);
       } else {
-        setCountryFeedback({ type: 'error', message: data.error || 'No se pudo crear la comunidad.' });
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo crear la comunidad.'
+        });
       }
     } catch (error) {
-      setCountryFeedback({ type: 'error', message: 'Error de red al crear la comunidad.' });
+      console.error('Error al crear comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al crear la comunidad.'
+      });
     } finally {
       setCreatingCountry(false);
     }
   };
 
-  const startEditingCountry = (country) => {
-    setCountryFeedback({ type: '', message: '' });
-    setEditingCountryId(country.id);
-    setEditCountryForm({
-      name: country.name || '',
-      address: country.address || '',
-      postal_code: country.postal_code || '',
-      locality: country.locality || '',
-      province: country.province || '',
-      is_active: Boolean(country.is_active)
-    });
+  const startEditingCountry = (countryItem) => {
+    setEditingCountryId(countryItem.id);
+    setEditCountryName(countryItem.name || '');
+    setEditCountryLocation(countryItem.location || '');
+    setEditCountryActive(Boolean(countryItem.is_active));
+    setCountryFeedback(null);
   };
 
   const cancelEditingCountry = () => {
     setEditingCountryId(null);
-    setEditCountryForm({
-      name: '',
-      address: '',
-      postal_code: '',
-      locality: '',
-      province: '',
-      is_active: true
-    });
+    setEditCountryName('');
+    setEditCountryLocation('');
+    setEditCountryActive(true);
   };
 
-  const handleSaveCountryEdit = async (id) => {
-    setCountryFeedback({ type: '', message: '' });
-    if (!editCountryForm.name.trim()) {
-      setCountryFeedback({ type: 'error', message: 'El nombre de la comunidad / barrio es obligatorio.' });
+  const handleSaveCountryEdit = async (countryId) => {
+    if (!editCountryName.trim()) {
+      setCountryFeedback({
+        type: 'error',
+        message: 'El nombre de la comunidad es obligatorio.'
+      });
       return;
     }
-    setSavingCountryId(id);
+    setSavingEditCountry(true);
+    setCountryFeedback(null);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/external/countries/${id}`, {
+      const res = await fetch(`${API_BASE}/api/v1/external/countries/${countryId}`, {
         method: 'PATCH',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
-          name: editCountryForm.name.trim(),
-          address: editCountryForm.address.trim() || null,
-          postal_code: editCountryForm.postal_code.trim() || null,
-          locality: editCountryForm.locality.trim() || null,
-          province: editCountryForm.province.trim() || null,
-          is_active: Boolean(editCountryForm.is_active)
+          name: editCountryName.trim(),
+          location: editCountryLocation.trim() || null,
+          is_active: editCountryActive
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setCountryFeedback({ type: 'success', message: data.message || 'Comunidad actualizada.' });
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || `Comunidad #${countryId} actualizada.`
+        });
         setEditingCountryId(null);
         await Promise.all([
-          fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage),
-          fetchIntegrations(),
-          fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage),
+          fetchCountries(countryPage, countrySearch, countryStatusFilter),
+          fetchCommunityIntegrations(),
           fetchSystemHealth()
         ]);
       } else {
-        setCountryFeedback({ type: 'error', message: data.error || 'No se pudo actualizar.' });
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo actualizar la comunidad.'
+        });
       }
     } catch (error) {
-      setCountryFeedback({ type: 'error', message: 'Error de red al actualizar la comunidad.' });
+      console.error('Error al editar comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al editar la comunidad.'
+      });
     } finally {
-      setSavingCountryId(null);
+      setSavingEditCountry(false);
     }
   };
 
-  const handleToggleCountry = async (id) => {
-    setCountryFeedback({ type: '', message: '' });
-    setTogglingCountryId(id);
+  const handleToggleCountry = async (countryId) => {
+    setTogglingCountryId(countryId);
+    setCountryFeedback(null);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/external/countries/${id}/toggle`, {
+      const res = await fetch(`${API_BASE}/api/v1/external/countries/${countryId}/toggle`, {
         method: 'PATCH',
         headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        setCountryFeedback({ type: 'success', message: data.message || 'Estado actualizado.' });
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || 'Estado de comunidad actualizado.'
+        });
         await Promise.all([
-          fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage),
-          fetchIntegrations(),
+          fetchCountries(countryPage, countrySearch, countryStatusFilter),
+          fetchCommunityIntegrations(),
           fetchSystemHealth()
         ]);
       } else {
-        setCountryFeedback({ type: 'error', message: data.error || 'No se pudo cambiar el estado.' });
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo cambiar el estado.'
+        });
       }
     } catch (error) {
-      setCountryFeedback({ type: 'error', message: 'Error de red al cambiar estado.' });
+      console.error('Error al cambiar estado de comunidad:', error);
+      setCountryFeedback({
+        type: 'error',
+        message: 'Error de conexión al cambiar el estado.'
+      });
     } finally {
       setTogglingCountryId(null);
     }
@@ -595,164 +517,188 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
   const handleCreateIntegration = async (e) => {
     e.preventDefault();
-    setIntegrationFeedback({ type: '', message: '' });
-    setFreshSecretKey(null);
-    if (!selectedCountryId) {
-      setIntegrationFeedback({ type: 'error', message: 'Seleccioná una comunidad.' });
-      return;
-    }
-
+    if (!selectedIntegrationCountryId) return;
     setCreatingIntegration(true);
+    setIntegrationFeedback(null);
+    setLatestPlainKey(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/integrations`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
         body: JSON.stringify({
-          country_id: Number(selectedCountryId),
-          label: integrationLabel.trim() || 'Garita Principal'
+          country_id: Number(selectedIntegrationCountryId),
+          label: newIntegrationLabel.trim() || 'Garita Principal'
         })
       });
       const data = await res.json();
       if (res.ok) {
-        setFreshSecretKey({
-          key: data.plain_api_key,
-          label: `${data.integration?.country_name || ''} — ${data.integration?.label || ''}`
+        setIntegrationFeedback({
+          type: 'success',
+          message: data.message || 'Clave de integración generada.'
         });
-        setTestApiKey(data.plain_api_key);
-        setSandboxKeyMeta(`${data.integration?.country_name || ''} (${data.integration?.masked_key || ''})`);
-        setAuthMode('api_key');
-        setIntegrationFeedback({ type: 'success', message: data.message || 'Clave generada.' });
+        if (data.plain_api_key) {
+          setLatestPlainKey({
+            countryName: data.integration?.country_name || '',
+            label: data.integration?.label || '',
+            key: data.plain_api_key
+          });
+          setAuthMode('api_key');
+          setTestApiKey(data.plain_api_key);
+        }
         setIntegrationPage(1);
-        await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
+        await Promise.all([fetchCommunityIntegrations(), fetchSystemHealth()]);
       } else {
-        setIntegrationFeedback({ type: 'error', message: data.error || 'No se pudo generar la clave.' });
+        setIntegrationFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo generar la clave de integración.'
+        });
       }
     } catch (error) {
-      setIntegrationFeedback({ type: 'error', message: 'Error de red al generar la clave.' });
+      console.error('Error al generar clave de integración:', error);
+      setIntegrationFeedback({
+        type: 'error',
+        message: 'Error de conexión al generar la clave.'
+      });
     } finally {
       setCreatingIntegration(false);
     }
   };
 
-  const handleRotateIntegration = async (id) => {
-    setIntegrationFeedback({ type: '', message: '' });
-    setFreshSecretKey(null);
-    setBusyIntegrationId(id);
+  const handleRotateIntegrationKey = async (integrationId) => {
+    setRotatingIntegrationId(integrationId);
+    setIntegrationFeedback(null);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/external/integrations/${id}/rotate`, {
+      const res = await fetch(`${API_BASE}/api/v1/external/integrations/${integrationId}/rotate`, {
         method: 'PATCH',
         headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        setFreshSecretKey({
-          key: data.plain_api_key,
-          label: `${data.integration?.country_name || ''} — ${data.integration?.label || ''}`
+        setIntegrationFeedback({
+          type: 'success',
+          message: data.message || 'Clave rotada correctamente.'
         });
-        setTestApiKey(data.plain_api_key);
-        setSandboxKeyMeta(`${data.integration?.country_name || ''} (${data.integration?.masked_key || ''})`);
-        setAuthMode('api_key');
-        setIntegrationFeedback({ type: 'success', message: data.message || 'Clave rotada.' });
-        await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
+        if (data.plain_api_key) {
+          setLatestPlainKey({
+            countryName: data.integration?.country_name || '',
+            label: data.integration?.label || '',
+            key: data.plain_api_key
+          });
+          setAuthMode('api_key');
+          setTestApiKey(data.plain_api_key);
+        }
+        await fetchCommunityIntegrations();
       } else {
-        setIntegrationFeedback({ type: 'error', message: data.error || 'No se pudo rotar la clave.' });
+        setIntegrationFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo rotar la clave.'
+        });
       }
     } catch (error) {
-      setIntegrationFeedback({ type: 'error', message: 'Error de red al rotar la clave.' });
+      console.error('Error al rotar clave:', error);
+      setIntegrationFeedback({
+        type: 'error',
+        message: 'Error de conexión al rotar la clave.'
+      });
     } finally {
-      setBusyIntegrationId(null);
+      setRotatingIntegrationId(null);
     }
   };
 
-  const handleToggleIntegration = async (id) => {
-    setIntegrationFeedback({ type: '', message: '' });
-    setBusyIntegrationId(id);
+  const handleToggleIntegrationStatus = async (integrationId) => {
+    setTogglingIntegrationId(integrationId);
+    setIntegrationFeedback(null);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/external/integrations/${id}/toggle`, {
+      const res = await fetch(`${API_BASE}/api/v1/external/integrations/${integrationId}/toggle`, {
         method: 'PATCH',
         headers: getAuthHeaders()
       });
       const data = await res.json();
       if (res.ok) {
-        setIntegrationFeedback({ type: 'success', message: data.message || 'Estado de integración actualizado.' });
-        await Promise.all([fetchIntegrations(), fetchSystemHealth()]);
+        setIntegrationFeedback({
+          type: 'success',
+          message: data.message || 'Estado de integración actualizado.'
+        });
+        await Promise.all([fetchCommunityIntegrations(), fetchSystemHealth()]);
       } else {
-        setIntegrationFeedback({ type: 'error', message: data.error || 'No se pudo cambiar el estado.' });
+        setIntegrationFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo actualizar la integración.'
+        });
       }
     } catch (error) {
-      setIntegrationFeedback({ type: 'error', message: 'Error de red al actualizar la integración.' });
+      console.error('Error al cambiar estado de integración:', error);
+      setIntegrationFeedback({
+        type: 'error',
+        message: 'Error de conexión al cambiar estado de integración.'
+      });
     } finally {
-      setBusyIntegrationId(null);
+      setTogglingIntegrationId(null);
     }
   };
 
-  const handleCopyIntegrationKey = async (integrationId, rawKey, metaLabel = '') => {
-    if (!rawKey) return;
+  const handleCopyIntegrationKey = async (integration) => {
+    const keyToCopy = integration?.api_key || '';
+    if (!keyToCopy) return;
     try {
-      await navigator.clipboard.writeText(rawKey);
-      setCopiedIntegrationId(integrationId);
-      setTestApiKey(rawKey);
-      setSandboxKeyMeta(metaLabel);
+      await navigator.clipboard.writeText(keyToCopy);
+      setCopiedIntegrationId(integration.id);
       setAuthMode('api_key');
+      setTestApiKey(keyToCopy);
       setTimeout(() => setCopiedIntegrationId(null), 2000);
-    } catch {
-      setIntegrationFeedback({ type: 'error', message: 'No se pudo copiar la clave al portapapeles.' });
+    } catch (err) {
+      console.error('No se pudo copiar la clave:', err);
     }
   };
 
-  const handleCopySecretKey = async () => {
-    if (!freshSecretKey?.key) return;
+  const handlePassSearchSubmit = (e) => {
+    e.preventDefault();
+    setPassPage(1);
+    fetchRecentPasses(1, passSearch, passStatusFilter);
+  };
+
+  const handleCopyAndLoadPass = async (passItem) => {
+    const tokenStr = passItem.qr_token || '';
     try {
-      await navigator.clipboard.writeText(freshSecretKey.key);
-      setCopiedSecret(true);
-      setTimeout(() => setCopiedSecret(false), 2000);
-    } catch {
-      setIntegrationFeedback({ type: 'error', message: 'No se pudo copiar la clave al portapapeles.' });
+      await navigator.clipboard.writeText(tokenStr);
+    } catch (err) {
+      console.error('No se pudo copiar al portapapeles:', err);
     }
-  };
 
-  const handleCopyPassForSandbox = async (passItem) => {
-    const token = passItem?.qr_token || '';
-    const matchingIntegration = integrations.find(
-      (intg) => Number(intg.country_id) === Number(passItem?.country_id) && intg.is_active
-    );
+    setCopiedPassId(passItem.id);
+    setTimeout(() => setCopiedPassId(null), 2000);
 
-    setTestQrToken(token);
+    setTestQrToken(tokenStr);
     setAuthMode('api_key');
+
+    const matchingIntegration = integrations.find(
+      (item) => Number(item.country_id) === Number(passItem.country_id) && item.is_active
+    );
 
     if (matchingIntegration?.api_key) {
       setTestApiKey(matchingIntegration.api_key);
-      setSandboxKeyMeta(
-        `${matchingIntegration.country_name} · ${matchingIntegration.masked_key}`
-      );
-      setPassActionMsg({
-        type: 'success',
-        text: `Token #${passItem.id} copiado al portapapeles y Sandbox con clave activa de ${matchingIntegration.country_name} (${matchingIntegration.masked_key}).`
+      setSandboxCopiedHint({
+        passId: passItem.id,
+        countryName: passItem.country_name || `Comunidad #${passItem.country_id}`,
+        maskedKey: matchingIntegration.masked_key || '••••••••••',
+        hasKey: true
       });
     } else {
-      setSandboxKeyMeta(
-        passItem?.country_name
-          ? `${passItem.country_name} (sin clave activa en tabla; usando clave actual)`
-          : ''
-      );
-      setPassActionMsg({
-        type: 'success',
-        text: `Token #${passItem.id} copiado al portapapeles y Sandbox.`
+      setSandboxCopiedHint({
+        passId: passItem.id,
+        countryName: passItem.country_name || `Comunidad #${passItem.country_id}`,
+        maskedKey: null,
+        hasKey: false
       });
-    }
-
-    try {
-      await navigator.clipboard.writeText(token);
-      setCopiedTokenId(passItem.id);
-      setTimeout(() => setCopiedTokenId(null), 1800);
-    } catch {
-      setPassActionMsg({ type: 'error', text: 'Se cargó en el Sandbox, pero no se pudo copiar al portapapeles.' });
     }
   };
 
   const handleCancelPass = async (passId) => {
-    setPassActionMsg({ type: '', text: '' });
     setCancellingPassId(passId);
+    setPassActionFeedback(null);
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/passes/${passId}/cancel`, {
         method: 'PATCH',
@@ -760,16 +706,26 @@ export default function SystemHealthDashboard({ onNavigate }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setPassActionMsg({ type: 'success', text: `Pase #${passId} cancelado.` });
+        setPassActionFeedback({
+          type: 'success',
+          message: data.message || `Pase #${passId} cancelado con éxito.`
+        });
         await Promise.all([
-          fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage),
+          fetchRecentPasses(passPage, passSearch, passStatusFilter),
           fetchSystemHealth()
         ]);
       } else {
-        setPassActionMsg({ type: 'error', text: data.error || 'No se pudo cancelar el pase.' });
+        setPassActionFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo cancelar el pase.'
+        });
       }
-    } catch {
-      setPassActionMsg({ type: 'error', text: 'Error de red al cancelar el pase.' });
+    } catch (error) {
+      console.error('Error al cancelar pase:', error);
+      setPassActionFeedback({
+        type: 'error',
+        message: 'Error de conexión al cancelar el pase.'
+      });
     } finally {
       setCancellingPassId(null);
     }
@@ -782,1123 +738,705 @@ export default function SystemHealthDashboard({ onNavigate }) {
     setSandboxResponse(null);
     const startedAt = performance.now();
     try {
-      const headers = { 'Content-Type': 'application/json' };
+      const headers = {
+        'Content-Type': 'application/json'
+      };
       if (authMode === 'api_key') {
-        if (testApiKey.trim()) headers['x-api-key'] = testApiKey.trim();
+        if (testApiKey.trim()) {
+          headers['x-api-key'] = testApiKey.trim();
+        }
       } else {
-        const token = localStorage.getItem('trustlink_token') || '';
-        if (token) headers.Authorization = `Bearer ${token}`;
+        Object.assign(headers, getAuthHeaders());
       }
 
-      const res = await fetch(`${API_BASE}/api/v1/external/passes/verify`, {
+      const response = await fetch(`${API_BASE}/api/v1/external/passes/verify`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ qr_token: testQrToken.trim() })
+        body: JSON.stringify({
+          qr_token: testQrToken.trim()
+        })
       });
+
       const elapsed = Math.round(performance.now() - startedAt);
-      const body = await res.json();
-      setSandboxResponse({ status: res.status, ok: res.ok, latencyMs: elapsed, body });
-      await Promise.all([
-        fetchIntegrations(),
-        fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage)
-      ]);
-    } catch (error) {
+      const bodyJson = await response.json().catch(() => ({}));
+
       setSandboxResponse({
-        status: 0,
-        ok: false,
-        latencyMs: Math.round(performance.now() - startedAt),
-        body: { error: 'Error de conexión con el servidor backend.' }
+        ok: response.ok,
+        httpStatus: response.status,
+        latencyMs: elapsed,
+        body: bodyJson
       });
-      await fetchAuditOverview(auditOutcomeFilter, auditSearch, 1, auditPerPage);
+
+      await fetchRecentPasses(passPage, passSearch, passStatusFilter);
+      if (activeTab === 'audit') {
+        await fetchAuditOverview(auditOutcomeFilter, auditSearch);
+      }
+    } catch (error) {
+      console.error('Error al probar endpoint externo:', error);
+      setSandboxResponse({
+        ok: false,
+        httpStatus: 0,
+        latencyMs: Math.round(performance.now() - startedAt),
+        body: {
+          authorized: false,
+          code: 'NETWORK_ERROR',
+          error: 'Error de red al invocar POST /api/v1/external/passes/verify.'
+        }
+      });
     } finally {
       setTestingEndpoint(false);
     }
   };
 
+  const formatUptime = (seconds) => {
+    if (typeof seconds !== 'number') return '-';
+    const hrs = Math.floor(seconds / 3600);
+    const mins = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${hrs}h ${mins}m ${secs}s`;
+  };
+
+  const renderPassStatusBadge = (passItem) => {
+    const rawStatus = String(passItem.status || 'pending').toLowerCase();
+    const endMs = parsePassTimestampMs(passItem.end_time);
+    const isPastEnd = endMs !== null && Date.now() > endMs;
+
+    if (rawStatus === 'cancelled') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+          cancelado
+        </span>
+      );
+    }
+    if (rawStatus === 'used') {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
+          usado
+        </span>
+      );
+    }
+    if (rawStatus === 'expired' || (rawStatus === 'pending' && isPastEnd)) {
+      return (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-700">
+          vencido
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+        {rawStatus}
+      </span>
+    );
+  };
+
+  const isBackendHealthy = Boolean(healthData?.ok && diagnosticsData?.status === 'healthy');
+  const isDbConnected = Boolean(diagnosticsData?.database?.connected);
+  const isExternalReady = Boolean(diagnosticsData?.external_endpoint?.api_key_configured);
+
+  // Paginación local compacta para Integraciones y Auditoría
   const integrationTotalPages = Math.max(1, Math.ceil(integrations.length / integrationsPerPage));
+  const safeIntegrationPage = Math.min(integrationPage, integrationTotalPages);
   const paginatedIntegrations = integrations.slice(
-    (integrationPage - 1) * integrationsPerPage,
-    integrationPage * integrationsPerPage
+    (safeIntegrationPage - 1) * integrationsPerPage,
+    safeIntegrationPage * integrationsPerPage
   );
 
-  const metrics = diagnosticsData?.metrics || {};
-  const isHealthy = healthData?.ok && diagnosticsData?.ok && diagnosticsData?.database?.connected;
+  const auditTotalPages = Math.max(1, Math.ceil(accessLogs.length / AUDIT_LOGS_PER_PAGE));
+  const safeAuditPage = Math.min(auditPage, auditTotalPages);
+  const paginatedAccessLogs = accessLogs.slice(
+    (safeAuditPage - 1) * AUDIT_LOGS_PER_PAGE,
+    safeAuditPage * AUDIT_LOGS_PER_PAGE
+  );
 
   return (
-    <div className="max-w-6xl mx-auto p-6 sm:p-8 bg-slate-900 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-6 space-y-8">
-      {/* Encabezado */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-            <Activity size={26} />
-          </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">
-              Salud del Sistema & API Externa
+    <div className="space-y-4">
+      {/* Encabezado compacto */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3.5">
+        <div>
+          <div className="flex items-center gap-2">
+            <Activity className="text-emerald-400" size={18} />
+            <h2 className="text-base font-bold text-white tracking-tight">
+              Salud del Sistema &amp; Integración Externa
             </h2>
-            <p className="text-xs text-slate-400">
-              Diagnóstico en tiempo real, gobernanza de comunidades, claves por barrio, auditoría y sandbox
-            </p>
           </div>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            Estado de servicios, comunidades, claves de garita, pases QR y auditoría (superadmin).
+          </p>
         </div>
 
-        <button
-          onClick={() => {
-            fetchSystemHealth();
-            fetchCountries(countryPage, countrySearch, countryStatusFilter, countriesPerPage);
-            fetchIntegrations();
-            fetchRecentPasses(passPage, passSearch, passStatusFilter, passesPerPage);
-            fetchAuditOverview(auditOutcomeFilter, auditSearch, auditPage, auditPerPage);
-          }}
-          disabled={loadingStatus}
-          className="bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 flex items-center gap-2 cursor-pointer self-start sm:self-auto"
-        >
-          <RefreshCw size={14} className={loadingStatus ? 'animate-spin' : ''} />
-          Refrescar Todo
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
+            <button
+              type="button"
+              onClick={() => setActiveTab('health')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'health'
+                  ? 'bg-emerald-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Salud &amp; APIs
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('audit')}
+              className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeTab === 'audit'
+                  ? 'bg-indigo-600 text-white'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <FileSpreadsheet size={13} />
+              Auditoría
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleRefreshAll}
+            disabled={loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+          >
+            <RefreshCw
+              size={13}
+              className={
+                loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit
+                  ? 'animate-spin'
+                  : ''
+              }
+            />
+            Refrescar
+          </button>
+        </div>
       </div>
 
-      {/* Resumen Ejecutivo de Gobernanza */}
-      <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-              Resumen Ejecutivo de Gobernanza
-            </p>
-            <h3 className="text-base font-black text-white mt-0.5">
-              Operación Central TrustLink
-            </h3>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <div className="bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
-              <span className="text-slate-400">Prestadores aprobados: </span>
-              <strong className="text-emerald-400">{metrics.approved_providers ?? 0}</strong>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
-              <span className="text-slate-400">Comunidades activas: </span>
-              <strong className="text-sky-400">{metrics.active_countries ?? 0}</strong>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
-              <span className="text-slate-400">Claves activas: </span>
-              <strong className="text-indigo-400">{metrics.active_integrations ?? 0}</strong>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 px-3.5 py-2 rounded-xl">
-              <span className="text-slate-400">Pases emitidos: </span>
-              <strong className="text-white">{metrics.total_passes ?? 0}</strong>
-            </div>
-          </div>
-
-          {typeof onNavigate === 'function' && (
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onNavigate('admin')}
-                className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <ShieldCheck size={14} /> Ops TrustLink <ArrowUpRight size={13} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigate('users_master')}
-                className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Users size={14} /> Modo Maestro <ArrowUpRight size={13} />
-              </button>
+      {activeTab === 'health' ? (
+        <>
+          {statusError && (
+            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 px-3.5 py-2.5 rounded-xl text-xs">
+              <AlertCircle size={15} className="text-rose-400 shrink-0" />
+              <span>{statusError}</span>
             </div>
           )}
-        </div>
-      </div>
 
-      {statusError && (
-        <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <AlertCircle size={16} className="text-rose-400 shrink-0" />
-          <span>{statusError}</span>
-        </div>
-      )}
-
-      {/* Tarjetas de Estado */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Server size={14} className="text-emerald-400" /> Backend API
-            </span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-              isHealthy
-                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                : 'bg-rose-950 text-rose-300 border-rose-800'
-            }`}>
-              {loadingStatus ? 'VERIFICANDO...' : isHealthy ? 'HEALTHY' : 'DEGRADED'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400">
-            Latencia HTTP: <strong className="text-white">{httpLatencyMs !== null ? `${httpLatencyMs} ms` : '—'}</strong>
-          </p>
-          <p className="text-xs text-slate-400 flex items-center gap-1">
-            <Clock size={12} /> Uptime: <strong className="text-white">{diagnosticsData?.uptime_seconds ?? 0}s</strong>
-          </p>
-        </div>
-
-        <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <Database size={14} className="text-sky-400" /> PostgreSQL
-            </span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-              diagnosticsData?.database?.connected
-                ? 'bg-sky-950 text-sky-300 border-sky-800'
-                : 'bg-rose-950 text-rose-300 border-rose-800'
-            }`}>
-              {diagnosticsData?.database?.connected ? 'CONECTADA' : 'SIN CONEXIÓN'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400">
-            Latencia DB: <strong className="text-white">{diagnosticsData?.database?.latency_ms !== undefined ? `${diagnosticsData.database.latency_ms} ms` : '—'}</strong>
-          </p>
-          <p className="text-xs text-slate-400 truncate">
-            Hora DB: <strong className="text-slate-300">{diagnosticsData?.database?.db_time || '—'}</strong>
-          </p>
-        </div>
-
-        <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
-              <KeyRound size={14} className="text-amber-400" /> Integración Externa
-            </span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-              diagnosticsData?.external_endpoint?.api_key_configured
-                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                : 'bg-amber-950 text-amber-300 border-amber-800'
-            }`}>
-              {diagnosticsData?.external_endpoint?.api_key_configured ? 'CONFIGURADA' : 'PENDIENTE'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-400 font-mono truncate">
-            POST /api/v1/external/passes/verify
-          </p>
-          <p className="text-xs text-slate-400">
-            Claves por comunidad activas: <strong className="text-white">{metrics.active_integrations ?? 0}</strong>
-          </p>
-        </div>
-      </div>
-
-      {/* Integraciones y Claves API por Comunidad */}
-      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
-        <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <div>
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <KeyRound size={18} className="text-amber-400" />
-              Integraciones y Claves API por Comunidad
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Generá, copiá, rotá o revocá claves <code className="text-slate-300">x-api-key</code> por barrio privado sin editar archivos <code className="text-slate-300">.env</code>.
-            </p>
-          </div>
-          <span className="text-xs text-slate-400">
-            Total claves: <strong className="text-white">{integrations.length}</strong>
-          </span>
-        </div>
-
-        <form onSubmit={handleCreateIntegration} className="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div className="md:col-span-5">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Comunidad / Barrio
-            </label>
-            <select
-              value={selectedCountryId}
-              onChange={(e) => setSelectedCountryId(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-            >
-              {allCountriesForSelect.map((c) => (
-                <option key={c.id} value={c.id}>
-                  #{c.id} — {c.name} {!c.is_active ? '(Inactiva)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="md:col-span-4">
-            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Etiqueta / Punto de Acceso
-            </label>
-            <input
-              type="text"
-              value={integrationLabel}
-              onChange={(e) => setIntegrationLabel(e.target.value)}
-              placeholder="Ej. Garita Acceso Principal"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="md:col-span-3 flex items-end">
-            <button
-              type="submit"
-              disabled={creatingIntegration || allCountriesForSelect.length === 0}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Plus size={14} /> {creatingIntegration ? 'Generando...' : 'Generar API Key'}
-            </button>
-          </div>
-        </form>
-
-        {integrationFeedback.message && (
-          <div className={`p-3.5 rounded-xl text-xs border flex items-center gap-2 ${
-            integrationFeedback.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/50 border-rose-800 text-rose-200'
-          }`}>
-            {integrationFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-            <span>{integrationFeedback.message}</span>
-          </div>
-        )}
-
-        {freshSecretKey && (
-          <div className="bg-amber-950/30 border border-amber-700/60 p-4 rounded-xl space-y-2">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-              <p className="text-xs font-bold text-amber-300">
-                Clave generada para {freshSecretKey.label} (copiala ahora, se cargó también en el Sandbox):
-              </p>
-              <button
-                type="button"
-                onClick={handleCopySecretKey}
-                className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-bold flex items-center gap-1.5 cursor-pointer self-start"
-              >
-                {copiedSecret ? <Check size={13} /> : <Copy size={13} />}
-                {copiedSecret ? 'Copiada' : 'Copiar Clave'}
-              </button>
-            </div>
-            <pre className="bg-slate-900 border border-slate-800 px-3 py-2 rounded-lg text-xs font-mono text-amber-200 overflow-x-auto">
-              {freshSecretKey.key}
-            </pre>
-          </div>
-        )}
-
-        {loadingIntegrations ? (
-          <p className="text-xs text-slate-400 py-4">Cargando integraciones...</p>
-        ) : integrations.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4">
-            Aún no hay claves por comunidad creadas. Podés generar una arriba o usar la clave de entorno.
-          </p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                    <th className="py-2.5 px-3">Comunidad</th>
-                    <th className="py-2.5 px-3">Etiqueta</th>
-                    <th className="py-2.5 px-3">Clave (Enmascarada)</th>
-                    <th className="py-2.5 px-3">Último Uso</th>
-                    <th className="py-2.5 px-3">Estado</th>
-                    <th className="py-2.5 px-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {paginatedIntegrations.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-900/40">
-                      <td className="py-3 px-3 font-bold text-white">
-                        #{item.country_id} · {item.country_name}
-                      </td>
-                      <td className="py-3 px-3 text-slate-300">{item.label}</td>
-                      <td className="py-3 px-3 font-mono text-slate-300">{item.masked_key}</td>
-                      <td className="py-3 px-3 text-slate-400">
-                        {item.last_used_at ? new Date(item.last_used_at).toLocaleString() : 'Sin uso aún'}
-                      </td>
-                      <td className="py-3 px-3">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
-                          item.is_active
-                            ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}>
-                          {item.is_active ? 'Activa' : 'Revocada'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <div className="inline-flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleCopyIntegrationKey(
-                                item.id,
-                                item.api_key,
-                                `${item.country_name} · ${item.masked_key}`
-                              )
-                            }
-                            className="bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                            title="Copiar clave API y cargarla en el Sandbox"
-                          >
-                            {copiedIntegrationId === item.id ? <Check size={12} /> : <Copy size={12} />}
-                            {copiedIntegrationId === item.id ? 'Copiada' : 'Copiar'}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleRotateIntegration(item.id)}
-                            disabled={busyIntegrationId === item.id}
-                            className="bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                            title="Rotar / regenerar clave"
-                          >
-                            <RotateCw size={12} /> Rotar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleIntegration(item.id)}
-                            disabled={busyIntegrationId === item.id}
-                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 border ${
-                              item.is_active
-                                ? 'bg-rose-950/60 hover:bg-rose-900/60 text-rose-200 border-rose-800'
-                                : 'bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-200 border-emerald-800'
-                            }`}
-                          >
-                            <Power size={12} /> {item.is_active ? 'Revocar' : 'Activar'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
-              <div className="flex items-center gap-3">
-                <span>
-                  Página <strong className="text-white">{integrationPage}</strong> de{' '}
-                  <strong className="text-white">{integrationTotalPages}</strong>
-                </span>
-                <label className="inline-flex items-center gap-1.5">
-                  <span>Por página:</span>
-                  <select
-                    value={integrationsPerPage}
-                    onChange={(e) => {
-                      setIntegrationsPerPage(Number(e.target.value));
-                      setIntegrationPage(1);
-                    }}
-                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
-                  >
-                    <option value={4}>4</option>
-                    <option value={6}>6</option>
-                    <option value={10}>10</option>
-                  </select>
-                </label>
+          {/* Tarjetas compactas de estado */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+                  <Server size={15} className="text-sky-400" />
+                  <span>Backend API</span>
+                </div>
+                {loadingStatus ? (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                    ...
+                  </span>
+                ) : isBackendHealthy ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    ONLINE
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                    DEGRADADO
+                  </span>
+                )}
               </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>HTTP:</span>
+                  <span className="font-mono text-slate-200">
+                    {httpLatencyMs !== null ? `${httpLatencyMs} ms` : '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Uptime:</span>
+                  <span className="font-mono text-slate-200">
+                    {formatUptime(diagnosticsData?.uptime_seconds)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+                  <Database size={15} className="text-indigo-400" />
+                  <span>PostgreSQL</span>
+                </div>
+                {loadingStatus ? (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                    ...
+                  </span>
+                ) : isDbConnected ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    CONECTADA
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                    OFFLINE
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Consulta:</span>
+                  <span className="font-mono text-slate-200">
+                    {typeof diagnosticsData?.database?.latency_ms === 'number'
+                      ? `${diagnosticsData.database.latency_ms} ms`
+                      : '-'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Pases / Vencidos:</span>
+                  <span className="font-mono text-slate-200">
+                    {diagnosticsData?.metrics?.total_passes ?? '-'} /{' '}
+                    {diagnosticsData?.metrics?.expired_passes ?? '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
+                  <KeyRound size={15} className="text-amber-400" />
+                  <span>Endpoint Externo QR</span>
+                </div>
+                {loadingStatus ? (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
+                    ...
+                  </span>
+                ) : isExternalReady ? (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                    ACTIVO
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                    SIN CLAVE
+                  </span>
+                )}
+              </div>
+              <div className="space-y-1 text-[11px] text-slate-400">
+                <div className="flex justify-between">
+                  <span>Claves barrio:</span>
+                  <span className="font-mono text-slate-200">
+                    {diagnosticsData?.external_endpoint?.active_community_keys ?? 0}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Comunidades activas:</span>
+                  <span className="font-mono text-slate-200">
+                    {diagnosticsData?.metrics?.active_countries ?? '-'} /{' '}
+                    {diagnosticsData?.metrics?.total_countries ?? '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Comunidades / Barrios (countries) */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={integrationPage <= 1}
-                  onClick={() => setIntegrationPage((p) => Math.max(p - 1, 1))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                <Building2 size={16} className="text-emerald-400" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                  Comunidades / Barrios ({countryTotalCount})
+                </h3>
+              </div>
+
+              <form onSubmit={handleCountrySearchSubmit} className="flex flex-wrap items-center gap-1.5">
+                <div className="relative">
+                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={countrySearch}
+                    onChange={(e) => setCountrySearch(e.target.value)}
+                    placeholder="Buscar barrio..."
+                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <select
+                  value={countryStatusFilter}
+                  onChange={(e) => {
+                    setCountryStatusFilter(e.target.value);
+                    setCountryPage(1);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
                 >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={integrationPage >= integrationTotalPages}
-                  onClick={() => setIntegrationPage((p) => Math.min(p + 1, integrationTotalPages))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Gestión de Comunidades / Barrios Privados */}
-      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
-        <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <div>
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <Building2 size={18} className="text-sky-400" />
-              Gestión de Comunidades / Barrios Privados
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Alta y modificación de datos de comunidad/barrio: Nombre, Dirección, Código Postal, Localidad, Provincia y Estado.
-            </p>
-          </div>
-          <span className="text-xs text-slate-400">
-            Total filtradas: <strong className="text-white">{countryTotalCount}</strong>
-          </span>
-        </div>
-
-        <form onSubmit={handleCreateCountry} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
-          <div className="lg:col-span-4">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Nombre Comunidad / Barrio *
-            </label>
-            <input
-              type="text"
-              value={newCountryForm.name}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, name: e.target.value }))}
-              placeholder="Ej. Barrio Las Lomas"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="lg:col-span-4">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Dirección
-            </label>
-            <input
-              type="text"
-              value={newCountryForm.address}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, address: e.target.value }))}
-              placeholder="Ej. Ruta 58 Km 12.5"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="lg:col-span-2">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Código Postal
-            </label>
-            <input
-              type="text"
-              value={newCountryForm.postal_code}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, postal_code: e.target.value }))}
-              placeholder="Ej. B1814"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="lg:col-span-2">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Estado
-            </label>
-            <select
-              value={newCountryForm.is_active ? 'true' : 'false'}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            >
-              <option value="true">Activa</option>
-              <option value="false">Inactiva</option>
-            </select>
-          </div>
-          <div className="lg:col-span-5">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Localidad
-            </label>
-            <input
-              type="text"
-              value={newCountryForm.locality}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, locality: e.target.value }))}
-              placeholder="Ej. Canning / Ezeiza"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="lg:col-span-4">
-            <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-              Provincia
-            </label>
-            <input
-              type="text"
-              value={newCountryForm.province}
-              onChange={(e) => setNewCountryForm((prev) => ({ ...prev, province: e.target.value }))}
-              placeholder="Ej. Buenos Aires"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
-          </div>
-          <div className="lg:col-span-3 flex items-end">
-            <button
-              type="submit"
-              disabled={creatingCountry}
-              className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Plus size={14} /> {creatingCountry ? 'Guardando...' : 'Agregar Comunidad'}
-            </button>
-          </div>
-        </form>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <form onSubmit={handleCountrySearchSubmit} className="flex-1 flex gap-2">
-            <input
-              type="text"
-              value={countrySearch}
-              onChange={(e) => setCountrySearch(e.target.value)}
-              placeholder="Buscar por ID, nombre, dirección, CP, localidad o provincia..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-sky-500"
-            />
-            <button
-              type="submit"
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer"
-            >
-              Buscar
-            </button>
-          </form>
-          <select
-            value={countryStatusFilter}
-            onChange={(e) => {
-              setCountryStatusFilter(e.target.value);
-              setCountryPage(1);
-            }}
-            className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
-          >
-            <option value="all">Todas</option>
-            <option value="active">Activas</option>
-            <option value="inactive">Inactivas</option>
-          </select>
-        </div>
-
-        {countryFeedback.message && (
-          <div className={`p-3.5 rounded-xl text-xs border flex items-center gap-2 ${
-            countryFeedback.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/50 border-rose-800 text-rose-200'
-          }`}>
-            {countryFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-            <span>{countryFeedback.message}</span>
-          </div>
-        )}
-
-        {loadingCountries ? (
-          <p className="text-xs text-slate-400 py-4">Cargando comunidades...</p>
-        ) : countries.length === 0 ? (
-          <p className="text-xs text-slate-400 py-4">No se encontraron comunidades con los filtros actuales.</p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                    <th className="py-2.5 px-3">ID</th>
-                    <th className="py-2.5 px-3">Nombre Comunidad / Barrio</th>
-                    <th className="py-2.5 px-3">Dirección & CP</th>
-                    <th className="py-2.5 px-3">Localidad & Provincia</th>
-                    <th className="py-2.5 px-3">Estado</th>
-                    <th className="py-2.5 px-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {countries.map((c) => {
-                    const isEditing = editingCountryId === c.id;
-                    return (
-                      <React.Fragment key={c.id}>
-                        <tr className="hover:bg-slate-900/40">
-                          <td className="py-3 px-3 font-mono text-slate-400">#{c.id}</td>
-                          <td className="py-3 px-3 font-bold text-white">{c.name}</td>
-                          <td className="py-3 px-3 text-slate-300">
-                            <span className="block">{c.address || c.location || '—'}</span>
-                            {c.postal_code && (
-                              <span className="text-[11px] text-slate-400 font-mono">CP: {c.postal_code}</span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 text-slate-300">
-                            <span className="block">{c.locality || '—'}</span>
-                            <span className="text-[11px] text-slate-400">{c.province || ''}</span>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
-                              c.is_active
-                                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                : 'bg-slate-800 text-slate-400 border-slate-700'
-                            }`}>
-                              {c.is_active ? 'Activa' : 'Inactiva'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => (isEditing ? cancelEditingCountry() : startEditingCountry(c))}
-                                className="bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              >
-                                <Pencil size={12} /> {isEditing ? 'Cerrar' : 'Editar'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleCountry(c.id)}
-                                disabled={togglingCountryId === c.id}
-                                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer border ${
-                                  c.is_active
-                                    ? 'bg-rose-950/60 hover:bg-rose-900/60 text-rose-200 border-rose-800'
-                                    : 'bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-200 border-emerald-800'
-                                }`}
-                              >
-                                <Power size={12} /> {c.is_active ? 'Desactivar' : 'Activar'}
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-
-                        {isEditing && (
-                          <tr className="bg-slate-900/80">
-                            <td colSpan={6} className="p-4 border-t border-slate-800">
-                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3">
-                                <div className="lg:col-span-4">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Nombre Comunidad / Barrio *
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={editCountryForm.name}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, name: e.target.value }))}
-                                    className="w-full bg-slate-950 border border-sky-500 rounded-lg px-3 py-1.5 text-xs text-white"
-                                  />
-                                </div>
-                                <div className="lg:col-span-4">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Dirección
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={editCountryForm.address}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, address: e.target.value }))}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                                  />
-                                </div>
-                                <div className="lg:col-span-2">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Código Postal
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={editCountryForm.postal_code}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, postal_code: e.target.value }))}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                                  />
-                                </div>
-                                <div className="lg:col-span-2">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Estado
-                                  </label>
-                                  <select
-                                    value={editCountryForm.is_active ? 'true' : 'false'}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, is_active: e.target.value === 'true' }))}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white"
-                                  >
-                                    <option value="true">Activa</option>
-                                    <option value="false">Inactiva</option>
-                                  </select>
-                                </div>
-                                <div className="lg:col-span-4">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Localidad
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={editCountryForm.locality}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, locality: e.target.value }))}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                                  />
-                                </div>
-                                <div className="lg:col-span-4">
-                                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
-                                    Provincia
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={editCountryForm.province}
-                                    onChange={(e) => setEditCountryForm((prev) => ({ ...prev, province: e.target.value }))}
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white"
-                                  />
-                                </div>
-                                <div className="lg:col-span-4 flex items-end justify-end gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleSaveCountryEdit(c.id)}
-                                    disabled={savingCountryId === c.id}
-                                    className="bg-emerald-600 hover:bg-emerald-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer"
-                                  >
-                                    <Check size={13} /> {savingCountryId === c.id ? 'Guardando...' : 'Guardar Cambios'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={cancelEditingCountry}
-                                    className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
-                                  >
-                                    Cancelar
-                                  </button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
-              <div className="flex items-center gap-3">
-                <span>
-                  Página <strong className="text-white">{countryPage}</strong> de{' '}
-                  <strong className="text-white">{countryTotalPages}</strong>
-                </span>
-                <label className="inline-flex items-center gap-1.5">
-                  <span>Por página:</span>
-                  <select
-                    value={countriesPerPage}
-                    onChange={(e) => {
-                      setCountriesPerPage(Number(e.target.value));
-                      setCountryPage(1);
-                    }}
-                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
-                  >
-                    <option value={4}>4</option>
-                    <option value={6}>6</option>
-                    <option value={10}>10</option>
-                  </select>
-                </label>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={countryPage <= 1}
-                  onClick={() => setCountryPage((p) => Math.max(p - 1, 1))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={countryPage >= countryTotalPages}
-                  onClick={() => setCountryPage((p) => Math.min(p + 1, countryTotalPages))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Pases QR Recientes */}
-      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-2">
-          <div>
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <QrCode size={18} className="text-indigo-400" />
-              Pases QR Recientes
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Al presionar Copiar se copia el token al portapapeles y al Sandbox junto con la clave activa de su comunidad.
-            </p>
-          </div>
-          <span className="text-xs text-slate-400">
-            Total filtrados: <strong className="text-white">{passTotalCount}</strong>
-          </span>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-3">
-          <form onSubmit={handlePassSearchSubmit} className="flex-1 flex gap-2">
-            <input
-              type="text"
-              value={passSearch}
-              onChange={(e) => setPassSearch(e.target.value)}
-              placeholder="Buscar por ID, comunidad, prestador, fracción o lote..."
-              className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-indigo-500"
-            />
-            <button
-              type="submit"
-              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer"
-            >
-              Buscar
-            </button>
-          </form>
-          <select
-            value={passStatusFilter}
-            onChange={(e) => {
-              setPassStatusFilter(e.target.value);
-              setPassPage(1);
-            }}
-            className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
-          >
-            <option value="all">Todos los estados</option>
-            <option value="pending">Pendientes</option>
-            <option value="used">Usados</option>
-            <option value="expired">Vencidos</option>
-            <option value="cancelled">Cancelados</option>
-          </select>
-        </div>
-
-        {passActionMsg.text && (
-          <div className={`p-3 rounded-xl text-xs border ${
-            passActionMsg.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/50 border-rose-800 text-rose-200'
-          }`}>
-            {passActionMsg.text}
-          </div>
-        )}
-
-        {loadingPasses ? (
-          <p className="text-xs text-slate-400 py-3">Cargando pases recientes...</p>
-        ) : recentPasses.length === 0 ? (
-          <p className="text-xs text-slate-400 py-3">No hay pases QR registrados para los filtros aplicados.</p>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                    <th className="py-2.5 px-3">ID</th>
-                    <th className="py-2.5 px-3">Comunidad / Barrio</th>
-                    <th className="py-2.5 px-3">Prestador</th>
-                    <th className="py-2.5 px-3">Destino</th>
-                    <th className="py-2.5 px-3">Vigencia (Ingreso / Salida)</th>
-                    <th className="py-2.5 px-3">Estado</th>
-                    <th className="py-2.5 px-3">Token</th>
-                    <th className="py-2.5 px-3 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/70">
-                  {recentPasses.map((p) => {
-                    const effectiveStatus = getPassEffectiveStatus(p);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-900/40">
-                        <td className="py-2.5 px-3 font-mono text-slate-400">#{p.id}</td>
-                        <td className="py-2.5 px-3 font-bold text-sky-300">
-                          {p.country_name || (p.country_id ? `Comunidad #${p.country_id}` : '—')}
-                        </td>
-                        <td className="py-2.5 px-3 font-bold text-white">
-                          {`${p.provider_first_name || ''} ${p.provider_last_name || ''}`.trim() || '—'}
-                          {p.provider_specialty && (
-                            <span className="block text-[11px] font-normal text-slate-400">
-                              {p.provider_specialty}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300">
-                          {[p.fraction_number, p.lot_number].filter(Boolean).join(' / ') || '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-300 text-[11px] leading-relaxed">
-                          <span className="block">
-                            <strong className="text-emerald-400 font-semibold">In:</strong> {formatDateTimeShort(p.start_time)}
-                          </span>
-                          <span className="block">
-                            <strong className="text-amber-300 font-semibold">Out:</strong> {formatDateTimeShort(p.end_time)}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-bold border ${effectiveStatus.badgeClass}`}>
-                            {effectiveStatus.label}
-                          </span>
-                          {effectiveStatus.sublabel && (
-                            <span className="block text-[10px] text-slate-400 mt-0.5">
-                              {effectiveStatus.sublabel}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400">
-                          {p.qr_token ? `${p.qr_token.slice(0, 12)}...` : '—'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <div className="inline-flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => handleCopyPassForSandbox(p)}
-                              className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer"
-                              title="Copiar token al portapapeles y cargar en Sandbox con la clave de su comunidad"
-                            >
-                              {copiedTokenId === p.id ? <Check size={12} /> : <Copy size={12} />}
-                              {copiedTokenId === p.id ? 'Copiado' : 'Copiar'}
-                            </button>
-                            {p.status !== 'cancelled' && effectiveStatus.key !== 'expired' && (
-                              <button
-                                type="button"
-                                onClick={() => handleCancelPass(p.id)}
-                                disabled={cancellingPassId === p.id}
-                                className="bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800 px-2.5 py-1 rounded-lg text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
-                              >
-                                <Ban size={12} /> Cancelar
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
-              <div className="flex items-center gap-3">
-                <span>
-                  Página <strong className="text-white">{passPage}</strong> de{' '}
-                  <strong className="text-white">{passTotalPages}</strong>
-                </span>
-                <label className="inline-flex items-center gap-1.5">
-                  <span>Por página:</span>
-                  <select
-                    value={passesPerPage}
-                    onChange={(e) => {
-                      setPassesPerPage(Number(e.target.value));
-                      setPassPage(1);
-                    }}
-                    className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
-                  >
-                    <option value={4}>4</option>
-                    <option value={8}>8</option>
-                    <option value={15}>15</option>
-                  </select>
-                </label>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={passPage <= 1}
-                  onClick={() => setPassPage((p) => Math.max(p - 1, 1))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={passPage >= passTotalPages}
-                  onClick={() => setPassPage((p) => Math.min(p + 1, passTotalPages))}
-                  className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
-          </>
-        )}
-      </div>
-
-      {/* Trazabilidad de Eventos / Auditoría de Accesos y Transacciones */}
-      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-800 pb-4 gap-3">
-          <div>
-            <h3 className="text-base font-black text-white flex items-center gap-2">
-              <ClipboardList size={18} className="text-emerald-400" />
-              Trazabilidad de Eventos & Auditoría de Accesos y Transacciones
-            </h3>
-            <p className="text-xs text-slate-400 mt-1">
-              Inspeccioná intentos de validación autorizados vs. denegados (con su código de motivo) y el resumen financiero de contratos/transacciones.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAuditTab('access');
-                setAuditPage(1);
-              }}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border ${
-                auditTab === 'access'
-                  ? 'bg-emerald-600 text-white border-emerald-500'
-                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
-              }`}
-            >
-              Accesos y Validaciones
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuditTab('transactions');
-                setAuditPage(1);
-              }}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold cursor-pointer border inline-flex items-center gap-1.5 ${
-                auditTab === 'transactions'
-                  ? 'bg-indigo-600 text-white border-indigo-500'
-                  : 'bg-slate-900 text-slate-300 border-slate-800 hover:bg-slate-800'
-              }`}
-            >
-              <Receipt size={13} /> Contratos y Transacciones
-            </button>
-          </div>
-        </div>
-
-        {auditTab === 'access' ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Intentos Auditados</span>
-                <strong className="text-white text-base">{accessSummary.total_attempts ?? 0}</strong>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Autorizados</span>
-                <strong className="text-emerald-400 text-base">{accessSummary.authorized_count ?? 0}</strong>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Denegados</span>
-                <strong className="text-rose-400 text-base">{accessSummary.denied_count ?? 0}</strong>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row gap-3">
-              <form onSubmit={handleAuditSearchSubmit} className="flex-1 flex gap-2">
-                <input
-                  type="text"
-                  value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
-                  placeholder="Filtrar por código (OUT_OF_TIME_WINDOW, COUNTRY_MISMATCH...), token o comunidad..."
-                  className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
+                  <option value="all">Todas</option>
+                  <option value="active">Activas</option>
+                  <option value="inactive">Inactivas</option>
+                </select>
                 <button
                   type="submit"
-                  className="bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-xl text-xs font-bold border border-slate-700 cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
                 >
                   Filtrar
                 </button>
               </form>
-              <select
-                value={auditOutcomeFilter}
-                onChange={(e) => {
-                  setAuditOutcomeFilter(e.target.value);
-                  setAuditPage(1);
-                }}
-                className="bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-slate-200"
-              >
-                <option value="all">Todos los resultados</option>
-                <option value="authorized">Solo autorizados</option>
-                <option value="denied">Solo denegados</option>
-              </select>
             </div>
 
-            {loadingAudit ? (
-              <p className="text-xs text-slate-400 py-3">Cargando trazabilidad de accesos...</p>
-            ) : accessLogs.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3">
-                Aún no hay intentos registrados para los filtros actuales.
-              </p>
+            <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div className="md:col-span-5">
+                <input
+                  type="text"
+                  value={newCountryName}
+                  onChange={(e) => setNewCountryName(e.target.value)}
+                  placeholder="Nombre del barrio (ej: Barrio Parque Sur)"
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div className="md:col-span-5">
+                <input
+                  type="text"
+                  value={newCountryLocation}
+                  onChange={(e) => setNewCountryLocation(e.target.value)}
+                  placeholder="Ubicación (ej: Canning / Ezeiza)"
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={creatingCountry || !newCountryName.trim()}
+                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <Plus size={13} />
+                  {creatingCountry ? 'Creando...' : 'Agregar'}
+                </button>
+              </div>
+            </form>
+
+            {countryFeedback && (
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+                  countryFeedback.type === 'success'
+                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                }`}
+              >
+                {countryFeedback.type === 'success' ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <AlertCircle size={14} />
+                )}
+                <span>{countryFeedback.message}</span>
+              </div>
+            )}
+
+            {loadingCountries ? (
+              <div className="text-center py-4 text-xs text-slate-400">Cargando comunidades...</div>
+            ) : countries.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">Sin resultados.</div>
             ) : (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                        <th className="py-2.5 px-3">ID</th>
-                        <th className="py-2.5 px-3">Resultado</th>
-                        <th className="py-2.5 px-3">Código / Motivo</th>
-                        <th className="py-2.5 px-3">Comunidad / Origen</th>
-                        <th className="py-2.5 px-3">Token / Pase</th>
-                        <th className="py-2.5 px-3">Fecha</th>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                        <th className="py-1.5 px-2.5 font-semibold">ID</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Barrio</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Ubicación</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
+                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/70">
-                      {accessLogs.map((log) => (
-                        <tr key={log.id} className="hover:bg-slate-900/40">
-                          <td className="py-2.5 px-3 font-mono text-slate-400">#{log.id}</td>
-                          <td className="py-2.5 px-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                              log.authorized
-                                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                                : 'bg-rose-950 text-rose-300 border-rose-800'
-                            }`}>
-                              {log.authorized ? 'AUTORIZADO' : 'DENEGADO'}
-                            </span>
+                    <tbody className="divide-y divide-slate-900">
+                      {countries.map((countryItem) => {
+                        const isEditing = editingCountryId === countryItem.id;
+                        return (
+                          <tr key={countryItem.id} className="hover:bg-slate-900/50">
+                            <td className="py-2 px-2.5 font-mono text-slate-300">#{countryItem.id}</td>
+                            <td className="py-2 px-2.5">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editCountryName}
+                                  onChange={(e) => setEditCountryName(e.target.value)}
+                                  className="w-full px-2 py-1 rounded bg-slate-950 border border-emerald-600 text-xs text-white focus:outline-none"
+                                />
+                              ) : (
+                                <span className="font-semibold text-slate-200">{countryItem.name}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2.5">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={editCountryLocation}
+                                  onChange={(e) => setEditCountryLocation(e.target.value)}
+                                  className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none"
+                                />
+                              ) : (
+                                <span className="text-slate-400">{countryItem.location || '-'}</span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2.5">
+                              {isEditing ? (
+                                <label className="inline-flex items-center gap-1 text-xs text-slate-200 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={editCountryActive}
+                                    onChange={(e) => setEditCountryActive(e.target.checked)}
+                                  />
+                                  <span>Activa</span>
+                                </label>
+                              ) : countryItem.is_active ? (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                  activa
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                  inactiva
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2 px-2.5 text-right">
+                              <div className="inline-flex items-center gap-1">
+                                {isEditing ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveCountryEdit(countryItem.id)}
+                                      disabled={savingEditCountry}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                    >
+                                      <Check size={11} />
+                                      <span>Guardar</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={cancelEditingCountry}
+                                      className="px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer"
+                                    >
+                                      Cancelar
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditingCountry(countryItem)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                    >
+                                      <Pencil size={11} />
+                                      <span>Editar</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleToggleCountry(countryItem.id)}
+                                      disabled={togglingCountryId === countryItem.id}
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                    >
+                                      <Power size={11} />
+                                      <span>{countryItem.is_active ? 'Desactivar' : 'Activar'}</span>
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+                  <span>
+                    Pág. <strong className="text-slate-200">{countryPage}</strong> /{' '}
+                    <strong className="text-slate-200">{countryTotalPages}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCountryPage((p) => Math.max(1, p - 1))}
+                      disabled={countryPage <= 1 || loadingCountries}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft size={12} />
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCountryPage((p) => Math.min(countryTotalPages, p + 1))}
+                      disabled={countryPage >= countryTotalPages || loadingCountries}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                    >
+                      Siguiente
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Integraciones y Claves API por Comunidad (paginada) */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={16} className="text-amber-400" />
+                <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                  Integraciones y Claves API por Comunidad ({integrations.length})
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>Por página:</span>
+                <select
+                  value={integrationsPerPage}
+                  onChange={(e) => {
+                    setIntegrationsPerPage(Number(e.target.value));
+                    setIntegrationPage(1);
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200"
+                >
+                  <option value={4}>4</option>
+                  <option value={6}>6</option>
+                  <option value={10}>10</option>
+                </select>
+              </div>
+            </div>
+
+            <form onSubmit={handleCreateIntegration} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              <div className="md:col-span-5">
+                <select
+                  value={selectedIntegrationCountryId}
+                  onChange={(e) => setSelectedIntegrationCountryId(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+                >
+                  {allCountriesForSelect.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.id} · {c.name} {!c.is_active ? '(Inactiva)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="md:col-span-4">
+                <input
+                  type="text"
+                  value={newIntegrationLabel}
+                  onChange={(e) => setNewIntegrationLabel(e.target.value)}
+                  placeholder="Etiqueta (ej: Garita Principal)"
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="md:col-span-3">
+                <button
+                  type="submit"
+                  disabled={creatingIntegration || !selectedIntegrationCountryId}
+                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+                >
+                  <KeyRound size={13} />
+                  {creatingIntegration ? 'Generando...' : 'Generar Clave'}
+                </button>
+              </div>
+            </form>
+
+            {integrationFeedback && (
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+                  integrationFeedback.type === 'success'
+                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                }`}
+              >
+                {integrationFeedback.type === 'success' ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <AlertCircle size={14} />
+                )}
+                <span>{integrationFeedback.message}</span>
+              </div>
+            )}
+
+            {latestPlainKey && (
+              <div className="bg-amber-950/35 border border-amber-700/70 rounded-lg px-3 py-2 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <span className="text-amber-200 font-medium">
+                  Clave ({latestPlainKey.countryName} · {latestPlainKey.label}) cargada en Sandbox:
+                </span>
+                <code className="font-mono text-[11px] text-amber-100 break-all">{latestPlainKey.key}</code>
+              </div>
+            )}
+
+            {loadingIntegrations ? (
+              <div className="text-center py-4 text-xs text-slate-400">Cargando claves...</div>
+            ) : paginatedIntegrations.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">Sin claves configuradas.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                        <th className="py-1.5 px-2.5 font-semibold">Comunidad</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Garita</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Clave</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
+                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-900">
+                      {paginatedIntegrations.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-900/50">
+                          <td className="py-2 px-2.5 font-semibold text-slate-200">{item.country_name}</td>
+                          <td className="py-2 px-2.5 text-slate-400">{item.label}</td>
+                          <td className="py-2 px-2.5 font-mono text-[11px] text-amber-300">
+                            {item.masked_key}
                           </td>
-                          <td className="py-2.5 px-3">
-                            <span className="font-mono font-bold text-amber-300 block">{log.reason_code}</span>
-                            <span className="text-[11px] text-slate-400">{log.message}</span>
+                          <td className="py-2 px-2.5">
+                            {item.is_active ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                activa
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+                                inactiva
+                              </span>
+                            )}
                           </td>
-                          <td className="py-2.5 px-3 text-slate-300">
-                            <span className="block font-bold text-white">
-                              {log.country_name || (log.country_id ? `Comunidad #${log.country_id}` : 'Sin comunidad')}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              {log.integration_label || log.auth_mode} · HTTP {log.http_status}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 font-mono text-slate-400">
-                            {log.pass_id ? `Pase #${log.pass_id} · ` : ''}
-                            {log.qr_token ? `${log.qr_token.slice(0, 10)}...` : '—'}
-                          </td>
-                          <td className="py-2.5 px-3 text-slate-400 text-[11px]">
-                            {log.created_at ? new Date(log.created_at).toLocaleString() : '—'}
+                          <td className="py-2 px-2.5 text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleCopyIntegrationKey(item)}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                              >
+                                {copiedIntegrationId === item.id ? (
+                                  <>
+                                    <Check size={11} className="text-emerald-400" />
+                                    <span>Copiada</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Copy size={11} />
+                                    <span>Copiar</span>
+                                  </>
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRotateIntegrationKey(item.id)}
+                                disabled={rotatingIntegrationId === item.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 cursor-pointer"
+                              >
+                                <RotateCw
+                                  size={11}
+                                  className={rotatingIntegrationId === item.id ? 'animate-spin' : ''}
+                                />
+                                <span>Rotar</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleIntegrationStatus(item.id)}
+                                disabled={togglingIntegrationId === item.id}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                              >
+                                <Power size={11} />
+                                <span>{item.is_active ? 'Desactivar' : 'Activar'}</span>
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -1906,261 +1444,521 @@ export default function SystemHealthDashboard({ onNavigate }) {
                   </table>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Total filtrados: <strong className="text-white">{auditTotalCount}</strong> · Página{' '}
-                      <strong className="text-white">{auditPage}</strong> de{' '}
-                      <strong className="text-white">{auditTotalPages}</strong>
-                    </span>
-                    <label className="inline-flex items-center gap-1.5">
-                      <span>Por página:</span>
-                      <select
-                        value={auditPerPage}
-                        onChange={(e) => {
-                          setAuditPerPage(Number(e.target.value));
-                          setAuditPage(1);
-                        }}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
-                      >
-                        <option value={3}>3</option>
-                        <option value={6}>6</option>
-                        <option value={10}>10</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+                  <span>
+                    Pág. <strong className="text-slate-200">{safeIntegrationPage}</strong> /{' '}
+                    <strong className="text-slate-200">{integrationTotalPages}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      disabled={auditPage <= 1}
-                      onClick={() => setAuditPage((p) => Math.max(p - 1, 1))}
-                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                      onClick={() => setIntegrationPage((p) => Math.max(1, p - 1))}
+                      disabled={safeIntegrationPage <= 1}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
                     >
+                      <ChevronLeft size={12} />
                       Anterior
                     </button>
                     <button
                       type="button"
-                      disabled={auditPage >= auditTotalPages}
-                      onClick={() => setAuditPage((p) => Math.min(p + 1, auditTotalPages))}
-                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                      onClick={() => setIntegrationPage((p) => Math.min(integrationTotalPages, p + 1))}
+                      disabled={safeIntegrationPage >= integrationTotalPages}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
                     >
                       Siguiente
+                      <ChevronRight size={12} />
                     </button>
                   </div>
                 </div>
               </>
             )}
           </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Contratos (Total / Pend. / Comp.)</span>
-                <strong className="text-white text-sm">
-                  {financialSummary.total_contracts ?? 0} / {financialSummary.pending_contracts ?? 0} / {financialSummary.completed_contracts ?? 0}
-                </strong>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Volumen Bruto Transaccionado</span>
-                <strong className="text-white text-sm">${financialSummary.gross_volume ?? '0.00'}</strong>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Comisión TrustLink (Take Rate)</span>
-                <strong className="text-emerald-400 text-sm">${financialSummary.platform_fees ?? '0.00'}</strong>
-              </div>
-              <div className="bg-slate-900 border border-slate-800 p-3.5 rounded-xl">
-                <span className="text-slate-400 block">Neto a Prestadores</span>
-                <strong className="text-sky-400 text-sm">${financialSummary.provider_payouts ?? '0.00'}</strong>
-              </div>
+
+          {/* Pases QR Recientes */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                Pases QR Recientes ({passTotalCount})
+              </h3>
+
+              <form onSubmit={handlePassSearchSubmit} className="flex flex-wrap items-center gap-1.5">
+                <div className="relative">
+                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={passSearch}
+                    onChange={(e) => setPassSearch(e.target.value)}
+                    placeholder="Buscar ID, barrio, prestador..."
+                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <select
+                  value={passStatusFilter}
+                  onChange={(e) => {
+                    setPassStatusFilter(e.target.value);
+                    setPassPage(1);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="all">Todos</option>
+                  <option value="pending">Pendientes</option>
+                  <option value="expired">Vencidos</option>
+                  <option value="cancelled">Cancelados</option>
+                  <option value="used">Usados</option>
+                </select>
+                <button
+                  type="submit"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
+                >
+                  Buscar
+                </button>
+              </form>
             </div>
 
-            {loadingAudit ? (
-              <p className="text-xs text-slate-400 py-3">Cargando transacciones...</p>
-            ) : transactions.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3">No hay transacciones registradas todavía en la tabla transactions.</p>
+            {passActionFeedback && (
+              <div
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
+                  passActionFeedback.type === 'success'
+                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                }`}
+              >
+                {passActionFeedback.type === 'success' ? (
+                  <CheckCircle2 size={14} />
+                ) : (
+                  <AlertCircle size={14} />
+                )}
+                <span>{passActionFeedback.message}</span>
+              </div>
+            )}
+
+            {loadingPasses ? (
+              <div className="text-center py-5 text-xs text-slate-400">Cargando pases QR...</div>
+            ) : recentPasses.length === 0 ? (
+              <div className="text-center py-5 text-xs text-slate-500">Sin pases para este filtro.</div>
             ) : (
               <>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 uppercase text-[11px]">
-                        <th className="py-2.5 px-3">ID</th>
-                        <th className="py-2.5 px-3">Contrato / Prestador</th>
-                        <th className="py-2.5 px-3">Monto Total</th>
-                        <th className="py-2.5 px-3">Take Rate</th>
-                        <th className="py-2.5 px-3">Neto Prestador</th>
-                        <th className="py-2.5 px-3">Estado</th>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                        <th className="py-1.5 px-2.5 font-semibold">ID</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Barrio</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Prestador</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Destino</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Vigencia</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
+                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-800/70">
-                      {transactions
-                        .slice((auditPage - 1) * auditPerPage, auditPage * auditPerPage)
-                        .map((tx) => (
-                          <tr key={tx.id} className="hover:bg-slate-900/40">
-                            <td className="py-2.5 px-3 font-mono text-slate-400">#{tx.id}</td>
-                            <td className="py-2.5 px-3">
-                              <span className="font-bold text-white block">
-                                Contrato #{tx.contract_id} · {`${tx.provider_first_name || ''} ${tx.provider_last_name || ''}`.trim() || 'Prestador'}
-                              </span>
-                              <span className="text-[11px] text-slate-400">
-                                {tx.contract_description || tx.gateway_provider || '—'}
-                              </span>
+                    <tbody className="divide-y divide-slate-900">
+                      {recentPasses.map((passItem) => {
+                        const rawStatus = String(passItem.status || '').toLowerCase();
+                        const endMs = parsePassTimestampMs(passItem.end_time);
+                        const isExpired =
+                          rawStatus === 'expired' ||
+                          (rawStatus === 'pending' && endMs !== null && Date.now() > endMs);
+                        const isCancelled = rawStatus === 'cancelled';
+
+                        return (
+                          <tr key={passItem.id} className="hover:bg-slate-900/50">
+                            <td className="py-2 px-2.5 font-mono text-slate-300">#{passItem.id}</td>
+                            <td className="py-2 px-2.5 font-semibold text-sky-300">
+                              {passItem.country_name || `#${passItem.country_id}`}
                             </td>
-                            <td className="py-2.5 px-3 font-bold text-white">${tx.total_amount}</td>
-                            <td className="py-2.5 px-3 font-mono text-emerald-400">${tx.platform_fee}</td>
-                            <td className="py-2.5 px-3 font-mono text-sky-300">${tx.provider_payout}</td>
-                            <td className="py-2.5 px-3">
-                              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold border bg-slate-800 text-slate-200 border-slate-700">
-                                {tx.status}
-                              </span>
+                            <td className="py-2 px-2.5 text-slate-200">
+                              {`${passItem.provider_first_name || ''} ${passItem.provider_last_name || ''}`.trim() ||
+                                'Prestador'}
+                            </td>
+                            <td className="py-2 px-2.5 text-slate-400">
+                              {[passItem.fraction_number, passItem.lot_number]
+                                .filter(Boolean)
+                                .join(' / ') || '-'}
+                            </td>
+                            <td className="py-2 px-2.5 text-[11px] text-slate-300 font-mono">
+                              {formatPassDateTime(passItem.start_time)} → {formatPassDateTime(passItem.end_time)}
+                            </td>
+                            <td className="py-2 px-2.5">{renderPassStatusBadge(passItem)}</td>
+                            <td className="py-2 px-2.5 text-right">
+                              <div className="inline-flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyAndLoadPass(passItem)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                >
+                                  {copiedPassId === passItem.id ? (
+                                    <>
+                                      <Check size={11} className="text-emerald-400" />
+                                      <span>Copiado</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy size={11} />
+                                      <span>Copiar</span>
+                                    </>
+                                  )}
+                                </button>
+                                {!isCancelled && !isExpired && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCancelPass(passItem.id)}
+                                    disabled={cancellingPassId === passItem.id}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800/80 cursor-pointer"
+                                  >
+                                    <Ban size={11} />
+                                    <span>Cancelar</span>
+                                  </button>
+                                )}
+                              </div>
                             </td>
                           </tr>
-                        ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-2 text-xs text-slate-400">
-                  <div className="flex items-center gap-3">
-                    <span>
-                      Total transacciones: <strong className="text-white">{transactions.length}</strong> · Página{' '}
-                      <strong className="text-white">{auditPage}</strong> de{' '}
-                      <strong className="text-white">
-                        {Math.max(1, Math.ceil(transactions.length / auditPerPage))}
-                      </strong>
-                    </span>
-                    <label className="inline-flex items-center gap-1.5">
-                      <span>Por página:</span>
-                      <select
-                        value={auditPerPage}
-                        onChange={(e) => {
-                          setAuditPerPage(Number(e.target.value));
-                          setAuditPage(1);
-                        }}
-                        className="bg-slate-900 border border-slate-800 rounded-lg px-2 py-1 text-xs text-slate-200"
-                      >
-                        <option value={3}>3</option>
-                        <option value={6}>6</option>
-                        <option value={10}>10</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+                  <span>
+                    Pág. <strong className="text-slate-200">{passPage}</strong> /{' '}
+                    <strong className="text-slate-200">{passTotalPages}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
-                      disabled={auditPage <= 1}
-                      onClick={() => setAuditPage((p) => Math.max(p - 1, 1))}
-                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                      onClick={() => setPassPage((p) => Math.max(1, p - 1))}
+                      disabled={passPage <= 1 || loadingPasses}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
                     >
+                      <ChevronLeft size={12} />
                       Anterior
                     </button>
                     <button
                       type="button"
-                      disabled={auditPage >= Math.max(1, Math.ceil(transactions.length / auditPerPage))}
-                      onClick={() =>
-                        setAuditPage((p) =>
-                          Math.min(p + 1, Math.max(1, Math.ceil(transactions.length / auditPerPage)))
-                        )
-                      }
-                      className="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-200 px-3 py-1.5 rounded-lg font-bold cursor-pointer"
+                      onClick={() => setPassPage((p) => Math.min(passTotalPages, p + 1))}
+                      disabled={passPage >= passTotalPages || loadingPasses}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
                     >
                       Siguiente
+                      <ChevronRight size={12} />
                     </button>
                   </div>
                 </div>
               </>
             )}
           </div>
-        )}
-      </div>
 
-      {/* Sandbox Endpoint Externo */}
-      <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
-        <div className="border-b border-slate-800 pb-4">
-          <h3 className="text-base font-black text-white flex items-center gap-2">
-            <Terminal size={18} className="text-emerald-400" />
-            Sandbox POST /api/v1/external/passes/verify
-          </h3>
-          <p className="text-xs text-slate-400 mt-1">
-            Probá la validación externa con una clave por comunidad, clave global o sesión Bearer. Cada ejecución queda registrada en Auditoría.
-          </p>
-        </div>
-
-        <form onSubmit={handleRunExternalTest} className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-            <div className="flex flex-wrap gap-4">
-              <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="authMode"
-                  checked={authMode === 'api_key'}
-                  onChange={() => setAuthMode('api_key')}
-                />
-                <span>x-api-key</span>
-              </label>
-              <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                <input
-                  type="radio"
-                  name="authMode"
-                  checked={authMode === 'bearer'}
-                  onChange={() => setAuthMode('bearer')}
-                />
-                <span>Bearer JWT (superadmin)</span>
-              </label>
+          {/* Sandbox endpoint externo */}
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                Sandbox POST /api/v1/external/passes/verify
+              </h3>
+              <div className="inline-flex rounded-xl bg-slate-950 p-0.5 border border-slate-800 self-start">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('api_key')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                    authMode === 'api_key'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  x-api-key
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('jwt')}
+                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
+                    authMode === 'jwt'
+                      ? 'bg-emerald-600 text-white'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  Bearer JWT
+                </button>
+              </div>
             </div>
-            {sandboxKeyMeta && authMode === 'api_key' && (
-              <span className="text-[11px] text-sky-300 font-mono">
-                Clave vinculada: {sandboxKeyMeta}
-              </span>
+
+            {sandboxCopiedHint && (
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-sky-950/35 border border-sky-800/70 rounded-lg px-3 py-1.5 text-[11px] text-sky-200">
+                <span>
+                  Pase <strong>#{sandboxCopiedHint.passId}</strong> ({sandboxCopiedHint.countryName}) listo en Sandbox.
+                </span>
+                <span className="font-mono">
+                  {sandboxCopiedHint.hasKey ? `Clave: ${sandboxCopiedHint.maskedKey}` : 'Sin clave activa en barrio'}
+                </span>
+              </div>
+            )}
+
+            <form onSubmit={handleRunExternalTest} className="grid grid-cols-1 md:grid-cols-12 gap-2">
+              {authMode === 'api_key' && (
+                <div className="md:col-span-4">
+                  <input
+                    type="text"
+                    value={testApiKey}
+                    onChange={(e) => setTestApiKey(e.target.value)}
+                    placeholder="x-api-key (ej: tl_c1_...)"
+                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+              <div className={authMode === 'api_key' ? 'md:col-span-6' : 'md:col-span-10'}>
+                <input
+                  type="text"
+                  value={testQrToken}
+                  onChange={(e) => setTestQrToken(e.target.value)}
+                  placeholder="Pegá o copiá un qr_token..."
+                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <button
+                  type="submit"
+                  disabled={testingEndpoint || !testQrToken.trim()}
+                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
+                >
+                  <Send size={12} />
+                  {testingEndpoint ? 'Probando...' : 'Validar'}
+                </button>
+              </div>
+            </form>
+
+            {sandboxResponse && (
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-1.5">
+                    {sandboxResponse.body?.authorized ? (
+                      <CheckCircle2 size={14} className="text-emerald-400" />
+                    ) : (
+                      <XCircle size={14} className="text-rose-400" />
+                    )}
+                    <span className="font-bold text-slate-200">
+                      {sandboxResponse.body?.authorized ? 'AUTORIZADO' : 'DENEGADO'}
+                    </span>
+                    {sandboxResponse.body?.code && (
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800">
+                        {sandboxResponse.body.code}
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[11px] text-slate-400">
+                    HTTP {sandboxResponse.httpStatus} · {sandboxResponse.latencyMs} ms
+                  </span>
+                </div>
+                <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto max-h-56">
+                  {JSON.stringify(sandboxResponse.body, null, 2)}
+                </pre>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        /* Pestaña Auditoría compacta */
+        <div className="space-y-4">
+          {auditError && (
+            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 px-3.5 py-2.5 rounded-xl text-xs">
+              <AlertCircle size={15} className="text-rose-400 shrink-0" />
+              <span>{auditError}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-3 gap-3">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
+              <div className="text-[11px] text-slate-400">Intentos</div>
+              <div className="text-xl font-bold text-white font-mono">{accessSummary.total_attempts}</div>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
+              <div className="text-[11px] text-emerald-400">Autorizados</div>
+              <div className="text-xl font-bold text-emerald-300 font-mono">
+                {accessSummary.authorized_count}
+              </div>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
+              <div className="text-[11px] text-rose-400">Denegados</div>
+              <div className="text-xl font-bold text-rose-300 font-mono">{accessSummary.denied_count}</div>
+            </div>
+          </div>
+
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                Bitácora de Intentos de Acceso
+              </h3>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  fetchAuditOverview(auditOutcomeFilter, auditSearch);
+                }}
+                className="flex flex-wrap items-center gap-1.5"
+              >
+                <div className="relative">
+                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    value={auditSearch}
+                    onChange={(e) => setAuditSearch(e.target.value)}
+                    placeholder="Buscar motivo o barrio..."
+                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+                <select
+                  value={auditOutcomeFilter}
+                  onChange={(e) => setAuditOutcomeFilter(e.target.value)}
+                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="all">Todos</option>
+                  <option value="authorized">Autorizados</option>
+                  <option value="denied">Denegados</option>
+                </select>
+                <button
+                  type="submit"
+                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
+                >
+                  Buscar
+                </button>
+              </form>
+            </div>
+
+            {loadingAudit ? (
+              <div className="text-center py-4 text-xs text-slate-400">Cargando bitácora...</div>
+            ) : paginatedAccessLogs.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">Sin registros.</div>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                        <th className="py-1.5 px-2.5 font-semibold">Resultado</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Motivo</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Barrio / Origen</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Detalle</th>
+                        <th className="py-1.5 px-2.5 font-semibold">Hora</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-900">
+                      {paginatedAccessLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-900/50">
+                          <td className="py-2 px-2.5">
+                            {log.authorized ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                AUTORIZADO
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+                                DENEGADO
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-2.5 font-mono text-[11px] text-amber-300">
+                            {log.reason_code}
+                          </td>
+                          <td className="py-2 px-2.5 text-slate-300">
+                            {log.country_name || log.integration_label || log.auth_mode}
+                          </td>
+                          <td className="py-2 px-2.5 text-slate-300">{log.message}</td>
+                          <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
+                            {log.created_at
+                              ? new Date(log.created_at).toLocaleString('es-AR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit'
+                                })
+                              : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
+                  <span>
+                    Pág. <strong className="text-slate-200">{safeAuditPage}</strong> /{' '}
+                    <strong className="text-slate-200">{auditTotalPages}</strong>
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                      disabled={safeAuditPage <= 1}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                    >
+                      <ChevronLeft size={12} />
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
+                      disabled={safeAuditPage >= auditTotalPages}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                    >
+                      Siguiente
+                      <ChevronRight size={12} />
+                    </button>
+                  </div>
+                </div>
+              </>
             )}
           </div>
 
-          {authMode === 'api_key' && (
-            <input
-              type="text"
-              value={testApiKey}
-              onChange={(e) => setTestApiKey(e.target.value)}
-              placeholder="x-api-key (ej. tl_c1_... o tl_gate_dev_key_123456)"
-              className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2 text-xs font-mono text-white"
-            />
-          )}
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="text"
-              value={testQrToken}
-              onChange={(e) => setTestQrToken(e.target.value)}
-              placeholder="Pegá o seleccioná un qr_token..."
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-xs font-mono text-white"
-            />
-            <button
-              type="submit"
-              disabled={testingEndpoint || !testQrToken.trim()}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white px-5 py-2.5 rounded-xl text-xs font-bold inline-flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Send size={14} /> {testingEndpoint ? 'Probando...' : 'Ejecutar'}
-            </button>
-          </div>
-        </form>
-
-        {sandboxResponse && (
-          <div className="space-y-2 pt-2">
-            <div className="flex items-center gap-3 text-xs">
-              <span className={`font-bold px-2.5 py-0.5 rounded-full border ${
-                sandboxResponse.ok
-                  ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-                  : 'bg-amber-950 text-amber-300 border-amber-800'
-              }`}>
-                HTTP {sandboxResponse.status}
-              </span>
-              <span className="text-slate-400">Latencia: {sandboxResponse.latencyMs} ms</span>
+          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
+                Contratos y Transacciones
+              </h3>
+              <div className="flex flex-wrap gap-3 text-[11px] font-mono">
+                <span className="text-slate-300">
+                  Volumen: <strong className="text-white">${financialSummary.gross_volume}</strong>
+                </span>
+                <span className="text-emerald-300">
+                  Comisión: <strong>${financialSummary.platform_fees}</strong>
+                </span>
+                <span className="text-sky-300">
+                  Prestador: <strong>${financialSummary.provider_payouts}</strong>
+                </span>
+              </div>
             </div>
-            <pre className="bg-slate-900 border border-slate-800 p-4 rounded-xl text-xs text-emerald-300 font-mono overflow-x-auto leading-relaxed">
-              {JSON.stringify(sandboxResponse.body, null, 2)}
-            </pre>
+
+            {transactionsList.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">
+                Sin transacciones registradas ({financialSummary.total_contracts} contratos).
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
+                      <th className="py-1.5 px-2.5 font-semibold">#TX</th>
+                      <th className="py-1.5 px-2.5 font-semibold">Contrato</th>
+                      <th className="py-1.5 px-2.5 font-semibold">Monto</th>
+                      <th className="py-1.5 px-2.5 font-semibold">Comisión</th>
+                      <th className="py-1.5 px-2.5 font-semibold">Neto</th>
+                      <th className="py-1.5 px-2.5 font-semibold">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-900">
+                    {transactionsList.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-900/50">
+                        <td className="py-2 px-2.5 font-mono text-slate-300">#{tx.id}</td>
+                        <td className="py-2 px-2.5 text-slate-200">
+                          {tx.contract_description || `Contrato #${tx.contract_id}`}
+                        </td>
+                        <td className="py-2 px-2.5 font-mono text-slate-200">${tx.total_amount}</td>
+                        <td className="py-2 px-2.5 font-mono text-emerald-300">${tx.platform_fee}</td>
+                        <td className="py-2 px-2.5 font-mono text-sky-300">${tx.provider_payout}</td>
+                        <td className="py-2 px-2.5 font-mono text-slate-300">{tx.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
