@@ -1,53 +1,68 @@
 /**
  * @file UserManagementView.jsx
- * @description Panel maestro para el rol 'superadmin' con capacidades completas de alta,
- * edición (incluyendo DNI, email y contraseña) y gestión de cuentas privilegiadas conectadas a PostgreSQL.
+ * @description Consola minimalista de Cuentas Privilegiadas para superadmin: alta, edición y
+ * control de estado de usuarios con roles 'admin' y 'superadmin'.
  * @location /trustlink-web/src/modules/admin/UserManagementView.jsx
  */
+
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, UserPlus, CheckCircle2, AlertCircle, Users, Lock, Edit3, X } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
+import {
+  Shield,
+  UserPlus,
+  Pencil,
+  CheckCircle2,
+  AlertCircle,
+  X,
+  Save,
+  Mail
+} from 'lucide-react';
+
+const API_BASE = 'http://localhost:4000';
 
 export default function UserManagementView() {
-  const { brand } = useBranding();
-  const [usersList, setUsersList] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Estado para el formulario de alta
-  const [formData, setFormData] = useState({
-    first_name: '',
-    last_name: '',
-    dni: '',
-    email: '',
-    password: '',
-    role: 'admin',
-    country_id: 1
-  });
+  // Formulario alta
+  const [role, setRole] = useState('admin');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [dni, setDni] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
-  // Estado para la edición de usuario seleccionado (incluye email, dni y password opcional)
+  // Modal / edición inline
   const [editingUser, setEditingUser] = useState(null);
+  const [editFirstName, setEditFirstName] = useState('');
+  const [editLastName, setEditLastName] = useState('');
+  const [editRole, setEditRole] = useState('admin');
+  const [editActive, setEditActive] = useState(true);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+  });
 
   const fetchPrivilegedUsers = async () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      const response = await fetch('http://localhost:4000/api/v1/auth/users/privileged', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
-        }
+      const response = await fetch(`${API_BASE}/api/v1/auth/users/privileged`, {
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       if (response.ok) {
-        setUsersList(data.users || []);
+        setUsers(data.users || []);
       } else {
-        setErrorMsg(data.error || 'No se pudieron cargar los usuarios privilegiados.');
+        setErrorMsg(data.error || 'No se pudieron cargar las cuentas privilegiadas.');
       }
-      setLoading(false);
     } catch (error) {
-      console.error('Error al cargar usuarios:', error);
+      console.error('Error al cargar cuentas privilegiadas:', error);
       setErrorMsg('Error de conexión con el servidor backend.');
+    } finally {
       setLoading(false);
     }
   };
@@ -56,344 +71,367 @@ export default function UserManagementView() {
     fetchPrivilegedUsers();
   }, []);
 
-  const handleCreateUser = async (e) => {
+  const handleCreatePrivilegedUser = async (e) => {
     e.preventDefault();
+    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) return;
+    setSubmitting(true);
     setErrorMsg('');
     setSuccessMsg('');
-    setLoading(true);
-
     try {
-      const response = await fetch('http://localhost:4000/api/v1/auth/register', {
+      const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+          ...getAuthHeaders()
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          role,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          dni: dni.trim() || null,
+          email: email.trim(),
+          password
+        })
       });
-
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg(`¡Usuario ${formData.first_name} registrado con éxito en la base de datos!`);
-        setFormData({ first_name: '', last_name: '', dni: '', email: '', password: '', role: 'admin', country_id: 1 });
-        fetchPrivilegedUsers();
+        setSuccessMsg(data.message || 'Cuenta privilegiada creada.');
+        setFirstName('');
+        setLastName('');
+        setDni('');
+        setEmail('');
+        setPassword('');
+        await fetchPrivilegedUsers();
       } else {
-        setErrorMsg(data.error || 'No se pudo crear el usuario.');
+        setErrorMsg(data.error || 'No se pudo crear la cuenta.');
       }
-      setLoading(false);
     } catch (error) {
-      console.error('Error:', error);
-      setErrorMsg('Error de conexión con el servidor.');
-      setLoading(false);
+      console.error('Error al crear cuenta privilegiada:', error);
+      setErrorMsg('Error de conexión al registrar la cuenta.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleUpdateUser = async (e) => {
-    e.preventDefault();
+  const openEditUser = (u) => {
+    setEditingUser(u);
+    setEditFirstName(u.first_name || '');
+    setEditLastName(u.last_name || '');
+    setEditRole(u.role || 'admin');
+    setEditActive(Boolean(u.is_active));
     setErrorMsg('');
     setSuccessMsg('');
-    setLoading(true);
+  };
 
+  const handleSaveUserEdit = async (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setSavingEdit(true);
+    setErrorMsg('');
+    setSuccessMsg('');
     try {
-      const response = await fetch(`http://localhost:4000/api/v1/auth/users/privileged/${editingUser.id}`, {
+      const response = await fetch(`${API_BASE}/api/v1/auth/users/privileged/${editingUser.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
-          first_name: editingUser.first_name,
-          last_name: editingUser.last_name,
-          email: editingUser.email,
-          dni: editingUser.dni,
-          password: editingUser.password ? editingUser.password : undefined,
-          role: editingUser.role,
-          is_active: editingUser.is_active
+          first_name: editFirstName.trim(),
+          last_name: editLastName.trim(),
+          role: editRole,
+          is_active: editActive
         })
       });
-
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('¡Usuario actualizado correctamente en la base de datos!');
+        setSuccessMsg(data.message || 'Cuenta actualizada.');
         setEditingUser(null);
-        fetchPrivilegedUsers();
+        await fetchPrivilegedUsers();
       } else {
-        setErrorMsg(data.error || 'No se pudo actualizar el usuario.');
+        setErrorMsg(data.error || 'No se pudo actualizar la cuenta.');
       }
-      setLoading(false);
     } catch (error) {
-      console.error('Error:', error);
-      setErrorMsg('Error de conexión con el servidor.');
-      setLoading(false);
+      console.error('Error al actualizar cuenta:', error);
+      setErrorMsg('Error de conexión al actualizar.');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
-      <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-8">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-            <ShieldAlert size={26} />
+    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+      <main className="max-w-6xl mx-auto space-y-6">
+        {/* Cabecera minimalista */}
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <Shield size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg md:text-xl font-black tracking-tight text-white">
+                Cuentas Privilegiadas
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Gestión de accesos y roles administrativos.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">Ops Master — Gestión y Edición de Admins</h2>
-            <p className="text-xs text-slate-400">Control maestro con persistencia directa en PostgreSQL</p>
+
+          <span className="text-xs font-mono bg-slate-900 text-slate-300 border border-slate-800 px-3 py-1.5 rounded-xl">
+            {users.length} cuentas
+          </span>
+        </div>
+
+        {errorMsg && (
+          <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
+            <AlertCircle size={16} className="text-rose-400 shrink-0" />
+            <span>{errorMsg}</span>
           </div>
-        </div>
-        <span className="text-xs font-bold bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl border border-slate-800 flex items-center gap-1.5">
-          <Lock size={14} /> Nivel: Superadmin Global
-        </span>
-      </div>
+        )}
 
-      {errorMsg && (
-        <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
-          <AlertCircle size={16} /> <span>{errorMsg}</span>
-        </div>
-      )}
-      {successMsg && (
-        <div className="bg-emerald-950/50 border border-emerald-800 text-emerald-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} /> <span>{successMsg}</span>
-        </div>
-      )}
+        {successMsg && (
+          <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 p-4 rounded-xl text-xs">
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Formulario de Alta */}
-        <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
-            <UserPlus size={16} className="text-emerald-400" /> Registrar Nuevo Administrador
-          </h3>
-          <form onSubmit={handleCreateUser} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Rol del Sistema</label>
-              <select
-                value={formData.role}
-                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-              >
-                <option value="admin">Administrador Operativo (Admin)</option>
-                <option value="superadmin">Superadministrador TrustLink (Superadmin)</option>
-              </select>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Columna izquierda: Alta */}
+          <div className="lg:col-span-5 bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4 self-start">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+              <UserPlus size={15} />
+              <span>Registrar nuevo administrador</span>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+
+            <form onSubmit={handleCreatePrivilegedUser} className="space-y-3.5 text-xs">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Nombre</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Juan"
-                  value={formData.first_name}
-                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Rol del sistema
+                </label>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
+                >
+                  <option value="admin">Administrador Operativo (Admin)</option>
+                  <option value="superadmin">Superadmin Global</option>
+                </select>
               </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Apellido</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. Pérez"
-                  value={formData.last_name}
-                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">DNI</label>
-              <input
-                type="text"
-                required
-                placeholder="40123456"
-                value={formData.dni}
-                onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Correo Electrónico</label>
-              <input
-                type="email"
-                required
-                placeholder="admin@dominio.com"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Contraseña Temporal</label>
-              <input
-                type="password"
-                required
-                placeholder="••••••••"
-                value={formData.password}
-                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-lg mt-2"
-            >
-              <UserPlus size={16} /> {loading ? 'Registrando...' : 'Otorgar Rol Administrador'}
-            </button>
-          </form>
-        </div>
 
-        {/* Listado de Cuentas Privilegiadas con opción de Editar */}
-        <div className="lg:col-span-2 bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 mb-4 flex items-center gap-2">
-            <Users size={16} className="text-emerald-400" /> Cuentas con Privilegios Activos ({usersList.length})
-          </h3>
-          <div className="space-y-3">
-            {usersList.length === 0 ? (
-              <p className="text-xs text-slate-500 text-center py-6">No hay cuentas privilegiadas registradas.</p>
-            ) : (
-              usersList.map((u) => (
-                <div key={u.id} className="bg-slate-950 p-4 rounded-xl border border-slate-800 flex items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-white text-sm">{u.first_name} {u.last_name}</span>
-                      <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
-                        u.role === 'superadmin' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
-                      }`}>
-                        {u.role}
-                      </span>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">📧 {u.email} | DNI: {u.dni}</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-xs px-3 py-1 rounded-lg font-bold border ${
-                      u.is_active ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
-                    }`}>
-                      {u.is_active ? 'Activo' : 'Inactivo'}
-                    </span>
-                    <button
-                      onClick={() => setEditingUser({ ...u, password: '' })}
-                      className="p-2 bg-slate-900 hover:bg-slate-800 text-slate-300 rounded-xl border border-slate-800 transition-all cursor-pointer"
-                      title="Editar usuario"
-                    >
-                      <Edit3 size={16} />
-                    </button>
-                  </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Ej. Juan"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
                 </div>
-              ))
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                    Apellido
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Ej. Pérez"
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  DNI
+                </label>
+                <input
+                  type="text"
+                  value={dni}
+                  onChange={(e) => setDni(e.target.value)}
+                  placeholder="40123456"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Correo electrónico
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="admin@dominio.com"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                  Contraseña temporal
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg transition-all disabled:opacity-50 cursor-pointer"
+              >
+                <UserPlus size={14} />
+                {submitting ? 'Registrando...' : 'Otorgar Rol Administrador'}
+              </button>
+            </form>
+          </div>
+
+          {/* Columna derecha: Cuentas activas */}
+          <div className="lg:col-span-7 bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+                <Shield size={15} />
+                <span>Cuentas con privilegios activos ({users.length})</span>
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="text-center py-8 text-xs text-slate-400">Cargando cuentas...</div>
+            ) : users.length === 0 ? (
+              <div className="text-center py-8 text-xs text-slate-500">Sin cuentas registradas.</div>
+            ) : (
+              <div className="space-y-3">
+                {users.map((u) => (
+                  <div
+                    key={u.id}
+                    className="bg-slate-900/90 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">
+                          {u.first_name} {u.last_name}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
+                            u.role === 'superadmin'
+                              ? 'bg-purple-950 text-purple-300 border-purple-800'
+                              : 'bg-blue-950 text-blue-300 border-blue-800'
+                          }`}
+                        >
+                          {u.role}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                        <Mail size={12} className="text-slate-500" />
+                        <span>{u.email}</span>
+                        {u.dni && <span>| DNI: {u.dni}</span>}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span
+                        className={`text-xs font-bold px-3 py-1 rounded-lg border ${
+                          u.is_active
+                            ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {u.is_active ? 'Activo' : 'Inactivo'}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => openEditUser(u)}
+                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                        title="Editar cuenta"
+                      >
+                        <Pencil size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {editingUser && (
+              <form
+                onSubmit={handleSaveUserEdit}
+                className="bg-slate-900 border border-purple-800/70 rounded-xl p-4 space-y-3 text-xs"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-purple-300">
+                    Editando cuenta #{editingUser.id} ({editingUser.email})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingUser(null)}
+                    className="text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <input
+                    type="text"
+                    value={editFirstName}
+                    onChange={(e) => setEditFirstName(e.target.value)}
+                    placeholder="Nombre"
+                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                  />
+                  <input
+                    type="text"
+                    value={editLastName}
+                    onChange={(e) => setEditLastName(e.target.value)}
+                    placeholder="Apellido"
+                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <select
+                    value={editRole}
+                    onChange={(e) => setEditRole(e.target.value)}
+                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                  >
+                    <option value="admin">admin</option>
+                    <option value="superadmin">superadmin</option>
+                  </select>
+
+                  <label className="inline-flex items-center gap-2 text-slate-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={editActive}
+                      onChange={(e) => setEditActive(e.target.checked)}
+                    />
+                    <span>Cuenta activa</span>
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={savingEdit}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
+                  >
+                    <Save size={13} />
+                    {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+                  </button>
+                </div>
+              </form>
             )}
           </div>
         </div>
-      </div>
-
-      {/* Modal de Edición de Usuario (Con Nombre, Apellido, Email, DNI, Contraseña, Rol y Estado) */}
-      {editingUser && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-950 border border-slate-800 w-full max-w-md p-6 rounded-2xl shadow-2xl relative">
-            <button
-              onClick={() => setEditingUser(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-white cursor-pointer"
-            >
-              <X size={20} />
-            </button>
-            <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
-              <Edit3 size={18} className="text-emerald-400" /> Editar Cuenta Privilegiada
-            </h3>
-            <form onSubmit={handleUpdateUser} className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Nombre</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingUser.first_name}
-                    onChange={(e) => setEditingUser({ ...editingUser, first_name: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Apellido</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingUser.last_name}
-                    onChange={(e) => setEditingUser({ ...editingUser, last_name: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">DNI</label>
-                  <input
-                    type="text"
-                    required
-                    value={editingUser.dni}
-                    onChange={(e) => setEditingUser({ ...editingUser, dni: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Correo Electrónico</label>
-                  <input
-                    type="email"
-                    required
-                    value={editingUser.email}
-                    onChange={(e) => setEditingUser({ ...editingUser, email: e.target.value })}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Nueva Contraseña (Opcional)</label>
-                <input
-                  type="password"
-                  placeholder="Dejar en blanco para mantener la actual"
-                  value={editingUser.password}
-                  onChange={(e) => setEditingUser({ ...editingUser, password: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Rol del Sistema</label>
-                <select
-                  value={editingUser.role}
-                  onChange={(e) => setEditingUser({ ...editingUser, role: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="admin">Administrador Operativo (Admin)</option>
-                  <option value="superadmin">Superadministrador (Superadmin)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-400 mb-1">Estado de la Cuenta</label>
-                <select
-                  value={editingUser.is_active ? 'true' : 'false'}
-                  onChange={(e) => setEditingUser({ ...editingUser, is_active: e.target.value === 'true' })}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="true">Activo</option>
-                  <option value="false">Inactivo (Bloqueado)</option>
-                </select>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingUser(null)}
-                  className="w-1/2 bg-slate-900 hover:bg-slate-800 text-slate-300 font-bold py-2.5 rounded-xl text-xs cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="w-1/2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs cursor-pointer shadow-lg"
-                >
-                  {loading ? 'Guardando...' : 'Guardar Cambios'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      </main>
     </div>
   );
 }

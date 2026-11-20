@@ -1,206 +1,267 @@
 /**
  * @file AdminComplianceView.jsx
- * @description Panel de control central para que el equipo de Operaciones de TrustLink
- * audite y apruebe/rechace el compliance de todos los prestadores registrados (incluso sin perfil completo).
+ * @description Consola de operaciones centrales (Ops TrustLink) para auditar y aprobar/rechazar
+ * la documentación de compliance de los prestadores con estética minimalista.
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
+
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, CheckCircle2, XCircle, FileText, UserCheck, AlertCircle, RefreshCw } from 'lucide-react';
+import {
+  ShieldCheck,
+  ShieldAlert,
+  CheckCircle2,
+  XCircle,
+  FileText,
+  RefreshCw,
+  AlertCircle
+} from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+
+const API_BASE = 'http://localhost:4000';
 
 export default function AdminComplianceView() {
   const { brand } = useBranding();
   const [providers, setProviders] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [updatingId, setUpdatingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Función para obtener todos los prestadores desde la Base de Datos
-  const fetchAllProviders = async () => {
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+  });
+
+  const fetchProviders = async () => {
     setLoading(true);
     setErrorMsg('');
     try {
-      const response = await fetch('http://localhost:4000/api/v1/providers/all', {
+      const response = await fetch(`${API_BASE}/api/v1/providers/all`, {
         method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
-        }
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       if (response.ok) {
         setProviders(data.providers || []);
       } else {
-        setErrorMsg(data.error || 'No se pudieron cargar los prestadores.');
+        setErrorMsg(data.error || 'No se pudo cargar la lista de prestadores.');
       }
     } catch (error) {
-      console.error('Error al conectar con el backend:', error);
-      setErrorMsg('Error de conexión con el servidor backend de TrustLink.');
+      console.error('Error al obtener prestadores:', error);
+      setErrorMsg('Error de conexión con el servidor backend.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchAllProviders();
+    fetchProviders();
   }, []);
 
-  // Función para aprobar o rechazar el compliance
-  const handleUpdateCompliance = async (providerId, userId, newStatus) => {
+  const handleUpdateStatus = async (providerId, nextStatus) => {
+    setUpdatingId(providerId);
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const response = await fetch('http://localhost:4000/api/v1/providers/compliance', {
+      const response = await fetch(`${API_BASE}/api/v1/providers/compliance`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
-          provider_id: providerId || null,
-          user_id: userId || null,
-          status: newStatus
+          provider_id: providerId,
+          status: nextStatus
         })
       });
-
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg(`¡Prestador actualizado exitosamente a estado: ${newStatus}!`);
-        fetchAllProviders(); // Recargar listado real desde PostgreSQL
+        setSuccessMsg(data.message || `Estado actualizado a ${nextStatus}.`);
+        await fetchProviders();
       } else {
-        setErrorMsg(data.error || 'No se pudo actualizar el estado de compliance.');
+        setErrorMsg(data.error || 'No se pudo actualizar el estado.');
       }
     } catch (error) {
       console.error('Error al actualizar compliance:', error);
-      setErrorMsg('Error de conexión con el servidor de TrustLink.');
+      setErrorMsg('Error de conexión al actualizar el estado.');
+    } finally {
+      setUpdatingId(null);
     }
   };
 
+  const renderStatusBadge = (status) => {
+    const normalized = String(status || 'pending').toLowerCase();
+    if (normalized === 'approved') {
+      return (
+        <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-950/80 text-emerald-300 border border-emerald-800 px-2.5 py-0.5 rounded-full">
+          APPROVED
+        </span>
+      );
+    }
+    if (normalized === 'rejected') {
+      return (
+        <span className="text-[10px] font-bold uppercase tracking-wider bg-rose-950/80 text-rose-300 border border-rose-800 px-2.5 py-0.5 rounded-full">
+          REJECTED
+        </span>
+      );
+    }
+    return (
+      <span className="text-[10px] font-bold uppercase tracking-wider bg-amber-950/80 text-amber-300 border border-amber-800 px-2.5 py-0.5 rounded-full">
+        PENDING
+      </span>
+    );
+  };
+
   return (
-    <div className="max-w-6xl mx-auto p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
-      {/* Cabecera del Panel */}
-      <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-8 flex-wrap gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-            <UserCheck size={26} />
+    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+      <main className="max-w-6xl mx-auto space-y-6">
+        {/* Cabecera minimalista */}
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <ShieldCheck size={20} />
+            </div>
+            <div>
+              <h2 className="text-lg md:text-xl font-black tracking-tight text-white">
+                Ops TrustLink
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Certificación y compliance de prestadores en la red.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-2xl font-black tracking-tight text-white">Panel de Operaciones Centrales - TrustLink</h2>
-            <p className="text-xs text-slate-400">Auditoría global de antecedentes y certificación de prestadores conectado a PostgreSQL</p>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono bg-slate-900 text-slate-300 border border-slate-800 px-3 py-1.5 rounded-xl">
+              {providers.length} prestadores
+            </span>
+            <button
+              type="button"
+              onClick={fetchProviders}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={fetchAllProviders}
-            className="bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-2 rounded-xl text-xs font-bold border border-slate-800 flex items-center gap-1.5 cursor-pointer"
-            title="Actualizar listado"
-          >
-            <RefreshCw size={14} /> Actualizar
-          </button>
-          <span className="text-xs font-bold bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl border border-slate-800">
-            Rol: TrustLink Superadmin / Ops
-          </span>
-        </div>
-      </div>
 
-      {/* Alertas */}
-      {errorMsg && (
-        <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
-          <AlertCircle size={16} className="text-rose-400 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-      {successMsg && (
-        <div className="bg-emerald-950/50 border border-emerald-800 text-emerald-200 p-4 rounded-xl mb-6 text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-          <span>{successMsg}</span>
-        </div>
-      )}
-
-      {/* Listado de Prestadores */}
-      <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-            <ShieldAlert size={16} className="text-emerald-400" /> Todos los Prestadores Registrados en la Red
-          </h3>
-          <span className="text-xs bg-slate-950 text-slate-300 px-3 py-1 rounded-xl border border-slate-800 font-bold">
-            {providers.length} registros
-          </span>
-        </div>
-
-        {loading ? (
-          <div className="text-center py-16 text-slate-400 text-sm">Consultando base de datos de prestadores...</div>
-        ) : providers.length === 0 ? (
-          <div className="text-center py-16 text-slate-500 text-sm">
-            No hay prestadores registrados en la base de datos en este momento.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {providers.map((p) => (
-              <div key={p.user_id || p.provider_id} className="bg-slate-950 p-5 rounded-xl border border-slate-800 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:border-slate-700 transition-all">
-                <div>
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className="font-bold text-white text-base">{p.first_name} {p.last_name}</span>
-                    <span className="text-[11px] font-bold px-3 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                      {p.specialty}
-                    </span>
-                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
-                      p.status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      p.status === 'rejected' ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' :
-                      p.status === 'pending' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                      'bg-slate-800 text-slate-400 border border-slate-700'
-                    }`}>
-                      {p.status === 'sin_perfil' ? 'Sin Perfil / Sin Compliance' : p.status}
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-400 mb-3">DNI: <strong className="text-slate-300">{p.dni}</strong> | Email: {p.email}</p>
-                  
-                  <div className="flex items-center gap-4 text-xs flex-wrap">
-                    <a
-                      href={p.criminal_record_url || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex items-center gap-1 font-medium px-3 py-1.5 rounded-lg border ${
-                        p.criminal_record_url 
-                          ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:underline' 
-                          : 'text-slate-500 bg-slate-900 border-slate-800 cursor-not-allowed'
-                      }`}
-                    >
-                      <FileText size={13} /> {p.criminal_record_url ? 'Ver Antecedentes Penales' : 'Sin Antecedentes Cargados'}
-                    </a>
-                    <a
-                      href={p.insurance_policy_url || '#'}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className={`flex items-center gap-1 font-medium px-3 py-1.5 rounded-lg border ${
-                        p.insurance_policy_url 
-                          ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:underline' 
-                          : 'text-slate-500 bg-slate-900 border-slate-800 cursor-not-allowed'
-                      }`}
-                    >
-                      <FileText size={13} /> {p.insurance_policy_url ? 'Ver Póliza ART / Seguro' : 'Sin Póliza Cargada'}
-                    </a>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 w-full md:w-auto justify-end">
-                  <button
-                    onClick={() => handleUpdateCompliance(p.provider_id, p.user_id, 'approved')}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-                  >
-                    <CheckCircle2 size={15} /> Certificar / Aprobar
-                  </button>
-                  <button
-                    onClick={() => handleUpdateCompliance(p.provider_id, p.user_id, 'rejected')}
-                    className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
-                  >
-                    <XCircle size={15} /> Rechazar
-                  </button>
-                </div>
-              </div>
-            ))}
+        {errorMsg && (
+          <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
+            <AlertCircle size={16} className="text-rose-400 shrink-0" />
+            <span>{errorMsg}</span>
           </div>
         )}
-      </div>
+
+        {successMsg && (
+          <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 p-4 rounded-xl text-xs">
+            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+            <span>{successMsg}</span>
+          </div>
+        )}
+
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
+              <ShieldAlert size={15} />
+              <span>Prestadores registrados</span>
+            </div>
+            <span className="text-xs text-slate-400">{providers.length} registros</span>
+          </div>
+
+          {loading ? (
+            <div className="text-center py-8 text-xs text-slate-400">
+              Cargando prestadores...
+            </div>
+          ) : providers.length === 0 ? (
+            <div className="text-center py-8 text-xs text-slate-500">
+              No hay prestadores registrados.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {providers.map((p) => {
+                const isBusy = updatingId === p.provider_id;
+                return (
+                  <div
+                    key={p.provider_id}
+                    className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 p-5 rounded-2xl flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 transition-all"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold text-white">
+                          {p.first_name} {p.last_name}
+                        </span>
+                        <span className="text-[11px] font-semibold bg-blue-950/80 text-blue-300 border border-blue-800 px-2.5 py-0.5 rounded-md">
+                          {p.specialty || 'Sin especialidad'}
+                        </span>
+                        {renderStatusBadge(p.status)}
+                      </div>
+
+                      <p className="text-xs text-slate-400 font-mono">
+                        DNI: <strong className="text-slate-200">{p.dni || '-'}</strong> | Email:{' '}
+                        <span className="text-slate-300">{p.email}</span>
+                      </p>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-1">
+                        {p.criminal_record_url ? (
+                          <a
+                            href={p.criminal_record_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-slate-800 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            <FileText size={13} /> Ver Antecedentes Penales
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs bg-slate-950 text-slate-500 border border-slate-800/80 px-3 py-1.5 rounded-lg">
+                            <FileText size={13} /> Sin Antecedentes Cargados
+                          </span>
+                        )}
+
+                        {p.insurance_policy_url ? (
+                          <a
+                            href={p.insurance_policy_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-xs bg-slate-950 hover:bg-slate-800 text-emerald-300 border border-slate-800 px-3 py-1.5 rounded-lg transition-colors"
+                          >
+                            <FileText size={13} /> Ver Póliza ART / Seguro
+                          </a>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-xs bg-slate-950 text-slate-500 border border-slate-800/80 px-3 py-1.5 rounded-lg">
+                            <FileText size={13} /> Sin Póliza Cargada
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 self-end lg:self-center">
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateStatus(p.provider_id, 'approved')}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition-all disabled:opacity-50 cursor-pointer"
+                        style={{ backgroundColor: brand.primaryColor || '#059669' }}
+                      >
+                        <CheckCircle2 size={14} /> Certificar / Aprobar
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateStatus(p.provider_id, 'rejected')}
+                        disabled={isBusy}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        <XCircle size={14} /> Rechazar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
