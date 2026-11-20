@@ -1,6 +1,6 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Panel completo del Prestador conectado 100% a PostgreSQL. Permite gestionar
+ * @description Portal del Prestador conectado 100% a PostgreSQL. Permite gestionar
  * credenciales de compliance, flota vehicular y emitir/consultar calificaciones cruzadas con residentes.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
@@ -297,7 +297,7 @@ export default function ProviderDashboard() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       <main className="max-w-6xl mx-auto space-y-6">
         {/* Cabecera */}
         <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -309,7 +309,7 @@ export default function ProviderDashboard() {
               <Wrench size={22} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-white">Panel del Prestador Verificado</h2>
+              <h2 className="text-xl font-black text-white">Portal Prestador Verificado</h2>
               <p className="text-xs text-slate-400 mt-0.5">
                 Gestión de credenciales de compliance, flota vehicular y reputación cruzada.
               </p>
