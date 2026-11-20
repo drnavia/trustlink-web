@@ -1,7 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Consola técnica y de integración externa exclusiva para el rol 'superadmin',
- * alineada con la estética y jerarquía visual del resto de módulos de TrustLink.
+ * alineada con la estética y jerarquía visual del resto de módulos de TrustLink, con conversión
+ * de fechas/horas a la zona horaria local del usuario/residente.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -30,11 +31,31 @@ import {
   FileSpreadsheet,
   Power
 } from 'lucide-react';
+import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = 'http://localhost:4000';
 const COUNTRIES_PER_PAGE = 4;
 const PASSES_PER_PAGE = 6;
 const AUDIT_LOGS_PER_PAGE = 8;
+
+/**
+ * Resuelve la zona horaria del usuario logueado si viene definida en su perfil/sesión,
+ * o toma la zona horaria local del navegador (ej. "America/Argentina/Buenos_Aires").
+ */
+const resolveUserTimeZone = (userObj) => {
+  const candidate =
+    userObj?.timezone ||
+    userObj?.time_zone ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    'America/Argentina/Buenos_Aires';
+
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: candidate });
+    return candidate;
+  } catch (e) {
+    return 'America/Argentina/Buenos_Aires';
+  }
+};
 
 /**
  * Interpreta un timestamp sin zona horaria devuelto por PostgreSQL (ej. "2026-11-20 02:04:00")
@@ -49,10 +70,11 @@ const parsePassTimestampMs = (rawValue) => {
   return Number.isNaN(ms) ? null : ms;
 };
 
-const formatPassDateTime = (rawValue) => {
+const formatInTimeZone = (rawValue, timeZone) => {
   const ms = parsePassTimestampMs(rawValue);
   if (ms === null) return '-';
   return new Date(ms).toLocaleString('es-AR', {
+    timeZone,
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -61,6 +83,9 @@ const formatPassDateTime = (rawValue) => {
 };
 
 export default function SystemHealthDashboard() {
+  const { user } = useAuth();
+  const activeTimeZone = resolveUserTimeZone(user);
+
   const [activeTab, setActiveTab] = useState('health');
 
   // Salud y métricas
@@ -1479,7 +1504,7 @@ export default function SystemHealthDashboard() {
                     Pases QR Recientes ({passTotalCount})
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Vigencia mostrada en tu hora local (coincide con la emisión del residente); el estado vencido se persiste en UTC al superar el fin del pase.
+                    Fecha y hora convertidas a la zona horaria del usuario/residente (<code className="text-slate-300">{activeTimeZone}</code>); el estado vencido se persiste en UTC al superar el fin del pase.
                   </p>
                 </div>
 
@@ -1548,7 +1573,7 @@ export default function SystemHealthDashboard() {
                           <th className="py-2.5 px-3 font-semibold">Barrio</th>
                           <th className="py-2.5 px-3 font-semibold">Prestador</th>
                           <th className="py-2.5 px-3 font-semibold">Destino</th>
-                          <th className="py-2.5 px-3 font-semibold">Vigencia</th>
+                          <th className="py-2.5 px-3 font-semibold">Vigencia ({activeTimeZone})</th>
                           <th className="py-2.5 px-3 font-semibold">Estado</th>
                           <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
                         </tr>
@@ -1578,7 +1603,8 @@ export default function SystemHealthDashboard() {
                                   .join(' / ') || '-'}
                               </td>
                               <td className="py-2.5 px-3 text-[11px] text-slate-300 font-mono">
-                                {formatPassDateTime(passItem.start_time)} → {formatPassDateTime(passItem.end_time)}
+                                {formatInTimeZone(passItem.start_time, activeTimeZone)} →{' '}
+                                {formatInTimeZone(passItem.end_time, activeTimeZone)}
                               </td>
                               <td className="py-2.5 px-3">{renderPassStatusBadge(passItem)}</td>
                               <td className="py-2.5 px-3 text-right">
@@ -1843,7 +1869,7 @@ export default function SystemHealthDashboard() {
                           <th className="py-2.5 px-3 font-semibold">Motivo</th>
                           <th className="py-2.5 px-3 font-semibold">Barrio / Origen</th>
                           <th className="py-2.5 px-3 font-semibold">Detalle</th>
-                          <th className="py-2.5 px-3 font-semibold">Hora</th>
+                          <th className="py-2.5 px-3 font-semibold">Hora ({activeTimeZone})</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-900">
@@ -1868,14 +1894,7 @@ export default function SystemHealthDashboard() {
                             </td>
                             <td className="py-2.5 px-3 text-slate-300">{log.message}</td>
                             <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                              {log.created_at
-                                ? new Date(log.created_at).toLocaleString('es-AR', {
-                                    day: '2-digit',
-                                    month: '2-digit',
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                  })
-                                : '-'}
+                              {formatInTimeZone(log.created_at, activeTimeZone)}
                             </td>
                           </tr>
                         ))}
