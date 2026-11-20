@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca, vista pública Landing y protección de rutas por rol (incluyendo Admin Local y Superadmin).
+ * marca blanca, vista pública Landing y protección de rutas por rol con sub-menú de gobernanza en Modo Maestro.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -30,7 +30,8 @@ import {
   Layers,
   LogIn,
   UserPlus,
-  LogOut
+  LogOut,
+  User
 } from 'lucide-react';
 
 function MainAppContent() {
@@ -45,20 +46,29 @@ function MainAppContent() {
       setMasterModeOpen(false);
     } else if (user.role === 'superadmin') {
       setCurrentView('admin');
+      setMasterModeOpen(true);
     } else if (user.role === 'admin') {
       setCurrentView('local_admin');
+      setMasterModeOpen(false);
     } else if (user.role === 'provider') {
       setCurrentView('provider');
+      setMasterModeOpen(false);
     } else if (user.role === 'security') {
       setCurrentView('security');
+      setMasterModeOpen(false);
     } else {
       setCurrentView('resident');
+      setMasterModeOpen(false);
     }
   }, [user]);
 
   const userRole = user?.role || null;
   const isSuperadmin = userRole === 'superadmin';
   const isLocalAdmin = userRole === 'admin';
+  const canSeeResident = userRole === 'owner' || userRole === 'family' || isSuperadmin;
+  const canSeeProvider = userRole === 'provider' || isSuperadmin;
+  const canSeePaymentsAndReviews =
+    userRole === 'owner' || userRole === 'family' || userRole === 'provider' || isSuperadmin;
 
   const handleLogout = () => {
     logout();
@@ -131,54 +141,59 @@ function MainAppContent() {
             </>
           ) : (
             <>
-              {(userRole === 'owner' || userRole === 'family' || isSuperadmin) && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('resident')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      currentView === 'resident'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    <ShieldCheck size={13} /> Portal Residente
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('payments')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      currentView === 'payments'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    <CreditCard size={13} /> Pagos y Reseñas
-                  </button>
-                </>
+              {/* 1. Portal Residente */}
+              {canSeeResident && (
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('resident')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                    currentView === 'resident'
+                      ? 'bg-emerald-600 text-white shadow-lg'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <ShieldCheck size={13} /> Portal Residente
+                </button>
               )}
 
-              {(userRole === 'provider' || isSuperadmin) && (
+              {/* 2. Portal Prestador */}
+              {canSeeProvider && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('provider')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                     currentView === 'provider'
-                      ? 'bg-emerald-600 text-white'
+                      ? 'bg-emerald-600 text-white shadow-lg'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  <Wrench size={13} /> Panel Prestador
+                  <Wrench size={13} /> Portal Prestador
                 </button>
               )}
 
+              {/* 3. Pagos y Reseñas */}
+              {canSeePaymentsAndReviews && (
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('payments')}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                    currentView === 'payments'
+                      ? 'bg-emerald-600 text-white shadow-lg'
+                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  <CreditCard size={13} /> Pagos y Reseñas
+                </button>
+              )}
+
+              {/* 4. Consola Garita */}
               {(userRole === 'security' || isLocalAdmin || isSuperadmin) && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('security')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                     currentView === 'security'
-                      ? 'bg-emerald-600 text-white'
+                      ? 'bg-emerald-600 text-white shadow-lg'
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
@@ -186,13 +201,14 @@ function MainAppContent() {
                 </button>
               )}
 
-              {(isLocalAdmin || isSuperadmin) && (
+              {/* Admin Barrio local */}
+              {isLocalAdmin && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('local_admin')}
                   className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                     currentView === 'local_admin'
-                      ? 'bg-amber-600 text-white'
+                      ? 'bg-amber-600 text-white shadow-lg'
                       : 'bg-slate-800 text-amber-300 hover:bg-slate-700'
                   }`}
                 >
@@ -200,42 +216,30 @@ function MainAppContent() {
                 </button>
               )}
 
+              {/* 5. Modo Maestro */}
               {isSuperadmin && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('admin')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      currentView === 'admin'
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    <UserCheck size={13} /> Ops TrustLink
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('health')}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
-                      currentView === 'health'
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                    }`}
-                  >
-                    <Activity size={13} /> Salud &amp; APIs
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMasterModeOpen((prev) => !prev)}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-bold bg-purple-950 text-purple-300 border border-purple-800 hover:bg-purple-900 cursor-pointer"
-                  >
-                    <Layers size={13} /> Modo Maestro
-                  </button>
-                </>
+                <button
+                  type="button"
+                  onClick={() => setMasterModeOpen((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
+                    masterModeOpen ||
+                    currentView === 'admin' ||
+                    currentView === 'health' ||
+                    currentView === 'users_master' ||
+                    currentView === 'local_admin'
+                      ? 'bg-purple-700 text-white border-purple-500 shadow'
+                      : 'bg-purple-950 text-purple-300 border-purple-800 hover:bg-purple-900'
+                  }`}
+                >
+                  <Layers size={13} /> Modo Maestro
+                </button>
               )}
 
-              <span className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 font-semibold">
-                {user.first_name} ({user.role})
+              {/* Badge de usuario con estética e ícono */}
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700/80 text-emerald-300 font-bold shadow-sm">
+                <User size={13} className="text-emerald-400" />
+                <span>{user.first_name}</span>
+                <span className="text-slate-400 font-medium">({user.role})</span>
               </span>
 
               <button
@@ -251,24 +255,54 @@ function MainAppContent() {
       </header>
 
       {isSuperadmin && masterModeOpen && (
-        <div className="bg-purple-950/40 border-b border-purple-800/70 px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <span className="text-purple-200 font-semibold">
-            Modo Maestro Superadmin: accesos de gobernanza central
+        <div className="bg-slate-950/95 border-b border-purple-900/60 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="text-purple-300 font-semibold flex items-center gap-1.5">
+            <Layers size={13} /> Gobernanza Central Superadmin
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setCurrentView('admin')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'admin'
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              <UserCheck size={12} /> Ops TrustLink
+            </button>
+            <button
+              type="button"
+              onClick={() => setCurrentView('health')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'health'
+                  ? 'bg-sky-600 text-white'
+                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+              }`}
+            >
+              <Activity size={12} /> Salud &amp; APIs
+            </button>
             <button
               type="button"
               onClick={() => setCurrentView('users_master')}
-              className="px-3 py-1 rounded-lg bg-purple-700 hover:bg-purple-600 text-white font-bold cursor-pointer"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'users_master'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+              }`}
             >
               Cuentas Privilegiadas
             </button>
             <button
               type="button"
               onClick={() => setCurrentView('local_admin')}
-              className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold cursor-pointer"
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'local_admin'
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-slate-900 text-amber-300 hover:bg-slate-800 border border-slate-800'
+              }`}
             >
-              Vista Admin Barrio
+              <ShieldAlert size={12} /> Vista Admin Barrio
             </button>
           </div>
         </div>
@@ -276,9 +310,7 @@ function MainAppContent() {
 
       <div className="flex-1">
         {currentView === 'landing' && (
-          <LandingHome
-            onNavigate={(target) => setCurrentView(target)}
-          />
+          <LandingHome onNavigate={(target) => setCurrentView(target)} />
         )}
         {currentView === 'login' && (
           <LoginView
