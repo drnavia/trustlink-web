@@ -3,7 +3,7 @@
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
  * fondos (plataforma, menú, sub-menú), tipografías (plataforma, menú, sub-menú),
  * logo institucional opcional (SVG, PNG, JPG) y modo oscuro/claro, sincronizado
- * con PostgreSQL vía /api/v1/branding.
+ * con PostgreSQL vía /api/v1/branding y propagado en modo oscuro y claro.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -24,6 +24,41 @@ export const DEFAULT_BRANDING_CONFIG = {
 };
 
 const BrandingContext = createContext(null);
+
+/**
+ * Convierte un color hexadecimal #RRGGBB a componentes RGB { r, g, b }.
+ * @param {string} hex
+ */
+const hexToRgb = (hex) => {
+  if (typeof hex !== 'string') return { r: 15, g: 23, b: 42 };
+  const clean = hex.replace('#', '').trim();
+  if (clean.length !== 6) return { r: 15, g: 23, b: 42 };
+  const num = parseInt(clean, 16);
+  if (Number.isNaN(num)) return { r: 15, g: 23, b: 42 };
+  return {
+    r: (num >> 16) & 255,
+    g: (num >> 8) & 255,
+    b: num & 255,
+  };
+};
+
+/**
+ * Ajusta el brillo de un color #RRGGBB (amount entre -1 y 1) para obtener
+ * tonos de tarjeta, superficie secundaria y bordes armoniosos.
+ * @param {string} hex
+ * @param {number} amount
+ */
+const adjustHexBrightness = (hex, amount) => {
+  const { r, g, b } = hexToRgb(hex);
+  const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
+  const nr = clamp(r + 255 * amount);
+  const ng = clamp(g + 255 * amount);
+  const nb = clamp(b + 255 * amount);
+  return `#${[nr, ng, nb]
+    .map((c) => c.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()}`;
+};
 
 /**
  * Normaliza la estructura recibida desde /api/v1/branding (snake_case o camelCase)
@@ -113,7 +148,8 @@ export const BrandingProvider = ({ children }) => {
   }, [fetchBranding]);
 
   /**
-   * Aplica las variables CSS y el modo oscuro/claro en toda la plataforma.
+   * Propaga fondos, tipografías, superficies derivadas y modo oscuro/claro
+   * a toda la plataforma de manera consistente.
    */
   useEffect(() => {
     const root = document.documentElement;
@@ -126,20 +162,33 @@ export const BrandingProvider = ({ children }) => {
     const menuText = brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor;
     const submenuText = brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor;
 
-    // Variables CSS semánticas de apariencia
+    // Derivamos superficies armónicas a partir del color de fondo de la plataforma
+    // para evitar que queden "parches" oscuros desconectados del fondo elegido
+    const cardSurface = isDark
+      ? adjustHexBrightness(platformBg, -0.06)
+      : adjustHexBrightness(platformBg, 0.06);
+    const mutedSurface = isDark
+      ? adjustHexBrightness(platformBg, 0.04)
+      : adjustHexBrightness(platformBg, -0.04);
+    const borderTone = isDark
+      ? adjustHexBrightness(platformBg, 0.14)
+      : adjustHexBrightness(platformBg, -0.18);
+    const secondaryTextTone = isDark ? '#CBD5E1' : '#475569';
+
     root.style.setProperty('--tl-platform-bg', platformBg);
     root.style.setProperty('--tl-menu-bg', menuBg);
     root.style.setProperty('--tl-submenu-bg', submenuBg);
     root.style.setProperty('--tl-platform-text', platformText);
     root.style.setProperty('--tl-menu-text', menuText);
     root.style.setProperty('--tl-submenu-text', submenuText);
+    root.style.setProperty('--tl-surface-card', cardSurface);
+    root.style.setProperty('--tl-surface-muted', mutedSurface);
+    root.style.setProperty('--tl-border-subtle', borderTone);
     root.style.setProperty('--tl-dark-mode', isDark ? '1' : '0');
 
-    // Clase y atributo de tema para estilos globales y modo claro/oscuro
     root.classList.toggle('dark', isDark);
     root.setAttribute('data-theme', isDark ? 'dark' : 'light');
 
-    // Hoja de estilo dinámica para propagar fondos, tipografías y modo oscuro/claro
     const styleId = 'trustlink-appearance-dynamic-styles';
     let styleEl = document.getElementById(styleId);
     if (!styleEl) {
@@ -147,11 +196,6 @@ export const BrandingProvider = ({ children }) => {
       styleEl.id = styleId;
       document.head.appendChild(styleEl);
     }
-
-    const surfaceCardBg = isDark ? 'rgba(2, 6, 23, 0.88)' : '#FFFFFF';
-    const surfaceMutedBg = isDark ? 'rgba(15, 23, 42, 0.85)' : '#F8FAFC';
-    const borderTone = isDark ? 'rgba(51, 65, 85, 0.7)' : '#CBD5E1';
-    const secondaryTextTone = isDark ? '#94A3B8' : '#475569';
 
     styleEl.textContent = `
       body {
@@ -174,30 +218,30 @@ export const BrandingProvider = ({ children }) => {
         color: var(--tl-submenu-text) !important;
       }
 
-      /* Propagación en vistas cuando está activo el modo claro */
-      html[data-theme="light"] .tl-platform-surface .bg-slate-950,
-      html[data-theme="light"] .tl-platform-surface .bg-slate-900,
-      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/80,
-      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/70,
-      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/60,
-      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/50 {
-        background-color: ${surfaceCardBg} !important;
-        border-color: ${borderTone} !important;
+      /* Propagación de superficies y tipografías dentro de la plataforma en ambos modos */
+      .tl-platform-surface .bg-slate-950,
+      .tl-platform-surface .bg-slate-900,
+      .tl-platform-surface .bg-slate-900\\/80,
+      .tl-platform-surface .bg-slate-900\\/70,
+      .tl-platform-surface .bg-slate-900\\/60,
+      .tl-platform-surface .bg-slate-900\\/50 {
+        background-color: var(--tl-surface-card) !important;
+        border-color: var(--tl-border-subtle) !important;
       }
 
-      html[data-theme="light"] .tl-platform-surface .bg-slate-800 {
-        background-color: ${surfaceMutedBg} !important;
-        border-color: ${borderTone} !important;
+      .tl-platform-surface .bg-slate-800 {
+        background-color: var(--tl-surface-muted) !important;
+        border-color: var(--tl-border-subtle) !important;
       }
 
-      html[data-theme="light"] .tl-platform-surface .text-white,
-      html[data-theme="light"] .tl-platform-surface .text-slate-100,
-      html[data-theme="light"] .tl-platform-surface .text-slate-200 {
+      .tl-platform-surface .text-white,
+      .tl-platform-surface .text-slate-100,
+      .tl-platform-surface .text-slate-200 {
         color: var(--tl-platform-text) !important;
       }
 
-      html[data-theme="light"] .tl-platform-surface .text-slate-300,
-      html[data-theme="light"] .tl-platform-surface .text-slate-400 {
+      .tl-platform-surface .text-slate-300,
+      .tl-platform-surface .text-slate-400 {
         color: ${secondaryTextTone} !important;
       }
 

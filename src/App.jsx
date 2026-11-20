@@ -1,8 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * apariencia configurable (fondos, tipografías, logo opcional y modo oscuro), vista pública Landing,
- * footer único global y control de acceso por rol.
+ * apariencia configurable (fondos, tipografías, logo opcional y modo oscuro) en header, sub-menú,
+ * vistas y footer único global.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -408,7 +408,13 @@ function MainAppContent() {
       </main>
 
       {/* Footer Institucional Único */}
-      <footer className="bg-slate-950 border-t border-slate-800 py-3.5 px-6 text-center text-xs text-slate-500 w-full mt-auto">
+      <footer
+        className="border-t border-slate-800 py-3.5 px-6 text-center text-xs w-full mt-auto tl-menu-surface"
+        style={{
+          backgroundColor: brand.menuBgColor || '#020617',
+          color: brand.menuTextColor || '#94A3B8',
+        }}
+      >
         TrustLink Community Network — Nodo Central de Validación Perimetral y Compliance © 2026
       </footer>
     </div>
