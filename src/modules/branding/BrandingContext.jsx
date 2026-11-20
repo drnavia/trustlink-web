@@ -1,8 +1,9 @@
 /**
  * @file BrandingContext.jsx
- * @description Contexto modular de marca blanca y paleta de 3 colores de TrustLink
- * (Primario, Secundario y Acento). Sincroniza con PostgreSQL vía /api/v1/branding
- * y propaga las variables CSS y utilidades dinámicas a toda la plataforma.
+ * @description Contexto modular para gestionar la apariencia global de TrustLink:
+ * fondos (plataforma, menú, sub-menú), tipografías (plataforma, menú, sub-menú),
+ * logo institucional opcional (SVG, PNG, JPG) y modo oscuro/claro, sincronizado
+ * con PostgreSQL vía /api/v1/branding.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -10,58 +11,77 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = 'http://localhost:4000';
 
-export const DEFAULT_BRAND_COLORS = {
-  primaryColor: '#0A2540',
-  secondaryColor: '#1E293B',
-  accentColor: '#10B981',
+// Valores iniciales por defecto de TrustLink (estética oscura y sobria)
+export const DEFAULT_BRANDING_CONFIG = {
+  platformBgColor: '#0F172A',
+  menuBgColor: '#020617',
+  submenuBgColor: '#090D16',
+  platformTextColor: '#F1F5F9',
+  menuTextColor: '#E2E8F0',
+  submenuTextColor: '#CBD5E1',
+  logoUrl: null,
+  darkMode: true,
 };
 
 const BrandingContext = createContext(null);
 
 /**
- * Convierte un color hexadecimal #RRGGBB a componentes RGB { r, g, b }.
+ * Normaliza la estructura recibida desde /api/v1/branding (snake_case o camelCase)
+ * hacia el estado camelCase del frontend.
+ * @param {Record<string, any>} raw
  */
-const hexToRgb = (hex) => {
-  if (typeof hex !== 'string') return { r: 16, g: 185, b: 129 };
-  const clean = hex.replace('#', '').trim();
-  if (clean.length !== 6) return { r: 16, g: 185, b: 129 };
-  const num = parseInt(clean, 16);
-  if (Number.isNaN(num)) return { r: 16, g: 185, b: 129 };
-  return {
-    r: (num >> 16) & 255,
-    g: (num >> 8) & 255,
-    b: num & 255,
-  };
-};
-
-/**
- * Ajusta el brillo de un color #RRGGBB (amount entre -1 y 1) para estados hover.
- */
-const adjustHexBrightness = (hex, amount) => {
-  const { r, g, b } = hexToRgb(hex);
-  const clamp = (val) => Math.max(0, Math.min(255, Math.round(val)));
-  const nr = clamp(r + 255 * amount);
-  const ng = clamp(g + 255 * amount);
-  const nb = clamp(b + 255 * amount);
-  return `#${[nr, ng, nb].map((c) => c.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
-};
+const mapBackendBrandingToState = (raw = {}) => ({
+  platformBgColor:
+    raw.platform_bg_color ||
+    raw.platformBgColor ||
+    DEFAULT_BRANDING_CONFIG.platformBgColor,
+  menuBgColor:
+    raw.menu_bg_color ||
+    raw.menuBgColor ||
+    DEFAULT_BRANDING_CONFIG.menuBgColor,
+  submenuBgColor:
+    raw.submenu_bg_color ||
+    raw.submenuBgColor ||
+    DEFAULT_BRANDING_CONFIG.submenuBgColor,
+  platformTextColor:
+    raw.platform_text_color ||
+    raw.platformTextColor ||
+    DEFAULT_BRANDING_CONFIG.platformTextColor,
+  menuTextColor:
+    raw.menu_text_color ||
+    raw.menuTextColor ||
+    DEFAULT_BRANDING_CONFIG.menuTextColor,
+  submenuTextColor:
+    raw.submenu_text_color ||
+    raw.submenuTextColor ||
+    DEFAULT_BRANDING_CONFIG.submenuTextColor,
+  logoUrl:
+    raw.logo_url !== undefined
+      ? raw.logo_url
+      : raw.logoUrl !== undefined
+      ? raw.logoUrl
+      : DEFAULT_BRANDING_CONFIG.logoUrl,
+  darkMode:
+    typeof raw.dark_mode === 'boolean'
+      ? raw.dark_mode
+      : typeof raw.darkMode === 'boolean'
+      ? raw.darkMode
+      : DEFAULT_BRANDING_CONFIG.darkMode,
+});
 
 export const BrandingProvider = ({ children }) => {
   const [brand, setBrand] = useState({
     name: 'TrustLink',
     countryName: 'TrustLink Community',
-    logoUrl: '/assets/logo-default.svg',
-    primaryColor: DEFAULT_BRAND_COLORS.primaryColor,
-    secondaryColor: DEFAULT_BRAND_COLORS.secondaryColor,
-    accentColor: DEFAULT_BRAND_COLORS.accentColor,
+    ...DEFAULT_BRANDING_CONFIG,
     updatedAt: null,
   });
 
-  const [defaults, setDefaults] = useState(DEFAULT_BRAND_COLORS);
+  const [defaults, setDefaults] = useState(DEFAULT_BRANDING_CONFIG);
   const [loadingBrand, setLoadingBrand] = useState(true);
 
   /**
-   * Carga la paleta de 3 colores persistida en el backend.
+   * Consulta la configuración vigente desde el backend.
    */
   const fetchBranding = useCallback(async () => {
     setLoadingBrand(true);
@@ -70,24 +90,19 @@ export const BrandingProvider = ({ children }) => {
       const data = await response.json();
 
       if (response.ok && data.branding) {
+        const mapped = mapBackendBrandingToState(data.branding);
         setBrand((prev) => ({
           ...prev,
-          primaryColor: data.branding.primary_color || DEFAULT_BRAND_COLORS.primaryColor,
-          secondaryColor: data.branding.secondary_color || DEFAULT_BRAND_COLORS.secondaryColor,
-          accentColor: data.branding.accent_color || DEFAULT_BRAND_COLORS.accentColor,
+          ...mapped,
           updatedAt: data.branding.updated_at || null,
         }));
 
         if (data.defaults) {
-          setDefaults({
-            primaryColor: data.defaults.primary_color || DEFAULT_BRAND_COLORS.primaryColor,
-            secondaryColor: data.defaults.secondary_color || DEFAULT_BRAND_COLORS.secondaryColor,
-            accentColor: data.defaults.accent_color || DEFAULT_BRAND_COLORS.accentColor,
-          });
+          setDefaults(mapBackendBrandingToState(data.defaults));
         }
       }
     } catch (error) {
-      console.error('[BrandingContext] Error al cargar colores desde backend:', error);
+      console.error('[BrandingContext] Error al cargar configuración de apariencia:', error);
     } finally {
       setLoadingBrand(false);
     }
@@ -98,120 +113,158 @@ export const BrandingProvider = ({ children }) => {
   }, [fetchBranding]);
 
   /**
-   * Propaga los 3 colores a las variables CSS de :root y a una hoja de estilo
-   * dinámica global para asegurar que toda la plataforma responda en tiempo real.
+   * Aplica las variables CSS y el modo oscuro/claro en toda la plataforma.
    */
   useEffect(() => {
     const root = document.documentElement;
+    const isDark = Boolean(brand.darkMode);
 
-    const primary = brand.primaryColor || DEFAULT_BRAND_COLORS.primaryColor;
-    const secondary = brand.secondaryColor || DEFAULT_BRAND_COLORS.secondaryColor;
-    const accent = brand.accentColor || DEFAULT_BRAND_COLORS.accentColor;
+    const platformBg = brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor;
+    const menuBg = brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor;
+    const submenuBg = brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor;
+    const platformText = brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor;
+    const menuText = brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor;
+    const submenuText = brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor;
 
-    const primaryHover = adjustHexBrightness(primary, 0.08);
-    const secondaryHover = adjustHexBrightness(secondary, 0.08);
-    const accentHover = adjustHexBrightness(accent, 0.08);
+    // Variables CSS semánticas de apariencia
+    root.style.setProperty('--tl-platform-bg', platformBg);
+    root.style.setProperty('--tl-menu-bg', menuBg);
+    root.style.setProperty('--tl-submenu-bg', submenuBg);
+    root.style.setProperty('--tl-platform-text', platformText);
+    root.style.setProperty('--tl-menu-text', menuText);
+    root.style.setProperty('--tl-submenu-text', submenuText);
+    root.style.setProperty('--tl-dark-mode', isDark ? '1' : '0');
 
-    const primaryRgb = hexToRgb(primary);
-    const secondaryRgb = hexToRgb(secondary);
-    const accentRgb = hexToRgb(accent);
+    // Clase y atributo de tema para estilos globales y modo claro/oscuro
+    root.classList.toggle('dark', isDark);
+    root.setAttribute('data-theme', isDark ? 'dark' : 'light');
 
-    root.style.setProperty('--color-primary', primary);
-    root.style.setProperty('--color-secondary', secondary);
-    root.style.setProperty('--color-accent', accent);
-
-    root.style.setProperty('--tl-primary', primary);
-    root.style.setProperty('--tl-primary-hover', primaryHover);
-    root.style.setProperty('--tl-primary-soft', `rgba(${primaryRgb.r}, ${primaryRgb.g}, ${primaryRgb.b}, 0.16)`);
-
-    root.style.setProperty('--tl-secondary', secondary);
-    root.style.setProperty('--tl-secondary-hover', secondaryHover);
-    root.style.setProperty('--tl-secondary-soft', `rgba(${secondaryRgb.r}, ${secondaryRgb.g}, ${secondaryRgb.b}, 0.22)`);
-
-    root.style.setProperty('--tl-accent', accent);
-    root.style.setProperty('--tl-accent-hover', accentHover);
-    root.style.setProperty('--tl-accent-soft', `rgba(${accentRgb.r}, ${accentRgb.g}, ${accentRgb.b}, 0.14)`);
-
-    // Sincronización global sobre tokens visuales de marca y acción en todas las vistas
-    const styleTagId = 'trustlink-dynamic-branding-vars';
-    let styleTag = document.getElementById(styleTagId);
-    if (!styleTag) {
-      styleTag = document.createElement('style');
-      styleTag.id = styleTagId;
-      document.head.appendChild(styleTag);
+    // Hoja de estilo dinámica para propagar fondos, tipografías y modo oscuro/claro
+    const styleId = 'trustlink-appearance-dynamic-styles';
+    let styleEl = document.getElementById(styleId);
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = styleId;
+      document.head.appendChild(styleEl);
     }
 
-    styleTag.textContent = `
-      .tl-bg-primary { background-color: var(--tl-primary) !important; }
-      .tl-bg-primary:hover { background-color: var(--tl-primary-hover) !important; }
-      .tl-border-primary { border-color: var(--tl-primary) !important; }
+    const surfaceCardBg = isDark ? 'rgba(2, 6, 23, 0.88)' : '#FFFFFF';
+    const surfaceMutedBg = isDark ? 'rgba(15, 23, 42, 0.85)' : '#F8FAFC';
+    const borderTone = isDark ? 'rgba(51, 65, 85, 0.7)' : '#CBD5E1';
+    const secondaryTextTone = isDark ? '#94A3B8' : '#475569';
 
-      .tl-bg-secondary { background-color: var(--tl-secondary) !important; }
-      .tl-bg-secondary:hover { background-color: var(--tl-secondary-hover) !important; }
-      .tl-border-secondary { border-color: var(--tl-secondary) !important; }
+    styleEl.textContent = `
+      body {
+        background-color: var(--tl-platform-bg) !important;
+        color: var(--tl-platform-text) !important;
+      }
 
-      .tl-bg-accent { background-color: var(--tl-accent) !important; }
-      .tl-bg-accent:hover { background-color: var(--tl-accent-hover) !important; }
-      .tl-text-accent { color: var(--tl-accent) !important; }
-      .tl-border-accent { border-color: var(--tl-accent) !important; }
+      .tl-platform-surface {
+        background-color: var(--tl-platform-bg) !important;
+        color: var(--tl-platform-text) !important;
+      }
 
-      /* Propagación a acciones principales y destacados de marca en toda la UI */
-      button.bg-emerald-600 {
-        background-color: var(--tl-accent) !important;
+      .tl-menu-surface {
+        background-color: var(--tl-menu-bg) !important;
+        color: var(--tl-menu-text) !important;
       }
-      button.bg-emerald-600:hover {
-        background-color: var(--tl-accent-hover) !important;
+
+      .tl-submenu-surface {
+        background-color: var(--tl-submenu-bg) !important;
+        color: var(--tl-submenu-text) !important;
       }
-      .focus\\:border-emerald-500:focus {
-        border-color: var(--tl-accent) !important;
+
+      /* Propagación en vistas cuando está activo el modo claro */
+      html[data-theme="light"] .tl-platform-surface .bg-slate-950,
+      html[data-theme="light"] .tl-platform-surface .bg-slate-900,
+      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/80,
+      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/70,
+      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/60,
+      html[data-theme="light"] .tl-platform-surface .bg-slate-900\\/50 {
+        background-color: ${surfaceCardBg} !important;
+        border-color: ${borderTone} !important;
       }
-      .selection\\:bg-emerald-500 ::selection,
-      .selection\\:bg-emerald-500::selection {
-        background-color: var(--tl-accent) !important;
+
+      html[data-theme="light"] .tl-platform-surface .bg-slate-800 {
+        background-color: ${surfaceMutedBg} !important;
+        border-color: ${borderTone} !important;
+      }
+
+      html[data-theme="light"] .tl-platform-surface .text-white,
+      html[data-theme="light"] .tl-platform-surface .text-slate-100,
+      html[data-theme="light"] .tl-platform-surface .text-slate-200 {
+        color: var(--tl-platform-text) !important;
+      }
+
+      html[data-theme="light"] .tl-platform-surface .text-slate-300,
+      html[data-theme="light"] .tl-platform-surface .text-slate-400 {
+        color: ${secondaryTextTone} !important;
+      }
+
+      html[data-theme="light"] .tl-platform-surface input,
+      html[data-theme="light"] .tl-platform-surface select,
+      html[data-theme="light"] .tl-platform-surface textarea {
+        background-color: #FFFFFF !important;
+        color: #0F172A !important;
+        border-color: #CBD5E1 !important;
       }
     `;
-  }, [brand.primaryColor, brand.secondaryColor, brand.accentColor]);
+  }, [
+    brand.platformBgColor,
+    brand.menuBgColor,
+    brand.submenuBgColor,
+    brand.platformTextColor,
+    brand.menuTextColor,
+    brand.submenuTextColor,
+    brand.darkMode,
+  ]);
 
   /**
-   * Actualiza localmente el estado de marca (útil para previsualización en vivo).
+   * Permite previsualizar cambios en vivo antes de guardar en base de datos.
    */
-  const previewBranding = (partialColors) => {
+  const previewBranding = (partial) => {
     setBrand((prev) => ({
       ...prev,
-      ...partialColors,
+      ...partial,
     }));
   };
 
   /**
-   * Persiste los 3 colores en PostgreSQL mediante PUT /api/v1/branding (requiere superadmin).
+   * Persiste los cambios de apariencia en PostgreSQL mediante PUT /api/v1/branding.
    */
-  const saveBrandingColors = async ({ primaryColor, secondaryColor, accentColor }) => {
+  const saveBranding = async (nextConfig) => {
     const token = localStorage.getItem('trustlink_token') || '';
+    const payload = {
+      platform_bg_color: nextConfig.platformBgColor,
+      menu_bg_color: nextConfig.menuBgColor,
+      submenu_bg_color: nextConfig.submenuBgColor,
+      platform_text_color: nextConfig.platformTextColor,
+      menu_text_color: nextConfig.menuTextColor,
+      submenu_text_color: nextConfig.submenuTextColor,
+      logo_url: nextConfig.logoUrl || null,
+      dark_mode: Boolean(nextConfig.darkMode),
+    };
+
     const response = await fetch(`${API_BASE}/api/v1/branding`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({
-        primary_color: primaryColor,
-        secondary_color: secondaryColor,
-        accent_color: accentColor,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error || 'No se pudieron guardar los colores de la plataforma.');
+      throw new Error(data.error || 'No se pudo guardar la configuración de apariencia.');
     }
 
     if (data.branding) {
+      const mapped = mapBackendBrandingToState(data.branding);
       setBrand((prev) => ({
         ...prev,
-        primaryColor: data.branding.primary_color,
-        secondaryColor: data.branding.secondary_color,
-        accentColor: data.branding.accent_color,
+        ...mapped,
         updatedAt: data.branding.updated_at || new Date().toISOString(),
       }));
     }
@@ -220,10 +273,11 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Restaura los 3 colores a los valores por defecto y los guarda en PostgreSQL.
+   * Restaura todos los controles a los valores por defecto de TrustLink y los guarda.
    */
-  const resetBrandingColors = async () => {
-    return saveBrandingColors(defaults);
+  const resetBranding = async () => {
+    const targetDefaults = defaults || DEFAULT_BRANDING_CONFIG;
+    return saveBranding(targetDefaults);
   };
 
   return (
@@ -234,8 +288,8 @@ export const BrandingProvider = ({ children }) => {
         loadingBrand,
         fetchBranding,
         previewBranding,
-        saveBrandingColors,
-        resetBrandingColors,
+        saveBranding,
+        resetBranding,
       }}
     >
       {children}

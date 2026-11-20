@@ -1,8 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * paleta dinámica de 3 colores (Primario, Secundario y Acento), vista pública Landing,
- * footer único global y protección de rutas por rol.
+ * apariencia configurable (fondos, tipografías, logo opcional y modo oscuro), vista pública Landing,
+ * footer único global y control de acceso por rol.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -82,10 +82,22 @@ function MainAppContent() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
+    <div
+      className="min-h-screen flex flex-col font-sans tl-platform-surface"
+      style={{
+        backgroundColor: brand.platformBgColor || '#0F172A',
+        color: brand.platformTextColor || '#F1F5F9',
+      }}
+    >
       {/* Barra de Navegación Superior Global */}
-      <header className="bg-slate-950 border-b border-slate-800 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 shadow-lg">
-        {/* Identidad Visual Global (Primario + Secundario) */}
+      <header
+        className="border-b border-slate-800 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 shadow-lg tl-menu-surface"
+        style={{
+          backgroundColor: brand.menuBgColor || '#020617',
+          color: brand.menuTextColor || '#E2E8F0',
+        }}
+      >
+        {/* Identidad Visual / Logo de TrustLink */}
         <div
           className="flex items-center space-x-3 cursor-pointer"
           onClick={() =>
@@ -102,110 +114,87 @@ function MainAppContent() {
             )
           }
         >
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md border border-white/10"
-            style={{ backgroundColor: brand.primaryColor || '#0A2540' }}
-          >
-            <ShieldCheck size={20} style={{ color: brand.accentColor || '#10B981' }} />
-          </div>
+          {brand.logoUrl ? (
+            <img
+              src={brand.logoUrl}
+              alt={brand.name || 'TrustLink'}
+              className="h-9 w-auto max-w-[120px] object-contain rounded-lg"
+            />
+          ) : (
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md bg-emerald-600">
+              <ShieldCheck size={20} />
+            </div>
+          )}
           <div>
-            <h1 className="text-sm font-black tracking-tight text-white flex items-center gap-1.5">
-              {brand.name || 'TrustLink'}
-              <span
-                className="text-[10px] px-2 py-0.5 rounded-full text-slate-200 font-medium border border-slate-700"
-                style={{ backgroundColor: brand.secondaryColor || '#1E293B' }}
-              >
+            <h1 className="text-sm font-black tracking-tight flex items-center gap-1.5">
+              <span>{brand.name || 'TrustLink'}</span>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium border border-slate-700">
                 Community
               </span>
             </h1>
-            <p className="text-[10px] text-slate-400">Red de Confianza Residencial</p>
+            <p className="text-[10px] opacity-75">Red de Confianza Residencial</p>
           </div>
         </div>
 
-        {/* Navegación Principal Ordenada por Flujo de Negocio */}
+        {/* Navegación Principal */}
         {isAuthenticated && (
           <nav className="flex flex-wrap items-center gap-2 text-xs">
-            {/* 1. Portal Residente */}
             {canSeeResident && (
               <button
                 type="button"
                 onClick={() => setCurrentView('resident')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'resident'
-                    ? 'text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white shadow-lg'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
-                style={
-                  currentView === 'resident'
-                    ? { backgroundColor: brand.accentColor || '#10B981' }
-                    : undefined
-                }
               >
                 <Home size={13} /> Portal Residente
               </button>
             )}
 
-            {/* 2. Portal Prestador */}
             {canSeeProvider && (
               <button
                 type="button"
                 onClick={() => setCurrentView('provider')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'provider'
-                    ? 'text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white shadow-lg'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
-                style={
-                  currentView === 'provider'
-                    ? { backgroundColor: brand.accentColor || '#10B981' }
-                    : undefined
-                }
               >
                 <Wrench size={13} /> Portal Prestador
               </button>
             )}
 
-            {/* 3. Pagos y Reseñas */}
             {canSeePaymentsAndReviews && (
               <button
                 type="button"
                 onClick={() => setCurrentView('payments')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'payments'
-                    ? 'text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white shadow-lg'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
-                style={
-                  currentView === 'payments'
-                    ? { backgroundColor: brand.accentColor || '#10B981' }
-                    : undefined
-                }
               >
                 <CreditCard size={13} /> Pagos y Reseñas
               </button>
             )}
 
-            {/* 4. Consola Garita */}
             {canSeeSecurity && (
               <button
                 type="button"
                 onClick={() => setCurrentView('security')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'security'
-                    ? 'text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white shadow-lg'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
-                style={
-                  currentView === 'security'
-                    ? { backgroundColor: brand.accentColor || '#10B981' }
-                    : undefined
-                }
               >
                 <QrCode size={13} /> Consola Garita
               </button>
             )}
 
-            {/* Admin Barrio (rol admin local) */}
             {isLocalAdmin && (
               <button
                 type="button"
@@ -220,7 +209,6 @@ function MainAppContent() {
               </button>
             )}
 
-            {/* 5. Modo Maestro (Superadmin) */}
             {isSuperadmin && (
               <button
                 type="button"
@@ -246,11 +234,8 @@ function MainAppContent() {
         <div className="flex items-center gap-2.5 text-xs">
           {isAuthenticated && user ? (
             <>
-              <div
-                className="flex items-center gap-2 border border-slate-700 px-3 py-1.5 rounded-xl shadow-inner"
-                style={{ backgroundColor: brand.secondaryColor || '#1E293B' }}
-              >
-                <ShieldCheck size={14} style={{ color: brand.accentColor || '#10B981' }} />
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl shadow-inner">
+                <ShieldCheck size={14} className="text-emerald-400" />
                 <span className="font-bold text-slate-100">
                   {user.first_name} ({user.role})
                 </span>
@@ -271,14 +256,9 @@ function MainAppContent() {
                 onClick={() => setCurrentView('login')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'login'
-                    ? 'text-white shadow'
+                    ? 'bg-emerald-600 text-white shadow'
                     : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
                 }`}
-                style={
-                  currentView === 'login'
-                    ? { backgroundColor: brand.accentColor || '#10B981' }
-                    : undefined
-                }
               >
                 <LogIn size={13} /> Ingresar
               </button>
@@ -287,14 +267,9 @@ function MainAppContent() {
                 onClick={() => setCurrentView('register')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'register'
-                    ? 'text-white shadow'
+                    ? 'bg-emerald-600 text-white shadow'
                     : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-800'
                 }`}
-                style={
-                  currentView === 'register'
-                    ? { backgroundColor: brand.primaryColor || '#0A2540' }
-                    : undefined
-                }
               >
                 <UserPlus size={13} /> Registrarse
               </button>
@@ -305,8 +280,14 @@ function MainAppContent() {
 
       {/* Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
       {isSuperadmin && masterModeOpen && (
-        <div className="bg-slate-950/95 border-b border-purple-900/60 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <span className="text-purple-300 font-semibold flex items-center gap-1.5">
+        <div
+          className="border-b border-purple-900/60 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs tl-submenu-surface"
+          style={{
+            backgroundColor: brand.submenuBgColor || '#090D16',
+            color: brand.submenuTextColor || '#CBD5E1',
+          }}
+        >
+          <span className="font-semibold flex items-center gap-1.5">
             <Layers size={13} /> Gobernanza Central Superadmin
           </span>
 
@@ -316,14 +297,9 @@ function MainAppContent() {
               onClick={() => setCurrentView('admin')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'admin'
-                  ? 'text-white'
+                  ? 'bg-emerald-600 text-white'
                   : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
               }`}
-              style={
-                currentView === 'admin'
-                  ? { backgroundColor: brand.accentColor || '#10B981' }
-                  : undefined
-              }
             >
               <UserCheck size={12} /> Ops TrustLink
             </button>
@@ -358,7 +334,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'local_admin'
                   ? 'bg-amber-600 text-white'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-slate-900 text-amber-300 hover:bg-slate-800 border border-slate-800'
               }`}
             >
               <ShieldAlert size={12} /> Vista Admin Barrio
@@ -369,14 +345,9 @@ function MainAppContent() {
               onClick={() => setCurrentView('branding_master')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'branding_master'
-                  ? 'text-white shadow'
+                  ? 'bg-emerald-600 text-white shadow'
                   : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
               }`}
-              style={
-                currentView === 'branding_master'
-                  ? { backgroundColor: brand.primaryColor || '#0A2540' }
-                  : undefined
-              }
             >
               <Palette size={12} /> Colores / Marca
             </button>
@@ -430,7 +401,7 @@ function MainAppContent() {
             <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
               <Lock size={32} className="mx-auto text-rose-400 mb-3" />
               <p className="text-xs text-rose-200">
-                La personalización de colores es exclusiva para el rol superadmin global de TrustLink.
+                La configuración de apariencia y marca es exclusiva para el rol superadmin global de TrustLink.
               </p>
             </div>
           ))}

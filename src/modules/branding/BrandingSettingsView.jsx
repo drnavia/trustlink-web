@@ -1,8 +1,8 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Panel exclusivo de 'superadmin' para personalizar los 3 colores principales
- * de TrustLink (Primario, Secundario y Acento) con vista previa en tiempo real
- * y persistencia en PostgreSQL.
+ * @description Vista exclusiva de 'superadmin' para configurar fondos y tipografías
+ * (plataforma general, menú y sub-menú), subir logo opcional (SVG, PNG, JPG)
+ * y alternar el modo oscuro en TrustLink.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -14,133 +14,210 @@ import {
   CheckCircle2,
   AlertCircle,
   Lock,
-  Sparkles,
+  Upload,
+  Trash2,
+  Moon,
+  Sun,
+  Image as ImageIcon,
   ShieldCheck,
-  QrCode,
-  Eye,
 } from 'lucide-react';
-import { useBranding, DEFAULT_BRAND_COLORS } from './BrandingContext';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from './BrandingContext';
 
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
+const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
+const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
 
-const PRESET_PALETTES = [
-  {
-    name: 'TrustLink Institucional (Defecto)',
-    primaryColor: '#0A2540',
-    secondaryColor: '#1E293B',
-    accentColor: '#10B981',
-  },
-  {
-    name: 'Zafiro & Cian Ejecutivo',
-    primaryColor: '#0F172A',
-    secondaryColor: '#1E3A8A',
-    accentColor: '#06B6D4',
-  },
-  {
-    name: 'Grafito & Ámbar Dorado',
-    primaryColor: '#18181B',
-    secondaryColor: '#27272A',
-    accentColor: '#F59E0B',
-  },
-  {
-    name: 'Bosque Profundo & Esmeralda',
-    primaryColor: '#052E16',
-    secondaryColor: '#14532D',
-    accentColor: '#22C55E',
-  },
-];
+/**
+ * Calcula luminancia relativa y relación de contraste aproximada entre dos colores HEX
+ * para mostrar un aviso útil de legibilidad en la vista previa.
+ */
+const getContrastRatio = (hexA, hexB) => {
+  if (!HEX_REGEX.test(hexA) || !HEX_REGEX.test(hexB)) return 4.5;
+
+  const channelLuminance = (hexSlice) => {
+    const c = parseInt(hexSlice, 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+
+  const lumA =
+    0.2126 * channelLuminance(hexA.slice(1, 3)) +
+    0.7152 * channelLuminance(hexA.slice(3, 5)) +
+    0.0722 * channelLuminance(hexA.slice(5, 7));
+
+  const lumB =
+    0.2126 * channelLuminance(hexB.slice(1, 3)) +
+    0.7152 * channelLuminance(hexB.slice(3, 5)) +
+    0.0722 * channelLuminance(hexB.slice(5, 7));
+
+  const lighter = Math.max(lumA, lumB);
+  const darker = Math.min(lumA, lumB);
+  return (lighter + 0.05) / (darker + 0.05);
+};
 
 export default function BrandingSettingsView() {
   const {
     brand,
     defaults,
     previewBranding,
-    saveBrandingColors,
-    resetBrandingColors,
+    saveBranding,
+    resetBranding,
     fetchBranding,
   } = useBranding();
 
-  const [primaryColor, setPrimaryColor] = useState(
-    brand.primaryColor || DEFAULT_BRAND_COLORS.primaryColor
-  );
-  const [secondaryColor, setSecondaryColor] = useState(
-    brand.secondaryColor || DEFAULT_BRAND_COLORS.secondaryColor
-  );
-  const [accentColor, setAccentColor] = useState(
-    brand.accentColor || DEFAULT_BRAND_COLORS.accentColor
-  );
+  const [formState, setFormState] = useState({
+    platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
+    menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
+    submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
+    platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
+    menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
+    submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
+    logoUrl: brand.logoUrl || null,
+    logoFileName: '',
+    darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
+  });
 
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Sincroniza los inputs locales cuando se cargan los valores reales desde backend
+  // Sincroniza el formulario cuando cambia la configuración global desde el backend
   useEffect(() => {
-    setPrimaryColor(brand.primaryColor || DEFAULT_BRAND_COLORS.primaryColor);
-    setSecondaryColor(brand.secondaryColor || DEFAULT_BRAND_COLORS.secondaryColor);
-    setAccentColor(brand.accentColor || DEFAULT_BRAND_COLORS.accentColor);
-  }, [brand.primaryColor, brand.secondaryColor, brand.accentColor]);
+    setFormState((prev) => ({
+      ...prev,
+      platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
+      menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
+      submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
+      platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
+      menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
+      submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
+      logoUrl: brand.logoUrl || null,
+      darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
+    }));
+  }, [
+    brand.platformBgColor,
+    brand.menuBgColor,
+    brand.submenuBgColor,
+    brand.platformTextColor,
+    brand.menuTextColor,
+    brand.submenuTextColor,
+    brand.logoUrl,
+    brand.darkMode,
+  ]);
 
-  const handleHexInput = (setter, key, rawValue) => {
-    let val = rawValue.trim().toUpperCase();
-    if (val && !val.startsWith('#')) {
-      val = `#${val}`;
+  const updateColorField = (field, rawValue) => {
+    let cleaned = rawValue.trim().toUpperCase();
+    if (cleaned && !cleaned.startsWith('#')) {
+      cleaned = `#${cleaned}`;
     }
-    setter(val);
-    if (HEX_REGEX.test(val)) {
-      previewBranding({ [key]: val });
+    setFormState((prev) => ({ ...prev, [field]: cleaned }));
+    if (HEX_REGEX.test(cleaned)) {
+      previewBranding({ [field]: cleaned });
     }
   };
 
-  const handlePickerChange = (setter, key, hexValue) => {
-    const normalized = hexValue.toUpperCase();
-    setter(normalized);
-    previewBranding({ [key]: normalized });
+  const handleDarkModeToggle = (checked) => {
+    setFormState((prev) => ({ ...prev, darkMode: checked }));
+    previewBranding({ darkMode: checked });
   };
 
-  const handleApplyPreset = (preset) => {
+  /**
+   * Lee y valida una imagen SVG, PNG o JPG seleccionada por el usuario.
+   */
+  const handleLogoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
     setFeedback({ type: '', text: '' });
-    setPrimaryColor(preset.primaryColor);
-    setSecondaryColor(preset.secondaryColor);
-    setAccentColor(preset.accentColor);
-    previewBranding({
-      primaryColor: preset.primaryColor,
-      secondaryColor: preset.secondaryColor,
-      accentColor: preset.accentColor,
-    });
+
+    const mime = (file.type || '').toLowerCase();
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    const validMime = ALLOWED_MIME_TYPES.includes(mime);
+    const validExt = ['svg', 'png', 'jpg', 'jpeg'].includes(ext);
+
+    if (!validMime && !validExt) {
+      setFeedback({
+        type: 'error',
+        text: 'Formato no soportado. Seleccioná un archivo SVG, PNG o JPG.',
+      });
+      e.target.value = '';
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setFeedback({
+        type: 'error',
+        text: 'El archivo del logo supera el límite de 1 MB.',
+      });
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const resultDataUrl = typeof reader.result === 'string' ? reader.result : null;
+      if (!resultDataUrl) return;
+      setFormState((prev) => ({
+        ...prev,
+        logoUrl: resultDataUrl,
+        logoFileName: file.name,
+      }));
+      previewBranding({ logoUrl: resultDataUrl });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveLogo = () => {
+    setFeedback({ type: '', text: '' });
+    setFormState((prev) => ({
+      ...prev,
+      logoUrl: null,
+      logoFileName: '',
+    }));
+    previewBranding({ logoUrl: null });
   };
 
   const handleSave = async (e) => {
     e.preventDefault();
     setFeedback({ type: '', text: '' });
 
-    if (
-      !HEX_REGEX.test(primaryColor) ||
-      !HEX_REGEX.test(secondaryColor) ||
-      !HEX_REGEX.test(accentColor)
-    ) {
+    const allHexValid = [
+      formState.platformBgColor,
+      formState.menuBgColor,
+      formState.submenuBgColor,
+      formState.platformTextColor,
+      formState.menuTextColor,
+      formState.submenuTextColor,
+    ].every((hex) => HEX_REGEX.test(hex));
+
+    if (!allHexValid) {
       setFeedback({
         type: 'error',
-        text: 'Verifica que los 3 colores tengan formato hexadecimal válido (#RRGGBB).',
+        text: 'Verificá que todos los colores tengan formato hexadecimal válido (#RRGGBB).',
       });
       return;
     }
 
     setSaving(true);
     try {
-      await saveBrandingColors({
-        primaryColor,
-        secondaryColor,
-        accentColor,
+      await saveBranding({
+        platformBgColor: formState.platformBgColor,
+        menuBgColor: formState.menuBgColor,
+        submenuBgColor: formState.submenuBgColor,
+        platformTextColor: formState.platformTextColor,
+        menuTextColor: formState.menuTextColor,
+        submenuTextColor: formState.submenuTextColor,
+        logoUrl: formState.logoUrl,
+        darkMode: formState.darkMode,
       });
+
       setFeedback({
         type: 'success',
-        text: 'Paleta de 3 colores guardada y aplicada en toda la plataforma.',
+        text: 'Apariencia guardada en PostgreSQL y aplicada en toda la plataforma.',
       });
     } catch (error) {
       setFeedback({
         type: 'error',
-        text: error.message || 'No se pudieron guardar los colores.',
+        text: error.message || 'Error al guardar la configuración.',
       });
     } finally {
       setSaving(false);
@@ -151,19 +228,27 @@ export default function BrandingSettingsView() {
     setFeedback({ type: '', text: '' });
     setResetting(true);
     try {
-      const targetDefaults = defaults || DEFAULT_BRAND_COLORS;
-      await resetBrandingColors();
-      setPrimaryColor(targetDefaults.primaryColor);
-      setSecondaryColor(targetDefaults.secondaryColor);
-      setAccentColor(targetDefaults.accentColor);
+      const target = defaults || DEFAULT_BRANDING_CONFIG;
+      await resetBranding();
+      setFormState({
+        platformBgColor: target.platformBgColor,
+        menuBgColor: target.menuBgColor,
+        submenuBgColor: target.submenuBgColor,
+        platformTextColor: target.platformTextColor,
+        menuTextColor: target.menuTextColor,
+        submenuTextColor: target.submenuTextColor,
+        logoUrl: target.logoUrl,
+        logoFileName: '',
+        darkMode: target.darkMode,
+      });
       setFeedback({
         type: 'success',
-        text: 'Colores restaurados a la paleta institucional por defecto.',
+        text: 'Configuración restaurada a los valores por defecto de TrustLink.',
       });
     } catch (error) {
       setFeedback({
         type: 'error',
-        text: error.message || 'No se pudieron restaurar los colores por defecto.',
+        text: error.message || 'No se pudo restaurar la configuración por defecto.',
       });
     } finally {
       setResetting(false);
@@ -175,33 +260,75 @@ export default function BrandingSettingsView() {
     await fetchBranding();
   };
 
+  // Verificación suave de contraste en vistas clave
+  const platformContrast = getContrastRatio(
+    formState.platformBgColor,
+    formState.platformTextColor
+  );
+  const menuContrast = getContrastRatio(formState.menuBgColor, formState.menuTextColor);
+  const submenuContrast = getContrastRatio(
+    formState.submenuBgColor,
+    formState.submenuTextColor
+  );
+  const hasLowContrastWarning =
+    platformContrast < 3 || menuContrast < 3 || submenuContrast < 3;
+
+  const renderColorRow = (label, description, field) => {
+    const value = formState[field];
+    const isValid = HEX_REGEX.test(value);
+
+    return (
+      <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-0.5">
+          <p className="text-xs font-bold text-white">{label}</p>
+          <p className="text-[11px] text-slate-400">{description}</p>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          <input
+            type="color"
+            aria-label={label}
+            value={isValid ? value : '#0F172A'}
+            onChange={(e) => updateColorField(field, e.target.value)}
+            className="w-10 h-9 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-0.5"
+          />
+          <input
+            type="text"
+            maxLength={7}
+            value={value}
+            onChange={(e) => updateColorField(field, e.target.value)}
+            placeholder="#000000"
+            className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white uppercase focus:outline-none focus:border-emerald-500"
+          />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="max-w-6xl mx-auto p-6 md:p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
-      {/* Cabecera */}
+      {/* Encabezado */}
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-800 mb-8 gap-4">
         <div className="flex items-center gap-3">
-          <div
-            className="p-3 rounded-xl border border-slate-700 text-white shadow-md"
-            style={{ backgroundColor: primaryColor }}
-          >
-            <Palette size={24} style={{ color: accentColor }} />
+          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+            <Palette size={22} />
           </div>
           <div>
             <h2 className="text-xl md:text-2xl font-black tracking-tight text-white">
-              Identidad Visual &amp; Paleta de Colores
+              Apariencia y Marca
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Personaliza los 3 colores principales de TrustLink (Primario, Secundario y Acento) con impacto global en tiempo real.
+              Fondos, tipografías, logo opcional y modo oscuro para toda la plataforma.
             </p>
           </div>
         </div>
 
-        <span className="text-xs font-bold bg-slate-900 text-slate-200 px-4 py-2 rounded-xl border border-slate-800 inline-flex items-center gap-1.5 self-start md:self-auto">
-          <Lock size={13} style={{ color: accentColor }} /> Nivel: Superadmin Global
+        <span className="text-xs font-bold bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl border border-slate-800 inline-flex items-center gap-1.5 self-start md:self-auto">
+          <Lock size={13} /> Acceso Maestro
         </span>
       </div>
 
-      {/* Feedback */}
+      {/* Mensajes de estado */}
       {feedback.text && (
         <div
           className={`p-4 rounded-xl mb-6 text-xs flex items-center gap-2 border ${
@@ -219,150 +346,144 @@ export default function BrandingSettingsView() {
         </div>
       )}
 
+      {/* Aviso preventivo de contraste */}
+      {hasLowContrastWarning && (
+        <div className="p-3.5 rounded-xl mb-6 text-xs flex items-center gap-2 border bg-amber-950/40 border-amber-800/70 text-amber-200">
+          <AlertCircle size={16} className="text-amber-400 shrink-0" />
+          <span>
+            Aviso de contraste: alguna combinación de fondo y tipografía tiene bajo contraste y puede dificultar la lectura.
+          </span>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Columna Izquierda: Formulario de 3 Colores */}
+        {/* Columna Izquierda: Controles */}
         <form onSubmit={handleSave} className="lg:col-span-7 space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* 1. Color Primario */}
-            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl space-y-3">
+          {/* 1. Fondos */}
+          <div className="space-y-2.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Colores de Fondo
+            </h3>
+            {renderColorRow(
+              'Fondo de la plataforma general',
+              'Fondo base de la aplicación y vistas principales.',
+              'platformBgColor'
+            )}
+            {renderColorRow(
+              'Fondo del menú',
+              'Color de fondo de la barra de navegación superior.',
+              'menuBgColor'
+            )}
+            {renderColorRow(
+              'Fondo del sub-menú',
+              'Color de fondo de la barra secundaria de Modo Maestro.',
+              'submenuBgColor'
+            )}
+          </div>
+
+          {/* 2. Tipografías */}
+          <div className="space-y-2.5">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Colores de Tipografía
+            </h3>
+            {renderColorRow(
+              'Tipografía de la plataforma general',
+              'Color de texto principal en vistas y contenidos.',
+              'platformTextColor'
+            )}
+            {renderColorRow(
+              'Tipografía del menú',
+              'Color de texto de la barra de navegación superior.',
+              'menuTextColor'
+            )}
+            {renderColorRow(
+              'Tipografía del sub-menú',
+              'Color de texto del sub-menú de gobernanza.',
+              'submenuTextColor'
+            )}
+          </div>
+
+          {/* 3. Logo Institucional Opcional + Modo Oscuro */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Subir Logo (SVG, PNG, JPG) */}
+            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">1. Color Primario</span>
-                <span
-                  className="w-4 h-4 rounded-full border border-slate-600"
-                  style={{ backgroundColor: HEX_REGEX.test(primaryColor) ? primaryColor : '#0A2540' }}
-                />
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
+                </span>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Identidad institucional, emblemas, cabeceras y botones principales de marca.
+              <p className="text-[11px] text-slate-400">
+                Opcional. Si no subís ninguno, se mantiene el emblema por defecto de TrustLink.
               </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  aria-label="Selector Color Primario"
-                  value={HEX_REGEX.test(primaryColor) ? primaryColor : '#0A2540'}
-                  onChange={(e) => handlePickerChange(setPrimaryColor, 'primaryColor', e.target.value)}
-                  className="w-11 h-10 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-1"
-                />
-                <input
-                  type="text"
-                  maxLength={7}
-                  value={primaryColor}
-                  onChange={(e) => handleHexInput(setPrimaryColor, 'primaryColor', e.target.value)}
-                  placeholder="#0A2540"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white uppercase focus:outline-none"
-                />
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 cursor-pointer transition-colors">
+                  <Upload size={13} /> Subir logo
+                  <input
+                    type="file"
+                    accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                  />
+                </label>
+
+                {formState.logoUrl && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveLogo}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-xs font-bold text-rose-200 border border-rose-800 cursor-pointer transition-colors"
+                  >
+                    <Trash2 size={13} /> Quitar
+                  </button>
+                )}
               </div>
+
+              {formState.logoFileName && (
+                <p className="text-[11px] text-slate-400 truncate">
+                  Archivo: <span className="font-mono text-slate-200">{formState.logoFileName}</span>
+                </p>
+              )}
             </div>
 
-            {/* 2. Color Secundario */}
-            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">2. Color Secundario</span>
-                <span
-                  className="w-4 h-4 rounded-full border border-slate-600"
-                  style={{ backgroundColor: HEX_REGEX.test(secondaryColor) ? secondaryColor : '#1E293B' }}
-                />
+            {/* Switch Modo Oscuro */}
+            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl flex flex-col justify-between space-y-3">
+              <div className="space-y-1">
+                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                  {formState.darkMode ? (
+                    <Moon size={14} className="text-emerald-400" />
+                  ) : (
+                    <Sun size={14} className="text-amber-400" />
+                  )}
+                  Modo Oscuro
+                </span>
+                <p className="text-[11px] text-slate-400">
+                  Activa el esquema oscuro en toda la plataforma o alterná a modo claro.
+                </p>
               </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Superficies de apoyo, contenedores de navegación, etiquetas y jerarquía secundaria.
-              </p>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  aria-label="Selector Color Secundario"
-                  value={HEX_REGEX.test(secondaryColor) ? secondaryColor : '#1E293B'}
-                  onChange={(e) => handlePickerChange(setSecondaryColor, 'secondaryColor', e.target.value)}
-                  className="w-11 h-10 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-1"
-                />
-                <input
-                  type="text"
-                  maxLength={7}
-                  value={secondaryColor}
-                  onChange={(e) => handleHexInput(setSecondaryColor, 'secondaryColor', e.target.value)}
-                  placeholder="#1E293B"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white uppercase focus:outline-none"
-                />
-              </div>
-            </div>
 
-            {/* 3. Color de Acento */}
-            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-2xl space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white">3. Color de Acento</span>
-                <span
-                  className="w-4 h-4 rounded-full border border-slate-600"
-                  style={{ backgroundColor: HEX_REGEX.test(accentColor) ? accentColor : '#10B981' }}
-                />
-              </div>
-              <p className="text-[11px] text-slate-400 leading-relaxed">
-                Botones de acción clave, pestañas activas, focos e indicadores de destaque.
-              </p>
-              <div className="flex items-center gap-2">
+              <label className="inline-flex items-center justify-between bg-slate-950 border border-slate-800 px-3.5 py-2.5 rounded-xl cursor-pointer">
+                <span className="text-xs font-bold text-slate-200">
+                  {formState.darkMode ? 'Activado (Oscuro)' : 'Desactivado (Claro)'}
+                </span>
                 <input
-                  type="color"
-                  aria-label="Selector Color de Acento"
-                  value={HEX_REGEX.test(accentColor) ? accentColor : '#10B981'}
-                  onChange={(e) => handlePickerChange(setAccentColor, 'accentColor', e.target.value)}
-                  className="w-11 h-10 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-1"
+                  type="checkbox"
+                  checked={Boolean(formState.darkMode)}
+                  onChange={(e) => handleDarkModeToggle(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-500 cursor-pointer"
                 />
-                <input
-                  type="text"
-                  maxLength={7}
-                  value={accentColor}
-                  onChange={(e) => handleHexInput(setAccentColor, 'accentColor', e.target.value)}
-                  placeholder="#10B981"
-                  className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white uppercase focus:outline-none"
-                />
-              </div>
+              </label>
             </div>
           </div>
 
-          {/* Paletas sugeridas rápidas */}
-          <div className="bg-slate-900/50 border border-slate-800 p-4 rounded-2xl space-y-3">
-            <p className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
-              <Sparkles size={14} style={{ color: accentColor }} /> Paletas Predefinidas Rápidas
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              {PRESET_PALETTES.map((preset) => (
-                <button
-                  key={preset.name}
-                  type="button"
-                  onClick={() => handleApplyPreset(preset)}
-                  className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-left transition-all cursor-pointer"
-                >
-                  <span className="text-xs font-semibold text-slate-200">{preset.name}</span>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <span
-                      className="w-4 h-4 rounded-full border border-slate-700"
-                      style={{ backgroundColor: preset.primaryColor }}
-                      title={`Primario: ${preset.primaryColor}`}
-                    />
-                    <span
-                      className="w-4 h-4 rounded-full border border-slate-700"
-                      style={{ backgroundColor: preset.secondaryColor }}
-                      title={`Secundario: ${preset.secondaryColor}`}
-                    />
-                    <span
-                      className="w-4 h-4 rounded-full border border-slate-700"
-                      style={{ backgroundColor: preset.accentColor }}
-                      title={`Acento: ${preset.accentColor}`}
-                    />
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Botones de Acción */}
+          {/* Botones de Guardar y Restaurar */}
           <div className="flex flex-wrap items-center gap-3 pt-2">
             <button
               type="submit"
               disabled={saving || resetting}
-              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-              style={{ backgroundColor: HEX_REGEX.test(accentColor) ? accentColor : '#10B981' }}
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
             >
               <Save size={15} />
-              {saving ? 'Guardando paleta...' : 'Guardar y Aplicar en Toda la Plataforma'}
+              {saving ? 'Guardando...' : 'Guardar y Aplicar'}
             </button>
 
             <button
@@ -381,99 +502,69 @@ export default function BrandingSettingsView() {
               disabled={saving || resetting}
               className="px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
             >
-              Descartar vista previa
+              Descartar cambios sin guardar
             </button>
           </div>
         </form>
 
         {/* Columna Derecha: Vista Previa en Vivo */}
-        <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4 flex flex-col justify-between">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <Eye size={14} style={{ color: accentColor }} /> Vista Previa de Componentes
-              </span>
-              <span className="text-[11px] font-mono text-slate-400">En vivo</span>
-            </div>
-
-            {/* Simulación de Barra Superior */}
-            <div
-              className="p-3.5 rounded-xl border border-slate-700/80 flex items-center justify-between gap-2"
-              style={{ backgroundColor: secondaryColor }}
-            >
-              <div className="flex items-center gap-2.5">
-                <div
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold shadow"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  <ShieldCheck size={17} />
-                </div>
-                <div>
-                  <p className="text-xs font-black text-white leading-none">
-                    {brand.name || 'TrustLink'}
-                  </p>
-                  <p className="text-[10px] text-slate-300 mt-0.5">Red de Confianza Residencial</p>
-                </div>
-              </div>
-
-              <span
-                className="px-2.5 py-1 rounded-lg text-[11px] font-bold text-white shadow"
-                style={{ backgroundColor: accentColor }}
-              >
-                Activo
-              </span>
-            </div>
-
-            {/* Simulación de Tarjeta Operativa */}
-            <div className="bg-slate-950 border border-slate-800 p-4 rounded-xl space-y-3">
-              <div className="flex items-center justify-between">
-                <span
-                  className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-md text-white"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  Prestador Verificado
-                </span>
-                <span className="text-xs font-bold" style={{ color: accentColor }}>
-                  ★ 4.95
-                </span>
-              </div>
-
-              <div>
-                <h4 className="text-sm font-bold text-white">Servicio Técnico Integral</h4>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Así lucen las tarjetas, etiquetas y acciones principales con tu combinación actual.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-1.5 shadow"
-                  style={{ backgroundColor: accentColor }}
-                >
-                  <QrCode size={13} /> Generar Pase QR
-                </button>
-                <button
-                  type="button"
-                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-white border border-slate-700"
-                  style={{ backgroundColor: secondaryColor }}
-                >
-                  Ver Detalle
-                </button>
-              </div>
-            </div>
+        <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <span className="text-xs font-bold text-slate-200">Vista previa en vivo</span>
+            <span className="text-[11px] text-slate-400">
+              {formState.darkMode ? 'Modo oscuro' : 'Modo claro'}
+            </span>
           </div>
 
-          <div className="pt-3 border-t border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
-            <span>
-              Primario: <strong className="font-mono text-slate-200">{primaryColor}</strong>
-            </span>
-            <span>
-              Secundario: <strong className="font-mono text-slate-200">{secondaryColor}</strong>
-            </span>
-            <span>
-              Acento: <strong className="font-mono text-slate-200">{accentColor}</strong>
-            </span>
+          {/* Simulación de Menú */}
+          <div
+            className="px-3.5 py-2.5 rounded-t-xl border border-slate-700/70 flex items-center justify-between gap-2"
+            style={{
+              backgroundColor: formState.menuBgColor,
+              color: formState.menuTextColor,
+            }}
+          >
+            <div className="flex items-center gap-2.5 min-w-0">
+              {formState.logoUrl ? (
+                <img
+                  src={formState.logoUrl}
+                  alt="Logo TrustLink"
+                  className="h-7 w-auto max-w-[96px] object-contain rounded"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <ShieldCheck size={15} />
+                </div>
+              )}
+              <span className="text-xs font-bold truncate">TrustLink — Menú</span>
+            </div>
+            <span className="text-[11px] opacity-80 shrink-0">Navegación</span>
+          </div>
+
+          {/* Simulación de Sub-menú */}
+          <div
+            className="px-3.5 py-2 border-x border-slate-700/70 flex items-center justify-between text-[11px]"
+            style={{
+              backgroundColor: formState.submenuBgColor,
+              color: formState.submenuTextColor,
+            }}
+          >
+            <span className="font-semibold">Sub-menú Modo Maestro</span>
+            <span className="opacity-80">Apariencia y Marca</span>
+          </div>
+
+          {/* Simulación de Plataforma General */}
+          <div
+            className="p-4 rounded-b-xl border border-slate-700/70 space-y-2"
+            style={{
+              backgroundColor: formState.platformBgColor,
+              color: formState.platformTextColor,
+            }}
+          >
+            <p className="text-xs font-bold">Contenido de la plataforma general</p>
+            <p className="text-[11px] opacity-85 leading-relaxed">
+              Así se visualizan los textos y fondos de la plataforma principal con la configuración seleccionada.
+            </p>
           </div>
         </div>
       </div>
