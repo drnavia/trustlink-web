@@ -1,12 +1,7 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Consola compacta y modular exclusiva para el rol 'superadmin':
- * - Salud del sistema (Backend, PostgreSQL y Endpoint Externo)
- * - Gestión compacta de Comunidades / Barrios (countries)
- * - Integraciones y Claves API por Comunidad (con paginación)
- * - Pases QR Recientes (copiar token al portapapeles y al Sandbox con clave de comunidad, cancelar y estado 'expired')
- * - Sandbox interactivo para POST /api/v1/external/passes/verify
- * - Auditoría compacta de accesos y transacciones / comisiones
+ * @description Consola técnica y de integración externa exclusiva para el rol 'superadmin',
+ * alineada con la estética y jerarquía visual del resto de módulos de TrustLink.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -37,8 +32,8 @@ import {
 } from 'lucide-react';
 
 const API_BASE = 'http://localhost:4000';
-const COUNTRIES_PER_PAGE = 3;
-const PASSES_PER_PAGE = 5;
+const COUNTRIES_PER_PAGE = 4;
+const PASSES_PER_PAGE = 6;
 const AUDIT_LOGS_PER_PAGE = 8;
 
 /**
@@ -95,7 +90,7 @@ export default function SystemHealthDashboard() {
   const [editCountryActive, setEditCountryActive] = useState(true);
   const [savingEditCountry, setSavingEditCountry] = useState(false);
 
-  // Integraciones por comunidad (con paginación)
+  // Integraciones por comunidad
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
   const [integrationPage, setIntegrationPage] = useState(1);
@@ -803,27 +798,27 @@ export default function SystemHealthDashboard() {
 
     if (rawStatus === 'cancelled') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
           cancelado
         </span>
       );
     }
     if (rawStatus === 'used') {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-sky-950 text-sky-300 border border-sky-800">
           usado
         </span>
       );
     }
     if (rawStatus === 'expired' || (rawStatus === 'pending' && isPastEnd)) {
       return (
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-700">
+        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950 text-amber-300 border border-amber-700">
           vencido
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
         {rawStatus}
       </span>
     );
@@ -833,7 +828,6 @@ export default function SystemHealthDashboard() {
   const isDbConnected = Boolean(diagnosticsData?.database?.connected);
   const isExternalReady = Boolean(diagnosticsData?.external_endpoint?.api_key_configured);
 
-  // Paginación local compacta para Integraciones y Auditoría
   const integrationTotalPages = Math.max(1, Math.ceil(integrations.length / integrationsPerPage));
   const safeIntegrationPage = Math.min(integrationPage, integrationTotalPages);
   const paginatedIntegrations = integrations.slice(
@@ -849,1116 +843,1130 @@ export default function SystemHealthDashboard() {
   );
 
   return (
-    <div className="space-y-4">
-      {/* Encabezado compacto */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl px-4 py-3.5">
-        <div>
-          <div className="flex items-center gap-2">
-            <Activity className="text-emerald-400" size={18} />
-            <h2 className="text-base font-bold text-white tracking-tight">
-              Salud del Sistema &amp; Integración Externa
-            </h2>
-          </div>
-          <p className="text-[11px] text-slate-400 mt-0.5">
-            Estado de servicios, comunidades, claves de garita, pases QR y auditoría (superadmin).
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-xl bg-slate-950 p-1 border border-slate-800">
-            <button
-              type="button"
-              onClick={() => setActiveTab('health')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                activeTab === 'health'
-                  ? 'bg-emerald-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              Salud &amp; APIs
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('audit')}
-              className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                activeTab === 'audit'
-                  ? 'bg-indigo-600 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              <FileSpreadsheet size={13} />
-              Auditoría
-            </button>
-          </div>
-
-          <button
-            type="button"
-            onClick={handleRefreshAll}
-            disabled={loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
-          >
-            <RefreshCw
-              size={13}
-              className={
-                loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit
-                  ? 'animate-spin'
-                  : ''
-              }
-            />
-            Refrescar
-          </button>
-        </div>
-      </div>
-
-      {activeTab === 'health' ? (
-        <>
-          {statusError && (
-            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 px-3.5 py-2.5 rounded-xl text-xs">
-              <AlertCircle size={15} className="text-rose-400 shrink-0" />
-              <span>{statusError}</span>
+    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+      <main className="max-w-6xl mx-auto space-y-6">
+        {/* Cabecera principal */}
+        <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+              <Activity size={22} />
             </div>
-          )}
-
-          {/* Tarjetas compactas de estado */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
-                  <Server size={15} className="text-sky-400" />
-                  <span>Backend API</span>
-                </div>
-                {loadingStatus ? (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
-                    ...
-                  </span>
-                ) : isBackendHealthy ? (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                    ONLINE
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                    DEGRADADO
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1 text-[11px] text-slate-400">
-                <div className="flex justify-between">
-                  <span>HTTP:</span>
-                  <span className="font-mono text-slate-200">
-                    {httpLatencyMs !== null ? `${httpLatencyMs} ms` : '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Uptime:</span>
-                  <span className="font-mono text-slate-200">
-                    {formatUptime(diagnosticsData?.uptime_seconds)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
-                  <Database size={15} className="text-indigo-400" />
-                  <span>PostgreSQL</span>
-                </div>
-                {loadingStatus ? (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
-                    ...
-                  </span>
-                ) : isDbConnected ? (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                    CONECTADA
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                    OFFLINE
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1 text-[11px] text-slate-400">
-                <div className="flex justify-between">
-                  <span>Consulta:</span>
-                  <span className="font-mono text-slate-200">
-                    {typeof diagnosticsData?.database?.latency_ms === 'number'
-                      ? `${diagnosticsData.database.latency_ms} ms`
-                      : '-'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Pases / Vencidos:</span>
-                  <span className="font-mono text-slate-200">
-                    {diagnosticsData?.metrics?.total_passes ?? '-'} /{' '}
-                    {diagnosticsData?.metrics?.expired_passes ?? '-'}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2 text-slate-300 font-semibold text-xs">
-                  <KeyRound size={15} className="text-amber-400" />
-                  <span>Endpoint Externo QR</span>
-                </div>
-                {loadingStatus ? (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">
-                    ...
-                  </span>
-                ) : isExternalReady ? (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
-                    ACTIVO
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
-                    SIN CLAVE
-                  </span>
-                )}
-              </div>
-              <div className="space-y-1 text-[11px] text-slate-400">
-                <div className="flex justify-between">
-                  <span>Claves barrio:</span>
-                  <span className="font-mono text-slate-200">
-                    {diagnosticsData?.external_endpoint?.active_community_keys ?? 0}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Comunidades activas:</span>
-                  <span className="font-mono text-slate-200">
-                    {diagnosticsData?.metrics?.active_countries ?? '-'} /{' '}
-                    {diagnosticsData?.metrics?.total_countries ?? '-'}
-                  </span>
-                </div>
-              </div>
+            <div>
+              <h2 className="text-xl font-black tracking-tight text-white">
+                Salud del Sistema &amp; Integración Externa
+              </h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Diagnóstico técnico, comunidades, claves de garita, pases QR y auditoría para superadmin.
+              </p>
             </div>
           </div>
 
-          {/* Comunidades / Barrios (countries) */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <Building2 size={16} className="text-emerald-400" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                  Comunidades / Barrios ({countryTotalCount})
-                </h3>
-              </div>
-
-              <form onSubmit={handleCountrySearchSubmit} className="flex flex-wrap items-center gap-1.5">
-                <div className="relative">
-                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={countrySearch}
-                    onChange={(e) => setCountrySearch(e.target.value)}
-                    placeholder="Buscar barrio..."
-                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <select
-                  value={countryStatusFilter}
-                  onChange={(e) => {
-                    setCountryStatusFilter(e.target.value);
-                    setCountryPage(1);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">Todas</option>
-                  <option value="active">Activas</option>
-                  <option value="inactive">Inactivas</option>
-                </select>
-                <button
-                  type="submit"
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
-                >
-                  Filtrar
-                </button>
-              </form>
-            </div>
-
-            <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-2">
-              <div className="md:col-span-5">
-                <input
-                  type="text"
-                  value={newCountryName}
-                  onChange={(e) => setNewCountryName(e.target.value)}
-                  placeholder="Nombre del barrio (ej: Barrio Parque Sur)"
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="md:col-span-5">
-                <input
-                  type="text"
-                  value={newCountryLocation}
-                  onChange={(e) => setNewCountryLocation(e.target.value)}
-                  placeholder="Ubicación (ej: Canning / Ezeiza)"
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={creatingCountry || !newCountryName.trim()}
-                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  <Plus size={13} />
-                  {creatingCountry ? 'Creando...' : 'Agregar'}
-                </button>
-              </div>
-            </form>
-
-            {countryFeedback && (
-              <div
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
-                  countryFeedback.type === 'success'
-                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex rounded-xl bg-slate-900 p-1 border border-slate-800">
+              <button
+                type="button"
+                onClick={() => setActiveTab('health')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'health'
+                    ? 'bg-emerald-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
-                {countryFeedback.type === 'success' ? (
-                  <CheckCircle2 size={14} />
-                ) : (
-                  <AlertCircle size={14} />
-                )}
-                <span>{countryFeedback.message}</span>
+                Salud &amp; APIs
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('audit')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'audit'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <FileSpreadsheet size={13} />
+                Auditoría
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleRefreshAll}
+              disabled={loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 transition-colors disabled:opacity-50 cursor-pointer"
+            >
+              <RefreshCw
+                size={13}
+                className={
+                  loadingStatus || loadingCountries || loadingIntegrations || loadingPasses || loadingAudit
+                    ? 'animate-spin'
+                    : ''
+                }
+              />
+              Actualizar
+            </button>
+          </div>
+        </div>
+
+        {activeTab === 'health' ? (
+          <>
+            {statusError && (
+              <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
+                <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                <span>{statusError}</span>
               </div>
             )}
 
-            {loadingCountries ? (
-              <div className="text-center py-4 text-xs text-slate-400">Cargando comunidades...</div>
-            ) : countries.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-500">Sin resultados.</div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th className="py-1.5 px-2.5 font-semibold">ID</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Barrio</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Ubicación</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
-                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-900">
-                      {countries.map((countryItem) => {
-                        const isEditing = editingCountryId === countryItem.id;
-                        return (
-                          <tr key={countryItem.id} className="hover:bg-slate-900/50">
-                            <td className="py-2 px-2.5 font-mono text-slate-300">#{countryItem.id}</td>
-                            <td className="py-2 px-2.5">
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={editCountryName}
-                                  onChange={(e) => setEditCountryName(e.target.value)}
-                                  className="w-full px-2 py-1 rounded bg-slate-950 border border-emerald-600 text-xs text-white focus:outline-none"
-                                />
-                              ) : (
-                                <span className="font-semibold text-slate-200">{countryItem.name}</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-2.5">
-                              {isEditing ? (
-                                <input
-                                  type="text"
-                                  value={editCountryLocation}
-                                  onChange={(e) => setEditCountryLocation(e.target.value)}
-                                  className="w-full px-2 py-1 rounded bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none"
-                                />
-                              ) : (
-                                <span className="text-slate-400">{countryItem.location || '-'}</span>
-                              )}
-                            </td>
-                            <td className="py-2 px-2.5">
-                              {isEditing ? (
-                                <label className="inline-flex items-center gap-1 text-xs text-slate-200 cursor-pointer">
+            {/* Tarjetas de estado */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
+                    <Server size={16} className="text-sky-400" />
+                    <span>Servidor Backend</span>
+                  </div>
+                  {loadingStatus ? (
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
+                      Verificando...
+                    </span>
+                  ) : isBackendHealthy ? (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      ONLINE
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                      DEGRADADO
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Latencia HTTP:</span>
+                    <span className="font-mono text-slate-200">
+                      {httpLatencyMs !== null ? `${httpLatencyMs} ms` : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Tiempo activo:</span>
+                    <span className="font-mono text-slate-200">
+                      {formatUptime(diagnosticsData?.uptime_seconds)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
+                    <Database size={16} className="text-indigo-400" />
+                    <span>Base de Datos PostgreSQL</span>
+                  </div>
+                  {loadingStatus ? (
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
+                      Verificando...
+                    </span>
+                  ) : isDbConnected ? (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      CONECTADA
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
+                      SIN CONEXIÓN
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Latencia consulta:</span>
+                    <span className="font-mono text-slate-200">
+                      {typeof diagnosticsData?.database?.latency_ms === 'number'
+                        ? `${diagnosticsData.database.latency_ms} ms`
+                        : '-'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Pases / Vencidos:</span>
+                    <span className="font-mono text-slate-200">
+                      {diagnosticsData?.metrics?.total_passes ?? '-'} /{' '}
+                      {diagnosticsData?.metrics?.expired_passes ?? '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
+                    <KeyRound size={16} className="text-amber-400" />
+                    <span>Endpoint Externo QR</span>
+                  </div>
+                  {loadingStatus ? (
+                    <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
+                      Verificando...
+                    </span>
+                  ) : isExternalReady ? (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
+                      ACTIVO
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-800">
+                      SIN CLAVE
+                    </span>
+                  )}
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Claves activas:</span>
+                    <span className="font-mono text-slate-200">
+                      {diagnosticsData?.external_endpoint?.active_community_keys ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Comunidades activas:</span>
+                    <span className="font-mono text-slate-200">
+                      {diagnosticsData?.metrics?.active_countries ?? '-'} /{' '}
+                      {diagnosticsData?.metrics?.total_countries ?? '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Comunidades / Barrios */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Building2 size={17} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Comunidades y Barrios ({countryTotalCount})
+                  </h3>
+                </div>
+
+                <form onSubmit={handleCountrySearchSubmit} className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search size={13} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={countrySearch}
+                      onChange={(e) => setCountrySearch(e.target.value)}
+                      placeholder="Buscar barrio..."
+                      className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <select
+                    value={countryStatusFilter}
+                    onChange={(e) => {
+                      setCountryStatusFilter(e.target.value);
+                      setCountryPage(1);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="all">Todas</option>
+                    <option value="active">Activas</option>
+                    <option value="inactive">Inactivas</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
+                  >
+                    Filtrar
+                  </button>
+                </form>
+              </div>
+
+              <form onSubmit={handleCreateCountry} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                <div className="md:col-span-5">
+                  <input
+                    type="text"
+                    value={newCountryName}
+                    onChange={(e) => setNewCountryName(e.target.value)}
+                    placeholder="Nombre del barrio (ej: Barrio Parque Sur)"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div className="md:col-span-5">
+                  <input
+                    type="text"
+                    value={newCountryLocation}
+                    onChange={(e) => setNewCountryLocation(e.target.value)}
+                    placeholder="Ubicación (ej: Canning / Ezeiza)"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={creatingCountry || !newCountryName.trim()}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <Plus size={14} />
+                    {creatingCountry ? 'Creando...' : 'Agregar'}
+                  </button>
+                </div>
+              </form>
+
+              {countryFeedback && (
+                <div
+                  className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
+                    countryFeedback.type === 'success'
+                      ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                      : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                  }`}
+                >
+                  {countryFeedback.type === 'success' ? (
+                    <CheckCircle2 size={15} />
+                  ) : (
+                    <AlertCircle size={15} />
+                  )}
+                  <span>{countryFeedback.message}</span>
+                </div>
+              )}
+
+              {loadingCountries ? (
+                <div className="text-center py-6 text-xs text-slate-400">Cargando comunidades...</div>
+              ) : countries.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500">Sin resultados.</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2.5 px-3 font-semibold">ID</th>
+                          <th className="py-2.5 px-3 font-semibold">Barrio</th>
+                          <th className="py-2.5 px-3 font-semibold">Ubicación</th>
+                          <th className="py-2.5 px-3 font-semibold">Estado</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-900">
+                        {countries.map((countryItem) => {
+                          const isEditing = editingCountryId === countryItem.id;
+                          return (
+                            <tr key={countryItem.id} className="hover:bg-slate-900/50">
+                              <td className="py-2.5 px-3 font-mono text-slate-300">#{countryItem.id}</td>
+                              <td className="py-2.5 px-3">
+                                {isEditing ? (
                                   <input
-                                    type="checkbox"
-                                    checked={editCountryActive}
-                                    onChange={(e) => setEditCountryActive(e.target.checked)}
+                                    type="text"
+                                    value={editCountryName}
+                                    onChange={(e) => setEditCountryName(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg bg-slate-900 border border-emerald-600 text-xs text-white focus:outline-none"
                                   />
-                                  <span>Activa</span>
-                                </label>
-                              ) : countryItem.is_active ? (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                ) : (
+                                  <span className="font-semibold text-slate-200">{countryItem.name}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    value={editCountryLocation}
+                                    onChange={(e) => setEditCountryLocation(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none"
+                                  />
+                                ) : (
+                                  <span className="text-slate-400">{countryItem.location || '-'}</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                {isEditing ? (
+                                  <label className="inline-flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={editCountryActive}
+                                      onChange={(e) => setEditCountryActive(e.target.checked)}
+                                    />
+                                    <span>Activa</span>
+                                  </label>
+                                ) : countryItem.is_active ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                    activa
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                    inactiva
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="inline-flex items-center gap-1.5">
+                                  {isEditing ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleSaveCountryEdit(countryItem.id)}
+                                        disabled={savingEditCountry}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                      >
+                                        <Check size={12} />
+                                        <span>Guardar</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={cancelEditingCountry}
+                                        className="px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer"
+                                      >
+                                        Cancelar
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => startEditingCountry(countryItem)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                      >
+                                        <Pencil size={12} />
+                                        <span>Editar</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleToggleCountry(countryItem.id)}
+                                        disabled={togglingCountryId === countryItem.id}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                      >
+                                        <Power size={12} />
+                                        <span>{countryItem.is_active ? 'Desactivar' : 'Activar'}</span>
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 text-xs text-slate-400">
+                    <span>
+                      Página <strong className="text-slate-200">{countryPage}</strong> de{' '}
+                      <strong className="text-slate-200">{countryTotalPages}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCountryPage((p) => Math.max(1, p - 1))}
+                        disabled={countryPage <= 1 || loadingCountries}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronLeft size={13} />
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCountryPage((p) => Math.min(countryTotalPages, p + 1))}
+                        disabled={countryPage >= countryTotalPages || loadingCountries}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Siguiente
+                        <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Integraciones y Claves API por Comunidad */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={17} className="text-amber-400" />
+                  <h3 className="text-sm font-bold text-white">
+                    Integraciones y Claves API por Comunidad ({integrations.length})
+                  </h3>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Por página:</span>
+                  <select
+                    value={integrationsPerPage}
+                    onChange={(e) => {
+                      setIntegrationsPerPage(Number(e.target.value));
+                      setIntegrationPage(1);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-200"
+                  >
+                    <option value={4}>4</option>
+                    <option value={6}>6</option>
+                    <option value={10}>10</option>
+                  </select>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateIntegration} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                <div className="md:col-span-5">
+                  <select
+                    value={selectedIntegrationCountryId}
+                    onChange={(e) => setSelectedIntegrationCountryId(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
+                  >
+                    {allCountriesForSelect.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.id} · {c.name} {!c.is_active ? '(Inactiva)' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="md:col-span-4">
+                  <input
+                    type="text"
+                    value={newIntegrationLabel}
+                    onChange={(e) => setNewIntegrationLabel(e.target.value)}
+                    placeholder="Etiqueta (ej: Garita Principal)"
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div className="md:col-span-3">
+                  <button
+                    type="submit"
+                    disabled={creatingIntegration || !selectedIntegrationCountryId}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    <KeyRound size={14} />
+                    {creatingIntegration ? 'Generando...' : 'Generar Clave'}
+                  </button>
+                </div>
+              </form>
+
+              {integrationFeedback && (
+                <div
+                  className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
+                    integrationFeedback.type === 'success'
+                      ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                      : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                  }`}
+                >
+                  {integrationFeedback.type === 'success' ? (
+                    <CheckCircle2 size={15} />
+                  ) : (
+                    <AlertCircle size={15} />
+                  )}
+                  <span>{integrationFeedback.message}</span>
+                </div>
+              )}
+
+              {latestPlainKey && (
+                <div className="bg-amber-950/35 border border-amber-700/70 rounded-xl p-3.5 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <span className="text-amber-200 font-semibold">
+                    Clave ({latestPlainKey.countryName} · {latestPlainKey.label}) cargada en Sandbox:
+                  </span>
+                  <code className="font-mono text-[11px] text-amber-100 break-all">{latestPlainKey.key}</code>
+                </div>
+              )}
+
+              {loadingIntegrations ? (
+                <div className="text-center py-6 text-xs text-slate-400">Cargando claves...</div>
+              ) : paginatedIntegrations.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500">Sin claves configuradas.</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2.5 px-3 font-semibold">Comunidad</th>
+                          <th className="py-2.5 px-3 font-semibold">Garita</th>
+                          <th className="py-2.5 px-3 font-semibold">Clave</th>
+                          <th className="py-2.5 px-3 font-semibold">Estado</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-900">
+                        {paginatedIntegrations.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-900/50">
+                            <td className="py-2.5 px-3 font-semibold text-slate-200">{item.country_name}</td>
+                            <td className="py-2.5 px-3 text-slate-400">{item.label}</td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-amber-300">
+                              {item.masked_key}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              {item.is_active ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
                                   activa
                                 </span>
                               ) : (
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400 border border-slate-700">
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
                                   inactiva
                                 </span>
                               )}
                             </td>
-                            <td className="py-2 px-2.5 text-right">
-                              <div className="inline-flex items-center gap-1">
-                                {isEditing ? (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleSaveCountryEdit(countryItem.id)}
-                                      disabled={savingEditCountry}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
-                                    >
-                                      <Check size={11} />
-                                      <span>Guardar</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={cancelEditingCountry}
-                                      className="px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 cursor-pointer"
-                                    >
-                                      Cancelar
-                                    </button>
-                                  </>
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditingCountry(countryItem)}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                                    >
-                                      <Pencil size={11} />
-                                      <span>Editar</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleToggleCountry(countryItem.id)}
-                                      disabled={togglingCountryId === countryItem.id}
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                                    >
-                                      <Power size={11} />
-                                      <span>{countryItem.is_active ? 'Desactivar' : 'Activar'}</span>
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
-                  <span>
-                    Pág. <strong className="text-slate-200">{countryPage}</strong> /{' '}
-                    <strong className="text-slate-200">{countryTotalPages}</strong>
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setCountryPage((p) => Math.max(1, p - 1))}
-                      disabled={countryPage <= 1 || loadingCountries}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronLeft size={12} />
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCountryPage((p) => Math.min(countryTotalPages, p + 1))}
-                      disabled={countryPage >= countryTotalPages || loadingCountries}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      Siguiente
-                      <ChevronRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Integraciones y Claves API por Comunidad (paginada) */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <ShieldCheck size={16} className="text-amber-400" />
-                <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                  Integraciones y Claves API por Comunidad ({integrations.length})
-                </h3>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                <span>Por página:</span>
-                <select
-                  value={integrationsPerPage}
-                  onChange={(e) => {
-                    setIntegrationsPerPage(Number(e.target.value));
-                    setIntegrationPage(1);
-                  }}
-                  className="px-2 py-0.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200"
-                >
-                  <option value={4}>4</option>
-                  <option value={6}>6</option>
-                  <option value={10}>10</option>
-                </select>
-              </div>
-            </div>
-
-            <form onSubmit={handleCreateIntegration} className="grid grid-cols-1 md:grid-cols-12 gap-2">
-              <div className="md:col-span-5">
-                <select
-                  value={selectedIntegrationCountryId}
-                  onChange={(e) => setSelectedIntegrationCountryId(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 focus:outline-none focus:border-amber-500"
-                >
-                  {allCountriesForSelect.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      #{c.id} · {c.name} {!c.is_active ? '(Inactiva)' : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="md:col-span-4">
-                <input
-                  type="text"
-                  value={newIntegrationLabel}
-                  onChange={(e) => setNewIntegrationLabel(e.target.value)}
-                  placeholder="Etiqueta (ej: Garita Principal)"
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <button
-                  type="submit"
-                  disabled={creatingIntegration || !selectedIntegrationCountryId}
-                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-50 cursor-pointer"
-                >
-                  <KeyRound size={13} />
-                  {creatingIntegration ? 'Generando...' : 'Generar Clave'}
-                </button>
-              </div>
-            </form>
-
-            {integrationFeedback && (
-              <div
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
-                  integrationFeedback.type === 'success'
-                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
-                }`}
-              >
-                {integrationFeedback.type === 'success' ? (
-                  <CheckCircle2 size={14} />
-                ) : (
-                  <AlertCircle size={14} />
-                )}
-                <span>{integrationFeedback.message}</span>
-              </div>
-            )}
-
-            {latestPlainKey && (
-              <div className="bg-amber-950/35 border border-amber-700/70 rounded-lg px-3 py-2 text-xs flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <span className="text-amber-200 font-medium">
-                  Clave ({latestPlainKey.countryName} · {latestPlainKey.label}) cargada en Sandbox:
-                </span>
-                <code className="font-mono text-[11px] text-amber-100 break-all">{latestPlainKey.key}</code>
-              </div>
-            )}
-
-            {loadingIntegrations ? (
-              <div className="text-center py-4 text-xs text-slate-400">Cargando claves...</div>
-            ) : paginatedIntegrations.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-500">Sin claves configuradas.</div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th className="py-1.5 px-2.5 font-semibold">Comunidad</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Garita</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Clave</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
-                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-900">
-                      {paginatedIntegrations.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-900/50">
-                          <td className="py-2 px-2.5 font-semibold text-slate-200">{item.country_name}</td>
-                          <td className="py-2 px-2.5 text-slate-400">{item.label}</td>
-                          <td className="py-2 px-2.5 font-mono text-[11px] text-amber-300">
-                            {item.masked_key}
-                          </td>
-                          <td className="py-2 px-2.5">
-                            {item.is_active ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                activa
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
-                                inactiva
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-2 px-2.5 text-right">
-                            <div className="inline-flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleCopyIntegrationKey(item)}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                              >
-                                {copiedIntegrationId === item.id ? (
-                                  <>
-                                    <Check size={11} className="text-emerald-400" />
-                                    <span>Copiada</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Copy size={11} />
-                                    <span>Copiar</span>
-                                  </>
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleRotateIntegrationKey(item.id)}
-                                disabled={rotatingIntegrationId === item.id}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 cursor-pointer"
-                              >
-                                <RotateCw
-                                  size={11}
-                                  className={rotatingIntegrationId === item.id ? 'animate-spin' : ''}
-                                />
-                                <span>Rotar</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleToggleIntegrationStatus(item.id)}
-                                disabled={togglingIntegrationId === item.id}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                              >
-                                <Power size={11} />
-                                <span>{item.is_active ? 'Desactivar' : 'Activar'}</span>
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
-                  <span>
-                    Pág. <strong className="text-slate-200">{safeIntegrationPage}</strong> /{' '}
-                    <strong className="text-slate-200">{integrationTotalPages}</strong>
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setIntegrationPage((p) => Math.max(1, p - 1))}
-                      disabled={safeIntegrationPage <= 1}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronLeft size={12} />
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIntegrationPage((p) => Math.min(integrationTotalPages, p + 1))}
-                      disabled={safeIntegrationPage >= integrationTotalPages}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      Siguiente
-                      <ChevronRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Pases QR Recientes */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                Pases QR Recientes ({passTotalCount})
-              </h3>
-
-              <form onSubmit={handlePassSearchSubmit} className="flex flex-wrap items-center gap-1.5">
-                <div className="relative">
-                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    value={passSearch}
-                    onChange={(e) => setPassSearch(e.target.value)}
-                    placeholder="Buscar ID, barrio, prestador..."
-                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-                <select
-                  value={passStatusFilter}
-                  onChange={(e) => {
-                    setPassStatusFilter(e.target.value);
-                    setPassPage(1);
-                  }}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
-                >
-                  <option value="all">Todos</option>
-                  <option value="pending">Pendientes</option>
-                  <option value="expired">Vencidos</option>
-                  <option value="cancelled">Cancelados</option>
-                  <option value="used">Usados</option>
-                </select>
-                <button
-                  type="submit"
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
-                >
-                  Buscar
-                </button>
-              </form>
-            </div>
-
-            {passActionFeedback && (
-              <div
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs border ${
-                  passActionFeedback.type === 'success'
-                    ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-                    : 'bg-rose-950/50 border-rose-800 text-rose-200'
-                }`}
-              >
-                {passActionFeedback.type === 'success' ? (
-                  <CheckCircle2 size={14} />
-                ) : (
-                  <AlertCircle size={14} />
-                )}
-                <span>{passActionFeedback.message}</span>
-              </div>
-            )}
-
-            {loadingPasses ? (
-              <div className="text-center py-5 text-xs text-slate-400">Cargando pases QR...</div>
-            ) : recentPasses.length === 0 ? (
-              <div className="text-center py-5 text-xs text-slate-500">Sin pases para este filtro.</div>
-            ) : (
-              <>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th className="py-1.5 px-2.5 font-semibold">ID</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Barrio</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Prestador</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Destino</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Vigencia</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Estado</th>
-                        <th className="py-1.5 px-2.5 font-semibold text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-900">
-                      {recentPasses.map((passItem) => {
-                        const rawStatus = String(passItem.status || '').toLowerCase();
-                        const endMs = parsePassTimestampMs(passItem.end_time);
-                        const isExpired =
-                          rawStatus === 'expired' ||
-                          (rawStatus === 'pending' && endMs !== null && Date.now() > endMs);
-                        const isCancelled = rawStatus === 'cancelled';
-
-                        return (
-                          <tr key={passItem.id} className="hover:bg-slate-900/50">
-                            <td className="py-2 px-2.5 font-mono text-slate-300">#{passItem.id}</td>
-                            <td className="py-2 px-2.5 font-semibold text-sky-300">
-                              {passItem.country_name || `#${passItem.country_id}`}
-                            </td>
-                            <td className="py-2 px-2.5 text-slate-200">
-                              {`${passItem.provider_first_name || ''} ${passItem.provider_last_name || ''}`.trim() ||
-                                'Prestador'}
-                            </td>
-                            <td className="py-2 px-2.5 text-slate-400">
-                              {[passItem.fraction_number, passItem.lot_number]
-                                .filter(Boolean)
-                                .join(' / ') || '-'}
-                            </td>
-                            <td className="py-2 px-2.5 text-[11px] text-slate-300 font-mono">
-                              {formatPassDateTime(passItem.start_time)} → {formatPassDateTime(passItem.end_time)}
-                            </td>
-                            <td className="py-2 px-2.5">{renderPassStatusBadge(passItem)}</td>
-                            <td className="py-2 px-2.5 text-right">
-                              <div className="inline-flex items-center gap-1">
+                            <td className="py-2.5 px-3 text-right">
+                              <div className="inline-flex items-center gap-1.5">
                                 <button
                                   type="button"
-                                  onClick={() => handleCopyAndLoadPass(passItem)}
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                  onClick={() => handleCopyIntegrationKey(item)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
                                 >
-                                  {copiedPassId === passItem.id ? (
+                                  {copiedIntegrationId === item.id ? (
                                     <>
-                                      <Check size={11} className="text-emerald-400" />
-                                      <span>Copiado</span>
+                                      <Check size={12} className="text-emerald-400" />
+                                      <span>Copiada</span>
                                     </>
                                   ) : (
                                     <>
-                                      <Copy size={11} />
+                                      <Copy size={12} />
                                       <span>Copiar</span>
                                     </>
                                   )}
                                 </button>
-                                {!isCancelled && !isExpired && (
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCancelPass(passItem.id)}
-                                    disabled={cancellingPassId === passItem.id}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800/80 cursor-pointer"
-                                  >
-                                    <Ban size={11} />
-                                    <span>Cancelar</span>
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRotateIntegrationKey(item.id)}
+                                  disabled={rotatingIntegrationId === item.id}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 cursor-pointer"
+                                >
+                                  <RotateCw
+                                    size={12}
+                                    className={rotatingIntegrationId === item.id ? 'animate-spin' : ''}
+                                  />
+                                  <span>Rotar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleIntegrationStatus(item.id)}
+                                  disabled={togglingIntegrationId === item.id}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                >
+                                  <Power size={12} />
+                                  <span>{item.is_active ? 'Desactivar' : 'Activar'}</span>
+                                </button>
                               </div>
                             </td>
                           </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
-                  <span>
-                    Pág. <strong className="text-slate-200">{passPage}</strong> /{' '}
-                    <strong className="text-slate-200">{passTotalPages}</strong>
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setPassPage((p) => Math.max(1, p - 1))}
-                      disabled={passPage <= 1 || loadingPasses}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronLeft size={12} />
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPassPage((p) => Math.min(passTotalPages, p + 1))}
-                      disabled={passPage >= passTotalPages || loadingPasses}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      Siguiente
-                      <ChevronRight size={12} />
-                    </button>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </div>
-              </>
-            )}
-          </div>
 
-          {/* Sandbox endpoint externo */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                Sandbox POST /api/v1/external/passes/verify
-              </h3>
-              <div className="inline-flex rounded-xl bg-slate-950 p-0.5 border border-slate-800 self-start">
-                <button
-                  type="button"
-                  onClick={() => setAuthMode('api_key')}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
-                    authMode === 'api_key'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  x-api-key
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setAuthMode('jwt')}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold cursor-pointer ${
-                    authMode === 'jwt'
-                      ? 'bg-emerald-600 text-white'
-                      : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  Bearer JWT
-                </button>
-              </div>
+                  <div className="flex items-center justify-between pt-1 text-xs text-slate-400">
+                    <span>
+                      Página <strong className="text-slate-200">{safeIntegrationPage}</strong> de{' '}
+                      <strong className="text-slate-200">{integrationTotalPages}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIntegrationPage((p) => Math.max(1, p - 1))}
+                        disabled={safeIntegrationPage <= 1}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronLeft size={13} />
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIntegrationPage((p) => Math.min(integrationTotalPages, p + 1))}
+                        disabled={safeIntegrationPage >= integrationTotalPages}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Siguiente
+                        <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
-            {sandboxCopiedHint && (
-              <div className="flex flex-wrap items-center justify-between gap-2 bg-sky-950/35 border border-sky-800/70 rounded-lg px-3 py-1.5 text-[11px] text-sky-200">
-                <span>
-                  Pase <strong>#{sandboxCopiedHint.passId}</strong> ({sandboxCopiedHint.countryName}) listo en Sandbox.
-                </span>
-                <span className="font-mono">
-                  {sandboxCopiedHint.hasKey ? `Clave: ${sandboxCopiedHint.maskedKey}` : 'Sin clave activa en barrio'}
-                </span>
-              </div>
-            )}
+            {/* Pases QR Recientes */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Pases QR Recientes ({passTotalCount})
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    La vigencia en base de datos se almacena en UTC; el estado vencido se persiste al superar el fin del pase.
+                  </p>
+                </div>
 
-            <form onSubmit={handleRunExternalTest} className="grid grid-cols-1 md:grid-cols-12 gap-2">
-              {authMode === 'api_key' && (
-                <div className="md:col-span-4">
-                  <input
-                    type="text"
-                    value={testApiKey}
-                    onChange={(e) => setTestApiKey(e.target.value)}
-                    placeholder="x-api-key (ej: tl_c1_...)"
-                    className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-                  />
+                <form onSubmit={handlePassSearchSubmit} className="flex flex-wrap items-center gap-2">
+                  <div className="relative">
+                    <Search size={13} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={passSearch}
+                      onChange={(e) => setPassSearch(e.target.value)}
+                      placeholder="Buscar ID, barrio, prestador..."
+                      className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <select
+                    value={passStatusFilter}
+                    onChange={(e) => {
+                      setPassStatusFilter(e.target.value);
+                      setPassPage(1);
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="all">Todos</option>
+                    <option value="pending">Pendientes</option>
+                    <option value="expired">Vencidos</option>
+                    <option value="cancelled">Cancelados</option>
+                    <option value="used">Usados</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
+                  >
+                    Buscar
+                  </button>
+                </form>
+              </div>
+
+              {passActionFeedback && (
+                <div
+                  className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
+                    passActionFeedback.type === 'success'
+                      ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
+                      : 'bg-rose-950/50 border-rose-800 text-rose-200'
+                  }`}
+                >
+                  {passActionFeedback.type === 'success' ? (
+                    <CheckCircle2 size={15} />
+                  ) : (
+                    <AlertCircle size={15} />
+                  )}
+                  <span>{passActionFeedback.message}</span>
                 </div>
               )}
-              <div className={authMode === 'api_key' ? 'md:col-span-6' : 'md:col-span-10'}>
-                <input
-                  type="text"
-                  value={testQrToken}
-                  onChange={(e) => setTestQrToken(e.target.value)}
-                  placeholder="Pegá o copiá un qr_token..."
-                  className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-              <div className="md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={testingEndpoint || !testQrToken.trim()}
-                  className="w-full inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
-                >
-                  <Send size={12} />
-                  {testingEndpoint ? 'Probando...' : 'Validar'}
-                </button>
-              </div>
-            </form>
 
-            {sandboxResponse && (
-              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5">
-                    {sandboxResponse.body?.authorized ? (
-                      <CheckCircle2 size={14} className="text-emerald-400" />
-                    ) : (
-                      <XCircle size={14} className="text-rose-400" />
-                    )}
-                    <span className="font-bold text-slate-200">
-                      {sandboxResponse.body?.authorized ? 'AUTORIZADO' : 'DENEGADO'}
-                    </span>
-                    {sandboxResponse.body?.code && (
-                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-900 text-slate-300 border border-slate-800">
-                        {sandboxResponse.body.code}
-                      </span>
-                    )}
+              {loadingPasses ? (
+                <div className="text-center py-6 text-xs text-slate-400">Cargando pases QR...</div>
+              ) : recentPasses.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500">Sin pases para este filtro.</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2.5 px-3 font-semibold">ID</th>
+                          <th className="py-2.5 px-3 font-semibold">Barrio</th>
+                          <th className="py-2.5 px-3 font-semibold">Prestador</th>
+                          <th className="py-2.5 px-3 font-semibold">Destino</th>
+                          <th className="py-2.5 px-3 font-semibold">Vigencia (UTC)</th>
+                          <th className="py-2.5 px-3 font-semibold">Estado</th>
+                          <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-900">
+                        {recentPasses.map((passItem) => {
+                          const rawStatus = String(passItem.status || '').toLowerCase();
+                          const endMs = parsePassTimestampMs(passItem.end_time);
+                          const isExpired =
+                            rawStatus === 'expired' ||
+                            (rawStatus === 'pending' && endMs !== null && Date.now() > endMs);
+                          const isCancelled = rawStatus === 'cancelled';
+
+                          return (
+                            <tr key={passItem.id} className="hover:bg-slate-900/50">
+                              <td className="py-2.5 px-3 font-mono text-slate-300">#{passItem.id}</td>
+                              <td className="py-2.5 px-3 font-semibold text-sky-300">
+                                {passItem.country_name || `#${passItem.country_id}`}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-200">
+                                {`${passItem.provider_first_name || ''} ${passItem.provider_last_name || ''}`.trim() ||
+                                  'Prestador'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-400">
+                                {[passItem.fraction_number, passItem.lot_number]
+                                  .filter(Boolean)
+                                  .join(' / ') || '-'}
+                              </td>
+                              <td className="py-2.5 px-3 text-[11px] text-slate-300 font-mono">
+                                {formatPassDateTime(passItem.start_time)} → {formatPassDateTime(passItem.end_time)}
+                              </td>
+                              <td className="py-2.5 px-3">{renderPassStatusBadge(passItem)}</td>
+                              <td className="py-2.5 px-3 text-right">
+                                <div className="inline-flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCopyAndLoadPass(passItem)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                                  >
+                                    {copiedPassId === passItem.id ? (
+                                      <>
+                                        <Check size={12} className="text-emerald-400" />
+                                        <span>Copiado</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Copy size={12} />
+                                        <span>Copiar</span>
+                                      </>
+                                    )}
+                                  </button>
+                                  {!isCancelled && !isExpired && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCancelPass(passItem.id)}
+                                      disabled={cancellingPassId === passItem.id}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-800/80 cursor-pointer"
+                                    >
+                                      <Ban size={12} />
+                                      <span>Cancelar</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                  <span className="font-mono text-[11px] text-slate-400">
-                    HTTP {sandboxResponse.httpStatus} · {sandboxResponse.latencyMs} ms
+
+                  <div className="flex items-center justify-between pt-1 text-xs text-slate-400">
+                    <span>
+                      Página <strong className="text-slate-200">{passPage}</strong> de{' '}
+                      <strong className="text-slate-200">{passTotalPages}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPassPage((p) => Math.max(1, p - 1))}
+                        disabled={passPage <= 1 || loadingPasses}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronLeft size={13} />
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPassPage((p) => Math.min(passTotalPages, p + 1))}
+                        disabled={passPage >= passTotalPages || loadingPasses}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Siguiente
+                        <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Sandbox endpoint externo */}
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-bold text-white">
+                    Sandbox de Validación Externa (POST /api/v1/external/passes/verify)
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Probá la validación con clave de comunidad (<code className="text-slate-300">x-api-key</code>) o sesión JWT.
+                  </p>
+                </div>
+                <div className="inline-flex rounded-xl bg-slate-900 p-1 border border-slate-800 self-start">
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('api_key')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                      authMode === 'api_key'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    x-api-key
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('jwt')}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer ${
+                      authMode === 'jwt'
+                        ? 'bg-emerald-600 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    Bearer JWT
+                  </button>
+                </div>
+              </div>
+
+              {sandboxCopiedHint && (
+                <div className="flex flex-wrap items-center justify-between gap-2 bg-sky-950/35 border border-sky-800/70 rounded-xl px-3.5 py-2 text-xs text-sky-200">
+                  <span>
+                    Pase <strong>#{sandboxCopiedHint.passId}</strong> ({sandboxCopiedHint.countryName}) listo en Sandbox.
+                  </span>
+                  <span className="font-mono">
+                    {sandboxCopiedHint.hasKey ? `Clave: ${sandboxCopiedHint.maskedKey}` : 'Sin clave activa en barrio'}
                   </span>
                 </div>
-                <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto max-h-56">
-                  {JSON.stringify(sandboxResponse.body, null, 2)}
-                </pre>
-              </div>
-            )}
-          </div>
-        </>
-      ) : (
-        /* Pestaña Auditoría compacta */
-        <div className="space-y-4">
-          {auditError && (
-            <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 px-3.5 py-2.5 rounded-xl text-xs">
-              <AlertCircle size={15} className="text-rose-400 shrink-0" />
-              <span>{auditError}</span>
-            </div>
-          )}
+              )}
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
-              <div className="text-[11px] text-slate-400">Intentos</div>
-              <div className="text-xl font-bold text-white font-mono">{accessSummary.total_attempts}</div>
-            </div>
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
-              <div className="text-[11px] text-emerald-400">Autorizados</div>
-              <div className="text-xl font-bold text-emerald-300 font-mono">
-                {accessSummary.authorized_count}
-              </div>
-            </div>
-            <div className="bg-slate-900/90 border border-slate-800 rounded-xl px-4 py-3">
-              <div className="text-[11px] text-rose-400">Denegados</div>
-              <div className="text-xl font-bold text-rose-300 font-mono">{accessSummary.denied_count}</div>
-            </div>
-          </div>
-
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                Bitácora de Intentos de Acceso
-              </h3>
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  fetchAuditOverview(auditOutcomeFilter, auditSearch);
-                }}
-                className="flex flex-wrap items-center gap-1.5"
-              >
-                <div className="relative">
-                  <Search size={12} className="text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <form onSubmit={handleRunExternalTest} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                {authMode === 'api_key' && (
+                  <div className="md:col-span-4">
+                    <input
+                      type="text"
+                      value={testApiKey}
+                      onChange={(e) => setTestApiKey(e.target.value)}
+                      placeholder="x-api-key (ej: tl_c1_...)"
+                      className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                )}
+                <div className={authMode === 'api_key' ? 'md:col-span-6' : 'md:col-span-10'}>
                   <input
                     type="text"
-                    value={auditSearch}
-                    onChange={(e) => setAuditSearch(e.target.value)}
-                    placeholder="Buscar motivo o barrio..."
-                    className="pl-7 pr-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    value={testQrToken}
+                    onChange={(e) => setTestQrToken(e.target.value)}
+                    placeholder="Pegá o copiá un qr_token..."
+                    className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
-                <select
-                  value={auditOutcomeFilter}
-                  onChange={(e) => setAuditOutcomeFilter(e.target.value)}
-                  className="px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
-                >
-                  <option value="all">Todos</option>
-                  <option value="authorized">Autorizados</option>
-                  <option value="denied">Denegados</option>
-                </select>
-                <button
-                  type="submit"
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
-                >
-                  Buscar
-                </button>
+                <div className="md:col-span-2">
+                  <button
+                    type="submit"
+                    disabled={testingEndpoint || !testQrToken.trim()}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
+                  >
+                    <Send size={13} />
+                    {testingEndpoint ? 'Probando...' : 'Validar'}
+                  </button>
+                </div>
               </form>
+
+              {sandboxResponse && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      {sandboxResponse.body?.authorized ? (
+                        <CheckCircle2 size={15} className="text-emerald-400" />
+                      ) : (
+                        <XCircle size={15} className="text-rose-400" />
+                      )}
+                      <span className="font-bold text-slate-200">
+                        {sandboxResponse.body?.authorized ? 'ACCESO AUTORIZADO' : 'ACCESO DENEGADO'}
+                      </span>
+                      {sandboxResponse.body?.code && (
+                        <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
+                          {sandboxResponse.body.code}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-mono text-[11px] text-slate-400">
+                      HTTP {sandboxResponse.httpStatus} · {sandboxResponse.latencyMs} ms
+                    </span>
+                  </div>
+                  <pre className="text-[11px] font-mono text-slate-300 overflow-x-auto max-h-60">
+                    {JSON.stringify(sandboxResponse.body, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          /* Pestaña Auditoría */
+          <div className="space-y-6">
+            {auditError && (
+              <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
+                <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                <span>{auditError}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
+                <div className="text-xs text-slate-400">Intentos de validación</div>
+                <div className="text-2xl font-black text-white font-mono mt-1">
+                  {accessSummary.total_attempts}
+                </div>
+              </div>
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
+                <div className="text-xs text-emerald-400">Autorizados</div>
+                <div className="text-2xl font-black text-emerald-300 font-mono mt-1">
+                  {accessSummary.authorized_count}
+                </div>
+              </div>
+              <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
+                <div className="text-xs text-rose-400">Denegados</div>
+                <div className="text-2xl font-black text-rose-300 font-mono mt-1">
+                  {accessSummary.denied_count}
+                </div>
+              </div>
             </div>
 
-            {loadingAudit ? (
-              <div className="text-center py-4 text-xs text-slate-400">Cargando bitácora...</div>
-            ) : paginatedAccessLogs.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-500">Sin registros.</div>
-            ) : (
-              <>
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <h3 className="text-sm font-bold text-white">Bitácora de Intentos de Acceso</h3>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    fetchAuditOverview(auditOutcomeFilter, auditSearch);
+                  }}
+                  className="flex flex-wrap items-center gap-2"
+                >
+                  <div className="relative">
+                    <Search size={13} className="text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={auditSearch}
+                      onChange={(e) => setAuditSearch(e.target.value)}
+                      placeholder="Buscar motivo o barrio..."
+                      className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <select
+                    value={auditOutcomeFilter}
+                    onChange={(e) => setAuditOutcomeFilter(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"
+                  >
+                    <option value="all">Todos</option>
+                    <option value="authorized">Autorizados</option>
+                    <option value="denied">Denegados</option>
+                  </select>
+                  <button
+                    type="submit"
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 cursor-pointer"
+                  >
+                    Buscar
+                  </button>
+                </form>
+              </div>
+
+              {loadingAudit ? (
+                <div className="text-center py-6 text-xs text-slate-400">Cargando bitácora...</div>
+              ) : paginatedAccessLogs.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500">Sin registros.</div>
+              ) : (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400">
+                          <th className="py-2.5 px-3 font-semibold">Resultado</th>
+                          <th className="py-2.5 px-3 font-semibold">Motivo</th>
+                          <th className="py-2.5 px-3 font-semibold">Barrio / Origen</th>
+                          <th className="py-2.5 px-3 font-semibold">Detalle</th>
+                          <th className="py-2.5 px-3 font-semibold">Hora</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-900">
+                        {paginatedAccessLogs.map((log) => (
+                          <tr key={log.id} className="hover:bg-slate-900/50">
+                            <td className="py-2.5 px-3">
+                              {log.authorized ? (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                  AUTORIZADO
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
+                                  DENEGADO
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-amber-300">
+                              {log.reason_code}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-300">
+                              {log.country_name || log.integration_label || log.auth_mode}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-300">{log.message}</td>
+                            <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
+                              {log.created_at
+                                ? new Date(log.created_at).toLocaleString('es-AR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit'
+                                  })
+                                : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1 text-xs text-slate-400">
+                    <span>
+                      Página <strong className="text-slate-200">{safeAuditPage}</strong> de{' '}
+                      <strong className="text-slate-200">{auditTotalPages}</strong>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                        disabled={safeAuditPage <= 1}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        <ChevronLeft size={13} />
+                        Anterior
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
+                        disabled={safeAuditPage >= auditTotalPages}
+                        className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
+                      >
+                        Siguiente
+                        <ChevronRight size={13} />
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <h3 className="text-sm font-bold text-white">Contratos y Transacciones</h3>
+                <div className="flex flex-wrap gap-4 text-xs font-mono">
+                  <span className="text-slate-300">
+                    Volumen: <strong className="text-white">${financialSummary.gross_volume}</strong>
+                  </span>
+                  <span className="text-emerald-300">
+                    Comisión: <strong>${financialSummary.platform_fees}</strong>
+                  </span>
+                  <span className="text-sky-300">
+                    Prestador: <strong>${financialSummary.provider_payouts}</strong>
+                  </span>
+                </div>
+              </div>
+
+              {transactionsList.length === 0 ? (
+                <div className="text-center py-6 text-xs text-slate-500">
+                  Sin transacciones registradas ({financialSummary.total_contracts} contratos).
+                </div>
+              ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
-                      <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                        <th className="py-1.5 px-2.5 font-semibold">Resultado</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Motivo</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Barrio / Origen</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Detalle</th>
-                        <th className="py-1.5 px-2.5 font-semibold">Hora</th>
+                      <tr className="border-b border-slate-800 text-slate-400">
+                        <th className="py-2.5 px-3 font-semibold">#TX</th>
+                        <th className="py-2.5 px-3 font-semibold">Contrato</th>
+                        <th className="py-2.5 px-3 font-semibold">Monto</th>
+                        <th className="py-2.5 px-3 font-semibold">Comisión</th>
+                        <th className="py-2.5 px-3 font-semibold">Neto</th>
+                        <th className="py-2.5 px-3 font-semibold">Estado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-900">
-                      {paginatedAccessLogs.map((log) => (
-                        <tr key={log.id} className="hover:bg-slate-900/50">
-                          <td className="py-2 px-2.5">
-                            {log.authorized ? (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                AUTORIZADO
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-950 text-rose-300 border border-rose-800">
-                                DENEGADO
-                              </span>
-                            )}
+                      {transactionsList.map((tx) => (
+                        <tr key={tx.id} className="hover:bg-slate-900/50">
+                          <td className="py-2.5 px-3 font-mono text-slate-300">#{tx.id}</td>
+                          <td className="py-2.5 px-3 text-slate-200">
+                            {tx.contract_description || `Contrato #${tx.contract_id}`}
                           </td>
-                          <td className="py-2 px-2.5 font-mono text-[11px] text-amber-300">
-                            {log.reason_code}
-                          </td>
-                          <td className="py-2 px-2.5 text-slate-300">
-                            {log.country_name || log.integration_label || log.auth_mode}
-                          </td>
-                          <td className="py-2 px-2.5 text-slate-300">{log.message}</td>
-                          <td className="py-2 px-2.5 font-mono text-[11px] text-slate-400">
-                            {log.created_at
-                              ? new Date(log.created_at).toLocaleString('es-AR', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit'
-                                })
-                              : '-'}
-                          </td>
+                          <td className="py-2.5 px-3 font-mono text-slate-200">${tx.total_amount}</td>
+                          <td className="py-2.5 px-3 font-mono text-emerald-300">${tx.platform_fee}</td>
+                          <td className="py-2.5 px-3 font-mono text-sky-300">${tx.provider_payout}</td>
+                          <td className="py-2.5 px-3 font-mono text-slate-300">{tx.status}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
-
-                <div className="flex items-center justify-between pt-1 text-[11px] text-slate-400">
-                  <span>
-                    Pág. <strong className="text-slate-200">{safeAuditPage}</strong> /{' '}
-                    <strong className="text-slate-200">{auditTotalPages}</strong>
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
-                      disabled={safeAuditPage <= 1}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      <ChevronLeft size={12} />
-                      Anterior
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setAuditPage((p) => Math.min(auditTotalPages, p + 1))}
-                      disabled={safeAuditPage >= auditTotalPages}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 disabled:opacity-40 cursor-pointer"
-                    >
-                      Siguiente
-                      <ChevronRight size={12} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-
-          <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-4 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-              <h3 className="text-xs font-bold text-white uppercase tracking-wide">
-                Contratos y Transacciones
-              </h3>
-              <div className="flex flex-wrap gap-3 text-[11px] font-mono">
-                <span className="text-slate-300">
-                  Volumen: <strong className="text-white">${financialSummary.gross_volume}</strong>
-                </span>
-                <span className="text-emerald-300">
-                  Comisión: <strong>${financialSummary.platform_fees}</strong>
-                </span>
-                <span className="text-sky-300">
-                  Prestador: <strong>${financialSummary.provider_payouts}</strong>
-                </span>
-              </div>
+              )}
             </div>
-
-            {transactionsList.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-500">
-                Sin transacciones registradas ({financialSummary.total_contracts} contratos).
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 text-[11px]">
-                      <th className="py-1.5 px-2.5 font-semibold">#TX</th>
-                      <th className="py-1.5 px-2.5 font-semibold">Contrato</th>
-                      <th className="py-1.5 px-2.5 font-semibold">Monto</th>
-                      <th className="py-1.5 px-2.5 font-semibold">Comisión</th>
-                      <th className="py-1.5 px-2.5 font-semibold">Neto</th>
-                      <th className="py-1.5 px-2.5 font-semibold">Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-900">
-                    {transactionsList.map((tx) => (
-                      <tr key={tx.id} className="hover:bg-slate-900/50">
-                        <td className="py-2 px-2.5 font-mono text-slate-300">#{tx.id}</td>
-                        <td className="py-2 px-2.5 text-slate-200">
-                          {tx.contract_description || `Contrato #${tx.contract_id}`}
-                        </td>
-                        <td className="py-2 px-2.5 font-mono text-slate-200">${tx.total_amount}</td>
-                        <td className="py-2 px-2.5 font-mono text-emerald-300">${tx.platform_fee}</td>
-                        <td className="py-2 px-2.5 font-mono text-sky-300">${tx.provider_payout}</td>
-                        <td className="py-2 px-2.5 font-mono text-slate-300">{tx.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        )}
+      </main>
     </div>
   );
 }
