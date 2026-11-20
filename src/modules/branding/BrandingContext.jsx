@@ -3,7 +3,7 @@
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
  * fondos (plataforma, menú, sub-menú), tipografías (plataforma, menú, sub-menú),
  * logo institucional opcional (SVG, PNG, JPG) y modo oscuro/claro, sincronizado
- * con PostgreSQL vía /api/v1/branding con superficies uniformes en todas las vistas.
+ * con PostgreSQL vía /api/v1/branding con fondo de plataforma unificado en todas las vistas.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -157,8 +157,8 @@ export const BrandingProvider = ({ children }) => {
   }, [fetchBranding]);
 
   /**
-   * Propaga fondos, tipografías, superficies uniformes y modo oscuro/claro
-   * de forma consistente en todas las vistas.
+   * Propaga fondos, tipografías y modo oscuro/claro usando directamente
+   * el color de fondo de la plataforma en todas las vistas.
    */
   useEffect(() => {
     const root = document.documentElement;
@@ -172,23 +172,23 @@ export const BrandingProvider = ({ children }) => {
     const submenuText = brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor;
 
     const platformLum = getRelativeLuminance(platformBg);
-    const isLightPlatform = platformLum > 0.35;
+    const isLightPlatform = platformLum > 0.45;
 
-    // Contraste uniforme y moderado sobre el color de fondo de la plataforma
-    // para que todas las vistas compartan el mismo tono de superficie sin saltos abruptos
+    // Usamos un tono muy cercano y coherente con platformBg para tarjetas y bloques
+    // para que todas las vistas compartan el mismo color de fondo sin oscurecerse
     const cardBg = isLightPlatform
-      ? shiftHex(platformBg, -0.05)
-      : shiftHex(platformBg, -0.05);
+      ? shiftHex(platformBg, -0.04)
+      : shiftHex(platformBg, 0.03);
 
     const mutedBg = isLightPlatform
-      ? shiftHex(platformBg, -0.1)
-      : shiftHex(platformBg, 0.04);
+      ? shiftHex(platformBg, -0.08)
+      : shiftHex(platformBg, 0.06);
 
     const borderColor = isLightPlatform
-      ? shiftHex(platformBg, -0.18)
+      ? shiftHex(platformBg, -0.16)
       : shiftHex(platformBg, 0.14);
 
-    const secondaryTextColor = isLightPlatform ? '#334155' : '#CBD5E1';
+    const secondaryTextColor = isLightPlatform ? '#334155' : '#E2E8F0';
 
     root.style.setProperty('--tl-platform-bg', platformBg);
     root.style.setProperty('--tl-menu-bg', menuBg);
@@ -213,12 +213,7 @@ export const BrandingProvider = ({ children }) => {
     }
 
     styleEl.textContent = `
-      html, body, #root {
-        background-color: var(--tl-platform-bg) !important;
-        color: var(--tl-platform-text) !important;
-      }
-
-      .tl-platform-surface {
+      html, body, #root, main, .tl-platform-surface {
         background-color: var(--tl-platform-bg) !important;
         color: var(--tl-platform-text) !important;
       }
@@ -233,7 +228,7 @@ export const BrandingProvider = ({ children }) => {
         color: var(--tl-submenu-text) !important;
       }
 
-      /* Superficies uniformes en todas las vistas */
+      /* Superficies coherentes con el fondo de la plataforma en todas las vistas */
       .tl-platform-surface [class*="bg-slate-950"],
       .tl-platform-surface [class*="bg-slate-900"] {
         background-color: var(--tl-card-bg) !important;
@@ -262,7 +257,7 @@ export const BrandingProvider = ({ children }) => {
       .tl-platform-surface input,
       .tl-platform-surface select,
       .tl-platform-surface textarea {
-        background-color: ${isLightPlatform ? '#FFFFFF' : shiftHex(cardBg, -0.03)} !important;
+        background-color: ${isLightPlatform ? '#FFFFFF' : cardBg} !important;
         color: ${isLightPlatform ? '#0F172A' : platformText} !important;
         border-color: var(--tl-border-color) !important;
       }
