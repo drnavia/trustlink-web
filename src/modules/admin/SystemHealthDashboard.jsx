@@ -2,7 +2,7 @@
  * @file SystemHealthDashboard.jsx
  * @description Consola técnica y de integración externa exclusiva para el rol 'superadmin',
  * alineada con la estética y jerarquía visual del resto de módulos de TrustLink, con conversión
- * de fechas/horas a la zona horaria del usuario logueado.
+ * estándar de fechas/horas UTC a la zona horaria del usuario logueado.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -58,15 +58,15 @@ const resolveUserTimeZone = (userObj) => {
 };
 
 /**
- * Extrae componentes YYYY-MM-DD HH:mm:ss y construye el instante UTC real
- * para convertirlo de forma consistente a la zona horaria del usuario logueado.
+ * Construye el instante epoch UTC real (en milisegundos) a partir de un timestamp
+ * devuelto por PostgreSQL (timestamp without time zone en UTC o ISO con zona).
  */
 const parsePassTimestampMs = (rawValue) => {
   if (!rawValue) return null;
   const str = String(rawValue).trim();
 
   const match = str.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?/
   );
   if (match) {
     const year = Number(match[1]);
@@ -74,22 +74,22 @@ const parsePassTimestampMs = (rawValue) => {
     const day = Number(match[3]);
     const hour = Number(match[4]);
     const minute = Number(match[5]);
-    const second = Number(match[6] || '0');
+    const secFloat = Number(match[6] || '0');
+    const second = Math.floor(secFloat);
+    const msPart = Math.round((secFloat - second) * 1000);
 
-    // Si el string tiene 'Z' o un offset explícito, respetamos el instante exacto;
-    // si viene sin zona (timestamp without time zone de PostgreSQL), lo tomamos en UTC.
     if (/Z$/i.test(str)) {
-      return Date.UTC(year, month, day, hour, minute, second);
+      return Date.UTC(year, month, day, hour, minute, second, msPart);
     }
     const offsetMatch = str.match(/([+-])(\d{2}):?(\d{2})$/);
     if (offsetMatch) {
       const sign = offsetMatch[1] === '+' ? 1 : -1;
       const offHours = Number(offsetMatch[2]);
       const offMins = Number(offsetMatch[3]);
-      const utcMs = Date.UTC(year, month, day, hour, minute, second);
-      return utcMs - sign * (offHours * 60 + offMins) * 60 * 1000;
+      const localAsUtc = Date.UTC(year, month, day, hour, minute, second, msPart);
+      return localAsUtc - sign * (offHours * 60 + offMins) * 60 * 1000;
     }
-    return Date.UTC(year, month, day, hour, minute, second);
+    return Date.UTC(year, month, day, hour, minute, second, msPart);
   }
 
   const fallbackMs = new Date(str).getTime();
@@ -97,26 +97,15 @@ const parsePassTimestampMs = (rawValue) => {
 };
 
 /**
- * Convierte el timestamp UTC del pase a la zona horaria del usuario logueado
- * (por defecto Argentina UTC-3 si no hay otra configurada).
+ * Convierte el instante UTC a la zona horaria del usuario logueado usando Intl/DateTimeFormat.
  */
 const formatInUserTimeZone = (rawValue, timeZone) => {
   const utcMs = parsePassTimestampMs(rawValue);
   if (utcMs === null) return '-';
 
   const targetZone = timeZone || 'America/Argentina/Buenos_Aires';
-  const isArgentinaZone =
-    targetZone === 'America/Argentina/Buenos_Aires' ||
-    targetZone === 'America/Buenos_aires';
-
-  // Para la zona de Argentina (-03:00), aplicamos explícitamente -3h sobre el instante UTC
-  // para garantizar coherencia sin importar cómo el entorno del sistema opere.
-  const displayMs = isArgentinaZone
-    ? utcMs - 3 * 60 * 60 * 1000
-    : utcMs;
-
-  return new Date(displayMs).toLocaleString('es-AR', {
-    timeZone: 'UTC',
+  return new Date(utcMs).toLocaleString('es-AR', {
+    timeZone: targetZone,
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
