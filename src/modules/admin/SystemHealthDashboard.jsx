@@ -37,7 +37,7 @@ const PASSES_PER_PAGE = 6;
 const AUDIT_LOGS_PER_PAGE = 8;
 
 /**
- * Interpreta un timestamp sin zona horaria devuelto por PostgreSQL (ej. "2026-11-19 22:49:00")
+ * Interpreta un timestamp sin zona horaria devuelto por PostgreSQL (ej. "2026-11-20 02:04:00")
  * como UTC, consistente con el almacenamiento y validación del backend.
  */
 const parsePassTimestampMs = (rawValue) => {
@@ -1479,7 +1479,7 @@ export default function SystemHealthDashboard() {
                     Pases QR Recientes ({passTotalCount})
                   </h3>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    La vigencia en base de datos se almacena en UTC; el estado vencido se persiste al superar el fin del pase.
+                    Vigencia mostrada en tu hora local (coincide con la emisión del residente); el estado vencido se persiste en UTC al superar el fin del pase.
                   </p>
                 </div>
 
@@ -1548,7 +1548,7 @@ export default function SystemHealthDashboard() {
                           <th className="py-2.5 px-3 font-semibold">Barrio</th>
                           <th className="py-2.5 px-3 font-semibold">Prestador</th>
                           <th className="py-2.5 px-3 font-semibold">Destino</th>
-                          <th className="py-2.5 px-3 font-semibold">Vigencia (UTC)</th>
+                          <th className="py-2.5 px-3 font-semibold">Vigencia</th>
                           <th className="py-2.5 px-3 font-semibold">Estado</th>
                           <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
                         </tr>
