@@ -1,8 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * aplicación explícita de Zona 1 (Menú), Zona 2 (Sub-menú), Zona 3 (Plataforma general)
- * y Zona 6 (Footer), logo opcional y modo oscuro.
+ * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional) y aplicación explícita
+ * de las Zonas 1 a 6.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -81,6 +81,12 @@ function MainAppContent() {
     setMasterModeOpen(false);
   };
 
+  const displayBrandName = (brand.brandName || brand.name || 'TrustLink').trim() || 'TrustLink';
+  const displayBrandBadge = (brand.brandBadge || 'Community').trim() || 'Community';
+  const displayBrandSubtitle =
+    (brand.brandSubtitle || 'Red de Confianza Residencial').trim() ||
+    'Red de Confianza Residencial';
+
   return (
     <div
       className="min-h-screen flex flex-col font-sans"
@@ -97,7 +103,7 @@ function MainAppContent() {
           color: brand.menuTextColor || '#E2E8F0',
         }}
       >
-        {/* Identidad Visual / Logo de TrustLink */}
+        {/* Identidad Visual / Logo Configurable */}
         <div
           className="flex items-center space-x-3 cursor-pointer"
           onClick={() =>
@@ -117,7 +123,7 @@ function MainAppContent() {
           {brand.logoUrl ? (
             <img
               src={brand.logoUrl}
-              alt={brand.name || 'TrustLink'}
+              alt={displayBrandName}
               className="h-9 w-auto max-w-[120px] object-contain rounded-lg"
             />
           ) : (
@@ -127,12 +133,12 @@ function MainAppContent() {
           )}
           <div>
             <h1 className="text-sm font-black tracking-tight flex items-center gap-1.5">
-              <span>{brand.name || 'TrustLink'}</span>
+              <span>{displayBrandName}</span>
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/25 font-medium border border-white/15">
-                Community
+                {displayBrandBadge}
               </span>
             </h1>
-            <p className="text-[10px] opacity-80">Red de Confianza Residencial</p>
+            <p className="text-[10px] opacity-80">{displayBrandSubtitle}</p>
           </div>
         </div>
 

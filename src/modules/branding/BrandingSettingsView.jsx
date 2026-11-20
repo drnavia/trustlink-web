@@ -2,7 +2,7 @@
  * @file BrandingSettingsView.jsx
  * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
  * Plataforma general, Tarjetas principales, Cajas internas y Footer), con presets rápidos
- * de piel (clásicos y visuales/llamativos) para previsualizar al instante, logo opcional
+ * de piel, identidad opcional del menú (título, etiqueta y subtítulo), logo opcional
  * (SVG, PNG, JPG) y modo oscuro.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
@@ -22,6 +22,7 @@ import {
   Image as ImageIcon,
   ShieldCheck,
   Sparkles,
+  Type,
 } from 'lucide-react';
 import {
   useBranding,
@@ -138,6 +139,9 @@ export default function BrandingSettingsView() {
   useEffect(() => {
     setFormState((prev) => ({
       ...prev,
+      brandName: brand.brandName || DEFAULT_BRANDING_CONFIG.brandName,
+      brandBadge: brand.brandBadge || DEFAULT_BRANDING_CONFIG.brandBadge,
+      brandSubtitle: brand.brandSubtitle || DEFAULT_BRANDING_CONFIG.brandSubtitle,
       menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
       menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
       submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
@@ -154,6 +158,9 @@ export default function BrandingSettingsView() {
       darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
     }));
   }, [
+    brand.brandName,
+    brand.brandBadge,
+    brand.brandSubtitle,
     brand.menuBgColor,
     brand.menuTextColor,
     brand.submenuBgColor,
@@ -169,6 +176,11 @@ export default function BrandingSettingsView() {
     brand.logoUrl,
     brand.darkMode,
   ]);
+
+  const updateIdentityField = (field, value) => {
+    setFormState((prev) => ({ ...prev, [field]: value }));
+    previewBranding({ [field]: value });
+  };
 
   const updateColorField = (field, rawValue) => {
     let cleaned = rawValue.trim().toUpperCase();
@@ -273,6 +285,9 @@ export default function BrandingSettingsView() {
     setSaving(true);
     try {
       await saveBranding({
+        brandName: formState.brandName,
+        brandBadge: formState.brandBadge,
+        brandSubtitle: formState.brandSubtitle,
         menuBgColor: formState.menuBgColor,
         menuTextColor: formState.menuTextColor,
         submenuBgColor: formState.submenuBgColor,
@@ -291,7 +306,7 @@ export default function BrandingSettingsView() {
 
       setFeedback({
         type: 'success',
-        text: 'Apariencia guardada en PostgreSQL y aplicada en toda la plataforma.',
+        text: 'Apariencia e identidad guardadas en PostgreSQL y aplicadas en toda la plataforma.',
       });
     } catch (error) {
       setFeedback({
@@ -371,6 +386,11 @@ export default function BrandingSettingsView() {
     );
   };
 
+  const previewTitle = (formState.brandName || '').trim() || DEFAULT_BRANDING_CONFIG.brandName;
+  const previewBadge = (formState.brandBadge || '').trim() || DEFAULT_BRANDING_CONFIG.brandBadge;
+  const previewSubtitle =
+    (formState.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle;
+
   return (
     <div
       className="max-w-6xl w-full mx-auto p-6 md:p-8 rounded-2xl border border-black/20 my-6 font-sans space-y-6"
@@ -390,7 +410,7 @@ export default function BrandingSettingsView() {
               Apariencia y Marca
             </h2>
             <p className="text-xs opacity-80 mt-0.5">
-              Fondos y tipografías ordenados de Zona 1 a Zona 6, presets rápidos, logo opcional y modo oscuro.
+              Identidad del menú, fondos y tipografías de Zona 1 a Zona 6, presets rápidos, logo y modo oscuro.
             </p>
           </div>
         </div>
@@ -501,8 +521,71 @@ export default function BrandingSettingsView() {
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Columna Izquierda: Zonas 1 a 6 Ordenadas (Fondo + Tipografía por Zona) */}
+        {/* Columna Izquierda: Identidad Opcional + Zonas 1 a 6 + Logo + Modo Oscuro */}
         <form onSubmit={handleSave} className="lg:col-span-7 space-y-6">
+          {/* Campos Opcionales de Identidad del Menú */}
+          <div
+            className="border border-black/20 p-4 rounded-xl space-y-3"
+            style={innerStyle}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                <Type size={14} className="text-emerald-400" /> Identidad del Menú (Opcional)
+              </span>
+              <span className="text-[11px] opacity-75">
+                Si dejás un campo vacío, conserva el valor por defecto.
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                  Nombre en menú
+                </label>
+                <input
+                  type="text"
+                  maxLength={60}
+                  value={formState.brandName}
+                  onChange={(e) => updateIdentityField('brandName', e.target.value)}
+                  placeholder="TrustLink"
+                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  style={cardStyle}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                  Etiqueta / Badge
+                </label>
+                <input
+                  type="text"
+                  maxLength={40}
+                  value={formState.brandBadge}
+                  onChange={(e) => updateIdentityField('brandBadge', e.target.value)}
+                  placeholder="Community"
+                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  style={cardStyle}
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                  Subtítulo institucional
+                </label>
+                <input
+                  type="text"
+                  maxLength={100}
+                  value={formState.brandSubtitle}
+                  onChange={(e) => updateIdentityField('brandSubtitle', e.target.value)}
+                  placeholder="Red de Confianza Residencial"
+                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  style={cardStyle}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Zonas 1 a 6 Ordenadas (Fondo + Tipografía por Zona) */}
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
               Zonas 1 a 6 — Fondo y Tipografía
@@ -544,7 +627,7 @@ export default function BrandingSettingsView() {
                 </span>
               </div>
               <p className="text-[11px] opacity-80">
-                Opcional. Si no subís ninguno, se mantiene el emblema por defecto de TrustLink.
+                Opcional (máx. 1 MB). Reemplaza el emblema verde por defecto; podés quitarlo cuando quieras.
               </p>
 
               <div className="flex flex-wrap items-center gap-2">
@@ -647,7 +730,7 @@ export default function BrandingSettingsView() {
           </div>
         </form>
 
-        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6) */}
+        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6 + Identidad del Menú) */}
         <div
           className="lg:col-span-5 border border-black/20 p-5 rounded-2xl space-y-4 self-start"
           style={innerStyle}
@@ -659,7 +742,7 @@ export default function BrandingSettingsView() {
             </span>
           </div>
 
-          {/* Zona 1: Menú */}
+          {/* Zona 1: Menú con Identidad Opcional */}
           <div
             className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
             style={{
@@ -671,17 +754,25 @@ export default function BrandingSettingsView() {
               {formState.logoUrl ? (
                 <img
                   src={formState.logoUrl}
-                  alt="Logo TrustLink"
-                  className="h-7 w-auto max-w-[96px] object-contain rounded"
+                  alt={previewTitle}
+                  className="h-8 w-auto max-w-[96px] object-contain rounded"
                 />
               ) : (
-                <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <ShieldCheck size={15} />
+                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                  <ShieldCheck size={16} />
                 </div>
               )}
-              <span className="text-xs font-bold truncate">Zona 1 — Menú</span>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-black truncate">{previewTitle}</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/25 border border-white/15 shrink-0">
+                    {previewBadge}
+                  </span>
+                </div>
+                <p className="text-[10px] opacity-80 truncate">{previewSubtitle}</p>
+              </div>
             </div>
-            <span className="text-[11px] opacity-80 shrink-0">Navegación</span>
+            <span className="text-[10px] opacity-75 shrink-0">Zona 1</span>
           </div>
 
           {/* Zona 2: Sub-menú */}

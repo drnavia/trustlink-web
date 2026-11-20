@@ -1,10 +1,9 @@
 /**
  * @file BrandingContext.jsx
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
- * fondos y tipografías de las Zonas 1 a 6 (Menú, Sub-menú, Plataforma general,
- * Tarjetas principales, Cajas internas y Footer), logo opcional (SVG, PNG, JPG),
- * modo oscuro/claro y presets de piel (clásicos y llamativos), sincronizado con
- * PostgreSQL vía /api/v1/branding.
+ * identidad opcional del menú (brandName, brandBadge, brandSubtitle),
+ * fondos y tipografías de las Zonas 1 a 6, logo opcional (SVG, PNG, JPG),
+ * modo oscuro/claro y presets rápidos de piel, sincronizado con PostgreSQL.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -176,8 +175,11 @@ export const BRANDING_PRESETS = {
   },
 };
 
-// Configuración inicial por defecto de TrustLink (estética oscura y sobria)
+// Configuración inicial por defecto de TrustLink
 export const DEFAULT_BRANDING_CONFIG = {
+  brandName: 'TrustLink',
+  brandBadge: 'Community',
+  brandSubtitle: 'Red de Confianza Residencial',
   ...BRANDING_PRESETS.default.config,
   logoUrl: null,
 };
@@ -188,52 +190,66 @@ const BrandingContext = createContext(null);
  * Normaliza la estructura de /api/v1/branding al estado camelCase del frontend.
  * @param {Record<string, any>} raw
  */
-const mapBackendBrandingToState = (raw = {}) => ({
-  menuBgColor:
-    raw.menu_bg_color || raw.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
-  menuTextColor:
-    raw.menu_text_color || raw.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
-  submenuBgColor:
-    raw.submenu_bg_color || raw.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
-  submenuTextColor:
-    raw.submenu_text_color || raw.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
-  platformBgColor:
-    raw.platform_bg_color || raw.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
-  platformTextColor:
-    raw.platform_text_color || raw.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
-  cardBgColor:
-    raw.card_bg_color || raw.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-  cardTextColor:
-    raw.card_text_color || raw.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
-  innerBgColor:
-    raw.inner_bg_color || raw.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-  innerTextColor:
-    raw.inner_text_color || raw.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
-  footerBgColor:
-    raw.footer_bg_color ||
-    raw.footerBgColor ||
-    raw.menu_bg_color ||
-    DEFAULT_BRANDING_CONFIG.footerBgColor,
-  footerTextColor:
-    raw.footer_text_color || raw.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor,
-  logoUrl:
-    raw.logo_url !== undefined
-      ? raw.logo_url
-      : raw.logoUrl !== undefined
-      ? raw.logoUrl
-      : DEFAULT_BRANDING_CONFIG.logoUrl,
-  darkMode:
-    typeof raw.dark_mode === 'boolean'
-      ? raw.dark_mode
-      : typeof raw.darkMode === 'boolean'
-      ? raw.darkMode
-      : DEFAULT_BRANDING_CONFIG.darkMode,
-});
+const mapBackendBrandingToState = (raw = {}) => {
+  const resolvedBrandName =
+    raw.brand_name || raw.brandName || DEFAULT_BRANDING_CONFIG.brandName;
+  const resolvedBrandBadge =
+    raw.brand_badge || raw.brandBadge || DEFAULT_BRANDING_CONFIG.brandBadge;
+  const resolvedBrandSubtitle =
+    raw.brand_subtitle || raw.brandSubtitle || DEFAULT_BRANDING_CONFIG.brandSubtitle;
+
+  return {
+    name: resolvedBrandName,
+    brandName: resolvedBrandName,
+    brandBadge: resolvedBrandBadge,
+    brandSubtitle: resolvedBrandSubtitle,
+    countryName: `${resolvedBrandName} ${resolvedBrandBadge}`.trim(),
+    menuBgColor:
+      raw.menu_bg_color || raw.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
+    menuTextColor:
+      raw.menu_text_color || raw.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
+    submenuBgColor:
+      raw.submenu_bg_color || raw.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
+    submenuTextColor:
+      raw.submenu_text_color || raw.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
+    platformBgColor:
+      raw.platform_bg_color || raw.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
+    platformTextColor:
+      raw.platform_text_color || raw.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
+    cardBgColor:
+      raw.card_bg_color || raw.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    cardTextColor:
+      raw.card_text_color || raw.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+    innerBgColor:
+      raw.inner_bg_color || raw.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    innerTextColor:
+      raw.inner_text_color || raw.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+    footerBgColor:
+      raw.footer_bg_color ||
+      raw.footerBgColor ||
+      raw.menu_bg_color ||
+      DEFAULT_BRANDING_CONFIG.footerBgColor,
+    footerTextColor:
+      raw.footer_text_color || raw.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor,
+    logoUrl:
+      raw.logo_url !== undefined
+        ? raw.logo_url
+        : raw.logoUrl !== undefined
+        ? raw.logoUrl
+        : DEFAULT_BRANDING_CONFIG.logoUrl,
+    darkMode:
+      typeof raw.dark_mode === 'boolean'
+        ? raw.dark_mode
+        : typeof raw.darkMode === 'boolean'
+        ? raw.darkMode
+        : DEFAULT_BRANDING_CONFIG.darkMode,
+  };
+};
 
 export const BrandingProvider = ({ children }) => {
   const [brand, setBrand] = useState({
-    name: 'TrustLink',
-    countryName: 'TrustLink Community',
+    name: DEFAULT_BRANDING_CONFIG.brandName,
+    countryName: `${DEFAULT_BRANDING_CONFIG.brandName} ${DEFAULT_BRANDING_CONFIG.brandBadge}`,
     ...DEFAULT_BRANDING_CONFIG,
     updatedAt: null,
   });
@@ -331,14 +347,27 @@ export const BrandingProvider = ({ children }) => {
    * Actualiza localmente el estado de apariencia para vista previa en vivo.
    */
   const previewBranding = (partial) => {
-    setBrand((prev) => ({
-      ...prev,
-      ...partial,
-    }));
+    setBrand((prev) => {
+      const nextName =
+        partial.brandName !== undefined
+          ? partial.brandName || DEFAULT_BRANDING_CONFIG.brandName
+          : prev.brandName;
+      const nextBadge =
+        partial.brandBadge !== undefined
+          ? partial.brandBadge || DEFAULT_BRANDING_CONFIG.brandBadge
+          : prev.brandBadge;
+
+      return {
+        ...prev,
+        ...partial,
+        name: nextName,
+        countryName: `${nextName} ${nextBadge}`.trim(),
+      };
+    });
   };
 
   /**
-   * Aplica un preset de piel en vivo conservando el logo actual si el usuario ya subió uno.
+   * Aplica un preset de piel en vivo conservando logo e identidad del menú actuales.
    */
   const applyBrandingPreset = (presetKey) => {
     const selectedPreset = BRANDING_PRESETS[presetKey] || BRANDING_PRESETS.default;
@@ -350,11 +379,15 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Persiste los cambios de apariencia en PostgreSQL vía PUT /api/v1/branding.
+   * Persiste los cambios de apariencia e identidad en PostgreSQL vía PUT /api/v1/branding.
    */
   const saveBranding = async (nextConfig) => {
     const token = localStorage.getItem('trustlink_token') || '';
     const payload = {
+      brand_name: (nextConfig.brandName || '').trim() || DEFAULT_BRANDING_CONFIG.brandName,
+      brand_badge: (nextConfig.brandBadge || '').trim() || DEFAULT_BRANDING_CONFIG.brandBadge,
+      brand_subtitle:
+        (nextConfig.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle,
       menu_bg_color: nextConfig.menuBgColor,
       menu_text_color: nextConfig.menuTextColor,
       submenu_bg_color: nextConfig.submenuBgColor,
