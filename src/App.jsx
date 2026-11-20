@@ -1,7 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca, vista pública Landing y protección de rutas por rol con sub-menú de gobernanza en Modo Maestro.
+ * marca blanca, vista pública Landing, footer único global y protección de rutas por rol.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -141,7 +141,6 @@ function MainAppContent() {
             </>
           ) : (
             <>
-              {/* 1. Portal Residente */}
               {canSeeResident && (
                 <button
                   type="button"
@@ -156,7 +155,6 @@ function MainAppContent() {
                 </button>
               )}
 
-              {/* 2. Portal Prestador */}
               {canSeeProvider && (
                 <button
                   type="button"
@@ -167,11 +165,10 @@ function MainAppContent() {
                       : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                   }`}
                 >
-                  <Wrench size={13} /> Portal Prestador
+                  <Wrench size={13} /> Panel Prestador
                 </button>
               )}
 
-              {/* 3. Pagos y Reseñas */}
               {canSeePaymentsAndReviews && (
                 <button
                   type="button"
@@ -186,7 +183,6 @@ function MainAppContent() {
                 </button>
               )}
 
-              {/* 4. Consola Garita */}
               {(userRole === 'security' || isLocalAdmin || isSuperadmin) && (
                 <button
                   type="button"
@@ -201,7 +197,6 @@ function MainAppContent() {
                 </button>
               )}
 
-              {/* Admin Barrio local */}
               {isLocalAdmin && (
                 <button
                   type="button"
@@ -216,7 +211,6 @@ function MainAppContent() {
                 </button>
               )}
 
-              {/* 5. Modo Maestro */}
               {isSuperadmin && (
                 <button
                   type="button"
@@ -235,7 +229,6 @@ function MainAppContent() {
                 </button>
               )}
 
-              {/* Badge de usuario con estética e ícono */}
               <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700/80 text-emerald-300 font-bold shadow-sm">
                 <User size={13} className="text-emerald-400" />
                 <span>{user.first_name}</span>
@@ -336,7 +329,8 @@ function MainAppContent() {
         {currentView === 'users_master' && <UserManagementView />}
       </div>
 
-      <footer className="bg-slate-950 border-t border-slate-800 px-6 py-4 text-center text-xs text-slate-500">
+      {/* Footer Institucional Único */}
+      <footer className="bg-slate-950 border-t border-slate-800 py-3.5 px-6 text-center text-xs text-slate-500 w-full">
         TrustLink Community Network — Nodo Central de Validación Perimetral y Compliance © 2026
       </footer>
     </div>
