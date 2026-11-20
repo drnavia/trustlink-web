@@ -1,9 +1,9 @@
 /**
  * @file BrandingContext.jsx
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
- * fondos (plataforma, menú, sub-menú), tipografías (plataforma, menú, sub-menú),
- * logo institucional opcional (SVG, PNG, JPG) y modo oscuro/claro, sincronizado
- * con PostgreSQL vía /api/v1/branding con fondo de plataforma unificado en todas las vistas.
+ * fondos (plataforma Zona 3, menú Zona 1, sub-menú Zona 2, tarjetas Zona 4 y cajas internas Zona 5),
+ * tipografías (plataforma, menú, sub-menú), logo institucional opcional (SVG, PNG, JPG) y modo oscuro/claro,
+ * sincronizado con PostgreSQL vía /api/v1/branding.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -11,11 +11,13 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = 'http://localhost:4000';
 
-// Valores iniciales por defecto de TrustLink
+// Valores iniciales por defecto de TrustLink (estética oscura y sobria)
 export const DEFAULT_BRANDING_CONFIG = {
   platformBgColor: '#0F172A',
   menuBgColor: '#020617',
   submenuBgColor: '#090D16',
+  cardBgColor: '#020617',
+  innerBgColor: '#0F172A',
   platformTextColor: '#F1F5F9',
   menuTextColor: '#E2E8F0',
   submenuTextColor: '#CBD5E1',
@@ -24,51 +26,6 @@ export const DEFAULT_BRANDING_CONFIG = {
 };
 
 const BrandingContext = createContext(null);
-
-/**
- * Convierte un color hexadecimal #RRGGBB a { r, g, b }.
- * @param {string} hex
- */
-const hexToRgb = (hex) => {
-  if (typeof hex !== 'string') return { r: 15, g: 23, b: 42 };
-  const clean = hex.replace('#', '').trim();
-  if (clean.length !== 6) return { r: 15, g: 23, b: 42 };
-  const num = parseInt(clean, 16);
-  if (Number.isNaN(num)) return { r: 15, g: 23, b: 42 };
-  return {
-    r: (num >> 16) & 255,
-    g: (num >> 8) & 255,
-    b: num & 255,
-  };
-};
-
-/**
- * Calcula luminancia relativa aproximada (0 oscuro .. 1 claro) de un color #RRGGBB.
- * @param {string} hex
- */
-const getRelativeLuminance = (hex) => {
-  const { r, g, b } = hexToRgb(hex);
-  const toLinear = (c8) => {
-    const c = c8 / 255;
-    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
-};
-
-/**
- * Ajusta un color #RRGGBB sumando o restando luminosidad (delta entre -0.5 y 0.5).
- * @param {string} hex
- * @param {number} delta
- */
-const shiftHex = (hex, delta) => {
-  const { r, g, b } = hexToRgb(hex);
-  const clamp = (n) => Math.max(0, Math.min(255, Math.round(n)));
-  const shift = delta * 255;
-  return `#${[clamp(r + shift), clamp(g + shift), clamp(b + shift)]
-    .map((v) => v.toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase()}`;
-};
 
 /**
  * Normaliza la estructura de /api/v1/branding al estado camelCase del frontend.
@@ -87,6 +44,14 @@ const mapBackendBrandingToState = (raw = {}) => ({
     raw.submenu_bg_color ||
     raw.submenuBgColor ||
     DEFAULT_BRANDING_CONFIG.submenuBgColor,
+  cardBgColor:
+    raw.card_bg_color ||
+    raw.cardBgColor ||
+    DEFAULT_BRANDING_CONFIG.cardBgColor,
+  innerBgColor:
+    raw.inner_bg_color ||
+    raw.innerBgColor ||
+    DEFAULT_BRANDING_CONFIG.innerBgColor,
   platformTextColor:
     raw.platform_text_color ||
     raw.platformTextColor ||
@@ -125,7 +90,7 @@ export const BrandingProvider = ({ children }) => {
   const [loadingBrand, setLoadingBrand] = useState(true);
 
   /**
-   * Obtiene los ajustes activos desde el backend.
+   * Consulta la configuración vigente desde el backend.
    */
   const fetchBranding = useCallback(async () => {
     setLoadingBrand(true);
@@ -146,7 +111,7 @@ export const BrandingProvider = ({ children }) => {
         }
       }
     } catch (error) {
-      console.error('[BrandingContext] Error al cargar apariencia:', error);
+      console.error('[BrandingContext] Error al cargar configuración de apariencia:', error);
     } finally {
       setLoadingBrand(false);
     }
@@ -157,8 +122,8 @@ export const BrandingProvider = ({ children }) => {
   }, [fetchBranding]);
 
   /**
-   * Propaga fondos, tipografías y modo oscuro/claro usando directamente
-   * el color de fondo de la plataforma en todas las vistas.
+   * Aplica directamente los colores explícitos de Zona 1 a Zona 6, tipografías,
+   * modo oscuro/claro y suaviza sombras pesadas para evitar halos oscuros.
    */
   useEffect(() => {
     const root = document.documentElement;
@@ -167,39 +132,20 @@ export const BrandingProvider = ({ children }) => {
     const platformBg = brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor;
     const menuBg = brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor;
     const submenuBg = brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor;
+    const cardBg = brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor;
+    const innerBg = brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor;
     const platformText = brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor;
     const menuText = brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor;
     const submenuText = brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor;
 
-    const platformLum = getRelativeLuminance(platformBg);
-    const isLightPlatform = platformLum > 0.45;
-
-    // Usamos un tono muy cercano y coherente con platformBg para tarjetas y bloques
-    // para que todas las vistas compartan el mismo color de fondo sin oscurecerse
-    const cardBg = isLightPlatform
-      ? shiftHex(platformBg, -0.04)
-      : shiftHex(platformBg, 0.03);
-
-    const mutedBg = isLightPlatform
-      ? shiftHex(platformBg, -0.08)
-      : shiftHex(platformBg, 0.06);
-
-    const borderColor = isLightPlatform
-      ? shiftHex(platformBg, -0.16)
-      : shiftHex(platformBg, 0.14);
-
-    const secondaryTextColor = isLightPlatform ? '#334155' : '#E2E8F0';
-
     root.style.setProperty('--tl-platform-bg', platformBg);
     root.style.setProperty('--tl-menu-bg', menuBg);
     root.style.setProperty('--tl-submenu-bg', submenuBg);
+    root.style.setProperty('--tl-card-bg', cardBg);
+    root.style.setProperty('--tl-inner-bg', innerBg);
     root.style.setProperty('--tl-platform-text', platformText);
     root.style.setProperty('--tl-menu-text', menuText);
     root.style.setProperty('--tl-submenu-text', submenuText);
-    root.style.setProperty('--tl-card-bg', cardBg);
-    root.style.setProperty('--tl-muted-bg', mutedBg);
-    root.style.setProperty('--tl-border-color', borderColor);
-    root.style.setProperty('--tl-secondary-text', secondaryTextColor);
 
     root.classList.toggle('dark', isDark);
     root.setAttribute('data-theme', isDark ? 'dark' : 'light');
@@ -213,59 +159,55 @@ export const BrandingProvider = ({ children }) => {
     }
 
     styleEl.textContent = `
+      /* Zona 3: Fondo general de la plataforma */
       html, body, #root, main, .tl-platform-surface {
         background-color: var(--tl-platform-bg) !important;
         color: var(--tl-platform-text) !important;
       }
 
+      /* Zona 1 y Zona 6: Menú superior y Footer */
       .tl-menu-surface {
         background-color: var(--tl-menu-bg) !important;
         color: var(--tl-menu-text) !important;
       }
 
+      /* Zona 2: Sub-menú Modo Maestro */
       .tl-submenu-surface {
         background-color: var(--tl-submenu-bg) !important;
         color: var(--tl-submenu-text) !important;
       }
 
-      /* Superficies coherentes con el fondo de la plataforma en todas las vistas */
+      /* Zona 4: Tarjetas / contenedores principales */
       .tl-platform-surface [class*="bg-slate-950"],
       .tl-platform-surface [class*="bg-slate-900"] {
         background-color: var(--tl-card-bg) !important;
       }
 
+      /* Zona 5: Cajas / bloques internos */
       .tl-platform-surface [class*="bg-slate-800"] {
-        background-color: var(--tl-muted-bg) !important;
+        background-color: var(--tl-inner-bg) !important;
       }
 
-      .tl-platform-surface [class*="border-slate-800"],
-      .tl-platform-surface [class*="border-slate-700"] {
-        border-color: var(--tl-border-color) !important;
-      }
-
+      /* Tipografía general en todas las vistas */
       .tl-platform-surface .text-white,
       .tl-platform-surface .text-slate-100,
-      .tl-platform-surface .text-slate-200 {
+      .tl-platform-surface .text-slate-200,
+      .tl-platform-surface .text-slate-300,
+      .tl-platform-surface .text-slate-400 {
         color: var(--tl-platform-text) !important;
       }
 
-      .tl-platform-surface .text-slate-300,
-      .tl-platform-surface .text-slate-400 {
-        color: var(--tl-secondary-text) !important;
-      }
-
-      .tl-platform-surface input,
-      .tl-platform-surface select,
-      .tl-platform-surface textarea {
-        background-color: ${isLightPlatform ? '#FFFFFF' : cardBg} !important;
-        color: ${isLightPlatform ? '#0F172A' : platformText} !important;
-        border-color: var(--tl-border-color) !important;
+      /* Suavizado de sombras en tarjetas y contenedores para evitar halos oscuros */
+      .tl-platform-surface [class*="shadow-"] {
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
       }
     `;
   }, [
     brand.platformBgColor,
     brand.menuBgColor,
     brand.submenuBgColor,
+    brand.cardBgColor,
+    brand.innerBgColor,
     brand.platformTextColor,
     brand.menuTextColor,
     brand.submenuTextColor,
@@ -283,7 +225,7 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Persiste los cambios en PostgreSQL vía PUT /api/v1/branding.
+   * Persiste los cambios de apariencia en PostgreSQL vía PUT /api/v1/branding.
    */
   const saveBranding = async (nextConfig) => {
     const token = localStorage.getItem('trustlink_token') || '';
@@ -291,6 +233,8 @@ export const BrandingProvider = ({ children }) => {
       platform_bg_color: nextConfig.platformBgColor,
       menu_bg_color: nextConfig.menuBgColor,
       submenu_bg_color: nextConfig.submenuBgColor,
+      card_bg_color: nextConfig.cardBgColor,
+      inner_bg_color: nextConfig.innerBgColor,
       platform_text_color: nextConfig.platformTextColor,
       menu_text_color: nextConfig.menuTextColor,
       submenu_text_color: nextConfig.submenuTextColor,
@@ -326,7 +270,7 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Restaura los valores por defecto en PostgreSQL.
+   * Restaura todos los controles a los valores por defecto de TrustLink y los guarda.
    */
   const resetBranding = async () => {
     const targetDefaults = defaults || DEFAULT_BRANDING_CONFIG;

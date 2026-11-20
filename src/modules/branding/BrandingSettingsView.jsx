@@ -1,8 +1,8 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar fondos y tipografías
- * (plataforma general, menú y sub-menú), subir logo opcional (SVG, PNG, JPG)
- * y alternar el modo oscuro en TrustLink.
+ * @description Vista exclusiva de 'superadmin' para configurar fondos de zonas 1 a 6
+ * (plataforma Zona 3, menú Zona 1, sub-menú Zona 2, tarjetas Zona 4 y cajas internas Zona 5),
+ * tipografías, logo opcional (SVG, PNG, JPG) y modo oscuro en TrustLink.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -28,8 +28,7 @@ const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/j
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
 
 /**
- * Calcula luminancia relativa y relación de contraste aproximada entre dos colores HEX
- * para mostrar un aviso útil de legibilidad en la vista previa.
+ * Calcula la relación de contraste aproximada entre dos colores HEX.
  */
 const getContrastRatio = (hexA, hexB) => {
   if (!HEX_REGEX.test(hexA) || !HEX_REGEX.test(hexB)) return 4.5;
@@ -68,6 +67,8 @@ export default function BrandingSettingsView() {
     platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
     menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
     submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
+    cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
     platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
     menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
     submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
@@ -80,13 +81,14 @@ export default function BrandingSettingsView() {
   const [resetting, setResetting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Sincroniza el formulario cuando cambia la configuración global desde el backend
   useEffect(() => {
     setFormState((prev) => ({
       ...prev,
       platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
       menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
       submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
+      cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+      innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
       platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
       menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
       submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
@@ -97,6 +99,8 @@ export default function BrandingSettingsView() {
     brand.platformBgColor,
     brand.menuBgColor,
     brand.submenuBgColor,
+    brand.cardBgColor,
+    brand.innerBgColor,
     brand.platformTextColor,
     brand.menuTextColor,
     brand.submenuTextColor,
@@ -120,9 +124,6 @@ export default function BrandingSettingsView() {
     previewBranding({ darkMode: checked });
   };
 
-  /**
-   * Lee y valida una imagen SVG, PNG o JPG seleccionada por el usuario.
-   */
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -184,6 +185,8 @@ export default function BrandingSettingsView() {
       formState.platformBgColor,
       formState.menuBgColor,
       formState.submenuBgColor,
+      formState.cardBgColor,
+      formState.innerBgColor,
       formState.platformTextColor,
       formState.menuTextColor,
       formState.submenuTextColor,
@@ -203,6 +206,8 @@ export default function BrandingSettingsView() {
         platformBgColor: formState.platformBgColor,
         menuBgColor: formState.menuBgColor,
         submenuBgColor: formState.submenuBgColor,
+        cardBgColor: formState.cardBgColor,
+        innerBgColor: formState.innerBgColor,
         platformTextColor: formState.platformTextColor,
         menuTextColor: formState.menuTextColor,
         submenuTextColor: formState.submenuTextColor,
@@ -234,6 +239,8 @@ export default function BrandingSettingsView() {
         platformBgColor: target.platformBgColor,
         menuBgColor: target.menuBgColor,
         submenuBgColor: target.submenuBgColor,
+        cardBgColor: target.cardBgColor,
+        innerBgColor: target.innerBgColor,
         platformTextColor: target.platformTextColor,
         menuTextColor: target.menuTextColor,
         submenuTextColor: target.submenuTextColor,
@@ -260,9 +267,16 @@ export default function BrandingSettingsView() {
     await fetchBranding();
   };
 
-  // Verificación suave de contraste en vistas clave
   const platformContrast = getContrastRatio(
     formState.platformBgColor,
+    formState.platformTextColor
+  );
+  const cardContrast = getContrastRatio(
+    formState.cardBgColor,
+    formState.platformTextColor
+  );
+  const innerContrast = getContrastRatio(
+    formState.innerBgColor,
     formState.platformTextColor
   );
   const menuContrast = getContrastRatio(formState.menuBgColor, formState.menuTextColor);
@@ -271,7 +285,11 @@ export default function BrandingSettingsView() {
     formState.submenuTextColor
   );
   const hasLowContrastWarning =
-    platformContrast < 3 || menuContrast < 3 || submenuContrast < 3;
+    platformContrast < 3 ||
+    cardContrast < 3 ||
+    innerContrast < 3 ||
+    menuContrast < 3 ||
+    submenuContrast < 3;
 
   const renderColorRow = (label, description, field) => {
     const value = formState[field];
@@ -306,7 +324,7 @@ export default function BrandingSettingsView() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 md:p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 shadow-2xl my-8 font-sans">
+    <div className="max-w-6xl mx-auto p-6 md:p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 my-8 font-sans">
       {/* Encabezado */}
       <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-800 mb-8 gap-4">
         <div className="flex items-center gap-3">
@@ -318,7 +336,7 @@ export default function BrandingSettingsView() {
               Apariencia y Marca
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Fondos, tipografías, logo opcional y modo oscuro para toda la plataforma.
+              Fondos de zonas (1 a 6), tipografías, logo opcional y modo oscuro para toda la plataforma.
             </p>
           </div>
         </div>
@@ -365,19 +383,29 @@ export default function BrandingSettingsView() {
               Colores de Fondo
             </h3>
             {renderColorRow(
-              'Fondo de la plataforma general',
+              'Fondo de la plataforma general (Zona 3)',
               'Fondo base de la aplicación y vistas principales.',
               'platformBgColor'
             )}
             {renderColorRow(
-              'Fondo del menú',
+              'Fondo del menú (Zona 1)',
               'Color de fondo de la barra de navegación superior.',
               'menuBgColor'
             )}
             {renderColorRow(
-              'Fondo del sub-menú',
+              'Fondo del sub-menú (Zona 2)',
               'Color de fondo de la barra secundaria de Modo Maestro.',
               'submenuBgColor'
+            )}
+            {renderColorRow(
+              'Fondo de tarjetas principales (Zona 4)',
+              'Color de fondo de las tarjetas y contenedores principales de cada vista.',
+              'cardBgColor'
+            )}
+            {renderColorRow(
+              'Fondo de cajas internas (Zona 5)',
+              'Color de fondo de paneles internos, sub-bloques e inputs.',
+              'innerBgColor'
             )}
           </div>
 
@@ -388,7 +416,7 @@ export default function BrandingSettingsView() {
             </h3>
             {renderColorRow(
               'Tipografía de la plataforma general',
-              'Color de texto principal en vistas y contenidos.',
+              'Color de texto principal en vistas, tarjetas y contenidos.',
               'platformTextColor'
             )}
             {renderColorRow(
@@ -405,7 +433,6 @@ export default function BrandingSettingsView() {
 
           {/* 3. Logo Institucional Opcional + Modo Oscuro */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Subir Logo (SVG, PNG, JPG) */}
             <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -445,7 +472,6 @@ export default function BrandingSettingsView() {
               )}
             </div>
 
-            {/* Switch Modo Oscuro */}
             <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl flex flex-col justify-between space-y-3">
               <div className="space-y-1">
                 <span className="text-xs font-bold text-white flex items-center gap-1.5">
@@ -480,7 +506,7 @@ export default function BrandingSettingsView() {
             <button
               type="submit"
               disabled={saving || resetting}
-              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-lg inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
             >
               <Save size={15} />
               {saving ? 'Guardando...' : 'Guardar y Aplicar'}
@@ -507,7 +533,7 @@ export default function BrandingSettingsView() {
           </div>
         </form>
 
-        {/* Columna Derecha: Vista Previa en Vivo */}
+        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6) */}
         <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <span className="text-xs font-bold text-slate-200">Vista previa en vivo</span>
@@ -516,7 +542,7 @@ export default function BrandingSettingsView() {
             </span>
           </div>
 
-          {/* Simulación de Menú */}
+          {/* Zona 1: Menú */}
           <div
             className="px-3.5 py-2.5 rounded-t-xl border border-slate-700/70 flex items-center justify-between gap-2"
             style={{
@@ -536,12 +562,12 @@ export default function BrandingSettingsView() {
                   <ShieldCheck size={15} />
                 </div>
               )}
-              <span className="text-xs font-bold truncate">TrustLink — Menú</span>
+              <span className="text-xs font-bold truncate">Zona 1 — Menú</span>
             </div>
             <span className="text-[11px] opacity-80 shrink-0">Navegación</span>
           </div>
 
-          {/* Simulación de Sub-menú */}
+          {/* Zona 2: Sub-menú */}
           <div
             className="px-3.5 py-2 border-x border-slate-700/70 flex items-center justify-between text-[11px]"
             style={{
@@ -549,22 +575,52 @@ export default function BrandingSettingsView() {
               color: formState.submenuTextColor,
             }}
           >
-            <span className="font-semibold">Sub-menú Modo Maestro</span>
-            <span className="opacity-80">Apariencia y Marca</span>
+            <span className="font-semibold">Zona 2 — Sub-menú</span>
+            <span className="opacity-80">Modo Maestro</span>
           </div>
 
-          {/* Simulación de Plataforma General */}
+          {/* Zona 3: Fondo Plataforma + Zona 4 Tarjeta + Zona 5 Caja Interna */}
           <div
-            className="p-4 rounded-b-xl border border-slate-700/70 space-y-2"
+            className="p-4 border-x border-slate-700/70 space-y-3"
             style={{
               backgroundColor: formState.platformBgColor,
               color: formState.platformTextColor,
             }}
           >
-            <p className="text-xs font-bold">Contenido de la plataforma general</p>
-            <p className="text-[11px] opacity-85 leading-relaxed">
-              Así se visualizan los textos y fondos de la plataforma principal con la configuración seleccionada.
-            </p>
+            <p className="text-[11px] font-semibold opacity-90">Zona 3 — Fondo Plataforma</p>
+
+            {/* Zona 4: Tarjeta principal */}
+            <div
+              className="p-3.5 rounded-xl border border-slate-700/70 space-y-2.5"
+              style={{
+                backgroundColor: formState.cardBgColor,
+                color: formState.platformTextColor,
+              }}
+            >
+              <p className="text-xs font-bold">Zona 4 — Tarjeta Principal</p>
+
+              {/* Zona 5: Caja interna */}
+              <div
+                className="p-2.5 rounded-lg border border-slate-700/70 text-[11px]"
+                style={{
+                  backgroundColor: formState.innerBgColor,
+                  color: formState.platformTextColor,
+                }}
+              >
+                Zona 5 — Caja interna / sub-panel
+              </div>
+            </div>
+          </div>
+
+          {/* Zona 6: Footer */}
+          <div
+            className="px-3.5 py-2 rounded-b-xl border border-slate-700/70 text-[11px] text-center"
+            style={{
+              backgroundColor: formState.menuBgColor,
+              color: formState.menuTextColor,
+            }}
+          >
+            Zona 6 — Footer institucional
           </div>
         </div>
       </div>
