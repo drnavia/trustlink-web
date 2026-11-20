@@ -1,9 +1,8 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
- * Plataforma general, Tarjetas principales, Cajas internas y Footer), con presets rápidos
- * de piel, identidad opcional del menú (título, etiqueta y subtítulo), logo opcional
- * (SVG, PNG, JPG) y modo oscuro.
+ * @description Vista exclusiva de 'superadmin' para configurar identidad opcional del menú,
+ * presets rápidos de piel, logo opcional (SVG, PNG, JPG), fondos y tipografías de las
+ * Zonas 1 a 6 y modo oscuro, con vista previa en vivo y persistencia en PostgreSQL.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -392,7 +391,8 @@ export default function BrandingSettingsView() {
     (formState.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle;
 
   return (
-    <div
+    <form
+      onSubmit={handleSave}
       className="max-w-6xl w-full mx-auto p-6 md:p-8 rounded-2xl border border-black/20 my-6 font-sans space-y-6"
       style={cardStyle}
     >
@@ -423,7 +423,7 @@ export default function BrandingSettingsView() {
         </span>
       </div>
 
-      {/* Presets Rápidos de Piel */}
+      {/* 1. Presets de Piel Rápidos (4 columnas) */}
       <section
         className="border border-black/20 p-4 md:p-5 rounded-2xl space-y-3.5"
         style={innerStyle}
@@ -520,72 +520,121 @@ export default function BrandingSettingsView() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Columna Izquierda: Identidad Opcional + Zonas 1 a 6 + Logo + Modo Oscuro */}
-        <form onSubmit={handleSave} className="lg:col-span-7 space-y-6">
-          {/* Campos Opcionales de Identidad del Menú */}
-          <div
-            className="border border-black/20 p-4 rounded-xl space-y-3"
-            style={innerStyle}
-          >
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-              <span className="text-xs font-bold flex items-center gap-1.5">
-                <Type size={14} className="text-emerald-400" /> Identidad del Menú (Opcional)
-              </span>
-              <span className="text-[11px] opacity-75">
-                Si dejás un campo vacío, conserva el valor por defecto.
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div>
-                <label className="block text-[11px] font-semibold opacity-85 mb-1">
-                  Nombre en menú
-                </label>
-                <input
-                  type="text"
-                  maxLength={60}
-                  value={formState.brandName}
-                  onChange={(e) => updateIdentityField('brandName', e.target.value)}
-                  placeholder="TrustLink"
-                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-semibold opacity-85 mb-1">
-                  Etiqueta / Badge
-                </label>
-                <input
-                  type="text"
-                  maxLength={40}
-                  value={formState.brandBadge}
-                  onChange={(e) => updateIdentityField('brandBadge', e.target.value)}
-                  placeholder="Community"
-                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
-
-              <div className="sm:col-span-2">
-                <label className="block text-[11px] font-semibold opacity-85 mb-1">
-                  Subtítulo institucional
-                </label>
-                <input
-                  type="text"
-                  maxLength={100}
-                  value={formState.brandSubtitle}
-                  onChange={(e) => updateIdentityField('brandSubtitle', e.target.value)}
-                  placeholder="Red de Confianza Residencial"
-                  className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
-            </div>
+      {/* 2. Fila Intermedia: Logo (Izquierda, 5 cols) + Identidad del Menú (Derecha, 7 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div
+          className="lg:col-span-5 border border-black/20 p-4 md:p-5 rounded-xl flex flex-col justify-between space-y-4"
+          style={innerStyle}
+        >
+          <div className="space-y-1.5">
+            <span className="text-xs font-bold flex items-center gap-1.5">
+              <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
+            </span>
+            <p className="text-[11px] opacity-80 leading-relaxed">
+              Opcional (máx. 1 MB). Reemplaza el emblema verde por defecto; podés quitarlo cuando quieras.
+            </p>
           </div>
 
-          {/* Zonas 1 a 6 Ordenadas (Fondo + Tipografía por Zona) */}
+          <div className="space-y-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <label
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
+                style={cardStyle}
+              >
+                <Upload size={13} /> Subir logo
+                <input
+                  type="file"
+                  accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                />
+              </label>
+
+              {formState.logoUrl && (
+                <button
+                  type="button"
+                  onClick={handleRemoveLogo}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-xs font-bold text-rose-200 border border-rose-800 cursor-pointer transition-colors"
+                >
+                  <Trash2 size={13} /> Quitar
+                </button>
+              )}
+            </div>
+
+            {formState.logoFileName && (
+              <p className="text-[11px] opacity-80 truncate">
+                Archivo: <span className="font-mono">{formState.logoFileName}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div
+          className="lg:col-span-7 border border-black/20 p-4 md:p-5 rounded-xl space-y-3"
+          style={innerStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <span className="text-xs font-bold flex items-center gap-1.5">
+              <Type size={14} className="text-emerald-400" /> Identidad del Menú (Opcional)
+            </span>
+            <span className="text-[11px] opacity-75">
+              Si dejás un campo vacío, conserva el valor por defecto.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div>
+              <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                Nombre en menú
+              </label>
+              <input
+                type="text"
+                maxLength={60}
+                value={formState.brandName}
+                onChange={(e) => updateIdentityField('brandName', e.target.value)}
+                placeholder="TrustLink"
+                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                style={cardStyle}
+              />
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                Etiqueta / Badge
+              </label>
+              <input
+                type="text"
+                maxLength={40}
+                value={formState.brandBadge}
+                onChange={(e) => updateIdentityField('brandBadge', e.target.value)}
+                placeholder="Community"
+                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                style={cardStyle}
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block text-[11px] font-semibold opacity-85 mb-1">
+                Subtítulo institucional
+              </label>
+              <input
+                type="text"
+                maxLength={100}
+                value={formState.brandSubtitle}
+                onChange={(e) => updateIdentityField('brandSubtitle', e.target.value)}
+                placeholder="Red de Confianza Residencial"
+                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                style={cardStyle}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Bloque Inferior: Zonas 1 a 6 + Modo Oscuro (Izquierda, 7 cols) y Vista Previa en Vivo (Derecha, 5 cols) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Columna Izquierda: Zonas 1 a 6 + Modo Oscuro */}
+        <div className="lg:col-span-7 space-y-5">
           <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
               Zonas 1 a 6 — Fondo y Tipografía
@@ -615,124 +664,45 @@ export default function BrandingSettingsView() {
             ))}
           </div>
 
-          {/* Logo Institucional Opcional + Modo Oscuro */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div
-              className="border border-black/20 p-4 rounded-xl space-y-3"
-              style={innerStyle}
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold flex items-center gap-1.5">
-                  <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
-                </span>
-              </div>
-              <p className="text-[11px] opacity-80">
-                Opcional (máx. 1 MB). Reemplaza el emblema verde por defecto; podés quitarlo cuando quieras.
-              </p>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <label
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
-                  style={cardStyle}
-                >
-                  <Upload size={13} /> Subir logo
-                  <input
-                    type="file"
-                    accept=".svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg"
-                    onChange={handleLogoUpload}
-                    className="hidden"
-                  />
-                </label>
-
-                {formState.logoUrl && (
-                  <button
-                    type="button"
-                    onClick={handleRemoveLogo}
-                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-xs font-bold text-rose-200 border border-rose-800 cursor-pointer transition-colors"
-                  >
-                    <Trash2 size={13} /> Quitar
-                  </button>
+          {/* Modo Oscuro */}
+          <div
+            className="border border-black/20 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            style={innerStyle}
+          >
+            <div className="space-y-1">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                {formState.darkMode ? (
+                  <Moon size={14} className="text-emerald-400" />
+                ) : (
+                  <Sun size={14} className="text-amber-400" />
                 )}
-              </div>
-
-              {formState.logoFileName && (
-                <p className="text-[11px] opacity-80 truncate">
-                  Archivo: <span className="font-mono">{formState.logoFileName}</span>
-                </p>
-              )}
+                Modo Oscuro
+              </span>
+              <p className="text-[11px] opacity-80">
+                Activa el esquema oscuro en toda la plataforma o alterná a modo claro.
+              </p>
             </div>
 
-            <div
-              className="border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
-              style={innerStyle}
+            <label
+              className="inline-flex items-center justify-between gap-3 border border-white/15 px-3.5 py-2.5 rounded-xl cursor-pointer shrink-0"
+              style={cardStyle}
             >
-              <div className="space-y-1">
-                <span className="text-xs font-bold flex items-center gap-1.5">
-                  {formState.darkMode ? (
-                    <Moon size={14} className="text-emerald-400" />
-                  ) : (
-                    <Sun size={14} className="text-amber-400" />
-                  )}
-                  Modo Oscuro
-                </span>
-                <p className="text-[11px] opacity-80">
-                  Activa el esquema oscuro en toda la plataforma o alterná a modo claro.
-                </p>
-              </div>
-
-              <label
-                className="inline-flex items-center justify-between border border-white/15 px-3.5 py-2.5 rounded-xl cursor-pointer"
-                style={cardStyle}
-              >
-                <span className="text-xs font-bold">
-                  {formState.darkMode ? 'Activado (Oscuro)' : 'Desactivado (Claro)'}
-                </span>
-                <input
-                  type="checkbox"
-                  checked={Boolean(formState.darkMode)}
-                  onChange={(e) => handleDarkModeToggle(e.target.checked)}
-                  className="w-4 h-4 accent-emerald-500 cursor-pointer"
-                />
-              </label>
-            </div>
+              <span className="text-xs font-bold">
+                {formState.darkMode ? 'Activado (Oscuro)' : 'Desactivado (Claro)'}
+              </span>
+              <input
+                type="checkbox"
+                checked={Boolean(formState.darkMode)}
+                onChange={(e) => handleDarkModeToggle(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500 cursor-pointer"
+              />
+            </label>
           </div>
+        </div>
 
-          {/* Botones de Guardar y Restaurar */}
-          <div className="flex flex-wrap items-center gap-3 pt-2">
-            <button
-              type="submit"
-              disabled={saving || resetting}
-              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-            >
-              <Save size={15} />
-              {saving ? 'Guardando...' : 'Guardar y Aplicar'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleReset}
-              disabled={saving || resetting}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold border border-white/15 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-              style={innerStyle}
-            >
-              <RotateCcw size={14} />
-              {resetting ? 'Restaurando...' : 'Restaurar por Defecto'}
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDiscardPreview}
-              disabled={saving || resetting}
-              className="px-3.5 py-2.5 rounded-xl text-xs font-semibold opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
-            >
-              Descartar cambios sin guardar
-            </button>
-          </div>
-        </form>
-
-        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6 + Identidad del Menú) */}
+        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6) */}
         <div
-          className="lg:col-span-5 border border-black/20 p-5 rounded-2xl space-y-4 self-start"
+          className="lg:col-span-5 border border-black/20 p-5 rounded-2xl space-y-4"
           style={innerStyle}
         >
           <div className="flex items-center justify-between border-b border-black/20 pb-3">
@@ -742,7 +712,7 @@ export default function BrandingSettingsView() {
             </span>
           </div>
 
-          {/* Zona 1: Menú con Identidad Opcional */}
+          {/* Zona 1: Menú */}
           <div
             className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
             style={{
@@ -832,6 +802,38 @@ export default function BrandingSettingsView() {
           </div>
         </div>
       </div>
-    </div>
+
+      {/* 4. Botones de Guardar y Restaurar */}
+      <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-black/20">
+        <button
+          type="submit"
+          disabled={saving || resetting}
+          className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+        >
+          <Save size={15} />
+          {saving ? 'Guardando...' : 'Guardar y Aplicar'}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleReset}
+          disabled={saving || resetting}
+          className="px-4 py-2.5 rounded-xl text-xs font-bold border border-white/15 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+          style={innerStyle}
+        >
+          <RotateCcw size={14} />
+          {resetting ? 'Restaurando...' : 'Restaurar por Defecto'}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleDiscardPreview}
+          disabled={saving || resetting}
+          className="px-3.5 py-2.5 rounded-xl text-xs font-semibold opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
+        >
+          Descartar cambios sin guardar
+        </button>
+      </div>
+    </form>
   );
 }
