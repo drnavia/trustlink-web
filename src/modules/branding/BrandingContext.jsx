@@ -2,8 +2,8 @@
  * @file BrandingContext.jsx
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
  * fondos y tipografías de las Zonas 1 a 6 (Menú, Sub-menú, Plataforma general,
- * Tarjetas principales, Cajas internas y Footer), logo opcional (SVG, PNG, JPG)
- * y modo oscuro/claro, sincronizado con PostgreSQL vía /api/v1/branding.
+ * Tarjetas principales, Cajas internas y Footer), logo opcional (SVG, PNG, JPG),
+ * modo oscuro/claro y presets rápidos de piel, sincronizado con PostgreSQL vía /api/v1/branding.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -11,22 +11,94 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = 'http://localhost:4000';
 
-// Valores iniciales por defecto de TrustLink (estética oscura y sobria)
+// Presets estándar de piel para probar estilos al instante antes de guardar
+export const BRANDING_PRESETS = {
+  default: {
+    id: 'default',
+    name: 'Por Defecto (Grafito Profundo)',
+    description: 'Estética oscura sobria de alto contraste para operación continua.',
+    config: {
+      menuBgColor: '#020617',
+      menuTextColor: '#E2E8F0',
+      submenuBgColor: '#090D16',
+      submenuTextColor: '#CBD5E1',
+      platformBgColor: '#0F172A',
+      platformTextColor: '#F1F5F9',
+      cardBgColor: '#020617',
+      cardTextColor: '#F1F5F9',
+      innerBgColor: '#0F172A',
+      innerTextColor: '#E2E8F0',
+      footerBgColor: '#020617',
+      footerTextColor: '#94A3B8',
+      darkMode: true,
+    },
+  },
+  countryClub: {
+    id: 'countryClub',
+    name: 'Country Club Clásico',
+    description: 'Azul institucional profundo con contraste cálido en tarjetas y cajas.',
+    config: {
+      menuBgColor: '#0B192C',
+      menuTextColor: '#F8FAFC',
+      submenuBgColor: '#11223A',
+      submenuTextColor: '#CBD5E1',
+      platformBgColor: '#162A45',
+      platformTextColor: '#F1F5F9',
+      cardBgColor: '#0B192C',
+      cardTextColor: '#F8FAFC',
+      innerBgColor: '#1D3557',
+      innerTextColor: '#E2E8F0',
+      footerBgColor: '#0B192C',
+      footerTextColor: '#94A3B8',
+      darkMode: true,
+    },
+  },
+  lightDay: {
+    id: 'lightDay',
+    name: 'Luminoso Residencial (Día)',
+    description: 'Esquema claro minimalista con alta legibilidad en todas las zonas.',
+    config: {
+      menuBgColor: '#FFFFFF',
+      menuTextColor: '#0F172A',
+      submenuBgColor: '#E2E8F0',
+      submenuTextColor: '#1E293B',
+      platformBgColor: '#F1F5F9',
+      platformTextColor: '#0F172A',
+      cardBgColor: '#FFFFFF',
+      cardTextColor: '#0F172A',
+      innerBgColor: '#F8FAFC',
+      innerTextColor: '#334155',
+      footerBgColor: '#E2E8F0',
+      footerTextColor: '#334155',
+      darkMode: false,
+    },
+  },
+  graphiteTech: {
+    id: 'graphiteTech',
+    name: 'Grafito Operativo',
+    description: 'Escala neutra tipo carbón para lectura técnica prolongada.',
+    config: {
+      menuBgColor: '#09090B',
+      menuTextColor: '#FAFAFA',
+      submenuBgColor: '#18181B',
+      submenuTextColor: '#D4D4D8',
+      platformBgColor: '#18181B',
+      platformTextColor: '#F4F4F5',
+      cardBgColor: '#09090B',
+      cardTextColor: '#FAFAFA',
+      innerBgColor: '#27272A',
+      innerTextColor: '#E4E4E7',
+      footerBgColor: '#09090B',
+      footerTextColor: '#A1A1AA',
+      darkMode: true,
+    },
+  },
+};
+
+// Configuración inicial por defecto de TrustLink (estética oscura y sobria)
 export const DEFAULT_BRANDING_CONFIG = {
-  menuBgColor: '#020617',
-  menuTextColor: '#E2E8F0',
-  submenuBgColor: '#090D16',
-  submenuTextColor: '#CBD5E1',
-  platformBgColor: '#0F172A',
-  platformTextColor: '#F1F5F9',
-  cardBgColor: '#020617',
-  cardTextColor: '#F1F5F9',
-  innerBgColor: '#0F172A',
-  innerTextColor: '#E2E8F0',
-  footerBgColor: '#020617',
-  footerTextColor: '#94A3B8',
+  ...BRANDING_PRESETS.default.config,
   logoUrl: null,
-  darkMode: true,
 };
 
 const BrandingContext = createContext(null);
@@ -185,6 +257,18 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
+   * Aplica un preset de piel en vivo conservando el logo actual si el usuario ya subió uno.
+   */
+  const applyBrandingPreset = (presetKey) => {
+    const selectedPreset = BRANDING_PRESETS[presetKey] || BRANDING_PRESETS.default;
+    setBrand((prev) => ({
+      ...prev,
+      ...selectedPreset.config,
+    }));
+    return selectedPreset.config;
+  };
+
+  /**
    * Persiste los cambios de apariencia en PostgreSQL vía PUT /api/v1/branding.
    */
   const saveBranding = async (nextConfig) => {
@@ -246,9 +330,11 @@ export const BrandingProvider = ({ children }) => {
       value={{
         brand,
         defaults,
+        presets: BRANDING_PRESETS,
         loadingBrand,
         fetchBranding,
         previewBranding,
+        applyBrandingPreset,
         saveBranding,
         resetBranding,
       }}

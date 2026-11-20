@@ -1,9 +1,8 @@
 /**
  * @file BrandingSettingsView.jsx
  * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
- * Plataforma general, Tarjetas principales, Cajas internas y Footer), mostrando en cada zona
- * su color de fondo y su color de tipografía, junto con logo opcional (SVG, PNG, JPG) y modo oscuro.
- * Aplica Zona 4 y Zona 5 en sus propias tarjetas para reflejar los cambios en vivo.
+ * Plataforma general, Tarjetas principales, Cajas internas y Footer), con presets rápidos
+ * de piel para previsualizar al instante, logo opcional (SVG, PNG, JPG) y modo oscuro.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -21,8 +20,13 @@ import {
   Sun,
   Image as ImageIcon,
   ShieldCheck,
+  Sparkles,
 } from 'lucide-react';
-import { useBranding, DEFAULT_BRANDING_CONFIG } from './BrandingContext';
+import {
+  useBranding,
+  DEFAULT_BRANDING_CONFIG,
+  BRANDING_PRESETS,
+} from './BrandingContext';
 
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
@@ -104,6 +108,7 @@ export default function BrandingSettingsView() {
     brand,
     defaults,
     previewBranding,
+    applyBrandingPreset,
     saveBranding,
     resetBranding,
     fetchBranding,
@@ -124,6 +129,7 @@ export default function BrandingSettingsView() {
     logoFileName: '',
   });
 
+  const [selectedPresetKey, setSelectedPresetKey] = useState('default');
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
@@ -168,6 +174,7 @@ export default function BrandingSettingsView() {
     if (cleaned && !cleaned.startsWith('#')) {
       cleaned = `#${cleaned}`;
     }
+    setSelectedPresetKey('custom');
     setFormState((prev) => ({ ...prev, [field]: cleaned }));
     if (HEX_REGEX.test(cleaned)) {
       previewBranding({ [field]: cleaned });
@@ -175,8 +182,21 @@ export default function BrandingSettingsView() {
   };
 
   const handleDarkModeToggle = (checked) => {
+    setSelectedPresetKey('custom');
     setFormState((prev) => ({ ...prev, darkMode: checked }));
     previewBranding({ darkMode: checked });
+  };
+
+  const handleApplyPreset = (presetKey) => {
+    const presetObj = BRANDING_PRESETS[presetKey];
+    if (!presetObj) return;
+    setFeedback({ type: '', text: '' });
+    setSelectedPresetKey(presetKey);
+    setFormState((prev) => ({
+      ...prev,
+      ...presetObj.config,
+    }));
+    applyBrandingPreset(presetKey);
   };
 
   const handleLogoUpload = (e) => {
@@ -288,6 +308,7 @@ export default function BrandingSettingsView() {
     try {
       const target = defaults || DEFAULT_BRANDING_CONFIG;
       await resetBranding();
+      setSelectedPresetKey('default');
       setFormState({
         ...target,
         logoFileName: '',
@@ -308,6 +329,7 @@ export default function BrandingSettingsView() {
 
   const handleDiscardPreview = async () => {
     setFeedback({ type: '', text: '' });
+    setSelectedPresetKey('default');
     await fetchBranding();
   };
 
@@ -367,7 +389,7 @@ export default function BrandingSettingsView() {
               Apariencia y Marca
             </h2>
             <p className="text-xs opacity-80 mt-0.5">
-              Fondos y tipografías ordenados de Zona 1 a Zona 6, logo opcional y modo oscuro.
+              Fondos y tipografías ordenados de Zona 1 a Zona 6, presets rápidos, logo opcional y modo oscuro.
             </p>
           </div>
         </div>
@@ -379,6 +401,75 @@ export default function BrandingSettingsView() {
           <Lock size={13} /> Acceso Maestro
         </span>
       </div>
+
+      {/* Presets Rápidos de Piel */}
+      <section
+        className="border border-black/20 p-4 md:p-5 rounded-2xl space-y-3.5"
+        style={innerStyle}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+          <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-emerald-400">
+            <Sparkles size={14} /> Presets de Piel Rápidos
+          </h3>
+          <p className="text-[11px] opacity-80">
+            Previsualizá un esquema estándar al instante; luego presioná Guardar y Aplicar para persistir en PostgreSQL.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {Object.entries(BRANDING_PRESETS).map(([key, preset]) => {
+            const isSelected = selectedPresetKey === key;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => handleApplyPreset(key)}
+                className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between gap-3 cursor-pointer ${
+                  isSelected
+                    ? 'border-emerald-400 ring-2 ring-emerald-500/40'
+                    : 'border-white/15 hover:border-white/30'
+                }`}
+                style={cardStyle}
+              >
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold">{preset.name}</span>
+                    <span className="text-[10px] font-mono opacity-75">
+                      {preset.config.darkMode ? 'Dark' : 'Light'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] opacity-75 leading-snug">
+                    {preset.description}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1">
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/30"
+                    style={{ backgroundColor: preset.config.menuBgColor }}
+                    title="Zona 1 — Menú"
+                  />
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/30"
+                    style={{ backgroundColor: preset.config.platformBgColor }}
+                    title="Zona 3 — Plataforma"
+                  />
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/30"
+                    style={{ backgroundColor: preset.config.cardBgColor }}
+                    title="Zona 4 — Tarjetas"
+                  />
+                  <span
+                    className="w-4 h-4 rounded-full border border-white/30"
+                    style={{ backgroundColor: preset.config.innerBgColor }}
+                    title="Zona 5 — Cajas internas"
+                  />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {/* Mensajes de estado */}
       {feedback.text && (
