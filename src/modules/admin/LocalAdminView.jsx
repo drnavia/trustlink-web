@@ -1,8 +1,6 @@
 /**
  * @file LocalAdminView.jsx
- * @description Consola operativa para el rol 'admin' (administrador local de barrio/comunidad)
- * y supervisión de superadmin: permite registrar y levantar reportes/suspensiones locales
- * de prestadores en su perímetro sin modificar el compliance global de TrustLink.
+ * @description Consola minimalista de reportes y suspensiones locales por barrio para admin y superadmin.
  * @location /trustlink-web/src/modules/admin/LocalAdminView.jsx
  */
 
@@ -99,14 +97,14 @@ export default function LocalAdminView() {
       if (res.ok) {
         setFeedback({
           type: 'success',
-          message: data.message || 'Reporte o suspensión local registrado.'
+          message: data.message || 'Suspensión local registrada.'
         });
         setReason('');
         await fetchLocalData(selectedCountryId);
       } else {
         setFeedback({
           type: 'error',
-          message: data.error || 'No se pudo registrar el reporte local.'
+          message: data.error || 'No se pudo registrar.'
         });
       }
     } catch (error) {
@@ -132,13 +130,13 @@ export default function LocalAdminView() {
       if (res.ok) {
         setFeedback({
           type: 'success',
-          message: data.message || 'Suspensión local levantada.'
+          message: data.message || 'Suspensión levantada.'
         });
         await fetchLocalData(selectedCountryId);
       } else {
         setFeedback({
           type: 'error',
-          message: data.error || 'No se pudo levantar la suspensión.'
+          message: data.error || 'No se pudo levantar.'
         });
       }
     } catch (error) {
@@ -153,19 +151,19 @@ export default function LocalAdminView() {
   };
 
   return (
-    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       <main className="max-w-6xl mx-auto space-y-6">
-        <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
-              <ShieldAlert size={22} />
+              <ShieldAlert size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-white">
-                Gestión Operativa Local de Barrio (Admin)
+              <h2 className="text-lg md:text-xl font-black text-white">
+                Admin Barrio
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Reportes y suspensiones temporales dentro de tu comunidad. No altera la certificación global de compliance de TrustLink.
+                Reportes y suspensiones operativas locales por comunidad.
               </p>
             </div>
           </div>
@@ -194,12 +192,11 @@ export default function LocalAdminView() {
           </div>
         )}
 
-        {/* Formulario de reporte / suspensión local */}
-        <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
           <div className="flex items-center gap-2">
             <Building2 size={17} className="text-sky-400" />
             <h3 className="text-sm font-bold text-white">
-              Registrar Reporte o Suspensión Local en Comunidad
+              Suspensión o Reporte Local
             </h3>
           </div>
 
@@ -243,7 +240,7 @@ export default function LocalAdminView() {
                 type="text"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Motivo operativo local (ej: Incumplimiento normativo de obra)"
+                placeholder="Motivo local"
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
               />
             </div>
@@ -261,17 +258,16 @@ export default function LocalAdminView() {
           </form>
         </div>
 
-        {/* Listado de suspensiones locales */}
-        <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
           <h3 className="text-sm font-bold text-white">
-            Historial de Reportes y Suspensiones Locales ({suspensions.length})
+            Historial Local ({suspensions.length})
           </h3>
 
           {loading ? (
             <div className="text-center py-6 text-xs text-slate-400">Cargando registros...</div>
           ) : suspensions.length === 0 ? (
             <div className="text-center py-6 text-xs text-slate-500">
-              No hay suspensiones ni reportes locales registrados para esta comunidad.
+              Sin registros locales.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -279,9 +275,9 @@ export default function LocalAdminView() {
                 <thead>
                   <tr className="border-b border-slate-800 text-slate-400">
                     <th className="py-2.5 px-3 font-semibold">ID</th>
-                    <th className="py-2.5 px-3 font-semibold">Comunidad</th>
+                    <th className="py-2.5 px-3 font-semibold">Barrio</th>
                     <th className="py-2.5 px-3 font-semibold">Prestador</th>
-                    <th className="py-2.5 px-3 font-semibold">Motivo Local</th>
+                    <th className="py-2.5 px-3 font-semibold">Motivo</th>
                     <th className="py-2.5 px-3 font-semibold">Estado</th>
                     <th className="py-2.5 px-3 font-semibold text-right">Acción</th>
                   </tr>

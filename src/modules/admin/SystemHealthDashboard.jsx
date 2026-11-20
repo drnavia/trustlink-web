@@ -1,8 +1,7 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Consola técnica y de integración externa exclusiva para el rol 'superadmin',
- * alineada con la estética y jerarquía visual del resto de módulos de TrustLink, con conversión
- * directa desde epoch UTC (start_utc_ms / end_utc_ms) a la zona horaria del usuario logueado.
+ * @description Consola técnica y de integración externa para superadmin con estética minimalista
+ * unificada al resto del sistema, conversión horaria al usuario y persistencia de estados.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -89,14 +88,12 @@ export default function SystemHealthDashboard() {
 
   const [activeTab, setActiveTab] = useState('health');
 
-  // Salud y métricas
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [statusError, setStatusError] = useState('');
   const [healthData, setHealthData] = useState(null);
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [httpLatencyMs, setHttpLatencyMs] = useState(null);
 
-  // Comunidades (countries)
   const [countries, setCountries] = useState([]);
   const [allCountriesForSelect, setAllCountriesForSelect] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
@@ -116,7 +113,6 @@ export default function SystemHealthDashboard() {
   const [editCountryActive, setEditCountryActive] = useState(true);
   const [savingEditCountry, setSavingEditCountry] = useState(false);
 
-  // Integraciones por comunidad
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
   const [integrationPage, setIntegrationPage] = useState(1);
@@ -130,7 +126,6 @@ export default function SystemHealthDashboard() {
   const [rotatingIntegrationId, setRotatingIntegrationId] = useState(null);
   const [togglingIntegrationId, setTogglingIntegrationId] = useState(null);
 
-  // Pases QR recientes
   const [recentPasses, setRecentPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [passPage, setPassPage] = useState(1);
@@ -143,14 +138,12 @@ export default function SystemHealthDashboard() {
   const [passActionFeedback, setPassActionFeedback] = useState(null);
   const [sandboxCopiedHint, setSandboxCopiedHint] = useState(null);
 
-  // Sandbox endpoint externo
   const [authMode, setAuthMode] = useState('api_key');
   const [testApiKey, setTestApiKey] = useState('');
   const [testQrToken, setTestQrToken] = useState('');
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
 
-  // Auditoría de accesos y transacciones
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
   const [auditOutcomeFilter, setAuditOutcomeFilter] = useState('all');
@@ -205,11 +198,11 @@ export default function SystemHealthDashboard() {
       } else {
         const errJson = await diagRes.json().catch(() => ({}));
         setDiagnosticsData(null);
-        setStatusError(errJson.error || 'No se pudo obtener el diagnóstico técnico detallado.');
+        setStatusError(errJson.error || 'No se pudo obtener el diagnóstico técnico.');
       }
     } catch (error) {
       console.error('Error al consultar salud del sistema:', error);
-      setStatusError('No se pudo conectar con el servidor backend en http://localhost:4000.');
+      setStatusError('No se pudo conectar con el servidor backend.');
       setHealthData(null);
       setDiagnosticsData(null);
     } finally {
@@ -407,7 +400,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setCountryFeedback({
           type: 'success',
-          message: data.message || 'Comunidad creada correctamente.'
+          message: data.message || 'Comunidad creada.'
         });
         setNewCountryName('');
         setNewCountryLocation('');
@@ -452,7 +445,7 @@ export default function SystemHealthDashboard() {
     if (!editCountryName.trim()) {
       setCountryFeedback({
         type: 'error',
-        message: 'El nombre de la comunidad es obligatorio.'
+        message: 'El nombre es obligatorio.'
       });
       return;
     }
@@ -475,7 +468,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setCountryFeedback({
           type: 'success',
-          message: data.message || `Comunidad #${countryId} actualizada.`
+          message: data.message || 'Comunidad actualizada.'
         });
         setEditingCountryId(null);
         await Promise.all([
@@ -486,14 +479,14 @@ export default function SystemHealthDashboard() {
       } else {
         setCountryFeedback({
           type: 'error',
-          message: data.error || 'No se pudo actualizar la comunidad.'
+          message: data.error || 'No se pudo actualizar.'
         });
       }
     } catch (error) {
       console.error('Error al editar comunidad:', error);
       setCountryFeedback({
         type: 'error',
-        message: 'Error de conexión al editar la comunidad.'
+        message: 'Error de conexión.'
       });
     } finally {
       setSavingEditCountry(false);
@@ -512,7 +505,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setCountryFeedback({
           type: 'success',
-          message: data.message || 'Estado de comunidad actualizado.'
+          message: data.message || 'Estado actualizado.'
         });
         await Promise.all([
           fetchCountries(countryPage, countrySearch, countryStatusFilter),
@@ -529,7 +522,7 @@ export default function SystemHealthDashboard() {
       console.error('Error al cambiar estado de comunidad:', error);
       setCountryFeedback({
         type: 'error',
-        message: 'Error de conexión al cambiar el estado.'
+        message: 'Error de conexión.'
       });
     } finally {
       setTogglingCountryId(null);
@@ -558,7 +551,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setIntegrationFeedback({
           type: 'success',
-          message: data.message || 'Clave de integración generada.'
+          message: data.message || 'Clave generada.'
         });
         if (data.plain_api_key) {
           setLatestPlainKey({
@@ -574,14 +567,14 @@ export default function SystemHealthDashboard() {
       } else {
         setIntegrationFeedback({
           type: 'error',
-          message: data.error || 'No se pudo generar la clave de integración.'
+          message: data.error || 'No se pudo generar la clave.'
         });
       }
     } catch (error) {
-      console.error('Error al generar clave de integración:', error);
+      console.error('Error al generar clave:', error);
       setIntegrationFeedback({
         type: 'error',
-        message: 'Error de conexión al generar la clave.'
+        message: 'Error de conexión.'
       });
     } finally {
       setCreatingIntegration(false);
@@ -600,7 +593,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setIntegrationFeedback({
           type: 'success',
-          message: data.message || 'Clave rotada correctamente.'
+          message: data.message || 'Clave rotada.'
         });
         if (data.plain_api_key) {
           setLatestPlainKey({
@@ -622,7 +615,7 @@ export default function SystemHealthDashboard() {
       console.error('Error al rotar clave:', error);
       setIntegrationFeedback({
         type: 'error',
-        message: 'Error de conexión al rotar la clave.'
+        message: 'Error de conexión.'
       });
     } finally {
       setRotatingIntegrationId(null);
@@ -641,20 +634,20 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setIntegrationFeedback({
           type: 'success',
-          message: data.message || 'Estado de integración actualizado.'
+          message: data.message || 'Estado actualizado.'
         });
         await Promise.all([fetchCommunityIntegrations(), fetchSystemHealth()]);
       } else {
         setIntegrationFeedback({
           type: 'error',
-          message: data.error || 'No se pudo actualizar la integración.'
+          message: data.error || 'No se pudo actualizar.'
         });
       }
     } catch (error) {
       console.error('Error al cambiar estado de integración:', error);
       setIntegrationFeedback({
         type: 'error',
-        message: 'Error de conexión al cambiar estado de integración.'
+        message: 'Error de conexión.'
       });
     } finally {
       setTogglingIntegrationId(null);
@@ -729,7 +722,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setPassActionFeedback({
           type: 'success',
-          message: data.message || `Pase #${passId} cancelado con éxito.`
+          message: data.message || `Pase #${passId} cancelado.`
         });
         await Promise.all([
           fetchRecentPasses(passPage, passSearch, passStatusFilter),
@@ -745,7 +738,7 @@ export default function SystemHealthDashboard() {
       console.error('Error al cancelar pase:', error);
       setPassActionFeedback({
         type: 'error',
-        message: 'Error de conexión al cancelar el pase.'
+        message: 'Error de conexión.'
       });
     } finally {
       setCancellingPassId(null);
@@ -869,20 +862,20 @@ export default function SystemHealthDashboard() {
   );
 
   return (
-    <div className="min-h-[calc(100vh-50px)] bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera principal */}
-        <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        {/* Cabecera minimalista */}
+        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-              <Activity size={22} />
+              <Activity size={20} />
             </div>
             <div>
-              <h2 className="text-xl font-black tracking-tight text-white">
-                Salud del Sistema &amp; Integración Externa
+              <h2 className="text-lg md:text-xl font-black tracking-tight text-white">
+                Salud &amp; APIs
               </h2>
               <p className="text-xs text-slate-400 mt-0.5">
-                Diagnóstico técnico, comunidades, claves de garita, pases QR y auditoría para superadmin.
+                Estado del sistema, barrios, claves, pases QR y auditoría.
               </p>
             </div>
           </div>
@@ -948,11 +941,11 @@ export default function SystemHealthDashboard() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
                     <Server size={16} className="text-sky-400" />
-                    <span>Servidor Backend</span>
+                    <span>Backend</span>
                   </div>
                   {loadingStatus ? (
                     <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
-                      Verificando...
+                      ...
                     </span>
                   ) : isBackendHealthy ? (
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
@@ -984,11 +977,11 @@ export default function SystemHealthDashboard() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
                     <Database size={16} className="text-indigo-400" />
-                    <span>Base de Datos PostgreSQL</span>
+                    <span>PostgreSQL</span>
                   </div>
                   {loadingStatus ? (
                     <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
-                      Verificando...
+                      ...
                     </span>
                   ) : isDbConnected ? (
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
@@ -996,7 +989,7 @@ export default function SystemHealthDashboard() {
                     </span>
                   ) : (
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 border border-rose-800">
-                      SIN CONEXIÓN
+                      OFFLINE
                     </span>
                   )}
                 </div>
@@ -1023,11 +1016,11 @@ export default function SystemHealthDashboard() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-slate-200 font-bold text-xs">
                     <KeyRound size={16} className="text-amber-400" />
-                    <span>Endpoint Externo QR</span>
+                    <span>API Externa</span>
                   </div>
                   {loadingStatus ? (
                     <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-slate-900 text-slate-400">
-                      Verificando...
+                      ...
                     </span>
                   ) : isExternalReady ? (
                     <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-800">
@@ -1047,7 +1040,7 @@ export default function SystemHealthDashboard() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Comunidades activas:</span>
+                    <span>Barrios activos:</span>
                     <span className="font-mono text-slate-200">
                       {diagnosticsData?.metrics?.active_countries ?? '-'} /{' '}
                       {diagnosticsData?.metrics?.total_countries ?? '-'}
@@ -1057,13 +1050,13 @@ export default function SystemHealthDashboard() {
               </div>
             </div>
 
-            {/* Comunidades / Barrios */}
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            {/* Comunidades y Barrios */}
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Building2 size={17} className="text-emerald-400" />
                   <h3 className="text-sm font-bold text-white">
-                    Comunidades y Barrios ({countryTotalCount})
+                    Comunidades ({countryTotalCount})
                   </h3>
                 </div>
 
@@ -1105,7 +1098,7 @@ export default function SystemHealthDashboard() {
                     type="text"
                     value={newCountryName}
                     onChange={(e) => setNewCountryName(e.target.value)}
-                    placeholder="Nombre del barrio (ej: Barrio Parque Sur)"
+                    placeholder="Nombre del barrio"
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1114,7 +1107,7 @@ export default function SystemHealthDashboard() {
                     type="text"
                     value={newCountryLocation}
                     onChange={(e) => setNewCountryLocation(e.target.value)}
-                    placeholder="Ubicación (ej: Canning / Ezeiza)"
+                    placeholder="Ubicación"
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1295,13 +1288,13 @@ export default function SystemHealthDashboard() {
               )}
             </div>
 
-            {/* Integraciones y Claves API por Comunidad */}
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            {/* Claves API por Comunidad */}
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={17} className="text-amber-400" />
                   <h3 className="text-sm font-bold text-white">
-                    Integraciones y Claves API por Comunidad ({integrations.length})
+                    Claves por Comunidad ({integrations.length})
                   </h3>
                 </div>
 
@@ -1498,16 +1491,11 @@ export default function SystemHealthDashboard() {
             </div>
 
             {/* Pases QR Recientes */}
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    Pases QR Recientes ({passTotalCount})
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Fecha y hora convertidas a la zona horaria del usuario logueado (<code className="text-slate-300">{activeTimeZone}</code>); el estado vencido se persiste en UTC al superar el fin del pase.
-                  </p>
-                </div>
+                <h3 className="text-sm font-bold text-white">
+                  Pases QR ({passTotalCount}) · {activeTimeZone}
+                </h3>
 
                 <form onSubmit={handlePassSearchSubmit} className="flex flex-wrap items-center gap-2">
                   <div className="relative">
@@ -1574,7 +1562,7 @@ export default function SystemHealthDashboard() {
                           <th className="py-2.5 px-3 font-semibold">Barrio</th>
                           <th className="py-2.5 px-3 font-semibold">Prestador</th>
                           <th className="py-2.5 px-3 font-semibold">Destino</th>
-                          <th className="py-2.5 px-3 font-semibold">Vigencia ({activeTimeZone})</th>
+                          <th className="py-2.5 px-3 font-semibold">Vigencia</th>
                           <th className="py-2.5 px-3 font-semibold">Estado</th>
                           <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
                         </tr>
@@ -1686,17 +1674,10 @@ export default function SystemHealthDashboard() {
               )}
             </div>
 
-            {/* Sandbox endpoint externo */}
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            {/* Sandbox QR */}
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <h3 className="text-sm font-bold text-white">
-                    Sandbox de Validación Externa (POST /api/v1/external/passes/verify)
-                  </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Probá la validación con clave de comunidad (<code className="text-slate-300">x-api-key</code>) o sesión JWT.
-                  </p>
-                </div>
+                <h3 className="text-sm font-bold text-white">Sandbox QR</h3>
                 <div className="inline-flex rounded-xl bg-slate-900 p-1 border border-slate-800 self-start">
                   <button
                     type="button"
@@ -1726,7 +1707,7 @@ export default function SystemHealthDashboard() {
               {sandboxCopiedHint && (
                 <div className="flex flex-wrap items-center justify-between gap-2 bg-sky-950/35 border border-sky-800/70 rounded-xl px-3.5 py-2 text-xs text-sky-200">
                   <span>
-                    Pase <strong>#{sandboxCopiedHint.passId}</strong> ({sandboxCopiedHint.countryName}) listo en Sandbox.
+                    Pase <strong>#{sandboxCopiedHint.passId}</strong> ({sandboxCopiedHint.countryName}) listo.
                   </span>
                   <span className="font-mono">
                     {sandboxCopiedHint.hasKey ? `Clave: ${sandboxCopiedHint.maskedKey}` : 'Sin clave activa en barrio'}
@@ -1741,7 +1722,7 @@ export default function SystemHealthDashboard() {
                       type="text"
                       value={testApiKey}
                       onChange={(e) => setTestApiKey(e.target.value)}
-                      placeholder="x-api-key (ej: tl_c1_...)"
+                      placeholder="x-api-key"
                       className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                     />
                   </div>
@@ -1751,7 +1732,7 @@ export default function SystemHealthDashboard() {
                     type="text"
                     value={testQrToken}
                     onChange={(e) => setTestQrToken(e.target.value)}
-                    placeholder="Pegá o copiá un qr_token..."
+                    placeholder="qr_token"
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-slate-100 placeholder-slate-600 focus:outline-none focus:border-emerald-500"
                   />
                 </div>
@@ -1777,7 +1758,7 @@ export default function SystemHealthDashboard() {
                         <XCircle size={15} className="text-rose-400" />
                       )}
                       <span className="font-bold text-slate-200">
-                        {sandboxResponse.body?.authorized ? 'ACCESO AUTORIZADO' : 'ACCESO DENEGADO'}
+                        {sandboxResponse.body?.authorized ? 'AUTORIZADO' : 'DENEGADO'}
                       </span>
                       {sandboxResponse.body?.code && (
                         <span className="font-mono text-[11px] px-2 py-0.5 rounded bg-slate-950 text-slate-300 border border-slate-800">
@@ -1808,7 +1789,7 @@ export default function SystemHealthDashboard() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
               <div className="bg-slate-950 border border-slate-800 p-5 rounded-2xl shadow-xl">
-                <div className="text-xs text-slate-400">Intentos de validación</div>
+                <div className="text-xs text-slate-400">Intentos</div>
                 <div className="text-2xl font-black text-white font-mono mt-1">
                   {accessSummary.total_attempts}
                 </div>
@@ -1827,9 +1808,9 @@ export default function SystemHealthDashboard() {
               </div>
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <h3 className="text-sm font-bold text-white">Bitácora de Intentos de Acceso</h3>
+                <h3 className="text-sm font-bold text-white">Bitácora de Accesos</h3>
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
@@ -1879,7 +1860,7 @@ export default function SystemHealthDashboard() {
                           <th className="py-2.5 px-3 font-semibold">Motivo</th>
                           <th className="py-2.5 px-3 font-semibold">Barrio / Origen</th>
                           <th className="py-2.5 px-3 font-semibold">Detalle</th>
-                          <th className="py-2.5 px-3 font-semibold">Hora ({activeTimeZone})</th>
+                          <th className="py-2.5 px-3 font-semibold">Hora</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-900">
@@ -1942,9 +1923,9 @@ export default function SystemHealthDashboard() {
               )}
             </div>
 
-            <div className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-4">
+            <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <h3 className="text-sm font-bold text-white">Contratos y Transacciones</h3>
+                <h3 className="text-sm font-bold text-white">Transacciones</h3>
                 <div className="flex flex-wrap gap-4 text-xs font-mono">
                   <span className="text-slate-300">
                     Volumen: <strong className="text-white">${financialSummary.gross_volume}</strong>
@@ -1960,7 +1941,7 @@ export default function SystemHealthDashboard() {
 
               {transactionsList.length === 0 ? (
                 <div className="text-center py-6 text-xs text-slate-500">
-                  Sin transacciones registradas ({financialSummary.total_contracts} contratos).
+                  Sin transacciones ({financialSummary.total_contracts} contratos).
                 </div>
               ) : (
                 <div className="overflow-x-auto">
