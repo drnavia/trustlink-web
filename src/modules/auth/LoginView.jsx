@@ -1,115 +1,145 @@
 /**
  * @file LoginView.jsx
- * @description Vista de inicio de sesión conectada al AuthContext y a la API REST de TrustLink.
+ * @description Vista de inicio de sesión conectada a AuthContext con aplicación explícita de
+ * Zona 4 (tarjeta principal de login) y Zona 5 (cajas de inputs e íconos).
  * @location /trustlink-web/src/modules/auth/LoginView.jsx
  */
 
 import React, { useState } from 'react';
-import { Mail, Lock, ArrowRight, AlertCircle, Loader2 } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
+import { ShieldCheck, Mail, Lock, ArrowRight, AlertCircle } from 'lucide-react';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { useAuth } from './AuthContext';
 
-export default function LoginView({ onLoginSuccess }) {
+export default function LoginView({ onLoginSuccess, onNavigateRegister }) {
   const { brand } = useBranding();
   const { login } = useAuth();
+
+  const cardStyle = {
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+  };
+
+  const innerStyle = {
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+  };
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  const handleLogin = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
     setLoading(true);
 
     try {
-      const success = await login(email, password);
-      if (success) {
-        const storedUser = JSON.parse(localStorage.getItem('trustlink_user') || '{}');
-        if (onLoginSuccess) onLoginSuccess(storedUser);
+      const ok = await login(email, password);
+      if (ok) {
+        const storedUser = JSON.parse(localStorage.getItem('trustlink_user') || 'null');
+        if (typeof onLoginSuccess === 'function') {
+          onLoginSuccess(storedUser);
+        }
       } else {
-        setErrorMsg('Credenciales inválidas o cuenta inactiva en la base de datos.');
+        setErrorMsg('Credenciales inválidas o cuenta inactiva en TrustLink.');
       }
     } catch (error) {
-      console.error('Error de login:', error);
-      setErrorMsg('Error de conexión con el servidor backend.');
+      console.error('Error en inicio de sesión:', error);
+      setErrorMsg('Error de conexión con el servidor de TrustLink.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto my-16 bg-slate-950 text-slate-100 p-8 rounded-3xl border border-slate-800 shadow-2xl font-sans">
-      
-      {/* Cabecera */}
-      <div className="text-center mb-8">
-        <div
-          className="w-14 h-14 rounded-2xl mx-auto flex items-center justify-center text-white font-black text-2xl shadow-lg mb-4"
-          style={{ backgroundColor: brand.primaryColor || '#0A2540' }}
-        >
-          {brand.name ? brand.name.charAt(0) : 'T'}
+    <div className="flex-grow flex flex-col justify-center items-center px-4 py-8 font-sans">
+      {/* Zona 4: Tarjeta de Login */}
+      <div
+        className="max-w-md w-full p-8 rounded-2xl border border-black/20 space-y-6"
+        style={cardStyle}
+      >
+        {/* Cabecera institucional */}
+        <div className="text-center space-y-2">
+          <div
+            className="w-12 h-12 rounded-2xl border border-white/15 text-emerald-400 flex items-center justify-center mx-auto"
+            style={innerStyle}
+          >
+            <ShieldCheck size={24} />
+          </div>
+          <h2 className="text-2xl font-black tracking-tight">Iniciar Sesión</h2>
+          <p className="text-xs opacity-80">
+            Ingresá a {brand.name || 'TrustLink'} · {brand.countryName || 'Community'}
+          </p>
         </div>
-        <h1 className="text-2xl font-black tracking-tight text-white">Iniciar Sesión</h1>
-        <p className="text-xs text-slate-400 mt-1">Acceso seguro a {brand.name || 'TrustLink'}</p>
-      </div>
 
-      <form onSubmit={handleLogin} className="space-y-4">
-        
         {errorMsg && (
-          <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-3 rounded-xl text-xs font-medium flex items-center gap-2">
+          <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-3.5 rounded-xl text-xs flex items-center gap-2">
             <AlertCircle size={16} className="text-rose-400 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
 
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Correo Electrónico</label>
-          <div className="relative">
-            <Mail className="absolute left-3.5 top-3 text-slate-500" size={16} />
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="correo@dominio.com"
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
+        <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          <div>
+            <label className="block font-bold uppercase tracking-wider opacity-80 mb-1.5">
+              Correo electrónico
+            </label>
+            <div className="relative">
+              <Mail size={15} className="opacity-70 absolute left-3.5 top-3" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="usuario@trustlink.com"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                style={innerStyle}
+              />
+            </div>
           </div>
-        </div>
 
-        <div>
-          <label className="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1">Contraseña</label>
-          <div className="relative">
-            <Lock className="absolute left-3.5 top-3 text-slate-500" size={16} />
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-emerald-500"
-            />
+          <div>
+            <label className="block font-bold uppercase tracking-wider opacity-80 mb-1.5">
+              Contraseña
+            </label>
+            <div className="relative">
+              <Lock size={15} className="opacity-70 absolute left-3.5 top-3" />
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                style={innerStyle}
+              />
+            </div>
           </div>
-        </div>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full py-3 rounded-xl text-xs font-bold text-white shadow-lg transition-all cursor-pointer flex items-center justify-center gap-2 mt-4"
-          style={{ backgroundColor: brand.primaryColor || '#0A2540' }}
-        >
-          {loading ? <Loader2 className="animate-spin" size={16} /> : <ArrowRight size={16} />}
-          {loading ? 'Verificando credenciales...' : 'Ingresar a la Plataforma'}
-        </button>
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50 mt-2"
+          >
+            <span>{loading ? 'Iniciando sesión...' : 'Ingresar a la Plataforma'}</span>
+            <ArrowRight size={15} />
+          </button>
+        </form>
 
-      </form>
-
-      <div className="mt-6 pt-4 border-t border-slate-900 text-center text-xs text-slate-400">
-        ¿No tienes cuenta?{' '}
-        <span className="text-emerald-400 font-bold hover:underline cursor-pointer">Regístrate desde el menú superior</span>
+        {typeof onNavigateRegister === 'function' && (
+          <div className="pt-3 border-t border-black/20 text-center text-xs opacity-80">
+            ¿Todavía no tenés cuenta?{' '}
+            <button
+              type="button"
+              onClick={onNavigateRegister}
+              className="font-bold text-emerald-400 hover:underline cursor-pointer"
+            >
+              Registrate acá
+            </button>
+          </div>
+        )}
       </div>
-
     </div>
   );
 }
