@@ -1,7 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * apariencia configurable por Zonas 1 a 6 (fondos y tipografías), logo opcional y modo oscuro.
+ * aplicación explícita de Zona 1 (Menú), Zona 2 (Sub-menú), Zona 3 (Plataforma general)
+ * y Zona 6 (Footer), logo opcional y modo oscuro.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -82,7 +83,7 @@ function MainAppContent() {
 
   return (
     <div
-      className="min-h-screen flex flex-col font-sans tl-platform-surface"
+      className="min-h-screen flex flex-col font-sans"
       style={{
         backgroundColor: brand.platformBgColor || '#0F172A',
         color: brand.platformTextColor || '#F1F5F9',
@@ -90,7 +91,7 @@ function MainAppContent() {
     >
       {/* Zona 1: Barra de Navegación Superior Global */}
       <header
-        className="border-b border-slate-800 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 tl-menu-surface"
+        className="border-b border-black/20 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40"
         style={{
           backgroundColor: brand.menuBgColor || '#020617',
           color: brand.menuTextColor || '#E2E8F0',
@@ -127,11 +128,11 @@ function MainAppContent() {
           <div>
             <h1 className="text-sm font-black tracking-tight flex items-center gap-1.5">
               <span>{brand.name || 'TrustLink'}</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-medium border border-slate-700">
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-black/25 font-medium border border-white/15">
                 Community
               </span>
             </h1>
-            <p className="text-[10px] opacity-75">Red de Confianza Residencial</p>
+            <p className="text-[10px] opacity-80">Red de Confianza Residencial</p>
           </div>
         </div>
 
@@ -145,7 +146,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'resident'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <Home size={13} /> Portal Residente
@@ -159,7 +160,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'provider'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <Wrench size={13} /> Portal Prestador
@@ -173,7 +174,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'payments'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <CreditCard size={13} /> Pagos y Reseñas
@@ -187,7 +188,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'security'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <QrCode size={13} /> Consola Garita
@@ -201,7 +202,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'local_admin'
                     ? 'bg-amber-600 text-white'
-                    : 'bg-slate-800 text-amber-300 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <ShieldAlert size={13} /> Admin Barrio
@@ -220,7 +221,7 @@ function MainAppContent() {
                   currentView === 'local_admin' ||
                   currentView === 'branding_master'
                     ? 'bg-purple-700 text-white border-purple-500'
-                    : 'bg-purple-950 text-purple-300 border-purple-800 hover:bg-purple-900'
+                    : 'bg-purple-950 text-purple-200 border-purple-800 hover:bg-purple-900'
                 }`}
               >
                 <Layers size={13} /> Modo Maestro
@@ -233,16 +234,16 @@ function MainAppContent() {
         <div className="flex items-center gap-2.5 text-xs">
           {isAuthenticated && user ? (
             <>
-              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl">
+              <div className="flex items-center gap-2 bg-black/25 border border-white/15 px-3 py-1.5 rounded-xl">
                 <ShieldCheck size={14} className="text-emerald-400" />
-                <span className="font-bold text-slate-100">
+                <span className="font-bold">
                   {user.first_name} ({user.role})
                 </span>
               </div>
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 bg-slate-900 hover:bg-rose-950/60 text-rose-400 border border-slate-800 hover:border-rose-800 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 bg-black/25 hover:bg-rose-950/70 text-rose-300 border border-white/15 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer"
                 title="Cerrar sesión"
               >
                 <LogOut size={13} /> Salir
@@ -256,7 +257,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'login'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
                 <LogIn size={13} /> Ingresar
@@ -267,7 +268,7 @@ function MainAppContent() {
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'register'
                     ? 'bg-emerald-600 text-white'
-                    : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-800'
+                    : 'bg-black/25 border border-white/15 hover:bg-black/35'
                 }`}
               >
                 <UserPlus size={13} /> Registrarse
@@ -280,7 +281,7 @@ function MainAppContent() {
       {/* Zona 2: Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
       {isSuperadmin && masterModeOpen && (
         <div
-          className="border-b border-purple-900/60 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs tl-submenu-surface"
+          className="border-b border-black/20 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs"
           style={{
             backgroundColor: brand.submenuBgColor || '#090D16',
             color: brand.submenuTextColor || '#CBD5E1',
@@ -297,7 +298,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'admin'
                   ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <UserCheck size={12} /> Ops TrustLink
@@ -309,7 +310,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'health'
                   ? 'bg-sky-600 text-white'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <Activity size={12} /> Salud &amp; APIs
@@ -321,7 +322,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'users_master'
                   ? 'bg-purple-600 text-white'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <ShieldAlert size={12} /> Cuentas Privilegiadas
@@ -333,7 +334,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'local_admin'
                   ? 'bg-amber-600 text-white'
-                  : 'bg-slate-900 text-amber-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <ShieldAlert size={12} /> Vista Admin Barrio
@@ -345,7 +346,7 @@ function MainAppContent() {
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'branding_master'
                   ? 'bg-emerald-600 text-white'
-                  : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <Palette size={12} /> Colores / Marca
@@ -355,7 +356,13 @@ function MainAppContent() {
       )}
 
       {/* Zona 3: Contenedor Principal de Vistas */}
-      <main className="flex-grow flex flex-col">
+      <main
+        className="flex-grow flex flex-col"
+        style={{
+          backgroundColor: brand.platformBgColor || '#0F172A',
+          color: brand.platformTextColor || '#F1F5F9',
+        }}
+      >
         {currentView === 'landing' && <LandingHome onViewChange={setCurrentView} />}
         {currentView === 'login' && (
           <LoginView
@@ -408,7 +415,7 @@ function MainAppContent() {
 
       {/* Zona 6: Footer Institucional Único */}
       <footer
-        className="border-t border-slate-800 py-3.5 px-6 text-center text-xs w-full mt-auto tl-footer-surface"
+        className="border-t border-black/20 py-3.5 px-6 text-center text-xs w-full mt-auto"
         style={{
           backgroundColor: brand.footerBgColor || brand.menuBgColor || '#020617',
           color: brand.footerTextColor || '#94A3B8',

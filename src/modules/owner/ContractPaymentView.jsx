@@ -1,7 +1,7 @@
 /**
  * @file ContractPaymentView.jsx
- * @description Vista del residente para visualizar contratos pendientes desde PostgreSQL,
- * aprobar presupuestos con cálculo de Take Rate (7%) y emitir calificaciones cruzadas al prestador.
+ * @description Vista de Pagos y Calificación Cruzada con aplicación explícita de
+ * Zona 4 (tarjetas principales) y Zona 5 (cajas internas).
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
@@ -9,19 +9,31 @@ import React, { useState, useEffect } from 'react';
 import {
   CreditCard,
   CheckCircle2,
+  ShieldCheck,
   FileText,
   AlertCircle,
   Loader2,
   Star,
+  Wrench,
   MessageSquare,
-  Send
+  Send,
 } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
 
 export default function ContractPaymentView() {
   const { brand } = useBranding();
+
+  const cardStyle = {
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+  };
+
+  const innerStyle = {
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+  };
 
   const [contract, setContract] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -29,17 +41,11 @@ export default function ContractPaymentView() {
   const [paymentUrl, setPaymentUrl] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Estado para historial de contratos y reseñas cruzadas
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ratingDrafts, setRatingDrafts] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
   const [submittingContractId, setSubmittingContractId] = useState(null);
-  const [reviewFeedback, setReviewFeedback] = useState(null);
-
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
-  });
 
   const fetchPendingContract = async () => {
     setLoading(true);
@@ -47,15 +53,13 @@ export default function ContractPaymentView() {
     try {
       const response = await fetch(`${API_BASE}/api/v1/payments/pending`, {
         method: 'GET',
-        headers: getAuthHeaders()
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        if (data.contracts && data.contracts.length > 0) {
-          setContract(data.contracts[0]);
-        } else {
-          setContract(null);
-        }
+        setContract(data.contracts && data.contracts.length > 0 ? data.contracts[0] : null);
       } else {
         setErrorMsg(data.error || 'No se pudo cargar la orden de pago.');
       }
@@ -67,18 +71,21 @@ export default function ContractPaymentView() {
     }
   };
 
-  const fetchReviewContracts = async () => {
+  const fetchReviewableContracts = async () => {
     setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
-        headers: getAuthHeaders()
+      const response = await fetch(`${API_BASE}/api/v1/reviews/owner-contracts`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
         setReviewContracts(data.contracts || []);
       }
     } catch (error) {
-      console.error('Error al consultar contratos para reseñas:', error);
+      console.error('Error al cargar historial de contratos para reseñas:', error);
     } finally {
       setLoadingReviews(false);
     }
@@ -86,7 +93,7 @@ export default function ContractPaymentView() {
 
   useEffect(() => {
     fetchPendingContract();
-    fetchReviewContracts();
+    fetchReviewableContracts();
   }, []);
 
   const handleProcessPayment = async () => {
@@ -98,17 +105,16 @@ export default function ContractPaymentView() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
         },
         body: JSON.stringify({
           contract_id: contract.id,
-          agreed_amount: contract.agreed_amount
-        })
+          agreed_amount: contract.agreed_amount,
+        }),
       });
       const data = await response.json();
       if (response.ok && data.checkout_url) {
         setPaymentUrl(data.checkout_url);
-        await fetchReviewContracts();
       } else {
         setErrorMsg(data.error || 'No se pudo generar la orden de pago en la pasarela.');
       }
@@ -123,43 +129,33 @@ export default function ContractPaymentView() {
   const handleSubmitProviderReview = async (contractId) => {
     const selectedRating = ratingDrafts[contractId] || 5;
     const commentText = (commentDrafts[contractId] || '').trim();
-
     setSubmittingContractId(contractId);
-    setReviewFeedback(null);
+    setErrorMsg('');
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/provider`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
         },
         body: JSON.stringify({
           contract_id: contractId,
           rating: selectedRating,
-          comment: commentText || null
-        })
+          comment: commentText,
+          target_role: 'provider',
+        }),
       });
       const data = await response.json();
       if (response.ok) {
-        setReviewFeedback({
-          type: 'success',
-          message:
-            data.message ||
-            `Calificación enviada. Nuevo promedio del prestador: ${data.updated_provider_rating} ★`
-        });
-        await Promise.all([fetchReviewContracts(), fetchPendingContract()]);
+        await fetchReviewableContracts();
+        await fetchPendingContract();
       } else {
-        setReviewFeedback({
-          type: 'error',
-          message: data.error || 'No se pudo registrar la reseña.'
-        });
+        setErrorMsg(data.error || 'No se pudo enviar la calificación.');
       }
     } catch (error) {
-      console.error('Error al enviar reseña al prestador:', error);
-      setReviewFeedback({
-        type: 'error',
-        message: 'Error de conexión al registrar la calificación.'
-      });
+      console.error('Error al enviar calificación:', error);
+      setErrorMsg('Error de conexión al registrar la calificación.');
     } finally {
       setSubmittingContractId(null);
     }
@@ -170,67 +166,106 @@ export default function ContractPaymentView() {
   const providerPayout = Number((totalAmount - platformFee).toFixed(2));
 
   return (
-    <div className="max-w-4xl mx-auto p-6 md:p-8 space-y-6 font-sans text-slate-100">
-      {/* Bloque 1: Presupuesto y Orden de Pago */}
-      <div className="p-6 md:p-8 bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl">
-        <div className="flex items-center justify-between pb-6 border-b border-slate-800 mb-6">
+    <div className="max-w-3xl w-full mx-auto px-4 py-6 space-y-6">
+      {/* Zona 4: Tarjeta de Presupuesto y Orden de Pago */}
+      <section
+        className="p-6 md:p-8 rounded-2xl border border-black/20"
+        style={cardStyle}
+      >
+        <div className="flex items-center justify-between pb-5 border-b border-black/20 mb-6 gap-3">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl border border-emerald-500/20">
-              <FileText size={24} />
+            <div
+              className="p-3 rounded-xl border border-white/15"
+              style={innerStyle}
+            >
+              <FileText size={22} className="text-emerald-400" />
             </div>
             <div>
-              <h2 className="text-xl font-black tracking-tight text-white">Presupuesto y Orden de Pago</h2>
-              <p className="text-xs text-slate-400">
+              <h2 className="text-xl font-black tracking-tight">
+                Presupuesto y Orden de Pago
+              </h2>
+              <p className="text-xs opacity-80">
                 Transacción segura respaldada por {brand.countryName || 'TrustLink Community'}
               </p>
             </div>
           </div>
-          <span className="text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-full">
-            {contract ? contract.status : 'Sin Pendientes'}
+
+          <span
+            className="text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-full border border-white/15"
+            style={innerStyle}
+          >
+            {contract ? contract.status : 'Sin Contratos'}
           </span>
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-slate-400 text-xs flex items-center justify-center gap-2">
-            <Loader2 className="animate-spin" size={16} /> Consultando contratos pendientes en PostgreSQL...
+          <div
+            className="text-center py-12 rounded-xl border border-black/20 text-xs flex items-center justify-center gap-2"
+            style={innerStyle}
+          >
+            <Loader2 className="animate-spin" size={16} /> Consultando contratos pendientes...
           </div>
         ) : !contract ? (
-          <div className="text-center py-10 bg-slate-900/60 rounded-2xl border border-slate-800 text-slate-400 text-xs">
+          <div
+            className="text-center py-12 px-4 rounded-xl border border-black/20 text-xs opacity-90"
+            style={innerStyle}
+          >
             No hay órdenes de pago pendientes en este momento. Podés calificar tus servicios realizados en la sección inferior.
           </div>
         ) : (
           <>
-            <div className="bg-slate-900 p-6 rounded-2xl border border-slate-800 mb-6 space-y-4">
-              <div className="flex justify-between items-start">
+            {/* Zona 5: Caja Interna con Detalle del Contrato */}
+            <div
+              className="p-5 rounded-xl border border-black/20 mb-6 space-y-4"
+              style={innerStyle}
+            >
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
                 <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/60 border border-emerald-800 px-2.5 py-0.5 rounded-md">
-                    Contrato #{contract.id}
-                  </span>
-                  <h3 className="text-base font-bold text-white mt-2">
-                    Prestador: {contract.provider_name || 'Profesional Verificado'}
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-md border border-white/15">
+                      Contrato #{contract.id}
+                    </span>
+                    {contract.provider_status === 'approved' && (
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-md border border-white/15 flex items-center gap-1 text-emerald-400">
+                        <ShieldCheck size={12} /> Compliance Verificado
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="text-lg font-bold">
+                    {contract.provider_name || 'Profesional Verificado'}
                   </h3>
-                  <p className="text-xs text-slate-400 mt-1">
+                  {contract.specialty && (
+                    <p className="text-xs font-medium mt-0.5 flex items-center gap-1 text-emerald-400">
+                      <Wrench size={12} /> {contract.specialty}
+                    </p>
+                  )}
+                  <p className="text-xs opacity-85 mt-1.5">
                     <strong>Detalle del trabajo:</strong> {contract.description}
                   </p>
                 </div>
+
+                <span className="text-amber-300 font-bold text-xs px-3 py-1 rounded-lg border border-white/15 flex items-center gap-1 shrink-0">
+                  <Star size={12} className="fill-amber-400 text-amber-400" />{' '}
+                  {Number(contract.rating_avg || 5.0).toFixed(1)} Scoring
+                </span>
               </div>
 
-              <div className="border-t border-slate-800 pt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                  <span className="text-xs text-slate-400 block mb-1">Monto Acordado</span>
-                  <span className="text-base font-black text-white">
+              <div className="border-t border-black/20 pt-4 grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                <div className="p-3.5 rounded-xl border border-white/15" style={cardStyle}>
+                  <span className="text-xs opacity-80 block mb-1">Monto Acordado</span>
+                  <span className="text-base font-black">
                     ${totalAmount.toLocaleString('es-AR')} ARS
                   </span>
                 </div>
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                  <span className="text-xs text-slate-400 block mb-1">Comisión TrustLink (7%)</span>
+                <div className="p-3.5 rounded-xl border border-white/15" style={cardStyle}>
+                  <span className="text-xs opacity-80 block mb-1">Comisión TrustLink (7%)</span>
                   <span className="text-base font-black text-emerald-400">
                     ${platformFee.toLocaleString('es-AR')} ARS
                   </span>
                 </div>
-                <div className="bg-slate-950 p-4 rounded-xl border border-slate-800/80">
-                  <span className="text-xs text-slate-400 block mb-1">Neto Prestador</span>
-                  <span className="text-base font-black text-slate-200">
+                <div className="p-3.5 rounded-xl border border-white/15" style={cardStyle}>
+                  <span className="text-xs opacity-80 block mb-1">Neto Prestador</span>
+                  <span className="text-base font-black">
                     ${providerPayout.toLocaleString('es-AR')} ARS
                   </span>
                 </div>
@@ -238,81 +273,84 @@ export default function ContractPaymentView() {
             </div>
 
             {errorMsg && (
-              <div className="bg-rose-950/50 border border-rose-800 text-rose-200 p-4 rounded-xl text-center font-medium mb-6 text-xs flex items-center gap-2">
+              <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-center font-medium mb-6 text-xs flex items-center gap-2">
                 <AlertCircle size={16} className="text-rose-400 shrink-0" />
                 <span>{errorMsg}</span>
               </div>
             )}
 
             {paymentUrl ? (
-              <div className="bg-emerald-950/40 border border-emerald-600/50 p-6 rounded-2xl text-center space-y-4">
-                <CheckCircle2 size={36} className="text-emerald-400 mx-auto" />
-                <h4 className="text-base font-bold text-white">¡Preferencia de Pago Generada con Éxito!</h4>
-                <p className="text-xs text-slate-300">
-                  Hacé clic en el botón para proceder de manera segura con la pasarela.
+              <div
+                className="p-6 rounded-xl text-center space-y-4 border border-white/15"
+                style={innerStyle}
+              >
+                <CheckCircle2 size={34} className="text-emerald-400 mx-auto" />
+                <h4 className="text-base font-bold">¡Preferencia de Pago Generada con Éxito!</h4>
+                <p className="text-xs opacity-85">
+                  Hacé clic en el botón para proceder con la pasarela de pago.
                 </p>
                 <a
                   href={paymentUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-block bg-sky-600 hover:bg-sky-500 text-white font-bold px-8 py-3 rounded-xl transition-all shadow-lg text-xs"
+                  className="inline-block bg-sky-600 hover:bg-sky-500 text-white font-bold px-6 py-2.5 rounded-xl transition-colors text-xs"
                 >
-                  Pagar en Pasarela Segura ➔
+                  Pagar en Pasarela Segura
                 </a>
               </div>
             ) : (
               <button
+                type="button"
                 onClick={handleProcessPayment}
                 disabled={paying}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-xs active:scale-95 disabled:opacity-50 cursor-pointer"
-                style={{ backgroundColor: brand.primaryColor || '#10b981' }}
+                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-colors flex items-center justify-center gap-2 text-xs disabled:opacity-50 cursor-pointer"
               >
-                {paying ? <Loader2 className="animate-spin" size={16} /> : <CreditCard size={16} />}
+                {paying ? (
+                  <Loader2 className="animate-spin" size={16} />
+                ) : (
+                  <CreditCard size={16} />
+                )}
                 {paying ? 'Generando Orden de Pago...' : 'Aprobar y Pagar Servicio'}
               </button>
             )}
           </>
         )}
-      </div>
+      </section>
 
-      {/* Bloque 2: Cierre de Servicio y Reputación Cruzada */}
-      <div className="p-6 md:p-8 bg-slate-950 rounded-3xl border border-slate-800 shadow-2xl space-y-5">
-        <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+      {/* Zona 4: Tarjeta de Cierre de Servicio y Calificación Cruzada */}
+      <section
+        className="p-6 md:p-8 rounded-2xl border border-black/20 space-y-5"
+        style={cardStyle}
+      >
+        <div className="flex items-center justify-between border-b border-black/20 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-500/10 text-amber-400 rounded-2xl border border-amber-500/20">
-              <Star size={22} />
+            <div className="p-3 rounded-xl border border-white/15" style={innerStyle}>
+              <Star size={20} className="text-amber-400" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-white">Cierre de Servicio &amp; Calificación Cruzada</h3>
-              <p className="text-xs text-slate-400">
-                Calificá al prestador al concluir el trabajo; tu reseña actualiza su reputación verificada en TrustLink.
+              <h3 className="text-lg font-bold">Cierre de Servicio &amp; Calificación Cruzada</h3>
+              <p className="text-xs opacity-80">
+                Calificá al prestador al concluir el trabajo; tu reseña actualiza su reputación en TrustLink.
               </p>
             </div>
           </div>
-          <span className="text-xs font-mono text-slate-400">
+          <span className="text-xs font-semibold opacity-80">
             {reviewContracts.length} contrato(s)
           </span>
         </div>
 
-        {reviewFeedback && (
-          <div
-            className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
-              reviewFeedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
-          >
-            {reviewFeedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
-            <span>{reviewFeedback.message}</span>
-          </div>
-        )}
-
         {loadingReviews ? (
-          <div className="text-center py-8 text-xs text-slate-400">
-            Cargando historial de servicios y reseñas...
+          <div
+            className="text-center py-8 rounded-xl border border-black/20 text-xs"
+            style={innerStyle}
+          >
+            Cargando contratos...
           </div>
         ) : reviewContracts.length === 0 ? (
-          <div className="text-center py-8 bg-slate-900/60 rounded-2xl border border-slate-800 text-xs text-slate-400">
+          <div
+            className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85"
+            style={innerStyle}
+          >
             Aún no tenés contratos registrados para calificar.
           </div>
         ) : (
@@ -320,105 +358,91 @@ export default function ContractPaymentView() {
             {reviewContracts.map((item) => {
               const currentDraftRating = ratingDrafts[item.contract_id] || 5;
               const currentDraftComment = commentDrafts[item.contract_id] || '';
-              const alreadyReviewedProvider = Boolean(item.provider_review_id);
+              const alreadyRated = Boolean(item.provider_review_id);
 
               return (
                 <div
                   key={item.contract_id}
-                  className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-4"
+                  className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                  style={innerStyle}
                 >
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[11px] font-mono font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded">
-                          Contrato #{item.contract_id}
-                        </span>
-                        <span className="text-[11px] font-semibold text-slate-400">
-                          {item.country_name || 'TrustLink Community'}
-                        </span>
-                      </div>
-                      <h4 className="text-sm font-bold text-white mt-1.5">
-                        {`${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
-                          'Prestador Verificado'}{' '}
-                        <span className="text-xs font-normal text-emerald-400">
-                          ({item.specialty || 'Servicios'})
-                        </span>
-                      </h4>
-                      <p className="text-xs text-slate-400 mt-0.5">{item.description}</p>
-                    </div>
-
-                    <div className="flex items-center gap-2 self-start sm:self-center">
-                      <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-2.5 py-1 rounded-lg flex items-center gap-1">
-                        <Star size={12} className="fill-amber-400" />
-                        {Number(item.provider_rating_avg || 0).toFixed(1)}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold px-2 py-0.5 rounded border border-white/15">
+                        Contrato #{item.contract_id}
                       </span>
-                      <span className="text-[11px] font-mono px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-800 text-slate-300">
-                        ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
-                      </span>
+                      <span className="opacity-80">{item.country_name || 'TrustLink Community'}</span>
                     </div>
+                    <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
+                      {item.status}
+                    </span>
                   </div>
 
-                  {alreadyReviewedProvider ? (
-                    <div className="bg-slate-950 border border-emerald-900/60 rounded-xl p-3.5 text-xs space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className="font-bold text-emerald-300">
-                          Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
-                          {item.provider_review_rating}/5)
-                        </span>
-                        <span className="text-[11px] text-slate-500">Registrada en PostgreSQL</span>
-                      </div>
+                  <p className="font-bold">
+                    Prestador: {item.provider_name || 'Profesional Verificado'}
+                  </p>
+                  <p className="opacity-85">{item.description}</p>
+
+                  {alreadyRated ? (
+                    <div className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-semibold text-emerald-400">
+                        Calificación enviada: {'★'.repeat(item.provider_review_rating)} (
+                        {item.provider_review_rating}/5)
+                      </span>
                       {item.provider_review_comment && (
-                        <p className="text-slate-300 italic">"{item.provider_review_comment}"</p>
+                        <span className="opacity-85 italic">
+                          "{item.provider_review_comment}"
+                        </span>
                       )}
                     </div>
                   ) : (
-                    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+                    <div className="space-y-3 pt-2 border-t border-black/20">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-xs font-semibold text-slate-300">
-                          Calificar trabajo del prestador:
-                        </span>
+                        <span className="font-semibold">Calificar trabajo del prestador:</span>
                         <div className="flex items-center gap-1">
                           {[1, 2, 3, 4, 5].map((starVal) => (
                             <button
                               key={starVal}
                               type="button"
                               onClick={() =>
-                                setRatingDrafts((prev) => ({ ...prev, [item.contract_id]: starVal }))
+                                setRatingDrafts((prev) => ({
+                                  ...prev,
+                                  [item.contract_id]: starVal,
+                                }))
                               }
                               className={`p-1.5 rounded-lg border transition-colors cursor-pointer ${
                                 currentDraftRating >= starVal
-                                  ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                  : 'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-300'
+                                  ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                                  : 'border-white/15 opacity-70 hover:opacity-100'
                               }`}
                             >
-                              <Star
-                                size={14}
-                                className={currentDraftRating >= starVal ? 'fill-amber-400' : ''}
-                              />
+                              <Star size={14} className="fill-current" />
                             </button>
                           ))}
                         </div>
                       </div>
 
-                      <div className="flex flex-col sm:flex-row gap-2">
-                        <div className="relative flex-1">
-                          <MessageSquare
-                            size={13}
-                            className="text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"
-                          />
-                          <input
-                            type="text"
-                            value={currentDraftComment}
-                            onChange={(e) =>
-                              setCommentDrafts((prev) => ({
-                                ...prev,
-                                [item.contract_id]: e.target.value
-                              }))
-                            }
-                            placeholder="Comentario breve sobre puntualidad, prolijidad y cumplimiento..."
-                            className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
+                      <div className="relative">
+                        <MessageSquare
+                          size={14}
+                          className="absolute left-3 top-2.5 opacity-70"
+                        />
+                        <input
+                          type="text"
+                          value={currentDraftComment}
+                          onChange={(e) =>
+                            setCommentDrafts((prev) => ({
+                              ...prev,
+                              [item.contract_id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Comentario breve sobre puntualidad, prolijidad y cumplimiento..."
+                          className="w-full pl-8 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                          style={cardStyle}
+                        />
+                      </div>
+
+                      <div className="flex justify-end">
                         <button
                           type="button"
                           onClick={() => handleSubmitProviderReview(item.contract_id)}
@@ -433,24 +457,12 @@ export default function ContractPaymentView() {
                       </div>
                     </div>
                   )}
-
-                  {item.owner_review_rating && (
-                    <div className="bg-indigo-950/30 border border-indigo-800/60 rounded-xl p-3 text-xs flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-semibold text-indigo-300">
-                        Calificación cruzada recibida del prestador: {'★'.repeat(item.owner_review_rating)} (
-                        {item.owner_review_rating}/5)
-                      </span>
-                      {item.owner_review_comment && (
-                        <span className="text-slate-300 italic">"{item.owner_review_comment}"</span>
-                      )}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

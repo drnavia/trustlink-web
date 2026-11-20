@@ -1,8 +1,9 @@
 /**
  * @file BrandingContext.jsx
- * @description Contexto modular para gestionar fondos y tipografías de las Zonas 1 a 6
- * (Menú, Sub-menú, Plataforma general, Tarjetas principales, Cajas internas y Footer),
- * logo opcional (SVG, PNG, JPG) y modo oscuro/claro, sincronizado con PostgreSQL.
+ * @description Contexto modular para gestionar la apariencia global de TrustLink:
+ * fondos y tipografías de las Zonas 1 a 6 (Menú, Sub-menú, Plataforma general,
+ * Tarjetas principales, Cajas internas y Footer), logo opcional (SVG, PNG, JPG)
+ * y modo oscuro/claro, sincronizado con PostgreSQL vía /api/v1/branding.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -10,7 +11,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = 'http://localhost:4000';
 
-// Valores iniciales por defecto de TrustLink
+// Valores iniciales por defecto de TrustLink (estética oscura y sobria)
 export const DEFAULT_BRANDING_CONFIG = {
   menuBgColor: '#020617',
   menuTextColor: '#E2E8F0',
@@ -120,7 +121,7 @@ export const BrandingProvider = ({ children }) => {
   }, [fetchBranding]);
 
   /**
-   * Propaga fondos y tipografías de las Zonas 1 a 6 y modo oscuro/claro.
+   * Expone las variables CSS de las Zonas 1 a 6 y sincroniza el atributo de tema.
    */
   useEffect(() => {
     const root = document.documentElement;
@@ -155,68 +156,8 @@ export const BrandingProvider = ({ children }) => {
     root.classList.toggle('dark', isDark);
     root.setAttribute('data-theme', isDark ? 'dark' : 'light');
 
-    const styleId = 'trustlink-appearance-dynamic-styles';
-    let styleEl = document.getElementById(styleId);
-    if (!styleEl) {
-      styleEl = document.createElement('style');
-      styleEl.id = styleId;
-      document.head.appendChild(styleEl);
-    }
-
-    styleEl.textContent = `
-      /* Zona 3: Fondo y tipografía de la plataforma general */
-      html, body, #root, main, .tl-platform-surface {
-        background-color: var(--tl-platform-bg) !important;
-        color: var(--tl-platform-text) !important;
-      }
-
-      /* Zona 1: Fondo y tipografía del menú superior */
-      .tl-menu-surface {
-        background-color: var(--tl-menu-bg) !important;
-        color: var(--tl-menu-text) !important;
-      }
-
-      /* Zona 2: Fondo y tipografía del sub-menú */
-      .tl-submenu-surface {
-        background-color: var(--tl-submenu-bg) !important;
-        color: var(--tl-submenu-text) !important;
-      }
-
-      /* Zona 6: Fondo y tipografía del footer */
-      .tl-footer-surface {
-        background-color: var(--tl-footer-bg) !important;
-        color: var(--tl-footer-text) !important;
-      }
-
-      /* Zona 4: Fondo y tipografía de tarjetas principales */
-      .tl-platform-surface [class*="bg-slate-950"],
-      .tl-platform-surface [class*="bg-slate-900"] {
-        background-color: var(--tl-card-bg) !important;
-        color: var(--tl-card-text) !important;
-      }
-
-      /* Zona 5: Fondo y tipografía de cajas internas */
-      .tl-platform-surface [class*="bg-slate-800"] {
-        background-color: var(--tl-inner-bg) !important;
-        color: var(--tl-inner-text) !important;
-      }
-
-      /* Tipografía general en elementos sin tarjeta */
-      .tl-platform-surface h1,
-      .tl-platform-surface h2,
-      .tl-platform-surface h3,
-      .tl-platform-surface h4,
-      .tl-platform-surface p,
-      .tl-platform-surface span,
-      .tl-platform-surface label {
-        color: inherit;
-      }
-
-      /* Suavizado de sombras en tarjetas y contenedores para evitar halos oscuros */
-      .tl-platform-surface [class*="shadow-"] {
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08) !important;
-      }
-    `;
+    document.body.style.backgroundColor = platformBg;
+    document.body.style.color = platformText;
   }, [
     brand.menuBgColor,
     brand.menuTextColor,
