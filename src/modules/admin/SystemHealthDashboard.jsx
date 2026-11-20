@@ -2,7 +2,7 @@
  * @file SystemHealthDashboard.jsx
  * @description Consola técnica y de integración externa exclusiva para el rol 'superadmin',
  * alineada con la estética y jerarquía visual del resto de módulos de TrustLink, con conversión
- * estándar de fechas/horas UTC a la zona horaria del usuario logueado.
+ * directa desde epoch UTC (start_utc_ms / end_utc_ms) a la zona horaria del usuario logueado.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -38,10 +38,6 @@ const COUNTRIES_PER_PAGE = 4;
 const PASSES_PER_PAGE = 6;
 const AUDIT_LOGS_PER_PAGE = 8;
 
-/**
- * Resuelve la zona horaria del usuario logueado si viene definida en su perfil/sesión,
- * o toma la zona horaria del navegador (con fallback a America/Argentina/Buenos_Aires).
- */
 const resolveUserTimeZone = (userObj) => {
   const candidate =
     userObj?.timezone ||
@@ -57,55 +53,29 @@ const resolveUserTimeZone = (userObj) => {
   }
 };
 
-/**
- * Construye el instante epoch UTC real (en milisegundos) a partir de un timestamp
- * devuelto por PostgreSQL (timestamp without time zone en UTC o ISO con zona).
- */
-const parsePassTimestampMs = (rawValue) => {
-  if (!rawValue) return null;
-  const str = String(rawValue).trim();
-
-  const match = str.match(
-    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}(?:\.\d+)?))?/
-  );
-  if (match) {
-    const year = Number(match[1]);
-    const month = Number(match[2]) - 1;
-    const day = Number(match[3]);
-    const hour = Number(match[4]);
-    const minute = Number(match[5]);
-    const secFloat = Number(match[6] || '0');
-    const second = Math.floor(secFloat);
-    const msPart = Math.round((secFloat - second) * 1000);
-
-    if (/Z$/i.test(str)) {
-      return Date.UTC(year, month, day, hour, minute, second, msPart);
-    }
-    const offsetMatch = str.match(/([+-])(\d{2}):?(\d{2})$/);
-    if (offsetMatch) {
-      const sign = offsetMatch[1] === '+' ? 1 : -1;
-      const offHours = Number(offsetMatch[2]);
-      const offMins = Number(offsetMatch[3]);
-      const localAsUtc = Date.UTC(year, month, day, hour, minute, second, msPart);
-      return localAsUtc - sign * (offHours * 60 + offMins) * 60 * 1000;
-    }
-    return Date.UTC(year, month, day, hour, minute, second, msPart);
+const getPassEndMs = (passItem) => {
+  if (passItem?.end_utc_ms !== null && passItem?.end_utc_ms !== undefined) {
+    const n = Number(passItem.end_utc_ms);
+    if (!Number.isNaN(n)) return n;
   }
-
-  const fallbackMs = new Date(str).getTime();
-  return Number.isNaN(fallbackMs) ? null : fallbackMs;
+  if (!passItem?.end_time) return null;
+  const fallback = new Date(passItem.end_time).getTime();
+  return Number.isNaN(fallback) ? null : fallback;
 };
 
-/**
- * Convierte el instante UTC a la zona horaria del usuario logueado usando Intl/DateTimeFormat.
- */
-const formatInUserTimeZone = (rawValue, timeZone) => {
-  const utcMs = parsePassTimestampMs(rawValue);
-  if (utcMs === null) return '-';
+const formatEpochInUserTimeZone = (epochMs, rawFallback, timeZone) => {
+  let ms = null;
+  if (epochMs !== null && epochMs !== undefined && !Number.isNaN(Number(epochMs))) {
+    ms = Number(epochMs);
+  } else if (rawFallback) {
+    const parsed = new Date(rawFallback).getTime();
+    if (!Number.isNaN(parsed)) ms = parsed;
+  }
 
-  const targetZone = timeZone || 'America/Argentina/Buenos_Aires';
-  return new Date(utcMs).toLocaleString('es-AR', {
-    timeZone: targetZone,
+  if (ms === null) return '-';
+
+  return new Date(ms).toLocaleString('es-AR', {
+    timeZone: timeZone || 'America/Argentina/Buenos_Aires',
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -849,7 +819,7 @@ export default function SystemHealthDashboard() {
 
   const renderPassStatusBadge = (passItem) => {
     const rawStatus = String(passItem.status || 'pending').toLowerCase();
-    const endMs = parsePassTimestampMs(passItem.end_time);
+    const endMs = getPassEndMs(passItem);
     const isPastEnd = endMs !== null && Date.now() > endMs;
 
     if (rawStatus === 'cancelled') {
@@ -1612,7 +1582,7 @@ export default function SystemHealthDashboard() {
                       <tbody className="divide-y divide-slate-900">
                         {recentPasses.map((passItem) => {
                           const rawStatus = String(passItem.status || '').toLowerCase();
-                          const endMs = parsePassTimestampMs(passItem.end_time);
+                          const endMs = getPassEndMs(passItem);
                           const isExpired =
                             rawStatus === 'expired' ||
                             (rawStatus === 'pending' && endMs !== null && Date.now() > endMs);
@@ -1634,8 +1604,17 @@ export default function SystemHealthDashboard() {
                                   .join(' / ') || '-'}
                               </td>
                               <td className="py-2.5 px-3 text-[11px] text-slate-300 font-mono">
-                                {formatInUserTimeZone(passItem.start_time, activeTimeZone)} →{' '}
-                                {formatInUserTimeZone(passItem.end_time, activeTimeZone)}
+                                {formatEpochInUserTimeZone(
+                                  passItem.start_utc_ms,
+                                  passItem.start_time,
+                                  activeTimeZone
+                                )}{' '}
+                                →{' '}
+                                {formatEpochInUserTimeZone(
+                                  passItem.end_utc_ms,
+                                  passItem.end_time,
+                                  activeTimeZone
+                                )}
                               </td>
                               <td className="py-2.5 px-3">{renderPassStatusBadge(passItem)}</td>
                               <td className="py-2.5 px-3 text-right">
@@ -1925,7 +1904,7 @@ export default function SystemHealthDashboard() {
                             </td>
                             <td className="py-2.5 px-3 text-slate-300">{log.message}</td>
                             <td className="py-2.5 px-3 font-mono text-[11px] text-slate-400">
-                              {formatInUserTimeZone(log.created_at, activeTimeZone)}
+                              {formatEpochInUserTimeZone(null, log.created_at, activeTimeZone)}
                             </td>
                           </tr>
                         ))}
