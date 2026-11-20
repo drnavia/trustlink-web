@@ -1,8 +1,7 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * apariencia configurable (fondos, tipografías, logo opcional y modo oscuro) en header, sub-menú,
- * vistas y footer único global.
+ * apariencia configurable por Zonas 1 a 6 (fondos y tipografías), logo opcional y modo oscuro.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -89,9 +88,9 @@ function MainAppContent() {
         color: brand.platformTextColor || '#F1F5F9',
       }}
     >
-      {/* Barra de Navegación Superior Global */}
+      {/* Zona 1: Barra de Navegación Superior Global */}
       <header
-        className="border-b border-slate-800 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 shadow-lg tl-menu-surface"
+        className="border-b border-slate-800 px-4 md:px-8 py-3.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-40 tl-menu-surface"
         style={{
           backgroundColor: brand.menuBgColor || '#020617',
           color: brand.menuTextColor || '#E2E8F0',
@@ -121,7 +120,7 @@ function MainAppContent() {
               className="h-9 w-auto max-w-[120px] object-contain rounded-lg"
             />
           ) : (
-            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md bg-emerald-600">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-white font-bold text-lg bg-emerald-600">
               <ShieldCheck size={20} />
             </div>
           )}
@@ -145,7 +144,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('resident')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'resident'
-                    ? 'bg-emerald-600 text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
@@ -159,7 +158,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('provider')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'provider'
-                    ? 'bg-emerald-600 text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
@@ -173,7 +172,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('payments')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'payments'
-                    ? 'bg-emerald-600 text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
@@ -187,7 +186,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('security')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'security'
-                    ? 'bg-emerald-600 text-white shadow-lg'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
                 }`}
               >
@@ -201,7 +200,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('local_admin')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'local_admin'
-                    ? 'bg-amber-600 text-white shadow-lg'
+                    ? 'bg-amber-600 text-white'
                     : 'bg-slate-800 text-amber-300 hover:bg-slate-700'
                 }`}
               >
@@ -220,7 +219,7 @@ function MainAppContent() {
                   currentView === 'users_master' ||
                   currentView === 'local_admin' ||
                   currentView === 'branding_master'
-                    ? 'bg-purple-700 text-white border-purple-500 shadow'
+                    ? 'bg-purple-700 text-white border-purple-500'
                     : 'bg-purple-950 text-purple-300 border-purple-800 hover:bg-purple-900'
                 }`}
               >
@@ -234,7 +233,7 @@ function MainAppContent() {
         <div className="flex items-center gap-2.5 text-xs">
           {isAuthenticated && user ? (
             <>
-              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl shadow-inner">
+              <div className="flex items-center gap-2 bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-xl">
                 <ShieldCheck size={14} className="text-emerald-400" />
                 <span className="font-bold text-slate-100">
                   {user.first_name} ({user.role})
@@ -256,7 +255,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('login')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'login'
-                    ? 'bg-emerald-600 text-white shadow'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
                 }`}
               >
@@ -267,7 +266,7 @@ function MainAppContent() {
                 onClick={() => setCurrentView('register')}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
                   currentView === 'register'
-                    ? 'bg-emerald-600 text-white shadow'
+                    ? 'bg-emerald-600 text-white'
                     : 'bg-slate-900 text-slate-300 border border-slate-700 hover:bg-slate-800'
                 }`}
               >
@@ -278,7 +277,7 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
+      {/* Zona 2: Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
       {isSuperadmin && masterModeOpen && (
         <div
           className="border-b border-purple-900/60 px-4 md:px-8 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs tl-submenu-surface"
@@ -345,7 +344,7 @@ function MainAppContent() {
               onClick={() => setCurrentView('branding_master')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'branding_master'
-                  ? 'bg-emerald-600 text-white shadow'
+                  ? 'bg-emerald-600 text-white'
                   : 'bg-slate-900 text-slate-300 hover:bg-slate-800 border border-slate-800'
               }`}
             >
@@ -355,7 +354,7 @@ function MainAppContent() {
         </div>
       )}
 
-      {/* Contenedor Principal de Vistas */}
+      {/* Zona 3: Contenedor Principal de Vistas */}
       <main className="flex-grow flex flex-col">
         {currentView === 'landing' && <LandingHome onViewChange={setCurrentView} />}
         {currentView === 'login' && (
@@ -407,12 +406,12 @@ function MainAppContent() {
           ))}
       </main>
 
-      {/* Footer Institucional Único */}
+      {/* Zona 6: Footer Institucional Único */}
       <footer
-        className="border-t border-slate-800 py-3.5 px-6 text-center text-xs w-full mt-auto tl-menu-surface"
+        className="border-t border-slate-800 py-3.5 px-6 text-center text-xs w-full mt-auto tl-footer-surface"
         style={{
-          backgroundColor: brand.menuBgColor || '#020617',
-          color: brand.menuTextColor || '#94A3B8',
+          backgroundColor: brand.footerBgColor || brand.menuBgColor || '#020617',
+          color: brand.footerTextColor || '#94A3B8',
         }}
       >
         TrustLink Community Network — Nodo Central de Validación Perimetral y Compliance © 2026

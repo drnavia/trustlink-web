@@ -1,8 +1,8 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar fondos de zonas 1 a 6
- * (plataforma Zona 3, menú Zona 1, sub-menú Zona 2, tarjetas Zona 4 y cajas internas Zona 5),
- * tipografías, logo opcional (SVG, PNG, JPG) y modo oscuro en TrustLink.
+ * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
+ * Plataforma general, Tarjetas principales, Cajas internas y Footer), mostrando en cada zona
+ * su color de fondo y su color de tipografía, junto con logo opcional (SVG, PNG, JPG) y modo oscuro.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -26,6 +26,51 @@ import { useBranding, DEFAULT_BRANDING_CONFIG } from './BrandingContext';
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
+
+const ZONES_CONFIG = [
+  {
+    zone: 'Zona 1',
+    title: 'Menú',
+    description: 'Barra de navegación superior principal.',
+    bgField: 'menuBgColor',
+    textField: 'menuTextColor',
+  },
+  {
+    zone: 'Zona 2',
+    title: 'Sub-menú',
+    description: 'Barra secundaria de Gobernanza / Modo Maestro.',
+    bgField: 'submenuBgColor',
+    textField: 'submenuTextColor',
+  },
+  {
+    zone: 'Zona 3',
+    title: 'Fondo de la plataforma general',
+    description: 'Lienzo general de la aplicación en todas las vistas.',
+    bgField: 'platformBgColor',
+    textField: 'platformTextColor',
+  },
+  {
+    zone: 'Zona 4',
+    title: 'Tarjetas principales',
+    description: 'Contenedores y tarjetas principales de cada vista.',
+    bgField: 'cardBgColor',
+    textField: 'cardTextColor',
+  },
+  {
+    zone: 'Zona 5',
+    title: 'Cajas internas',
+    description: 'Bloques internos, sub-paneles y elementos secundarios.',
+    bgField: 'innerBgColor',
+    textField: 'innerTextColor',
+  },
+  {
+    zone: 'Zona 6',
+    title: 'Footer',
+    description: 'Pie institucional inferior de la plataforma.',
+    bgField: 'footerBgColor',
+    textField: 'footerTextColor',
+  },
+];
 
 /**
  * Calcula la relación de contraste aproximada entre dos colores HEX.
@@ -64,17 +109,8 @@ export default function BrandingSettingsView() {
   } = useBranding();
 
   const [formState, setFormState] = useState({
-    platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
-    menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
-    submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
-    cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-    innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-    platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
-    menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
-    submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
-    logoUrl: brand.logoUrl || null,
+    ...DEFAULT_BRANDING_CONFIG,
     logoFileName: '',
-    darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
   });
 
   const [saving, setSaving] = useState(false);
@@ -84,26 +120,34 @@ export default function BrandingSettingsView() {
   useEffect(() => {
     setFormState((prev) => ({
       ...prev,
-      platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
       menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
-      submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
-      cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-      innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-      platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
       menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
+      submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
       submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
+      platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
+      platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
+      cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+      cardTextColor: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+      innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+      innerTextColor: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+      footerBgColor: brand.footerBgColor || DEFAULT_BRANDING_CONFIG.footerBgColor,
+      footerTextColor: brand.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor,
       logoUrl: brand.logoUrl || null,
       darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
     }));
   }, [
-    brand.platformBgColor,
     brand.menuBgColor,
-    brand.submenuBgColor,
-    brand.cardBgColor,
-    brand.innerBgColor,
-    brand.platformTextColor,
     brand.menuTextColor,
+    brand.submenuBgColor,
     brand.submenuTextColor,
+    brand.platformBgColor,
+    brand.platformTextColor,
+    brand.cardBgColor,
+    brand.cardTextColor,
+    brand.innerBgColor,
+    brand.innerTextColor,
+    brand.footerBgColor,
+    brand.footerTextColor,
     brand.logoUrl,
     brand.darkMode,
   ]);
@@ -181,21 +225,15 @@ export default function BrandingSettingsView() {
     e.preventDefault();
     setFeedback({ type: '', text: '' });
 
-    const allHexValid = [
-      formState.platformBgColor,
-      formState.menuBgColor,
-      formState.submenuBgColor,
-      formState.cardBgColor,
-      formState.innerBgColor,
-      formState.platformTextColor,
-      formState.menuTextColor,
-      formState.submenuTextColor,
-    ].every((hex) => HEX_REGEX.test(hex));
+    const allColorFields = ZONES_CONFIG.flatMap((z) => [
+      formState[z.bgField],
+      formState[z.textField],
+    ]);
 
-    if (!allHexValid) {
+    if (!allColorFields.every((hex) => HEX_REGEX.test(hex))) {
       setFeedback({
         type: 'error',
-        text: 'Verificá que todos los colores tengan formato hexadecimal válido (#RRGGBB).',
+        text: 'Verificá que todos los colores de fondo y tipografía de las 6 zonas tengan formato HEX válido (#RRGGBB).',
       });
       return;
     }
@@ -203,14 +241,18 @@ export default function BrandingSettingsView() {
     setSaving(true);
     try {
       await saveBranding({
-        platformBgColor: formState.platformBgColor,
         menuBgColor: formState.menuBgColor,
-        submenuBgColor: formState.submenuBgColor,
-        cardBgColor: formState.cardBgColor,
-        innerBgColor: formState.innerBgColor,
-        platformTextColor: formState.platformTextColor,
         menuTextColor: formState.menuTextColor,
+        submenuBgColor: formState.submenuBgColor,
         submenuTextColor: formState.submenuTextColor,
+        platformBgColor: formState.platformBgColor,
+        platformTextColor: formState.platformTextColor,
+        cardBgColor: formState.cardBgColor,
+        cardTextColor: formState.cardTextColor,
+        innerBgColor: formState.innerBgColor,
+        innerTextColor: formState.innerTextColor,
+        footerBgColor: formState.footerBgColor,
+        footerTextColor: formState.footerTextColor,
         logoUrl: formState.logoUrl,
         darkMode: formState.darkMode,
       });
@@ -236,17 +278,8 @@ export default function BrandingSettingsView() {
       const target = defaults || DEFAULT_BRANDING_CONFIG;
       await resetBranding();
       setFormState({
-        platformBgColor: target.platformBgColor,
-        menuBgColor: target.menuBgColor,
-        submenuBgColor: target.submenuBgColor,
-        cardBgColor: target.cardBgColor,
-        innerBgColor: target.innerBgColor,
-        platformTextColor: target.platformTextColor,
-        menuTextColor: target.menuTextColor,
-        submenuTextColor: target.submenuTextColor,
-        logoUrl: target.logoUrl,
+        ...target,
         logoFileName: '',
-        darkMode: target.darkMode,
       });
       setFeedback({
         type: 'success',
@@ -267,48 +300,24 @@ export default function BrandingSettingsView() {
     await fetchBranding();
   };
 
-  const platformContrast = getContrastRatio(
-    formState.platformBgColor,
-    formState.platformTextColor
+  const hasLowContrastWarning = ZONES_CONFIG.some(
+    (z) => getContrastRatio(formState[z.bgField], formState[z.textField]) < 3
   );
-  const cardContrast = getContrastRatio(
-    formState.cardBgColor,
-    formState.platformTextColor
-  );
-  const innerContrast = getContrastRatio(
-    formState.innerBgColor,
-    formState.platformTextColor
-  );
-  const menuContrast = getContrastRatio(formState.menuBgColor, formState.menuTextColor);
-  const submenuContrast = getContrastRatio(
-    formState.submenuBgColor,
-    formState.submenuTextColor
-  );
-  const hasLowContrastWarning =
-    platformContrast < 3 ||
-    cardContrast < 3 ||
-    innerContrast < 3 ||
-    menuContrast < 3 ||
-    submenuContrast < 3;
 
-  const renderColorRow = (label, description, field) => {
+  const renderMiniColorControl = (label, field) => {
     const value = formState[field];
     const isValid = HEX_REGEX.test(value);
 
     return (
-      <div className="bg-slate-900/70 border border-slate-800 p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="space-y-0.5">
-          <p className="text-xs font-bold text-white">{label}</p>
-          <p className="text-[11px] text-slate-400">{description}</p>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center justify-between gap-2 bg-slate-950/80 border border-slate-800 px-3 py-2 rounded-lg">
+        <span className="text-[11px] font-semibold text-slate-300">{label}</span>
+        <div className="flex items-center gap-1.5">
           <input
             type="color"
-            aria-label={label}
+            aria-label={`${label} selector`}
             value={isValid ? value : '#0F172A'}
             onChange={(e) => updateColorField(field, e.target.value)}
-            className="w-10 h-9 rounded-lg bg-slate-950 border border-slate-700 cursor-pointer p-0.5"
+            className="w-7 h-7 rounded bg-slate-900 border border-slate-700 cursor-pointer p-0.5"
           />
           <input
             type="text"
@@ -316,7 +325,7 @@ export default function BrandingSettingsView() {
             value={value}
             onChange={(e) => updateColorField(field, e.target.value)}
             placeholder="#000000"
-            className="w-24 bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white uppercase focus:outline-none focus:border-emerald-500"
+            className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-white uppercase focus:outline-none focus:border-emerald-500"
           />
         </div>
       </div>
@@ -336,7 +345,7 @@ export default function BrandingSettingsView() {
               Apariencia y Marca
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Fondos de zonas (1 a 6), tipografías, logo opcional y modo oscuro para toda la plataforma.
+              Fondos y tipografías ordenados de Zona 1 a Zona 6, logo opcional y modo oscuro.
             </p>
           </div>
         </div>
@@ -369,69 +378,43 @@ export default function BrandingSettingsView() {
         <div className="p-3.5 rounded-xl mb-6 text-xs flex items-center gap-2 border bg-amber-950/40 border-amber-800/70 text-amber-200">
           <AlertCircle size={16} className="text-amber-400 shrink-0" />
           <span>
-            Aviso de contraste: alguna combinación de fondo y tipografía tiene bajo contraste y puede dificultar la lectura.
+            Aviso de contraste: en alguna de las zonas el color de tipografía y el color de fondo tienen bajo contraste.
           </span>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Columna Izquierda: Controles */}
+        {/* Columna Izquierda: Zonas 1 a 6 Ordenadas (Fondo + Tipografía por Zona) */}
         <form onSubmit={handleSave} className="lg:col-span-7 space-y-6">
-          {/* 1. Fondos */}
-          <div className="space-y-2.5">
+          <div className="space-y-3">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Colores de Fondo
+              Zonas 1 a 6 — Fondo y Tipografía
             </h3>
-            {renderColorRow(
-              'Fondo de la plataforma general (Zona 3)',
-              'Fondo base de la aplicación y vistas principales.',
-              'platformBgColor'
-            )}
-            {renderColorRow(
-              'Fondo del menú (Zona 1)',
-              'Color de fondo de la barra de navegación superior.',
-              'menuBgColor'
-            )}
-            {renderColorRow(
-              'Fondo del sub-menú (Zona 2)',
-              'Color de fondo de la barra secundaria de Modo Maestro.',
-              'submenuBgColor'
-            )}
-            {renderColorRow(
-              'Fondo de tarjetas principales (Zona 4)',
-              'Color de fondo de las tarjetas y contenedores principales de cada vista.',
-              'cardBgColor'
-            )}
-            {renderColorRow(
-              'Fondo de cajas internas (Zona 5)',
-              'Color de fondo de paneles internos, sub-bloques e inputs.',
-              'innerBgColor'
-            )}
+
+            {ZONES_CONFIG.map((item) => (
+              <div
+                key={item.zone}
+                className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                  <div>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 mr-2">
+                      {item.zone}
+                    </span>
+                    <span className="text-xs font-bold text-white">{item.title}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">{item.description}</p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {renderMiniColorControl('Fondo', item.bgField)}
+                  {renderMiniColorControl('Tipografía', item.textField)}
+                </div>
+              </div>
+            ))}
           </div>
 
-          {/* 2. Tipografías */}
-          <div className="space-y-2.5">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Colores de Tipografía
-            </h3>
-            {renderColorRow(
-              'Tipografía de la plataforma general',
-              'Color de texto principal en vistas, tarjetas y contenidos.',
-              'platformTextColor'
-            )}
-            {renderColorRow(
-              'Tipografía del menú',
-              'Color de texto de la barra de navegación superior.',
-              'menuTextColor'
-            )}
-            {renderColorRow(
-              'Tipografía del sub-menú',
-              'Color de texto del sub-menú de gobernanza.',
-              'submenuTextColor'
-            )}
-          </div>
-
-          {/* 3. Logo Institucional Opcional + Modo Oscuro */}
+          {/* Logo Institucional Opcional + Modo Oscuro */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3">
               <div className="flex items-center justify-between">
@@ -587,40 +570,40 @@ export default function BrandingSettingsView() {
               color: formState.platformTextColor,
             }}
           >
-            <p className="text-[11px] font-semibold opacity-90">Zona 3 — Fondo Plataforma</p>
+            <p className="text-[11px] font-semibold">Zona 3 — Fondo de la plataforma general</p>
 
             {/* Zona 4: Tarjeta principal */}
             <div
               className="p-3.5 rounded-xl border border-slate-700/70 space-y-2.5"
               style={{
                 backgroundColor: formState.cardBgColor,
-                color: formState.platformTextColor,
+                color: formState.cardTextColor,
               }}
             >
-              <p className="text-xs font-bold">Zona 4 — Tarjeta Principal</p>
+              <p className="text-xs font-bold">Zona 4 — Tarjetas principales</p>
 
               {/* Zona 5: Caja interna */}
               <div
                 className="p-2.5 rounded-lg border border-slate-700/70 text-[11px]"
                 style={{
                   backgroundColor: formState.innerBgColor,
-                  color: formState.platformTextColor,
+                  color: formState.innerTextColor,
                 }}
               >
-                Zona 5 — Caja interna / sub-panel
+                Zona 5 — Cajas internas
               </div>
             </div>
           </div>
 
           {/* Zona 6: Footer */}
           <div
-            className="px-3.5 py-2 rounded-b-xl border border-slate-700/70 text-[11px] text-center"
+            className="px-3.5 py-2.5 rounded-b-xl border border-slate-700/70 text-[11px] text-center"
             style={{
-              backgroundColor: formState.menuBgColor,
-              color: formState.menuTextColor,
+              backgroundColor: formState.footerBgColor,
+              color: formState.footerTextColor,
             }}
           >
-            Zona 6 — Footer institucional
+            Zona 6 — Footer
           </div>
         </div>
       </div>
