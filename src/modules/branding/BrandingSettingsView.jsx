@@ -2,7 +2,8 @@
  * @file BrandingSettingsView.jsx
  * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
  * Plataforma general, Tarjetas principales, Cajas internas y Footer), con presets rápidos
- * de piel para previsualizar al instante, logo opcional (SVG, PNG, JPG) y modo oscuro.
+ * de piel (clásicos y visuales/llamativos) para previsualizar al instante, logo opcional
+ * (SVG, PNG, JPG) y modo oscuro.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -412,7 +413,7 @@ export default function BrandingSettingsView() {
             <Sparkles size={14} /> Presets de Piel Rápidos
           </h3>
           <p className="text-[11px] opacity-80">
-            Previsualizá un esquema estándar al instante; luego presioná Guardar y Aplicar para persistir en PostgreSQL.
+            Previsualizá un esquema al instante; luego presioná Guardar y Aplicar para persistir en PostgreSQL.
           </p>
         </div>
 

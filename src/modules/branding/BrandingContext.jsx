@@ -3,7 +3,8 @@
  * @description Contexto modular para gestionar la apariencia global de TrustLink:
  * fondos y tipografías de las Zonas 1 a 6 (Menú, Sub-menú, Plataforma general,
  * Tarjetas principales, Cajas internas y Footer), logo opcional (SVG, PNG, JPG),
- * modo oscuro/claro y presets rápidos de piel, sincronizado con PostgreSQL vía /api/v1/branding.
+ * modo oscuro/claro y presets de piel (clásicos y llamativos), sincronizado con
+ * PostgreSQL vía /api/v1/branding.
  * @location /trustlink-web/src/modules/branding/BrandingContext.jsx
  */
 
@@ -11,7 +12,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 
 const API_BASE = 'http://localhost:4000';
 
-// Presets estándar de piel para probar estilos al instante antes de guardar
+// Presets estándar y visuales/llamativos para probar estilos al instante antes de guardar
 export const BRANDING_PRESETS = {
   default: {
     id: 'default',
@@ -91,6 +92,86 @@ export const BRANDING_PRESETS = {
       footerBgColor: '#09090B',
       footerTextColor: '#A1A1AA',
       darkMode: true,
+    },
+  },
+  emeraldPerimeter: {
+    id: 'emeraldPerimeter',
+    name: 'Esmeralda Perimetral',
+    description: 'Tonos esmeralda profundos y frescos inspirados en accesos verificados.',
+    config: {
+      menuBgColor: '#041F17',
+      menuTextColor: '#ECFDF5',
+      submenuBgColor: '#072E23',
+      submenuTextColor: '#A7F3D0',
+      platformBgColor: '#0B3B2D',
+      platformTextColor: '#F0FDF4',
+      cardBgColor: '#041F17',
+      cardTextColor: '#ECFDF5',
+      innerBgColor: '#0F4C3A',
+      innerTextColor: '#D1FAE5',
+      footerBgColor: '#041F17',
+      footerTextColor: '#6EE7B7',
+      darkMode: true,
+    },
+  },
+  midnightViolet: {
+    id: 'midnightViolet',
+    name: 'Medianoche Violeta',
+    description: 'Piel visual nocturna en violeta e índigo intenso con textos vibrantes.',
+    config: {
+      menuBgColor: '#120A24',
+      menuTextColor: '#F5F3FF',
+      submenuBgColor: '#1B1036',
+      submenuTextColor: '#DDD6FE',
+      platformBgColor: '#241547',
+      platformTextColor: '#F5F3FF',
+      cardBgColor: '#120A24',
+      cardTextColor: '#EDE9FE',
+      innerBgColor: '#2E1B5C',
+      innerTextColor: '#E9D5FF',
+      footerBgColor: '#120A24',
+      footerTextColor: '#C4B5FD',
+      darkMode: true,
+    },
+  },
+  amberSunset: {
+    id: 'amberSunset',
+    name: 'Atardecer Ámbar',
+    description: 'Estética cálida en tonos cobre y espresso con acentos dorados.',
+    config: {
+      menuBgColor: '#211108',
+      menuTextColor: '#FFFBEB',
+      submenuBgColor: '#30190C',
+      submenuTextColor: '#FDE68A',
+      platformBgColor: '#3E2010',
+      platformTextColor: '#FFFBEB',
+      cardBgColor: '#211108',
+      cardTextColor: '#FEF3C7',
+      innerBgColor: '#4F2915',
+      innerTextColor: '#FDE68A',
+      footerBgColor: '#211108',
+      footerTextColor: '#FBBF24',
+      darkMode: true,
+    },
+  },
+  cyanUrban: {
+    id: 'cyanUrban',
+    name: 'Cian Urbano (Día)',
+    description: 'Piel clara y luminosa en tonos agua y azul marino de alto contraste.',
+    config: {
+      menuBgColor: '#ECFEFF',
+      menuTextColor: '#083344',
+      submenuBgColor: '#CFFAFE',
+      submenuTextColor: '#155E75',
+      platformBgColor: '#E0F2FE',
+      platformTextColor: '#0F172A',
+      cardBgColor: '#FFFFFF',
+      cardTextColor: '#0F172A',
+      innerBgColor: '#F0F9FF',
+      innerTextColor: '#1E293B',
+      footerBgColor: '#CFFAFE',
+      footerTextColor: '#164E63',
+      darkMode: false,
     },
   },
 };
