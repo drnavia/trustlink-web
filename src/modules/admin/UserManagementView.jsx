@@ -1,49 +1,64 @@
 /**
  * @file UserManagementView.jsx
- * @description Consola minimalista de Cuentas Privilegiadas para superadmin: alta, edición y
- * control de estado de usuarios con roles 'admin' y 'superadmin'.
+ * @description Panel maestro para el rol 'superadmin' con alta, edición y control
+ * de cuentas privilegiadas ('admin' y 'superadmin'), con aplicación explícita de
+ * Zona 4 (tarjetas principales) y Zona 5 (cajas/bloques internos e inputs).
  * @location /trustlink-web/src/modules/admin/UserManagementView.jsx
  */
 
 import React, { useState, useEffect } from 'react';
 import {
-  Shield,
+  ShieldAlert,
   UserPlus,
-  Pencil,
   CheckCircle2,
   AlertCircle,
+  Users,
+  Edit3,
   X,
-  Save,
-  Mail
 } from 'lucide-react';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
 
 export default function UserManagementView() {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const { brand } = useBranding();
+
+  const cardStyle = {
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+  };
+
+  const innerStyle = {
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+  };
+
+  const [usersList, setUsersList] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // Formulario alta
-  const [role, setRole] = useState('admin');
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [dni, setDni] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  // Estado para el formulario de alta de Superadmin / Admin
+  const [formData, setFormData] = useState({
+    first_name: '',
+    last_name: '',
+    dni: '',
+    email: '',
+    password: '',
+    role: 'admin',
+    country_id: 1,
+  });
 
-  // Modal / edición inline
+  // Estado para edición de cuenta privilegiada
   const [editingUser, setEditingUser] = useState(null);
-  const [editFirstName, setEditFirstName] = useState('');
-  const [editLastName, setEditLastName] = useState('');
-  const [editRole, setEditRole] = useState('admin');
-  const [editActive, setEditActive] = useState(true);
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const getAuthHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+  const [editForm, setEditForm] = useState({
+    first_name: '',
+    last_name: '',
+    dni: '',
+    email: '',
+    password: '',
+    role: 'admin',
+    is_active: true,
   });
 
   const fetchPrivilegedUsers = async () => {
@@ -51,17 +66,20 @@ export default function UserManagementView() {
     setErrorMsg('');
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/users/privileged`, {
-        headers: getAuthHeaders()
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        setUsers(data.users || []);
+        setUsersList(data.users || []);
       } else {
         setErrorMsg(data.error || 'No se pudieron cargar las cuentas privilegiadas.');
       }
     } catch (error) {
-      console.error('Error al cargar cuentas privilegiadas:', error);
-      setErrorMsg('Error de conexión con el servidor backend.');
+      console.error('Error al cargar usuarios privilegiados:', error);
+      setErrorMsg('Error de conexión con el servidor backend de TrustLink.');
     } finally {
       setLoading(false);
     }
@@ -71,367 +89,470 @@ export default function UserManagementView() {
     fetchPrivilegedUsers();
   }, []);
 
-  const handleCreatePrivilegedUser = async (e) => {
+  const handleCreateUser = async (e) => {
     e.preventDefault();
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !password.trim()) return;
-    setSubmitting(true);
     setErrorMsg('');
     setSuccessMsg('');
+    setLoading(true);
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
         },
         body: JSON.stringify({
-          role,
-          first_name: firstName.trim(),
-          last_name: lastName.trim(),
-          dni: dni.trim() || null,
-          email: email.trim(),
-          password
-        })
+          ...formData,
+          country_id: formData.role === 'superadmin' ? null : Number(formData.country_id || 1),
+        }),
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg(data.message || 'Cuenta privilegiada creada.');
-        setFirstName('');
-        setLastName('');
-        setDni('');
-        setEmail('');
-        setPassword('');
+        setSuccessMsg('Cuenta privilegiada creada correctamente.');
+        setFormData({
+          first_name: '',
+          last_name: '',
+          dni: '',
+          email: '',
+          password: '',
+          role: 'admin',
+          country_id: 1,
+        });
         await fetchPrivilegedUsers();
       } else {
-        setErrorMsg(data.error || 'No se pudo crear la cuenta.');
+        setErrorMsg(data.error || 'No se pudo crear la cuenta privilegiada.');
       }
     } catch (error) {
-      console.error('Error al crear cuenta privilegiada:', error);
-      setErrorMsg('Error de conexión al registrar la cuenta.');
+      console.error('Error al crear usuario privilegiado:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   };
 
-  const openEditUser = (u) => {
+  const openEditModal = (u) => {
     setEditingUser(u);
-    setEditFirstName(u.first_name || '');
-    setEditLastName(u.last_name || '');
-    setEditRole(u.role || 'admin');
-    setEditActive(Boolean(u.is_active));
+    setEditForm({
+      first_name: u.first_name || '',
+      last_name: u.last_name || '',
+      dni: u.dni || '',
+      email: u.email || '',
+      password: '',
+      role: u.role || 'admin',
+      is_active: Boolean(u.is_active),
+    });
     setErrorMsg('');
     setSuccessMsg('');
   };
 
-  const handleSaveUserEdit = async (e) => {
+  const handleUpdateUser = async (e) => {
     e.preventDefault();
     if (!editingUser) return;
-    setSavingEdit(true);
+    setLoading(true);
     setErrorMsg('');
     setSuccessMsg('');
+
+    const payload = {
+      first_name: editForm.first_name,
+      last_name: editForm.last_name,
+      dni: editForm.dni,
+      email: editForm.email,
+      role: editForm.role,
+      is_active: editForm.is_active,
+    };
+    if (editForm.password.trim()) {
+      payload.password = editForm.password.trim();
+    }
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/users/privileged/${editingUser.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders()
-        },
-        body: JSON.stringify({
-          first_name: editFirstName.trim(),
-          last_name: editLastName.trim(),
-          role: editRole,
-          is_active: editActive
-        })
-      });
+      const response = await fetch(
+        `${API_BASE}/api/v1/auth/users/privileged/${editingUser.id}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+          },
+          body: JSON.stringify(payload),
+        }
+      );
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg(data.message || 'Cuenta actualizada.');
+        setSuccessMsg('Cuenta privilegiada actualizada correctamente.');
         setEditingUser(null);
         await fetchPrivilegedUsers();
       } else {
         setErrorMsg(data.error || 'No se pudo actualizar la cuenta.');
       }
     } catch (error) {
-      console.error('Error al actualizar cuenta:', error);
+      console.error('Error al actualizar cuenta privilegiada:', error);
       setErrorMsg('Error de conexión al actualizar.');
     } finally {
-      setSavingEdit(false);
+      setLoading(false);
     }
   };
 
   return (
-    <div className="flex-1 bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
-      <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera minimalista */}
-        <div className="bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
-              <Shield size={20} />
-            </div>
-            <div>
-              <h2 className="text-lg md:text-xl font-black tracking-tight text-white">
-                Cuentas Privilegiadas
-              </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Gestión de accesos y roles administrativos.
-              </p>
-            </div>
+    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6 font-sans">
+      {/* Zona 4: Encabezado Cuentas Privilegiadas */}
+      <section
+        className="border border-black/20 p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        style={cardStyle}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-3 rounded-xl border border-white/15 text-purple-400" style={innerStyle}>
+            <ShieldAlert size={22} />
           </div>
-
-          <span className="text-xs font-mono bg-slate-900 text-slate-300 border border-slate-800 px-3 py-1.5 rounded-xl">
-            {users.length} cuentas
-          </span>
+          <div>
+            <h2 className="text-xl md:text-2xl font-black tracking-tight">
+              Cuentas Privilegiadas
+            </h2>
+            <p className="text-xs opacity-80 mt-0.5">
+              Gestión de accesos y roles administrativos.
+            </p>
+          </div>
         </div>
 
-        {errorMsg && (
-          <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
-            <AlertCircle size={16} className="text-rose-400 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
-        )}
+        <span
+          className="text-xs font-bold px-3.5 py-2 rounded-xl border border-white/15 self-start sm:self-auto"
+          style={innerStyle}
+        >
+          {usersList.length} cuenta(s)
+        </span>
+      </section>
 
-        {successMsg && (
-          <div className="flex items-center gap-2 bg-emerald-950/60 border border-emerald-800/80 text-emerald-200 p-4 rounded-xl text-xs">
-            <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-            <span>{successMsg}</span>
-          </div>
-        )}
+      {errorMsg && (
+        <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle size={16} className="text-rose-400 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Columna izquierda: Alta */}
-          <div className="lg:col-span-5 bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4 self-start">
-            <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-              <UserPlus size={15} />
-              <span>Registrar nuevo administrador</span>
+      {successMsg && (
+        <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Zona 4: Formulario Alta + Zona 5: Inputs */}
+        <section
+          className="lg:col-span-5 border border-black/20 p-6 rounded-2xl space-y-4 self-start"
+          style={cardStyle}
+        >
+          <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
+            <UserPlus size={16} /> Registrar nuevo administrador
+          </h3>
+
+          <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
+            <div>
+              <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                Rol del sistema
+              </label>
+              <select
+                value={formData.role}
+                onChange={(e) => setFormData({ ...formData, role: e.target.value })}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                style={innerStyle}
+              >
+                <option value="admin">Administrador Operativo (Admin)</option>
+                <option value="superadmin">Superadministrador Global (Superadmin)</option>
+              </select>
             </div>
 
-            <form onSubmit={handleCreatePrivilegedUser} className="space-y-3.5 text-xs">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Rol del sistema
+                <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                  Nombre
                 </label>
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white focus:outline-none focus:border-emerald-500"
+                <input
+                  type="text"
+                  required
+                  value={formData.first_name}
+                  onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+                  placeholder="Ej. Juan"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                  style={innerStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                  Apellido
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={formData.last_name}
+                  onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+                  placeholder="Ej. Pérez"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                  style={innerStyle}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                DNI
+              </label>
+              <input
+                type="text"
+                required
+                value={formData.dni}
+                onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
+                placeholder="40123456"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                style={innerStyle}
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                Correo electrónico
+              </label>
+              <input
+                type="email"
+                required
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                placeholder="admin@dominio.com"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                style={innerStyle}
+              />
+            </div>
+
+            <div>
+              <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                Contraseña temporal
+              </label>
+              <input
+                type="password"
+                required
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder="••••••••"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                style={innerStyle}
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 px-4 rounded-xl text-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:opacity-50 mt-2"
+            >
+              <UserPlus size={15} />
+              {loading ? 'Procesando...' : 'Otorgar Rol Administrador'}
+            </button>
+          </form>
+        </section>
+
+        {/* Zona 4: Listado de Cuentas + Zona 5: Tarjetas de Usuario */}
+        <section
+          className="lg:col-span-7 border border-black/20 p-6 rounded-2xl space-y-4"
+          style={cardStyle}
+        >
+          <h3 className="text-sm font-bold flex items-center gap-2 text-sky-400">
+            <Users size={16} /> Cuentas con privilegios activos ({usersList.length})
+          </h3>
+
+          {loading && usersList.length === 0 ? (
+            <div
+              className="p-6 rounded-xl border border-black/20 text-center text-xs"
+              style={innerStyle}
+            >
+              Cargando cuentas privilegiadas...
+            </div>
+          ) : usersList.length === 0 ? (
+            <div
+              className="p-6 rounded-xl border border-black/20 text-center text-xs opacity-80"
+              style={innerStyle}
+            >
+              No hay cuentas privilegiadas registradas.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {usersList.map((u) => (
+                <div
+                  key={u.id}
+                  className="p-4 rounded-xl border border-black/20 flex items-center justify-between gap-4 text-xs"
+                  style={innerStyle}
                 >
-                  <option value="admin">Administrador Operativo (Admin)</option>
-                  <option value="superadmin">Superadmin Global</option>
-                </select>
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">
+                        {u.first_name} {u.last_name}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
+                          u.role === 'superadmin'
+                            ? 'bg-purple-950/90 text-purple-200 border border-purple-700'
+                            : 'bg-sky-950/90 text-sky-200 border border-sky-700'
+                        }`}
+                      >
+                        {u.role}
+                      </span>
+                    </div>
+                    <p className="opacity-80 truncate">
+                      {u.email} · DNI: {u.dni || '-'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span
+                      className={`text-[11px] px-2.5 py-1 rounded-lg font-bold border ${
+                        u.is_active
+                          ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700'
+                          : 'bg-rose-950/70 text-rose-300 border-rose-700'
+                      }`}
+                    >
+                      {u.is_active ? 'Activo' : 'Inactivo'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal(u)}
+                      className="p-2 rounded-lg border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                      style={cardStyle}
+                      title="Editar cuenta"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* Modal de Edición */}
+      {editingUser && (
+        <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
+          <div
+            className="border border-black/25 w-full max-w-md p-6 rounded-2xl relative space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <button
+              type="button"
+              onClick={() => setEditingUser(null)}
+              className="absolute top-4 right-4 p-1.5 rounded-lg border border-white/15 cursor-pointer"
+              style={innerStyle}
+            >
+              <X size={15} />
+            </button>
+
+            <h3 className="text-base font-black">Editar Cuenta Privilegiada</h3>
+
+            <form onSubmit={handleUpdateUser} className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold uppercase opacity-80 mb-1">Nombre</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.first_name}
+                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold uppercase opacity-80 mb-1">Apellido</label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.last_name}
+                    onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Nombre
-                  </label>
+                  <label className="block font-bold uppercase opacity-80 mb-1">DNI</label>
                   <input
                     type="text"
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Ej. Juan"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                    required
+                    value={editForm.dni}
+                    onChange={(e) => setEditForm({ ...editForm, dni: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                    Apellido
-                  </label>
-                  <input
-                    type="text"
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Ej. Pérez"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  DNI
-                </label>
-                <input
-                  type="text"
-                  value={dni}
-                  onChange={(e) => setDni(e.target.value)}
-                  placeholder="40123456"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Correo electrónico
-                </label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@dominio.com"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">
-                  Contraseña temporal
-                </label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-700 text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg transition-all disabled:opacity-50 cursor-pointer"
-              >
-                <UserPlus size={14} />
-                {submitting ? 'Registrando...' : 'Otorgar Rol Administrador'}
-              </button>
-            </form>
-          </div>
-
-          {/* Columna derecha: Cuentas activas */}
-          <div className="lg:col-span-7 bg-slate-950 border border-slate-800 p-5 md:p-6 rounded-2xl shadow-xl space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-                <Shield size={15} />
-                <span>Cuentas con privilegios activos ({users.length})</span>
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="text-center py-8 text-xs text-slate-400">Cargando cuentas...</div>
-            ) : users.length === 0 ? (
-              <div className="text-center py-8 text-xs text-slate-500">Sin cuentas registradas.</div>
-            ) : (
-              <div className="space-y-3">
-                {users.map((u) => (
-                  <div
-                    key={u.id}
-                    className="bg-slate-900/90 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4"
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-white">
-                          {u.first_name} {u.last_name}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded border ${
-                            u.role === 'superadmin'
-                              ? 'bg-purple-950 text-purple-300 border-purple-800'
-                              : 'bg-blue-950 text-blue-300 border-blue-800'
-                          }`}
-                        >
-                          {u.role}
-                        </span>
-                      </div>
-                      <p className="text-xs text-slate-400 flex items-center gap-1.5">
-                        <Mail size={12} className="text-slate-500" />
-                        <span>{u.email}</span>
-                        {u.dni && <span>| DNI: {u.dni}</span>}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span
-                        className={`text-xs font-bold px-3 py-1 rounded-lg border ${
-                          u.is_active
-                            ? 'bg-emerald-950/70 text-emerald-300 border-emerald-800'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {u.is_active ? 'Activo' : 'Inactivo'}
-                      </span>
-
-                      <button
-                        type="button"
-                        onClick={() => openEditUser(u)}
-                        className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
-                        title="Editar cuenta"
-                      >
-                        <Pencil size={13} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {editingUser && (
-              <form
-                onSubmit={handleSaveUserEdit}
-                className="bg-slate-900 border border-purple-800/70 rounded-xl p-4 space-y-3 text-xs"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-bold text-purple-300">
-                    Editando cuenta #{editingUser.id} ({editingUser.email})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setEditingUser(null)}
-                    className="text-slate-400 hover:text-white cursor-pointer"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    value={editFirstName}
-                    onChange={(e) => setEditFirstName(e.target.value)}
-                    placeholder="Nombre"
-                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
-                  />
-                  <input
-                    type="text"
-                    value={editLastName}
-                    onChange={(e) => setEditLastName(e.target.value)}
-                    placeholder="Apellido"
-                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <label className="block font-bold uppercase opacity-80 mb-1">Rol</label>
                   <select
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value)}
-                    className="px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                    value={editForm.role}
+                    onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
                   >
                     <option value="admin">admin</option>
                     <option value="superadmin">superadmin</option>
                   </select>
-
-                  <label className="inline-flex items-center gap-2 text-slate-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={editActive}
-                      onChange={(e) => setEditActive(e.target.checked)}
-                    />
-                    <span>Cuenta activa</span>
-                  </label>
-
-                  <button
-                    type="submit"
-                    disabled={savingEdit}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold cursor-pointer"
-                  >
-                    <Save size={13} />
-                    {savingEdit ? 'Guardando...' : 'Guardar cambios'}
-                  </button>
                 </div>
-              </form>
-            )}
+              </div>
+
+              <div>
+                <label className="block font-bold uppercase opacity-80 mb-1">Correo</label>
+                <input
+                  type="email"
+                  required
+                  value={editForm.email}
+                  onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold uppercase opacity-80 mb-1">
+                  Nueva contraseña (opcional)
+                </label>
+                <input
+                  type="password"
+                  value={editForm.password}
+                  onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                  placeholder="Dejar en blanco para mantener la actual"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={innerStyle}
+                />
+              </div>
+
+              <label className="inline-flex items-center gap-2 font-bold cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={editForm.is_active}
+                  onChange={(e) => setEditForm({ ...editForm, is_active: e.target.checked })}
+                />
+                <span>Cuenta activa</span>
+              </label>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingUser(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl font-bold cursor-pointer"
+                >
+                  {loading ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </main>
+      )}
     </div>
   );
 }
