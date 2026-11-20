@@ -3,6 +3,7 @@
  * @description Vista exclusiva de 'superadmin' ordenada por Zonas 1 a 6 (Menú, Sub-menú,
  * Plataforma general, Tarjetas principales, Cajas internas y Footer), mostrando en cada zona
  * su color de fondo y su color de tipografía, junto con logo opcional (SVG, PNG, JPG) y modo oscuro.
+ * Aplica Zona 4 y Zona 5 en sus propias tarjetas para reflejar los cambios en vivo.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -107,6 +108,16 @@ export default function BrandingSettingsView() {
     resetBranding,
     fetchBranding,
   } = useBranding();
+
+  const cardStyle = {
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+  };
+
+  const innerStyle = {
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+  };
 
   const [formState, setFormState] = useState({
     ...DEFAULT_BRANDING_CONFIG,
@@ -309,15 +320,19 @@ export default function BrandingSettingsView() {
     const isValid = HEX_REGEX.test(value);
 
     return (
-      <div className="flex items-center justify-between gap-2 bg-slate-950/80 border border-slate-800 px-3 py-2 rounded-lg">
-        <span className="text-[11px] font-semibold text-slate-300">{label}</span>
+      <div
+        className="flex items-center justify-between gap-2 border border-black/20 px-3 py-2 rounded-lg"
+        style={cardStyle}
+      >
+        <span className="text-[11px] font-semibold opacity-90">{label}</span>
         <div className="flex items-center gap-1.5">
           <input
             type="color"
             aria-label={`${label} selector`}
             value={isValid ? value : '#0F172A'}
             onChange={(e) => updateColorField(field, e.target.value)}
-            className="w-7 h-7 rounded bg-slate-900 border border-slate-700 cursor-pointer p-0.5"
+            className="w-7 h-7 rounded border border-white/15 cursor-pointer p-0.5"
+            style={innerStyle}
           />
           <input
             type="text"
@@ -325,7 +340,8 @@ export default function BrandingSettingsView() {
             value={value}
             onChange={(e) => updateColorField(field, e.target.value)}
             placeholder="#000000"
-            className="w-20 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-[11px] font-mono text-white uppercase focus:outline-none focus:border-emerald-500"
+            className="w-20 border border-white/15 rounded px-2 py-1 text-[11px] font-mono uppercase focus:outline-none"
+            style={innerStyle}
           />
         </div>
       </div>
@@ -333,24 +349,33 @@ export default function BrandingSettingsView() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto p-6 md:p-8 bg-slate-950 text-slate-100 rounded-2xl border border-slate-800 my-8 font-sans">
+    <div
+      className="max-w-6xl w-full mx-auto p-6 md:p-8 rounded-2xl border border-black/20 my-6 font-sans space-y-6"
+      style={cardStyle}
+    >
       {/* Encabezado */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-slate-800 mb-8 gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-black/20 gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+          <div
+            className="p-3 rounded-xl border border-white/15 text-emerald-400"
+            style={innerStyle}
+          >
             <Palette size={22} />
           </div>
           <div>
-            <h2 className="text-xl md:text-2xl font-black tracking-tight text-white">
+            <h2 className="text-xl md:text-2xl font-black tracking-tight">
               Apariencia y Marca
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs opacity-80 mt-0.5">
               Fondos y tipografías ordenados de Zona 1 a Zona 6, logo opcional y modo oscuro.
             </p>
           </div>
         </div>
 
-        <span className="text-xs font-bold bg-slate-900 text-emerald-400 px-4 py-2 rounded-xl border border-slate-800 inline-flex items-center gap-1.5 self-start md:self-auto">
+        <span
+          className="text-xs font-bold text-emerald-400 px-4 py-2 rounded-xl border border-white/15 inline-flex items-center gap-1.5 self-start md:self-auto"
+          style={innerStyle}
+        >
           <Lock size={13} /> Acceso Maestro
         </span>
       </div>
@@ -358,10 +383,10 @@ export default function BrandingSettingsView() {
       {/* Mensajes de estado */}
       {feedback.text && (
         <div
-          className={`p-4 rounded-xl mb-6 text-xs flex items-center gap-2 border ${
+          className={`p-4 rounded-xl text-xs flex items-center gap-2 border ${
             feedback.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-800 text-emerald-200'
-              : 'bg-rose-950/50 border-rose-800 text-rose-200'
+              ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+              : 'bg-rose-950/60 border-rose-800 text-rose-200'
           }`}
         >
           {feedback.type === 'success' ? (
@@ -375,7 +400,7 @@ export default function BrandingSettingsView() {
 
       {/* Aviso preventivo de contraste */}
       {hasLowContrastWarning && (
-        <div className="p-3.5 rounded-xl mb-6 text-xs flex items-center gap-2 border bg-amber-950/40 border-amber-800/70 text-amber-200">
+        <div className="p-3.5 rounded-xl text-xs flex items-center gap-2 border bg-amber-950/50 border-amber-800/70 text-amber-200">
           <AlertCircle size={16} className="text-amber-400 shrink-0" />
           <span>
             Aviso de contraste: en alguna de las zonas el color de tipografía y el color de fondo tienen bajo contraste.
@@ -387,23 +412,24 @@ export default function BrandingSettingsView() {
         {/* Columna Izquierda: Zonas 1 a 6 Ordenadas (Fondo + Tipografía por Zona) */}
         <form onSubmit={handleSave} className="lg:col-span-7 space-y-6">
           <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
               Zonas 1 a 6 — Fondo y Tipografía
             </h3>
 
             {ZONES_CONFIG.map((item) => (
               <div
                 key={item.zone}
-                className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3"
+                className="border border-black/20 p-4 rounded-xl space-y-3"
+                style={innerStyle}
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <div>
                     <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 mr-2">
                       {item.zone}
                     </span>
-                    <span className="text-xs font-bold text-white">{item.title}</span>
+                    <span className="text-xs font-bold">{item.title}</span>
                   </div>
-                  <p className="text-[11px] text-slate-400">{item.description}</p>
+                  <p className="text-[11px] opacity-80">{item.description}</p>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -416,18 +442,24 @@ export default function BrandingSettingsView() {
 
           {/* Logo Institucional Opcional + Modo Oscuro */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl space-y-3">
+            <div
+              className="border border-black/20 p-4 rounded-xl space-y-3"
+              style={innerStyle}
+            >
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span className="text-xs font-bold flex items-center gap-1.5">
                   <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
                 </span>
               </div>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] opacity-80">
                 Opcional. Si no subís ninguno, se mantiene el emblema por defecto de TrustLink.
               </p>
 
               <div className="flex flex-wrap items-center gap-2">
-                <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-200 border border-slate-700 cursor-pointer transition-colors">
+                <label
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
+                  style={cardStyle}
+                >
                   <Upload size={13} /> Subir logo
                   <input
                     type="file"
@@ -449,15 +481,18 @@ export default function BrandingSettingsView() {
               </div>
 
               {formState.logoFileName && (
-                <p className="text-[11px] text-slate-400 truncate">
-                  Archivo: <span className="font-mono text-slate-200">{formState.logoFileName}</span>
+                <p className="text-[11px] opacity-80 truncate">
+                  Archivo: <span className="font-mono">{formState.logoFileName}</span>
                 </p>
               )}
             </div>
 
-            <div className="bg-slate-900/70 border border-slate-800 p-4 rounded-xl flex flex-col justify-between space-y-3">
+            <div
+              className="border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
+              style={innerStyle}
+            >
               <div className="space-y-1">
-                <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                <span className="text-xs font-bold flex items-center gap-1.5">
                   {formState.darkMode ? (
                     <Moon size={14} className="text-emerald-400" />
                   ) : (
@@ -465,13 +500,16 @@ export default function BrandingSettingsView() {
                   )}
                   Modo Oscuro
                 </span>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] opacity-80">
                   Activa el esquema oscuro en toda la plataforma o alterná a modo claro.
                 </p>
               </div>
 
-              <label className="inline-flex items-center justify-between bg-slate-950 border border-slate-800 px-3.5 py-2.5 rounded-xl cursor-pointer">
-                <span className="text-xs font-bold text-slate-200">
+              <label
+                className="inline-flex items-center justify-between border border-white/15 px-3.5 py-2.5 rounded-xl cursor-pointer"
+                style={cardStyle}
+              >
+                <span className="text-xs font-bold">
                   {formState.darkMode ? 'Activado (Oscuro)' : 'Desactivado (Claro)'}
                 </span>
                 <input
@@ -499,7 +537,8 @@ export default function BrandingSettingsView() {
               type="button"
               onClick={handleReset}
               disabled={saving || resetting}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              className="px-4 py-2.5 rounded-xl text-xs font-bold border border-white/15 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+              style={innerStyle}
             >
               <RotateCcw size={14} />
               {resetting ? 'Restaurando...' : 'Restaurar por Defecto'}
@@ -509,7 +548,7 @@ export default function BrandingSettingsView() {
               type="button"
               onClick={handleDiscardPreview}
               disabled={saving || resetting}
-              className="px-3.5 py-2.5 rounded-xl text-xs font-semibold text-slate-400 hover:text-white transition-colors cursor-pointer"
+              className="px-3.5 py-2.5 rounded-xl text-xs font-semibold opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
             >
               Descartar cambios sin guardar
             </button>
@@ -517,17 +556,20 @@ export default function BrandingSettingsView() {
         </form>
 
         {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6) */}
-        <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 p-5 rounded-2xl space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <span className="text-xs font-bold text-slate-200">Vista previa en vivo</span>
-            <span className="text-[11px] text-slate-400">
+        <div
+          className="lg:col-span-5 border border-black/20 p-5 rounded-2xl space-y-4 self-start"
+          style={innerStyle}
+        >
+          <div className="flex items-center justify-between border-b border-black/20 pb-3">
+            <span className="text-xs font-bold">Vista previa en vivo</span>
+            <span className="text-[11px] opacity-80">
               {formState.darkMode ? 'Modo oscuro' : 'Modo claro'}
             </span>
           </div>
 
           {/* Zona 1: Menú */}
           <div
-            className="px-3.5 py-2.5 rounded-t-xl border border-slate-700/70 flex items-center justify-between gap-2"
+            className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
             style={{
               backgroundColor: formState.menuBgColor,
               color: formState.menuTextColor,
@@ -552,7 +594,7 @@ export default function BrandingSettingsView() {
 
           {/* Zona 2: Sub-menú */}
           <div
-            className="px-3.5 py-2 border-x border-slate-700/70 flex items-center justify-between text-[11px]"
+            className="px-3.5 py-2 border-x border-black/20 flex items-center justify-between text-[11px]"
             style={{
               backgroundColor: formState.submenuBgColor,
               color: formState.submenuTextColor,
@@ -564,7 +606,7 @@ export default function BrandingSettingsView() {
 
           {/* Zona 3: Fondo Plataforma + Zona 4 Tarjeta + Zona 5 Caja Interna */}
           <div
-            className="p-4 border-x border-slate-700/70 space-y-3"
+            className="p-4 border-x border-black/20 space-y-3"
             style={{
               backgroundColor: formState.platformBgColor,
               color: formState.platformTextColor,
@@ -574,7 +616,7 @@ export default function BrandingSettingsView() {
 
             {/* Zona 4: Tarjeta principal */}
             <div
-              className="p-3.5 rounded-xl border border-slate-700/70 space-y-2.5"
+              className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
               style={{
                 backgroundColor: formState.cardBgColor,
                 color: formState.cardTextColor,
@@ -584,7 +626,7 @@ export default function BrandingSettingsView() {
 
               {/* Zona 5: Caja interna */}
               <div
-                className="p-2.5 rounded-lg border border-slate-700/70 text-[11px]"
+                className="p-2.5 rounded-lg border border-black/20 text-[11px]"
                 style={{
                   backgroundColor: formState.innerBgColor,
                   color: formState.innerTextColor,
@@ -597,7 +639,7 @@ export default function BrandingSettingsView() {
 
           {/* Zona 6: Footer */}
           <div
-            className="px-3.5 py-2.5 rounded-b-xl border border-slate-700/70 text-[11px] text-center"
+            className="px-3.5 py-2.5 rounded-b-xl border border-black/20 text-[11px] text-center"
             style={{
               backgroundColor: formState.footerBgColor,
               color: formState.footerTextColor,
