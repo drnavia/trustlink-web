@@ -1,8 +1,9 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar identidad opcional del menú,
- * presets rápidos de piel, logo opcional (SVG, PNG, JPG), fondos y tipografías de las
- * Zonas 1 a 6 y modo oscuro, con vista previa en vivo y persistencia en PostgreSQL.
+ * @description Vista exclusiva de 'superadmin' para configurar presets rápidos de piel,
+ * logo opcional (SVG, PNG, JPG) con recomendación de dimensiones, identidad opcional del menú,
+ * fondos y tipografías de las Zonas 1 a 6 en formato compacto y modo oscuro, con vista previa
+ * en vivo alineada y persistencia en PostgreSQL.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -35,44 +36,38 @@ const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
 
 const ZONES_CONFIG = [
   {
-    zone: 'Zona 1',
+    zone: 'ZONA 1',
     title: 'Menú',
-    description: 'Barra de navegación superior principal.',
     bgField: 'menuBgColor',
     textField: 'menuTextColor',
   },
   {
-    zone: 'Zona 2',
+    zone: 'ZONA 2',
     title: 'Sub-menú',
-    description: 'Barra secundaria de Gobernanza / Modo Maestro.',
     bgField: 'submenuBgColor',
     textField: 'submenuTextColor',
   },
   {
-    zone: 'Zona 3',
+    zone: 'ZONA 3',
     title: 'Fondo de la plataforma general',
-    description: 'Lienzo general de la aplicación en todas las vistas.',
     bgField: 'platformBgColor',
     textField: 'platformTextColor',
   },
   {
-    zone: 'Zona 4',
+    zone: 'ZONA 4',
     title: 'Tarjetas principales',
-    description: 'Contenedores y tarjetas principales de cada vista.',
     bgField: 'cardBgColor',
     textField: 'cardTextColor',
   },
   {
-    zone: 'Zona 5',
+    zone: 'ZONA 5',
     title: 'Cajas internas',
-    description: 'Bloques internos, sub-paneles y elementos secundarios.',
     bgField: 'innerBgColor',
     textField: 'innerTextColor',
   },
   {
-    zone: 'Zona 6',
+    zone: 'ZONA 6',
     title: 'Footer',
-    description: 'Pie institucional inferior de la plataforma.',
     bgField: 'footerBgColor',
     textField: 'footerTextColor',
   },
@@ -352,23 +347,23 @@ export default function BrandingSettingsView() {
     (z) => getContrastRatio(formState[z.bgField], formState[z.textField]) < 3
   );
 
-  const renderMiniColorControl = (label, field) => {
+  const renderCompactColorInput = (label, field) => {
     const value = formState[field];
     const isValid = HEX_REGEX.test(value);
 
     return (
       <div
-        className="flex items-center justify-between gap-2 border border-black/20 px-3 py-2 rounded-lg"
+        className="flex items-center justify-between gap-2 border border-black/20 px-2.5 py-1.5 rounded-lg"
         style={cardStyle}
       >
-        <span className="text-[11px] font-semibold opacity-90">{label}</span>
+        <span className="text-[11px] font-medium opacity-85">{label}</span>
         <div className="flex items-center gap-1.5">
           <input
             type="color"
             aria-label={`${label} selector`}
             value={isValid ? value : '#0F172A'}
             onChange={(e) => updateColorField(field, e.target.value)}
-            className="w-7 h-7 rounded border border-white/15 cursor-pointer p-0.5"
+            className="w-6 h-6 rounded border border-white/15 cursor-pointer p-0"
             style={innerStyle}
           />
           <input
@@ -377,7 +372,7 @@ export default function BrandingSettingsView() {
             value={value}
             onChange={(e) => updateColorField(field, e.target.value)}
             placeholder="#000000"
-            className="w-20 border border-white/15 rounded px-2 py-1 text-[11px] font-mono uppercase focus:outline-none"
+            className="w-[74px] border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono uppercase focus:outline-none"
             style={innerStyle}
           />
         </div>
@@ -397,7 +392,7 @@ export default function BrandingSettingsView() {
       style={cardStyle}
     >
       {/* Encabezado */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between pb-6 border-b border-black/20 gap-4">
+      <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-black/20 gap-4">
         <div className="flex items-center gap-3">
           <div
             className="p-3 rounded-xl border border-white/15 text-emerald-400"
@@ -423,7 +418,7 @@ export default function BrandingSettingsView() {
         </span>
       </div>
 
-      {/* 1. Presets de Piel Rápidos (4 columnas) */}
+      {/* 1. Presets de Piel Rápidos */}
       <section
         className="border border-black/20 p-4 md:p-5 rounded-2xl space-y-3.5"
         style={innerStyle}
@@ -520,22 +515,23 @@ export default function BrandingSettingsView() {
         </div>
       )}
 
-      {/* 2. Fila Intermedia: Logo (Izquierda, 5 cols) + Identidad del Menú (Derecha, 7 cols) */}
+      {/* 2. Fila Intermedia: Logo con dimensión recomendada + Identidad del Menú */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div
-          className="lg:col-span-5 border border-black/20 p-4 md:p-5 rounded-xl flex flex-col justify-between space-y-4"
+          className="lg:col-span-5 border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
           style={innerStyle}
         >
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <span className="text-xs font-bold flex items-center gap-1.5">
               <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
             </span>
             <p className="text-[11px] opacity-80 leading-relaxed">
-              Opcional (máx. 1 MB). Reemplaza el emblema verde por defecto; podés quitarlo cuando quieras.
+              Opcional (máx. 1 MB). Dimensión recomendada: <strong>240×72 px</strong> horizontal o{' '}
+              <strong>128×128 px</strong> cuadrado (SVG o PNG transparente para máxima nitidez).
             </p>
           </div>
 
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <label
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
@@ -570,7 +566,7 @@ export default function BrandingSettingsView() {
         </div>
 
         <div
-          className="lg:col-span-7 border border-black/20 p-4 md:p-5 rounded-xl space-y-3"
+          className="lg:col-span-7 border border-black/20 p-4 rounded-xl space-y-3"
           style={innerStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -582,7 +578,7 @@ export default function BrandingSettingsView() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
             <div>
               <label className="block text-[11px] font-semibold opacity-85 mb-1">
                 Nombre en menú
@@ -593,7 +589,7 @@ export default function BrandingSettingsView() {
                 value={formState.brandName}
                 onChange={(e) => updateIdentityField('brandName', e.target.value)}
                 placeholder="TrustLink"
-                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                 style={cardStyle}
               />
             </div>
@@ -608,7 +604,7 @@ export default function BrandingSettingsView() {
                 value={formState.brandBadge}
                 onChange={(e) => updateIdentityField('brandBadge', e.target.value)}
                 placeholder="Community"
-                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                 style={cardStyle}
               />
             </div>
@@ -623,7 +619,7 @@ export default function BrandingSettingsView() {
                 value={formState.brandSubtitle}
                 onChange={(e) => updateIdentityField('brandSubtitle', e.target.value)}
                 placeholder="Red de Confianza Residencial"
-                className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                 style={cardStyle}
               />
             </div>
@@ -631,174 +627,164 @@ export default function BrandingSettingsView() {
         </div>
       </div>
 
-      {/* 3. Bloque Inferior: Zonas 1 a 6 + Modo Oscuro (Izquierda, 7 cols) y Vista Previa en Vivo (Derecha, 5 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Columna Izquierda: Zonas 1 a 6 + Modo Oscuro */}
-        <div className="lg:col-span-7 space-y-5">
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
-              Zonas 1 a 6 — Fondo y Tipografía
-            </h3>
+      {/* 3. Zonas 1 a 6 Minimalistas + Vista Previa en Vivo Alineada a la Altura de ZONA 1 */}
+      <div className="space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
+          Zonas 1 a 6 — Fondo y Tipografía
+        </h3>
 
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Columna Izquierda: Filas compactas de Zonas 1 a 6 + Modo Oscuro */}
+          <div className="lg:col-span-7 space-y-2.5">
             {ZONES_CONFIG.map((item) => (
               <div
                 key={item.zone}
-                className="border border-black/20 p-4 rounded-xl space-y-3"
+                className="border border-black/20 px-3.5 py-2.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
                 style={innerStyle}
               >
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-                  <div>
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 mr-2">
-                      {item.zone}
-                    </span>
-                    <span className="text-xs font-bold">{item.title}</span>
-                  </div>
-                  <p className="text-[11px] opacity-80">{item.description}</p>
+                <div className="min-w-0">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 mr-2">
+                    {item.zone}
+                  </span>
+                  <span className="text-xs font-bold">{item.title}</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {renderMiniColorControl('Fondo', item.bgField)}
-                  {renderMiniColorControl('Tipografía', item.textField)}
+                <div className="grid grid-cols-2 gap-2 shrink-0">
+                  {renderCompactColorInput('Fondo', item.bgField)}
+                  {renderCompactColorInput('Tipografía', item.textField)}
                 </div>
               </div>
             ))}
+
+            {/* Modo Oscuro compacto */}
+            <div
+              className="border border-black/20 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3"
+              style={innerStyle}
+            >
+              <div className="flex items-center gap-2">
+                {formState.darkMode ? (
+                  <Moon size={14} className="text-emerald-400 shrink-0" />
+                ) : (
+                  <Sun size={14} className="text-amber-400 shrink-0" />
+                )}
+                <span className="text-xs font-bold">Modo Oscuro</span>
+              </div>
+
+              <label
+                className="inline-flex items-center gap-2.5 border border-white/15 px-3 py-1.5 rounded-lg cursor-pointer text-xs font-semibold"
+                style={cardStyle}
+              >
+                <span>{formState.darkMode ? 'Activado' : 'Desactivado'}</span>
+                <input
+                  type="checkbox"
+                  checked={Boolean(formState.darkMode)}
+                  onChange={(e) => handleDarkModeToggle(e.target.checked)}
+                  className="w-4 h-4 accent-emerald-500 cursor-pointer"
+                />
+              </label>
+            </div>
           </div>
 
-          {/* Modo Oscuro */}
+          {/* Columna Derecha: Vista Previa en Vivo alineada a la altura de ZONA 1 */}
           <div
-            className="border border-black/20 p-4 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+            className="lg:col-span-5 border border-black/20 p-4 rounded-2xl space-y-3"
             style={innerStyle}
           >
-            <div className="space-y-1">
-              <span className="text-xs font-bold flex items-center gap-1.5">
-                {formState.darkMode ? (
-                  <Moon size={14} className="text-emerald-400" />
-                ) : (
-                  <Sun size={14} className="text-amber-400" />
-                )}
-                Modo Oscuro
+            <div className="flex items-center justify-between border-b border-black/20 pb-2.5">
+              <span className="text-xs font-bold">Vista previa en vivo</span>
+              <span className="text-[11px] opacity-80">
+                {formState.darkMode ? 'Modo oscuro' : 'Modo claro'}
               </span>
-              <p className="text-[11px] opacity-80">
-                Activa el esquema oscuro en toda la plataforma o alterná a modo claro.
-              </p>
             </div>
 
-            <label
-              className="inline-flex items-center justify-between gap-3 border border-white/15 px-3.5 py-2.5 rounded-xl cursor-pointer shrink-0"
-              style={cardStyle}
-            >
-              <span className="text-xs font-bold">
-                {formState.darkMode ? 'Activado (Oscuro)' : 'Desactivado (Claro)'}
-              </span>
-              <input
-                type="checkbox"
-                checked={Boolean(formState.darkMode)}
-                onChange={(e) => handleDarkModeToggle(e.target.checked)}
-                className="w-4 h-4 accent-emerald-500 cursor-pointer"
-              />
-            </label>
-          </div>
-        </div>
-
-        {/* Columna Derecha: Vista Previa en Vivo (Zonas 1 a 6) */}
-        <div
-          className="lg:col-span-5 border border-black/20 p-5 rounded-2xl space-y-4"
-          style={innerStyle}
-        >
-          <div className="flex items-center justify-between border-b border-black/20 pb-3">
-            <span className="text-xs font-bold">Vista previa en vivo</span>
-            <span className="text-[11px] opacity-80">
-              {formState.darkMode ? 'Modo oscuro' : 'Modo claro'}
-            </span>
-          </div>
-
-          {/* Zona 1: Menú */}
-          <div
-            className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
-            style={{
-              backgroundColor: formState.menuBgColor,
-              color: formState.menuTextColor,
-            }}
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              {formState.logoUrl ? (
-                <img
-                  src={formState.logoUrl}
-                  alt={previewTitle}
-                  className="h-8 w-auto max-w-[96px] object-contain rounded"
-                />
-              ) : (
-                <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                  <ShieldCheck size={16} />
-                </div>
-              )}
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-black truncate">{previewTitle}</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/25 border border-white/15 shrink-0">
-                    {previewBadge}
-                  </span>
-                </div>
-                <p className="text-[10px] opacity-80 truncate">{previewSubtitle}</p>
-              </div>
-            </div>
-            <span className="text-[10px] opacity-75 shrink-0">Zona 1</span>
-          </div>
-
-          {/* Zona 2: Sub-menú */}
-          <div
-            className="px-3.5 py-2 border-x border-black/20 flex items-center justify-between text-[11px]"
-            style={{
-              backgroundColor: formState.submenuBgColor,
-              color: formState.submenuTextColor,
-            }}
-          >
-            <span className="font-semibold">Zona 2 — Sub-menú</span>
-            <span className="opacity-80">Modo Maestro</span>
-          </div>
-
-          {/* Zona 3: Fondo Plataforma + Zona 4 Tarjeta + Zona 5 Caja Interna */}
-          <div
-            className="p-4 border-x border-black/20 space-y-3"
-            style={{
-              backgroundColor: formState.platformBgColor,
-              color: formState.platformTextColor,
-            }}
-          >
-            <p className="text-[11px] font-semibold">Zona 3 — Fondo de la plataforma general</p>
-
-            {/* Zona 4: Tarjeta principal */}
+            {/* Zona 1: Menú */}
             <div
-              className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
+              className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
               style={{
-                backgroundColor: formState.cardBgColor,
-                color: formState.cardTextColor,
+                backgroundColor: formState.menuBgColor,
+                color: formState.menuTextColor,
               }}
             >
-              <p className="text-xs font-bold">Zona 4 — Tarjetas principales</p>
+              <div className="flex items-center gap-2.5 min-w-0">
+                {formState.logoUrl ? (
+                  <img
+                    src={formState.logoUrl}
+                    alt={previewTitle}
+                    className="h-8 w-auto max-w-[96px] object-contain rounded"
+                  />
+                ) : (
+                  <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                    <ShieldCheck size={16} />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-black truncate">{previewTitle}</span>
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/25 border border-white/15 shrink-0">
+                      {previewBadge}
+                    </span>
+                  </div>
+                  <p className="text-[10px] opacity-80 truncate">{previewSubtitle}</p>
+                </div>
+              </div>
+              <span className="text-[10px] opacity-75 shrink-0">Zona 1</span>
+            </div>
 
-              {/* Zona 5: Caja interna */}
+            {/* Zona 2: Sub-menú */}
+            <div
+              className="px-3.5 py-2 border-x border-black/20 flex items-center justify-between text-[11px]"
+              style={{
+                backgroundColor: formState.submenuBgColor,
+                color: formState.submenuTextColor,
+              }}
+            >
+              <span className="font-semibold">Zona 2 — Sub-menú</span>
+              <span className="opacity-80">Modo Maestro</span>
+            </div>
+
+            {/* Zona 3: Fondo Plataforma + Zona 4 Tarjeta + Zona 5 Caja Interna */}
+            <div
+              className="p-3.5 border-x border-black/20 space-y-2.5"
+              style={{
+                backgroundColor: formState.platformBgColor,
+                color: formState.platformTextColor,
+              }}
+            >
+              <p className="text-[11px] font-semibold">Zona 3 — Fondo de la plataforma general</p>
+
+              {/* Zona 4: Tarjeta principal */}
               <div
-                className="p-2.5 rounded-lg border border-black/20 text-[11px]"
+                className="p-3 rounded-xl border border-black/20 space-y-2"
                 style={{
-                  backgroundColor: formState.innerBgColor,
-                  color: formState.innerTextColor,
+                  backgroundColor: formState.cardBgColor,
+                  color: formState.cardTextColor,
                 }}
               >
-                Zona 5 — Cajas internas
+                <p className="text-xs font-bold">Zona 4 — Tarjetas principales</p>
+
+                {/* Zona 5: Caja interna */}
+                <div
+                  className="p-2 rounded-lg border border-black/20 text-[11px]"
+                  style={{
+                    backgroundColor: formState.innerBgColor,
+                    color: formState.innerTextColor,
+                  }}
+                >
+                  Zona 5 — Cajas internas
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* Zona 6: Footer */}
-          <div
-            className="px-3.5 py-2.5 rounded-b-xl border border-black/20 text-[11px] text-center"
-            style={{
-              backgroundColor: formState.footerBgColor,
-              color: formState.footerTextColor,
-            }}
-          >
-            Zona 6 — Footer
+            {/* Zona 6: Footer */}
+            <div
+              className="px-3.5 py-2 rounded-b-xl border border-black/20 text-[11px] text-center"
+              style={{
+                backgroundColor: formState.footerBgColor,
+                color: formState.footerTextColor,
+              }}
+            >
+              Zona 6 — Footer
+            </div>
           </div>
         </div>
       </div>
