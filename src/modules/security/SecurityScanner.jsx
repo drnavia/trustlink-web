@@ -1,8 +1,7 @@
 /**
  * @file SecurityScanner.jsx
  * @description Consola de Garita para validación ultrarrápida de pases QR en accesos perimetrales.
- * Incluye ícono sobrio alineado al título principal, soporte de pistola/Enter, botón de limpieza
- * y visualización detallada de prestador, vehículo, destino y vigencia.
+ * Aplica de forma homogénea Zonas 4 y 5, color principal de marca y título unificado text-xl.
  * @location /trustlink-web/src/modules/security/SecurityScanner.jsx
  */
 
@@ -35,27 +34,27 @@ function formatDateTime(isoValue) {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
-    minute: '2-digit'
+    minute: '2-digit',
   });
 }
 
 export default function SecurityScanner() {
   const { brand } = useBranding();
 
-  // Estilos dinámicos desde BrandingContext (Zonas 4 y 5)
-  const cardStyle = brand?.cardBgColor
-    ? {
-        backgroundColor: brand.cardBgColor,
-        color: brand.cardTextColor || undefined
-      }
-    : undefined;
+  // Zona 4: Tarjetas principales
+  const cardStyle = {
+    backgroundColor: brand?.cardBgColor || '#020617',
+    color: brand?.cardTextColor || '#F1F5F9',
+  };
 
-  const innerStyle = brand?.innerBgColor
-    ? {
-        backgroundColor: brand.innerBgColor,
-        color: brand.innerTextColor || undefined
-      }
-    : undefined;
+  // Zona 5: Cajas internas, inputs y botones secundarios
+  const innerStyle = {
+    backgroundColor: brand?.innerBgColor || '#0F172A',
+    color: brand?.innerTextColor || '#F1F5F9',
+  };
+
+  // Color principal / de acento configurado en marca
+  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [qrToken, setQrToken] = useState('');
   const [verifying, setVerifying] = useState(false);
@@ -79,9 +78,9 @@ export default function SecurityScanner() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ qr_token: cleanToken })
+        body: JSON.stringify({ qr_token: cleanToken }),
       });
 
       const data = await response.json();
@@ -91,7 +90,7 @@ export default function SecurityScanner() {
           data.message ||
           (response.ok ? 'Acceso autorizado.' : 'Acceso denegado o token inválido.'),
         code: data.code || (response.ok ? 'ACCESS_GRANTED' : 'ACCESS_DENIED'),
-        details: data.details || data.pass || null
+        details: data.details || data.pass || null,
       });
     } catch (error) {
       console.error('Error al validar token QR en garita:', error);
@@ -99,7 +98,7 @@ export default function SecurityScanner() {
         authorized: false,
         message: 'Error de conexión con el servidor de validación de pases.',
         code: 'NETWORK_ERROR',
-        details: null
+        details: null,
       });
     } finally {
       setVerifying(false);
@@ -114,25 +113,25 @@ export default function SecurityScanner() {
   const details = result?.details || {};
 
   return (
-    <div className="p-6 md:p-8">
+    <div className="p-6 md:p-8 flex-1">
       <main className="max-w-4xl mx-auto space-y-6">
         {/* Tarjeta principal con ícono sobrio alineado a la izquierda del título */}
         <section
-          className="bg-slate-950 border border-slate-800 p-6 md:p-8 rounded-2xl shadow-xl space-y-6"
+          className="border border-black/20 p-6 md:p-8 rounded-2xl shadow-sm space-y-6"
           style={cardStyle}
         >
           <div className="flex items-center gap-3.5">
             <div
-              className="p-3 rounded-xl bg-slate-900 border border-slate-700/80 text-emerald-400 shrink-0"
+              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
               style={innerStyle}
             >
               <ShieldCheck size={22} strokeWidth={1.8} />
             </div>
             <div>
-              <h2 className="text-xl font-black tracking-tight text-white">
+              <h2 className="text-xl font-black tracking-tight">
                 Validación Ultrarrápida de Accesos
               </h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <p className="text-xs opacity-80 mt-0.5">
                 Escanee el código QR o ingrese el token digital presentado por el prestador.
               </p>
             </div>
@@ -141,20 +140,21 @@ export default function SecurityScanner() {
           {/* Formulario de escaneo / ingreso de token */}
           <form
             onSubmit={handleVerifyPass}
-            className="p-4 rounded-2xl bg-slate-900/80 border border-slate-800 flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
+            className="p-4 rounded-2xl border border-black/20 flex flex-col sm:flex-row items-stretch sm:items-center gap-3"
             style={innerStyle}
           >
             <div className="relative flex-1">
               <QrCode
                 size={17}
-                className="text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"
+                className="opacity-60 absolute left-3.5 top-1/2 -translate-y-1/2"
               />
               <input
                 type="text"
                 value={qrToken}
                 onChange={(e) => setQrToken(e.target.value)}
                 placeholder="Ingrese o pistolee el Token QR (ej. 6c014b85...)"
-                className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-700 rounded-xl text-xs font-mono text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full pl-10 pr-4 py-2.5 border border-white/15 rounded-xl text-xs font-mono focus:outline-none"
+                style={cardStyle}
               />
             </div>
 
@@ -163,7 +163,8 @@ export default function SecurityScanner() {
                 <button
                   type="button"
                   onClick={handleClearScanner}
-                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer"
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                  style={cardStyle}
                   title="Limpiar campo y resultado"
                 >
                   <RotateCcw size={14} />
@@ -174,8 +175,8 @@ export default function SecurityScanner() {
               <button
                 type="submit"
                 disabled={verifying || !qrToken.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
-                style={{ backgroundColor: brand?.primaryColor || '#10b981' }}
+                className="inline-flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                style={{ backgroundColor: primaryActionColor }}
               >
                 <Search size={14} />
                 {verifying ? 'Validando...' : 'Validar Pase'}
@@ -213,29 +214,35 @@ export default function SecurityScanner() {
               {result.authorized && result.details && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   {/* Bloque Prestador */}
-                  <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                  <div
+                    className="p-4 rounded-xl border border-white/15 space-y-1.5"
+                    style={cardStyle}
+                  >
                     <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
                       <User size={13} /> Prestador
                     </p>
-                    <p className="text-sm font-bold text-white">
+                    <p className="text-sm font-bold">
                       {details.provider_name ||
                         `${details.provider_first_name || ''} ${details.provider_last_name || ''}`.trim() ||
                         'Prestador Verificado'}
                     </p>
                     {details.provider_dni && (
-                      <p className="text-slate-300">DNI: {details.provider_dni}</p>
+                      <p className="opacity-85">DNI: {details.provider_dni}</p>
                     )}
                     {details.specialty && (
-                      <p className="text-slate-300">Especialidad: {details.specialty}</p>
+                      <p className="opacity-85">Especialidad: {details.specialty}</p>
                     )}
                   </div>
 
                   {/* Bloque Vehículo, Destino y Vigencia */}
-                  <div className="p-4 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+                  <div
+                    className="p-4 rounded-xl border border-white/15 space-y-1.5"
+                    style={cardStyle}
+                  >
                     <p className="text-[11px] font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
                       <Car size={13} /> Vehículo y Destino
                     </p>
-                    <p className="text-white font-semibold">
+                    <p className="font-semibold">
                       {[details.brand, details.model, details.vehicle_type]
                         .filter(Boolean)
                         .join(' · ') || 'Sin vehículo asociado'}
@@ -244,7 +251,7 @@ export default function SecurityScanner() {
                     {details.plate && (
                       <p className="text-sky-300 font-mono font-bold">Patente: {details.plate}</p>
                     )}
-                    <p className="text-slate-300 flex items-center gap-1.5">
+                    <p className="opacity-85 flex items-center gap-1.5">
                       <MapPin size={12} className="text-emerald-400 shrink-0" />
                       <span>
                         Destino:{' '}
@@ -253,8 +260,8 @@ export default function SecurityScanner() {
                       </span>
                     </p>
                     {(details.start_time || details.end_time) && (
-                      <p className="text-slate-400 flex items-center gap-1.5">
-                        <Clock size={12} className="text-slate-500 shrink-0" />
+                      <p className="opacity-75 flex items-center gap-1.5">
+                        <Clock size={12} className="opacity-70 shrink-0" />
                         <span>
                           Vigencia: {formatDateTime(details.start_time)} —{' '}
                           {formatDateTime(details.end_time)}

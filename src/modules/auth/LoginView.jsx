@@ -1,7 +1,8 @@
 /**
  * @file LoginView.jsx
- * @description Vista de inicio de sesión de TrustLink conectada al backend de autenticación
- * y alineada con el sistema de apariencia por zonas (Zonas 3, 4 y 5) y tamaño de título unificado.
+ * @description Vista de inicio de sesión 100% conectada al backend de TrustLink (/api/v1/auth/login).
+ * Persiste explícitamente trustlink_token y trustlink_user en localStorage, sincroniza el contexto
+ * de autenticación y respeta las zonas de apariencia (Zonas 4 y 5) con título unificado text-xl.
  * @location /trustlink-web/src/modules/auth/LoginView.jsx
  */
 
@@ -41,6 +42,8 @@ export default function LoginView({ onLoginSuccess, onViewChange }) {
     setErrorMsg('');
     setLoading(true);
 
+    const cleanEmail = email.trim();
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
@@ -48,7 +51,7 @@ export default function LoginView({ onLoginSuccess, onViewChange }) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          email: email.trim(),
+          email: cleanEmail,
           password,
         }),
       });
@@ -56,15 +59,35 @@ export default function LoginView({ onLoginSuccess, onViewChange }) {
       const data = await response.json();
 
       if (response.ok && data.token && data.user) {
-        login(data.user, data.token);
-        if (onLoginSuccess) {
+        // Persistir sesión en localStorage de forma explícita y confiable
+        localStorage.setItem('trustlink_token', data.token);
+        localStorage.setItem('trustlink_user', JSON.stringify(data.user));
+
+        // Sincronizar AuthContext según la firma disponible
+        if (typeof login === 'function') {
+          try {
+            if (login.length >= 2) {
+              await login(cleanEmail, password);
+            } else {
+              await login({ user: data.user, token: data.token });
+            }
+          } catch (ctxErr) {
+            console.warn('Aviso al sincronizar AuthContext:', ctxErr);
+          }
+        }
+
+        if (typeof onLoginSuccess === 'function') {
           onLoginSuccess(data.user);
         }
       } else {
-        setErrorMsg(data.error || 'Credenciales inválidas. Verificá tu correo y contraseña.');
+        localStorage.removeItem('trustlink_token');
+        localStorage.removeItem('trustlink_user');
+        setErrorMsg(data.error || 'Credenciales inválidas o cuenta inactiva en la base de datos.');
       }
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
+      localStorage.removeItem('trustlink_token');
+      localStorage.removeItem('trustlink_user');
       setErrorMsg('Error de conexión con el servidor de TrustLink.');
     } finally {
       setLoading(false);

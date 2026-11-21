@@ -1,8 +1,8 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado 100% a PostgreSQL. Permite gestionar
- * credenciales de compliance, flota vehicular habilitada y calificaciones cruzadas con residentes.
- * Incluye ícono de cabecera suavizado y validación explícita de patentes.
+ * @description Portal del Prestador conectado 100% a PostgreSQL. Gestiona credenciales de compliance,
+ * flota vehicular habilitada (con validación de patente) y calificaciones cruzadas con residentes,
+ * respetando de forma homogénea las Zonas 3, 4 y 5 de apariencia.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -36,38 +36,38 @@ function formatComplianceStatus(status) {
   if (normalized === 'approved') {
     return {
       label: 'Aprobado',
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
     };
   }
   if (normalized === 'rejected') {
     return {
       label: 'Rechazado',
-      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800'
+      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800',
     };
   }
   return {
     label: 'Pendiente',
-    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800'
+    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800',
   };
 }
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
-  // Estilos dinámicos desde BrandingContext
-  const cardStyle = brand?.cardBgColor
-    ? {
-        backgroundColor: brand.cardBgColor,
-        color: brand.cardTextColor || undefined
-      }
-    : undefined;
+  // Zona 4: Tarjetas principales
+  const cardStyle = {
+    backgroundColor: brand?.cardBgColor || '#020617',
+    color: brand?.cardTextColor || '#F1F5F9',
+  };
 
-  const innerStyle = brand?.innerBgColor
-    ? {
-        backgroundColor: brand.innerBgColor,
-        color: brand.innerTextColor || undefined
-      }
-    : undefined;
+  // Zona 5: Cajas internas, inputs y contenedores secundarios
+  const innerStyle = {
+    backgroundColor: brand?.innerBgColor || '#0F172A',
+    color: brand?.innerTextColor || '#F1F5F9',
+  };
+
+  // Color principal / de acento configurado en marca
+  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [providerProfiles, setProviderProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
@@ -110,14 +110,14 @@ export default function ProviderDashboard() {
   const [crossReviewFeedback, setCrossReviewFeedback] = useState(null);
 
   const getAuthHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
   const fetchProviderData = async () => {
     setFetching(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
@@ -135,7 +135,7 @@ export default function ProviderDashboard() {
     setLoadingContracts(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
@@ -163,13 +163,13 @@ export default function ProviderDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           specialty: specialty.trim(),
           criminal_record_url: criminalRecordUrl.trim() || null,
-          insurance_policy_url: insurancePolicyUrl.trim() || null
-        })
+          insurance_policy_url: insurancePolicyUrl.trim() || null,
+        }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -198,13 +198,13 @@ export default function ProviderDashboard() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           specialty: editSpecialty.trim(),
           criminal_record_url: editCriminalUrl.trim() || null,
-          insurance_policy_url: editInsuranceUrl.trim() || null
-        })
+          insurance_policy_url: editInsuranceUrl.trim() || null,
+        }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -235,15 +235,15 @@ export default function ProviderDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           vehicle_type: vehicleType,
           brand: brandName.trim(),
           model: modelName.trim(),
           color: colorName.trim(),
-          plate: plate.trim().toUpperCase()
-        })
+          plate: plate.trim().toUpperCase(),
+        }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -276,15 +276,15 @@ export default function ProviderDashboard() {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           vehicle_type: editVehicleType,
           brand: editBrand.trim(),
           model: editModel.trim(),
           color: editColor.trim(),
-          plate: editPlate.trim().toUpperCase()
-        })
+          plate: editPlate.trim().toUpperCase(),
+        }),
       });
       const data = await response.json();
       if (response.ok) {
@@ -313,32 +313,32 @@ export default function ProviderDashboard() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
         body: JSON.stringify({
           contract_id: contractId,
           rating: selectedRating,
-          comment: commentText || null
-        })
+          comment: commentText || null,
+        }),
       });
       const data = await response.json();
       if (response.ok) {
         setCrossReviewFeedback({
           type: 'success',
-          message: data.message || 'Calificación al residente registrada correctamente.'
+          message: data.message || 'Calificación al residente registrada correctamente.',
         });
         await fetchProviderContracts();
       } else {
         setCrossReviewFeedback({
           type: 'error',
-          message: data.error || 'No se pudo registrar la calificación.'
+          message: data.error || 'No se pudo registrar la calificación.',
         });
       }
     } catch (error) {
       console.error('Error al enviar reseña al residente:', error);
       setCrossReviewFeedback({
         type: 'error',
-        message: 'Error de conexión al guardar la calificación.'
+        message: 'Error de conexión al guardar la calificación.',
       });
     } finally {
       setSubmittingReviewId(null);
@@ -348,23 +348,23 @@ export default function ProviderDashboard() {
   const primaryStatusInfo = formatComplianceStatus(providerProfiles[0]?.status);
 
   return (
-    <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+    <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Prestador con ícono suavizado y sobrio */}
+        {/* Cabecera del Portal Prestador */}
         <div
-          className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+          className="border border-black/20 p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
           style={cardStyle}
         >
           <div className="flex items-center gap-3.5">
             <div
-              className="p-3 rounded-xl bg-slate-900 border border-slate-700/80 text-emerald-400 shrink-0"
+              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
               style={innerStyle}
             >
               <Wrench size={20} strokeWidth={1.8} />
             </div>
             <div>
-              <h2 className="text-xl font-black text-white">Portal Prestador</h2>
-              <p className="text-xs text-slate-400 mt-0.5">
+              <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
+              <p className="text-xs opacity-80 mt-0.5">
                 Credenciales de compliance, flota vehicular y reputación cruzada.
               </p>
             </div>
@@ -394,7 +394,11 @@ export default function ProviderDashboard() {
                 : 'bg-rose-950/60 border-rose-800 text-rose-200'
             }`}
           >
-            {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            {feedback.type === 'success' ? (
+              <CheckCircle2 size={16} />
+            ) : (
+              <AlertCircle size={16} />
+            )}
             <span>{feedback.text}</span>
           </div>
         )}
@@ -403,15 +407,15 @@ export default function ProviderDashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Credenciales y Compliance */}
           <div
-            className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
+            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
             style={cardStyle}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <ShieldCheck size={18} className="text-emerald-400" />
-                <h3 className="text-sm font-bold text-white">Credenciales y Compliance</h3>
+                <h3 className="text-sm font-bold">Credenciales y Compliance</h3>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">
+              <span className="text-[11px] font-mono opacity-80">
                 {providerProfiles.length} registro(s)
               </span>
             </div>
@@ -422,7 +426,7 @@ export default function ProviderDashboard() {
                 value={specialty}
                 onChange={(e) => setSpecialty(e.target.value)}
                 placeholder="Especialidad (ej: Electricista Matriculado)"
-                className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                 style={innerStyle}
               />
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -431,7 +435,7 @@ export default function ProviderDashboard() {
                   value={criminalRecordUrl}
                   onChange={(e) => setCriminalRecordUrl(e.target.value)}
                   placeholder="URL Certificado Antecedentes"
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
                 <input
@@ -439,25 +443,26 @@ export default function ProviderDashboard() {
                   value={insurancePolicyUrl}
                   onChange={(e) => setInsurancePolicyUrl(e.target.value)}
                   placeholder="URL Póliza ART / Seguro"
-                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
               </div>
               <button
                 type="submit"
                 disabled={loadingAction || !specialty.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                style={{ backgroundColor: primaryActionColor }}
               >
                 <Plus size={14} /> Agregar Credencial
               </button>
             </form>
 
             {fetching ? (
-              <div className="text-center py-6 text-xs text-slate-400 flex items-center justify-center gap-2">
+              <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
                 <Loader2 className="animate-spin" size={15} /> Cargando credenciales...
               </div>
             ) : providerProfiles.length === 0 ? (
-              <div className="text-center py-6 text-xs text-slate-500">
+              <div className="text-center py-6 text-xs opacity-75">
                 No tenés credenciales cargadas aún.
               </div>
             ) : (
@@ -468,7 +473,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={prof.id}
-                      className="p-4 rounded-xl border border-slate-800 bg-slate-900 space-y-3 text-xs"
+                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                       style={innerStyle}
                     >
                       {isEditing ? (
@@ -478,7 +483,8 @@ export default function ProviderDashboard() {
                             value={editSpecialty}
                             onChange={(e) => setEditSpecialty(e.target.value)}
                             placeholder="Especialidad"
-                            className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-emerald-600 text-white"
+                            className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                            style={cardStyle}
                           />
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <input
@@ -486,28 +492,32 @@ export default function ProviderDashboard() {
                               value={editCriminalUrl}
                               onChange={(e) => setEditCriminalUrl(e.target.value)}
                               placeholder="URL Certificado Antecedentes"
-                              className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                              style={cardStyle}
                             />
                             <input
                               type="text"
                               value={editInsuranceUrl}
                               onChange={(e) => setEditInsuranceUrl(e.target.value)}
                               placeholder="URL Póliza ART / Seguro"
-                              className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                              style={cardStyle}
                             />
                           </div>
                           <div className="flex justify-end gap-1.5 pt-1">
                             <button
                               type="button"
                               onClick={() => handleSaveEditProfile(prof.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white font-bold cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
                             >
                               <Save size={12} /> Guardar
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingProfileId(null)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                              style={cardStyle}
                             >
                               <X size={12} /> Cancelar
                             </button>
@@ -517,14 +527,14 @@ export default function ProviderDashboard() {
                         <div className="flex justify-between items-start gap-3">
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-white">{prof.specialty}</span>
+                              <span className="font-bold">{prof.specialty}</span>
                               <span
                                 className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
                               >
                                 {profStatus.label}
                               </span>
                             </div>
-                            <p className="text-slate-400 mt-1 break-all">
+                            <p className="opacity-80 mt-1 break-all">
                               Antecedentes: {prof.criminal_record_url || 'No cargado'} · ART:{' '}
                               {prof.insurance_policy_url || 'No cargado'}
                             </p>
@@ -537,7 +547,8 @@ export default function ProviderDashboard() {
                               setEditCriminalUrl(prof.criminal_record_url || '');
                               setEditInsuranceUrl(prof.insurance_policy_url || '');
                             }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer shrink-0"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
+                            style={cardStyle}
                           >
                             <Edit3 size={12} /> Editar
                           </button>
@@ -552,15 +563,15 @@ export default function ProviderDashboard() {
 
           {/* Flota Vehicular Habilitada */}
           <div
-            className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
+            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
             style={cardStyle}
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Car size={18} className="text-sky-400" />
-                <h3 className="text-sm font-bold text-white">Flota Vehicular Habilitada</h3>
+                <h3 className="text-sm font-bold">Flota Vehicular Habilitada</h3>
               </div>
-              <span className="text-[11px] font-mono text-slate-400">
+              <span className="text-[11px] font-mono opacity-80">
                 {vehicles.length} vehículo(s)
               </span>
             </div>
@@ -570,7 +581,7 @@ export default function ProviderDashboard() {
                 <select
                   value={vehicleType}
                   onChange={(e) => setVehicleType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 >
                   <option value="Utilitario">Utilitario</option>
@@ -583,7 +594,7 @@ export default function ProviderDashboard() {
                   value={brandName}
                   onChange={(e) => setBrandName(e.target.value)}
                   placeholder="Marca (ej: Ford)"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
               </div>
@@ -594,7 +605,7 @@ export default function ProviderDashboard() {
                   value={modelName}
                   onChange={(e) => setModelName(e.target.value)}
                   placeholder="Modelo (ej: Fiorino)"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
                 <input
@@ -602,7 +613,7 @@ export default function ProviderDashboard() {
                   value={colorName}
                   onChange={(e) => setColorName(e.target.value)}
                   placeholder="Color (ej: Blanco)"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
                 <input
@@ -610,7 +621,7 @@ export default function ProviderDashboard() {
                   value={plate}
                   onChange={(e) => setPlate(e.target.value)}
                   placeholder="Patente (ej: AF123CD)"
-                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder-slate-500 uppercase"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
                   style={innerStyle}
                 />
               </div>
@@ -618,14 +629,15 @@ export default function ProviderDashboard() {
               <button
                 type="submit"
                 disabled={loadingAction || !plate.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-50 cursor-pointer"
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                style={{ backgroundColor: primaryActionColor }}
               >
                 <Plus size={14} /> Registrar Vehículo
               </button>
             </form>
 
             {vehicles.length === 0 ? (
-              <div className="text-center py-4 text-xs text-slate-500">Sin vehículos registrados.</div>
+              <div className="text-center py-4 text-xs opacity-75">Sin vehículos registrados.</div>
             ) : (
               <div className="space-y-3">
                 {vehicles.map((veh) => {
@@ -634,7 +646,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={veh.id}
-                      className="p-4 rounded-xl border border-slate-800 bg-slate-900 flex justify-between items-start gap-3 text-xs"
+                      className="p-4 rounded-xl border border-black/20 flex justify-between items-start gap-3 text-xs"
                       style={innerStyle}
                     >
                       {isEditingVeh ? (
@@ -643,7 +655,8 @@ export default function ProviderDashboard() {
                             <select
                               value={editVehicleType}
                               onChange={(e) => setEditVehicleType(e.target.value)}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
+                              style={cardStyle}
                             >
                               <option value="Utilitario">Utilitario</option>
                               <option value="Automóvil">Automóvil</option>
@@ -655,7 +668,8 @@ export default function ProviderDashboard() {
                               value={editBrand}
                               onChange={(e) => setEditBrand(e.target.value)}
                               placeholder="Marca"
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
+                              style={cardStyle}
                             />
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -664,35 +678,40 @@ export default function ProviderDashboard() {
                               value={editModel}
                               onChange={(e) => setEditModel(e.target.value)}
                               placeholder="Modelo"
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
+                              style={cardStyle}
                             />
                             <input
                               type="text"
                               value={editColor}
                               onChange={(e) => setEditColor(e.target.value)}
                               placeholder="Color"
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
+                              style={cardStyle}
                             />
                             <input
                               type="text"
                               value={editPlate}
                               onChange={(e) => setEditPlate(e.target.value)}
                               placeholder="Patente"
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-600 font-mono text-white uppercase"
+                              className="px-2.5 py-1.5 rounded-lg border border-white/15 font-mono uppercase"
+                              style={cardStyle}
                             />
                           </div>
                           <div className="flex justify-end gap-1.5 pt-1">
                             <button
                               type="button"
                               onClick={() => handleSaveEditVehicle(veh.id)}
-                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
+                              className="px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
                             >
                               Guardar
                             </button>
                             <button
                               type="button"
                               onClick={() => setEditingVehicleId(null)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
+                              className="px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                              style={cardStyle}
                             >
                               Cancelar
                             </button>
@@ -702,14 +721,14 @@ export default function ProviderDashboard() {
                         <>
                           <div>
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-white">
+                              <span className="font-bold">
                                 {veh.brand} {veh.model}
                               </span>
                               <span className="text-[10px] font-bold uppercase text-sky-300 bg-sky-950/70 border border-sky-800 px-2 py-0.5 rounded">
                                 {veh.vehicle_type || 'Vehículo'}
                               </span>
                             </div>
-                            <p className="text-slate-400 mt-1">
+                            <p className="opacity-80 mt-1">
                               Color: {veh.color || 'No especificado'} · Patente:{' '}
                               {cleanPlate ? (
                                 <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
@@ -729,7 +748,8 @@ export default function ProviderDashboard() {
                               setEditColor(veh.color || '');
                               setEditPlate(veh.plate || '');
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer shrink-0"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
+                            style={cardStyle}
                           >
                             <Edit3 size={12} /> Editar
                           </button>
@@ -745,22 +765,22 @@ export default function ProviderDashboard() {
 
         {/* Servicios Realizados & Reputación Cruzada */}
         <div
-          className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
+          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
         >
-          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div className="flex items-center justify-between border-b border-black/20 pb-4">
             <div className="flex items-center gap-2.5">
               <Star size={18} className="text-amber-400" />
               <div>
-                <h3 className="text-sm font-bold text-white">
+                <h3 className="text-sm font-bold">
                   Servicios Realizados &amp; Reputación Cruzada
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs opacity-80">
                   Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
                 </p>
               </div>
             </div>
-            <span className="text-xs font-mono text-slate-400">
+            <span className="text-xs font-mono opacity-80">
               {providerContracts.length} contrato(s)
             </span>
           </div>
@@ -783,11 +803,11 @@ export default function ProviderDashboard() {
           )}
 
           {loadingContracts ? (
-            <div className="text-center py-6 text-xs text-slate-400">
+            <div className="text-center py-6 text-xs opacity-80">
               Cargando servicios y calificaciones cruzadas...
             </div>
           ) : providerContracts.length === 0 ? (
-            <div className="text-center py-6 text-xs text-slate-500">
+            <div className="text-center py-6 text-xs opacity-75">
               Aún no tenés contratos asignados en tu historial.
             </div>
           ) : (
@@ -800,7 +820,7 @@ export default function ProviderDashboard() {
                 return (
                   <div
                     key={item.contract_id}
-                    className="p-4 rounded-xl border border-slate-800 bg-slate-900 space-y-3 text-xs"
+                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -809,15 +829,18 @@ export default function ProviderDashboard() {
                           Contrato #{item.contract_id}
                         </span>{' '}
                         ·{' '}
-                        <span className="font-semibold text-white">
+                        <span className="font-semibold">
                           Residente:{' '}
                           {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
                             'Propietario'}
                         </span>{' '}
-                        <span className="text-slate-400">({item.country_name || 'Comunidad'})</span>
-                        <p className="text-slate-400 mt-1">{item.description}</p>
+                        <span className="opacity-75">({item.country_name || 'Comunidad'})</span>
+                        <p className="opacity-80 mt-1">{item.description}</p>
                       </div>
-                      <span className="font-mono text-slate-200 bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg self-start">
+                      <span
+                        className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
+                        style={cardStyle}
+                      >
                         ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
                       </span>
                     </div>
@@ -829,25 +852,33 @@ export default function ProviderDashboard() {
                           {item.provider_review_rating}/5)
                         </span>
                         {item.provider_review_comment && (
-                          <span className="text-slate-300 italic">"{item.provider_review_comment}"</span>
+                          <span className="opacity-90 italic">
+                            "{item.provider_review_comment}"
+                          </span>
                         )}
                       </div>
                     )}
 
                     {alreadyRatedOwner ? (
-                      <div className="bg-slate-950 border border-indigo-900/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                      <div
+                        className="border border-white/15 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2"
+                        style={cardStyle}
+                      >
                         <span className="font-semibold text-indigo-300">
                           Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
                           {item.owner_review_rating}/5)
                         </span>
                         {item.owner_review_comment && (
-                          <span className="text-slate-300 italic">"{item.owner_review_comment}"</span>
+                          <span className="opacity-90 italic">"{item.owner_review_comment}"</span>
                         )}
                       </div>
                     ) : (
-                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3.5 space-y-2.5">
+                      <div
+                        className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
+                        style={cardStyle}
+                      >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-slate-300 font-semibold">
+                          <span className="opacity-90 font-semibold">
                             Calificar experiencia con el residente / acceso:
                           </span>
                           <div className="flex items-center gap-1">
@@ -858,14 +889,15 @@ export default function ProviderDashboard() {
                                 onClick={() =>
                                   setOwnerRatingDrafts((prev) => ({
                                     ...prev,
-                                    [item.contract_id]: starVal
+                                    [item.contract_id]: starVal,
                                   }))
                                 }
                                 className={`p-1 rounded-lg border cursor-pointer ${
                                   draftRating >= starVal
                                     ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                                    : 'border-white/15 opacity-60'
                                 }`}
+                                style={draftRating >= starVal ? undefined : innerStyle}
                               >
                                 <Star
                                   size={13}
@@ -880,7 +912,7 @@ export default function ProviderDashboard() {
                           <div className="relative flex-1">
                             <MessageSquare
                               size={13}
-                              className="text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"
+                              className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
                             />
                             <input
                               type="text"
@@ -888,18 +920,20 @@ export default function ProviderDashboard() {
                               onChange={(e) =>
                                 setOwnerCommentDrafts((prev) => ({
                                   ...prev,
-                                  [item.contract_id]: e.target.value
+                                  [item.contract_id]: e.target.value,
                                 }))
                               }
                               placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
-                              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                              style={innerStyle}
                             />
                           </div>
                           <button
                             type="button"
                             onClick={() => handleSubmitOwnerReview(item.contract_id)}
                             disabled={submittingReviewId === item.contract_id}
-                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 cursor-pointer"
+                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                            style={{ backgroundColor: primaryActionColor }}
                           >
                             <Send size={12} />
                             {submittingReviewId === item.contract_id

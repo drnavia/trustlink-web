@@ -1,9 +1,8 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
- * Muestra cada prestador verificado unificado en una sola tarjeta (consolidando sus especialidades
- * aprobadas, calificación promedio y cantidad real de trabajos), permite filtrar por nombre o
- * especialidad, emitir pases QR vinculados al prestador y derivar a Pagos y Reseñas.
+ * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
+ * Muestra prestadores verificados unificados por usuario, permite emitir pases QR vinculados
+ * al prestador, derivar a Pagos y Reseñas, y respeta de forma homogénea las Zonas 3, 4 y 5.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -48,20 +47,20 @@ export default function ResidentDashboard({ onViewChange }) {
   const { brand } = useBranding();
   const { user } = useAuth();
 
-  // Estilos dinámicos derivados del contexto de marca global
-  const cardStyle = brand?.cardBgColor
-    ? {
-        backgroundColor: brand.cardBgColor,
-        color: brand.cardTextColor || undefined
-      }
-    : undefined;
+  // Zona 4: Tarjetas principales
+  const cardStyle = {
+    backgroundColor: brand?.cardBgColor || '#020617',
+    color: brand?.cardTextColor || '#F1F5F9',
+  };
 
-  const innerStyle = brand?.innerBgColor
-    ? {
-        backgroundColor: brand.innerBgColor,
-        color: brand.innerTextColor || undefined
-      }
-    : undefined;
+  // Zona 5: Cajas internas, inputs y botones secundarios
+  const innerStyle = {
+    backgroundColor: brand?.innerBgColor || '#0F172A',
+    color: brand?.innerTextColor || '#F1F5F9',
+  };
+
+  // Color principal / de acento configurado en marca
+  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -83,7 +82,7 @@ export default function ResidentDashboard({ onViewChange }) {
   const [copiedToken, setCopiedToken] = useState(false);
 
   const getAuthHeaders = () => ({
-    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
   // Obtiene el directorio unificado de prestadores aprobados desde PostgreSQL
@@ -93,7 +92,7 @@ export default function ResidentDashboard({ onViewChange }) {
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/directory`, {
         method: 'GET',
-        headers: getAuthHeaders()
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
@@ -113,7 +112,7 @@ export default function ResidentDashboard({ onViewChange }) {
     fetchVerifiedProviders();
   }, []);
 
-  // Filtro dinámico por nombre, apellido o cualquiera de las especialidades del prestador
+  // Filtro dinámico por nombre o cualquiera de las especialidades consolidadas
   const filteredProviders = providers.filter((p) => {
     const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
     const specialtiesText = (
@@ -127,7 +126,7 @@ export default function ResidentDashboard({ onViewChange }) {
     return fullName.includes(query) || specialtiesText.includes(query);
   });
 
-  // Abre el modal de pase QR para el prestador unificado seleccionado
+  // Abre el modal de pase QR para el prestador seleccionado
   const handleOpenQrModal = (provider) => {
     const now = new Date();
     const endDefault = new Date(now.getTime() + 4 * 60 * 60 * 1000);
@@ -156,16 +155,16 @@ export default function ResidentDashboard({ onViewChange }) {
         fraction: fraction.trim(),
         lot_number: lotNumber.trim(),
         start_time: new Date(startTime).toISOString(),
-        end_time: new Date(endTime).toISOString()
+        end_time: new Date(endTime).toISOString(),
       };
 
       const response = await fetch(`${API_BASE}/api/v1/passes/create`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...getAuthHeaders()
+          ...getAuthHeaders(),
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -194,25 +193,25 @@ export default function ResidentDashboard({ onViewChange }) {
   };
 
   return (
-    <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8 min-h-[calc(100vh-120px)]">
+    <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Barra del Directorio de Prestadores Verificados con respiro lateral limpio */}
+        {/* Barra del Directorio de Prestadores Verificados */}
         <div
-          className="bg-slate-950 border border-slate-800 px-6 py-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+          className="border border-black/20 px-6 py-6 rounded-2xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
           style={cardStyle}
         >
           <div className="flex items-center gap-3.5 min-w-0">
             <div
-              className="p-3 rounded-xl border border-slate-700/80 text-emerald-400 shrink-0"
+              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
               style={innerStyle}
             >
-              <Compass size={20} />
+              <Compass size={20} strokeWidth={1.8} />
             </div>
             <div className="min-w-0">
-              <h2 className="text-xl font-black tracking-tight text-white">
+              <h2 className="text-xl font-black tracking-tight">
                 Directorio de Prestadores Verificados
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs opacity-80 mt-1">
                 Profesionales auditados con compliance aprobado para ingreso por QR o contratación directa.
               </p>
             </div>
@@ -220,13 +219,16 @@ export default function ResidentDashboard({ onViewChange }) {
 
           {/* Buscador exclusivo en la barra del directorio */}
           <div className="relative w-full md:w-80 shrink-0">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+            <Search
+              className="opacity-60 absolute left-3.5 top-1/2 -translate-y-1/2"
+              size={16}
+            />
             <input
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               placeholder="Buscar por nombre o especialidad..."
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full pl-10 pr-4 py-2.5 border border-white/15 rounded-xl text-xs focus:outline-none"
               style={innerStyle}
             />
           </div>
@@ -242,12 +244,12 @@ export default function ResidentDashboard({ onViewChange }) {
 
         {/* Listado de prestadores verificados unificados */}
         {loading ? (
-          <div className="text-center py-16 text-slate-400 text-xs">
+          <div className="text-center py-16 opacity-80 text-xs">
             Consultando base de datos PostgreSQL...
           </div>
         ) : filteredProviders.length === 0 ? (
           <div
-            className="text-center py-16 bg-slate-950 border border-slate-800 rounded-2xl text-slate-400 text-xs"
+            className="text-center py-16 border border-black/20 rounded-2xl opacity-80 text-xs shadow-sm"
             style={cardStyle}
           >
             No hay prestadores aprobados que coincidan con la búsqueda.
@@ -256,62 +258,61 @@ export default function ResidentDashboard({ onViewChange }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredProviders.map((p) => {
               const totalJobs = Number(p.total_jobs || 0);
-              const specialtiesList = Array.isArray(p.specialties) && p.specialties.length > 0
-                ? p.specialties
-                : [p.specialty || 'Servicio Verificado'];
+              const specialtiesList =
+                Array.isArray(p.specialties) && p.specialties.length > 0
+                  ? p.specialties
+                  : [p.specialty || 'Servicio Verificado'];
 
               return (
                 <div
                   key={p.user_id || p.provider_id}
-                  className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-5 rounded-2xl shadow-xl flex flex-col justify-between gap-5 transition-all"
+                  className="border border-black/20 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-5 transition-all"
                   style={cardStyle}
                 >
                   <div>
                     <div className="flex justify-between items-start gap-2 mb-2.5">
-                      {/* Especialidades consolidadas del prestador en píldoras */}
                       <div className="flex flex-wrap gap-1.5">
                         {specialtiesList.map((spec) => (
                           <span
                             key={spec}
-                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded-md"
+                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded-md"
                           >
                             {spec}
                           </span>
                         ))}
                       </div>
 
-                      <span className="text-amber-400 font-bold text-xs bg-amber-950/70 border border-amber-800 px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0">
+                      <span className="text-amber-300 font-bold text-xs bg-amber-950/70 border border-amber-800 px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0">
                         <Star size={11} className="fill-amber-400" />
                         {Number(p.rating_avg || 0).toFixed(1)}
                       </span>
                     </div>
 
-                    <h3 className="text-sm font-bold text-white mb-1">
+                    <h3 className="text-sm font-bold mb-1">
                       {p.first_name} {p.last_name}
                     </h3>
 
-                    {/* Cantidad real de trabajos completados desde PostgreSQL */}
-                    <p className="text-[11px] text-slate-300 font-medium mb-3 flex items-center gap-1.5">
+                    <p className="text-[11px] opacity-90 font-medium mb-3 flex items-center gap-1.5">
                       <Briefcase size={12} className="text-emerald-400 shrink-0" />
                       <span>
                         {totalJobs} {totalJobs === 1 ? 'trabajo realizado' : 'trabajos realizados'}
                       </span>
                     </p>
 
-                    <div className="space-y-1 text-[11px] text-slate-400 border-t border-slate-900 pt-2.5 rounded-lg">
+                    <div className="space-y-1 text-[11px] opacity-80 border-t border-black/20 pt-2.5">
                       <p className="flex items-center gap-1.5">
-                        <Phone size={12} className="text-slate-500 shrink-0" />
+                        <Phone size={12} className="opacity-70 shrink-0" />
                         <span>{p.phone || 'Teléfono no especificado'}</span>
                       </p>
                       <p className="flex items-center gap-1.5 break-all">
-                        <Mail size={12} className="text-slate-500 shrink-0" />
+                        <Mail size={12} className="opacity-70 shrink-0" />
                         <span>{p.email}</span>
                       </p>
                     </div>
                   </div>
 
                   {/* Acciones: Pase QR para ingreso y Contratar para contratos/pagos */}
-                  <div className="border-t border-slate-900 pt-3 flex items-center justify-between gap-2">
+                  <div className="border-t border-black/20 pt-3 flex items-center justify-between gap-2">
                     <span className="text-[11px] text-emerald-400 font-semibold flex items-center gap-1 shrink-0">
                       <ShieldCheck size={13} /> Compliance OK
                     </span>
@@ -320,7 +321,7 @@ export default function ResidentDashboard({ onViewChange }) {
                       <button
                         type="button"
                         onClick={() => handleOpenQrModal(p)}
-                        className="bg-slate-900 hover:bg-slate-800 text-slate-100 border border-slate-700 text-xs font-bold px-3 py-2 rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer"
+                        className="border border-white/15 text-xs font-bold px-3 py-2 rounded-xl transition-opacity hover:opacity-90 flex items-center gap-1.5 cursor-pointer"
                         style={innerStyle}
                       >
                         <QrCode size={13} className="text-emerald-400" />
@@ -330,8 +331,8 @@ export default function ResidentDashboard({ onViewChange }) {
                       <button
                         type="button"
                         onClick={() => onViewChange && onViewChange('payments')}
-                        className="text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition-transform active:scale-95 flex items-center gap-1 cursor-pointer bg-emerald-600 hover:bg-emerald-500"
-                        style={{ backgroundColor: brand?.primaryColor || '#10b981' }}
+                        className="text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition-opacity hover:opacity-95 flex items-center gap-1 cursor-pointer"
+                        style={{ backgroundColor: primaryActionColor }}
                       >
                         Contratar
                       </button>
@@ -345,20 +346,20 @@ export default function ResidentDashboard({ onViewChange }) {
 
         {/* Modal de Emisión de Pase QR vinculado al prestador */}
         {qrModalProvider && (
-          <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
             <div
-              className="bg-slate-950 border border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5"
+              className="border border-white/15 rounded-2xl max-w-lg w-full p-6 shadow-xl space-y-5"
               style={cardStyle}
             >
-              <div className="flex items-start justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-start justify-between gap-3 border-b border-black/20 pb-4">
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
                     Autorización Perimetral — Pase QR
                   </span>
-                  <h3 className="text-base font-black text-white mt-0.5">
+                  <h3 className="text-base font-black mt-0.5">
                     {qrModalProvider.first_name} {qrModalProvider.last_name}
                   </h3>
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs opacity-80">
                     {qrModalProvider.specialties_label ||
                       qrModalProvider.specialty ||
                       'Prestador Verificado'}
@@ -367,7 +368,8 @@ export default function ResidentDashboard({ onViewChange }) {
                 <button
                   type="button"
                   onClick={() => setQrModalProvider(null)}
-                  className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-white cursor-pointer"
+                  className="p-1.5 rounded-lg border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
+                  style={innerStyle}
                   aria-label="Cerrar modal"
                 >
                   <X size={16} />
@@ -387,11 +389,14 @@ export default function ResidentDashboard({ onViewChange }) {
                     <p className="font-bold text-emerald-300">
                       Pase QR emitido correctamente (#{generatedPass.id || 'Nuevo'})
                     </p>
-                    <p className="text-slate-300">
+                    <p className="opacity-90">
                       Ubicación: {generatedPass.fraction || fraction} ·{' '}
                       {generatedPass.lot_number || lotNumber}
                     </p>
-                    <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 font-mono text-[11px] text-emerald-300 break-all">
+                    <div
+                      className="border border-white/15 rounded-lg p-2.5 font-mono text-[11px] text-emerald-300 break-all"
+                      style={innerStyle}
+                    >
                       {generatedPass.qr_token || generatedPass.token || 'Token generado'}
                     </div>
                   </div>
@@ -402,7 +407,8 @@ export default function ResidentDashboard({ onViewChange }) {
                       onClick={() =>
                         handleCopyToken(generatedPass.qr_token || generatedPass.token || '')
                       }
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
+                      style={innerStyle}
                     >
                       {copiedToken ? (
                         <Check size={14} className="text-emerald-400" />
@@ -418,7 +424,8 @@ export default function ResidentDashboard({ onViewChange }) {
                         setQrModalProvider(null);
                         onViewChange && onViewChange('security');
                       }}
-                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                      style={{ backgroundColor: primaryActionColor }}
                     >
                       Probar en Garita
                     </button>
@@ -428,7 +435,7 @@ export default function ResidentDashboard({ onViewChange }) {
                 <form onSubmit={handleCreatePass} className="space-y-4 text-xs">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                      <label className="block text-[11px] font-bold opacity-80 mb-1 flex items-center gap-1">
                         <MapPin size={12} /> Fracción / Sector
                       </label>
                       <input
@@ -436,12 +443,12 @@ export default function ResidentDashboard({ onViewChange }) {
                         required
                         value={fraction}
                         onChange={(e) => setFraction(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 focus:outline-none"
                         style={innerStyle}
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1">
+                      <label className="block text-[11px] font-bold opacity-80 mb-1">
                         Lote / Unidad
                       </label>
                       <input
@@ -449,7 +456,7 @@ export default function ResidentDashboard({ onViewChange }) {
                         required
                         value={lotNumber}
                         onChange={(e) => setLotNumber(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 focus:outline-none"
                         style={innerStyle}
                       />
                     </div>
@@ -457,7 +464,7 @@ export default function ResidentDashboard({ onViewChange }) {
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                      <label className="block text-[11px] font-bold opacity-80 mb-1 flex items-center gap-1">
                         <Calendar size={12} /> Inicio de Vigencia
                       </label>
                       <input
@@ -465,12 +472,12 @@ export default function ResidentDashboard({ onViewChange }) {
                         required
                         value={startTime}
                         onChange={(e) => setStartTime(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 focus:outline-none"
                         style={innerStyle}
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-400 mb-1 flex items-center gap-1">
+                      <label className="block text-[11px] font-bold opacity-80 mb-1 flex items-center gap-1">
                         <Calendar size={12} /> Fin de Vigencia
                       </label>
                       <input
@@ -478,7 +485,7 @@ export default function ResidentDashboard({ onViewChange }) {
                         required
                         value={endTime}
                         onChange={(e) => setEndTime(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-white"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 focus:outline-none"
                         style={innerStyle}
                       />
                     </div>
@@ -488,15 +495,16 @@ export default function ResidentDashboard({ onViewChange }) {
                     <button
                       type="button"
                       onClick={() => setQrModalProvider(null)}
-                      className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-700 font-bold cursor-pointer"
+                      className="px-4 py-2 rounded-xl border border-white/15 font-bold cursor-pointer"
+                      style={innerStyle}
                     >
                       Cancelar
                     </button>
                     <button
                       type="submit"
                       disabled={creatingPass}
-                      className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
-                      style={{ backgroundColor: brand?.primaryColor || '#10b981' }}
+                      className="px-4 py-2 rounded-xl text-white font-bold disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                      style={{ backgroundColor: primaryActionColor }}
                     >
                       <QrCode size={14} />
                       {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
