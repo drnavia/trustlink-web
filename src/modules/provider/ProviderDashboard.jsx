@@ -1,8 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Panel completo del Prestador conectado a PostgreSQL con aplicación explícita
- * de Zona 4 (tarjetas principales) y Zona 5 (cajas/bloques internos e inputs).
- * Permite gestionar credenciales de compliance, flota vehicular y reputación cruzada.
+ * @description Portal del Prestador conectado 100% a PostgreSQL. Permite gestionar
+ * credenciales de compliance, flota vehicular habilitada y calificaciones cruzadas con residentes.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -20,768 +19,527 @@ import {
   Loader2,
   Star,
   MessageSquare,
-  Send,
+  Send
 } from 'lucide-react';
-import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
+import { useBranding } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
+
+/**
+ * Traduce el estado de compliance a una etiqueta limpia en español.
+ * @param {string} status
+ * @returns {{ label: string, badgeClass: string }}
+ */
+function formatComplianceStatus(status) {
+  const normalized = (status || 'pending').toLowerCase();
+  if (normalized === 'approved') {
+    return {
+      label: 'Aprobado',
+      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800'
+    };
+  }
+  if (normalized === 'rejected') {
+    return {
+      label: 'Rechazado',
+      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800'
+    };
+  }
+  return {
+    label: 'Pendiente',
+    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800'
+  };
+}
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
-  const cardStyle = {
-    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
-  };
+  // Estilos dinámicos desde BrandingContext
+  const cardStyle = brand?.cardBgColor
+    ? {
+        backgroundColor: brand.cardBgColor,
+        color: brand.cardTextColor || undefined
+      }
+    : undefined;
 
-  const innerStyle = {
-    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
-  };
+  const innerStyle = brand?.innerBgColor
+    ? {
+        backgroundColor: brand.innerBgColor,
+        color: brand.innerTextColor || undefined
+      }
+    : undefined;
 
-  const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
-  const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState('');
+  const [providerProfiles, setProviderProfiles] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [fetching, setFetching] = useState(true);
+  const [loadingAction, setLoadingAction] = useState(false);
+  const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Estados para nuevo compliance
-  const [newSpecialty, setNewSpecialty] = useState('');
-  const [newCrimUrl, setNewCrimUrl] = useState('');
-  const [newArtUrl, setNewArtUrl] = useState('');
-  const [savingProfile, setSavingProfile] = useState(false);
+  // Campos para nuevo perfil / credencial de compliance
+  const [specialty, setSpecialty] = useState('');
+  const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
+  const [insurancePolicyUrl, setInsurancePolicyUrl] = useState('');
 
-  // Estados para edición de compliance existente
-  const [editingProviderId, setEditingProviderId] = useState(null);
+  // Campos para edición completa de credencial
+  const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
-  const [editCrimUrl, setEditCrimUrl] = useState('');
-  const [editArtUrl, setEditArtUrl] = useState('');
-  const [updatingProfile, setUpdatingProfile] = useState(false);
+  const [editCriminalUrl, setEditCriminalUrl] = useState('');
+  const [editInsuranceUrl, setEditInsuranceUrl] = useState('');
 
-  // Estados para registro de vehículo
-  const [vehType, setVehType] = useState('utilitario');
-  const [vehBrand, setVehBrand] = useState('');
-  const [vehModel, setVehModel] = useState('');
-  const [vehColor, setVehColor] = useState('');
-  const [vehPlate, setVehPlate] = useState('');
-  const [savingVehicle, setSavingVehicle] = useState(false);
+  // Campos para nuevo vehículo
+  const [vehicleType, setVehicleType] = useState('Utilitario');
+  const [brandName, setBrandName] = useState('');
+  const [modelName, setModelName] = useState('');
+  const [colorName, setColorName] = useState('');
+  const [plate, setPlate] = useState('');
 
-  // Estados para reputación cruzada (calificar residentes al cerrar servicio)
-  const [reviewContracts, setReviewContracts] = useState([]);
-  const [loadingReviews, setLoadingReviews] = useState(true);
+  // Campos para edición completa de vehículo
+  const [editingVehicleId, setEditingVehicleId] = useState(null);
+  const [editVehicleType, setEditVehicleType] = useState('Utilitario');
+  const [editBrand, setEditBrand] = useState('');
+  const [editModel, setEditModel] = useState('');
+  const [editColor, setEditColor] = useState('');
+  const [editPlate, setEditPlate] = useState('');
+
+  // Reputación cruzada en contratos realizados
+  const [providerContracts, setProviderContracts] = useState([]);
+  const [loadingContracts, setLoadingContracts] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
-  const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
+  const [submittingReviewId, setSubmittingReviewId] = useState(null);
+  const [crossReviewFeedback, setCrossReviewFeedback] = useState(null);
 
-  const fetchProviderProfile = async () => {
-    setLoading(true);
-    setErrorMsg('');
+  const getAuthHeaders = () => ({
+    Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
+  });
+
+  const fetchProviderData = async () => {
+    setFetching(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
-        },
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       if (response.ok) {
-        setProfileData({
-          providers: data.providers || [],
-          vehicles: data.vehicles || [],
-        });
-      } else {
-        setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
+        setProviderProfiles(data.providers || []);
+        setVehicles(data.vehicles || []);
       }
     } catch (error) {
-      console.error('Error al cargar perfil de prestador:', error);
-      setErrorMsg('Error de conexión con el servidor backend.');
+      console.error('Error al cargar datos del prestador:', error);
     } finally {
-      setLoading(false);
+      setFetching(false);
     }
   };
 
-  const fetchProviderReviewContracts = async () => {
-    setLoadingReviews(true);
+  const fetchProviderContracts = async () => {
+    setLoadingContracts(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/provider-contracts`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
-        },
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+        headers: getAuthHeaders()
       });
       const data = await response.json();
       if (response.ok) {
-        setReviewContracts(data.contracts || []);
+        setProviderContracts(data.contracts || []);
       }
     } catch (error) {
-      console.error('Error al cargar historial de contratos del prestador:', error);
+      console.error('Error al cargar contratos del prestador:', error);
     } finally {
-      setLoadingReviews(false);
+      setLoadingContracts(false);
     }
   };
 
   useEffect(() => {
-    fetchProviderProfile();
-    fetchProviderReviewContracts();
+    fetchProviderData();
+    fetchProviderContracts();
   }, []);
 
-  const handleCreateCompliance = async (e) => {
+  const handleAddCompliance = async (e) => {
     e.preventDefault();
-    setSavingProfile(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
+    if (!specialty.trim()) return;
+    setLoadingAction(true);
+    setFeedback({ type: '', text: '' });
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/profile`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
-          specialty: newSpecialty.trim(),
-          criminal_record_url: newCrimUrl.trim(),
-          art_insurance_url: newArtUrl.trim(),
-        }),
+          specialty: specialty.trim(),
+          criminal_record_url: criminalRecordUrl.trim() || null,
+          insurance_policy_url: insurancePolicyUrl.trim() || null
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Credencial de compliance registrada correctamente.');
-        setNewSpecialty('');
-        setNewCrimUrl('');
-        setNewArtUrl('');
-        await fetchProviderProfile();
+        setFeedback({ type: 'success', text: data.message || 'Credencial agregada.' });
+        setSpecialty('');
+        setCriminalRecordUrl('');
+        setInsurancePolicyUrl('');
+        await fetchProviderData();
       } else {
-        setErrorMsg(data.error || 'No se pudo registrar la credencial.');
+        setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la credencial.' });
       }
     } catch (error) {
-      console.error('Error al registrar compliance:', error);
-      setErrorMsg('Error de conexión con el servidor.');
+      console.error('Error al guardar credencial:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
     } finally {
-      setSavingProfile(false);
+      setLoadingAction(false);
     }
   };
 
-  const startEditingCompliance = (provider) => {
-    setEditingProviderId(provider.id);
-    setEditSpecialty(provider.specialty || '');
-    setEditCrimUrl(provider.criminal_record_url || '');
-    setEditArtUrl(provider.art_insurance_url || '');
-    setErrorMsg('');
-    setSuccessMsg('');
-  };
-
-  const handleSaveEditCompliance = async (providerId) => {
-    setUpdatingProfile(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
+  const handleSaveEditProfile = async (profileId) => {
+    if (!editSpecialty.trim()) return;
+    setLoadingAction(true);
+    setFeedback({ type: '', text: '' });
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${providerId}`, {
-        method: 'PUT',
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${profileId}`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           specialty: editSpecialty.trim(),
-          criminal_record_url: editCrimUrl.trim(),
-          art_insurance_url: editArtUrl.trim(),
-        }),
+          criminal_record_url: editCriminalUrl.trim() || null,
+          insurance_policy_url: editInsuranceUrl.trim() || null
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Credencial actualizada y enviada a revisión.');
-        setEditingProviderId(null);
-        await fetchProviderProfile();
+        setFeedback({ type: 'success', text: data.message || 'Credencial actualizada.' });
+        setEditingProfileId(null);
+        await fetchProviderData();
       } else {
-        setErrorMsg(data.error || 'No se pudo actualizar la credencial.');
+        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
       }
     } catch (error) {
-      console.error('Error al actualizar credencial:', error);
-      setErrorMsg('Error de conexión al actualizar la credencial.');
+      console.error('Error al editar credencial:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión.' });
     } finally {
-      setUpdatingProfile(false);
+      setLoadingAction(false);
     }
   };
 
   const handleAddVehicle = async (e) => {
     e.preventDefault();
-    setSavingVehicle(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
+    if (!plate.trim()) {
+      setFeedback({ type: 'error', text: 'La patente del vehículo es obligatoria.' });
+      return;
+    }
+    setLoadingAction(true);
+    setFeedback({ type: '', text: '' });
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicles`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
-          vehicle_type: vehType,
-          brand: vehBrand.trim(),
-          model: vehModel.trim(),
-          color: vehColor.trim(),
-          license_plate: vehPlate.trim().toUpperCase(),
-        }),
+          vehicle_type: vehicleType,
+          brand: brandName.trim(),
+          model: modelName.trim(),
+          color: colorName.trim(),
+          plate: plate.trim().toUpperCase()
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Vehículo asociado a tu flota correctamente.');
-        setVehBrand('');
-        setVehModel('');
-        setVehColor('');
-        setVehPlate('');
-        await fetchProviderProfile();
+        setFeedback({ type: 'success', text: data.message || 'Vehículo registrado.' });
+        setBrandName('');
+        setModelName('');
+        setColorName('');
+        setPlate('');
+        await fetchProviderData();
       } else {
-        setErrorMsg(data.error || 'No se pudo registrar el vehículo.');
+        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el vehículo.' });
       }
     } catch (error) {
-      console.error('Error al registrar vehículo:', error);
-      setErrorMsg('Error de conexión con el servidor.');
+      console.error('Error al agregar vehículo:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión.' });
     } finally {
-      setSavingVehicle(false);
+      setLoadingAction(false);
+    }
+  };
+
+  const handleSaveEditVehicle = async (vehicleId) => {
+    if (!editPlate.trim()) {
+      setFeedback({ type: 'error', text: 'La patente del vehículo no puede quedar vacía.' });
+      return;
+    }
+    setLoadingAction(true);
+    setFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle/${vehicleId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders()
+        },
+        body: JSON.stringify({
+          vehicle_type: editVehicleType,
+          brand: editBrand.trim(),
+          model: editModel.trim(),
+          color: editColor.trim(),
+          plate: editPlate.trim().toUpperCase()
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({ type: 'success', text: data.message || 'Vehículo actualizado.' });
+        setEditingVehicleId(null);
+        await fetchProviderData();
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
+      }
+    } catch (error) {
+      console.error('Error al editar vehículo:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión.' });
+    } finally {
+      setLoadingAction(false);
     }
   };
 
   const handleSubmitOwnerReview = async (contractId) => {
-    const ratingVal = ownerRatingDrafts[contractId] || 5;
-    const commentVal = (ownerCommentDrafts[contractId] || '').trim();
-    setSubmittingOwnerReviewId(contractId);
-    setErrorMsg('');
-    setSuccessMsg('');
+    const selectedRating = ownerRatingDrafts[contractId] || 5;
+    const commentText = (ownerCommentDrafts[contractId] || '').trim();
 
+    setSubmittingReviewId(contractId);
+    setCrossReviewFeedback(null);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/owner`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+          ...getAuthHeaders()
         },
         body: JSON.stringify({
           contract_id: contractId,
-          rating: ratingVal,
-          comment: commentVal,
-          target_role: 'owner',
-        }),
+          rating: selectedRating,
+          comment: commentText || null
+        })
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Calificación al residente registrada correctamente.');
-        await fetchProviderReviewContracts();
+        setCrossReviewFeedback({
+          type: 'success',
+          message: data.message || 'Calificación al residente registrada correctamente.'
+        });
+        await fetchProviderContracts();
       } else {
-        setErrorMsg(data.error || 'No se pudo enviar la calificación.');
+        setCrossReviewFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo registrar la calificación.'
+        });
       }
     } catch (error) {
-      console.error('Error al calificar residente:', error);
-      setErrorMsg('Error de conexión al enviar la calificación.');
+      console.error('Error al enviar reseña al residente:', error);
+      setCrossReviewFeedback({
+        type: 'error',
+        message: 'Error de conexión al guardar la calificación.'
+      });
     } finally {
-      setSubmittingOwnerReviewId(null);
+      setSubmittingReviewId(null);
     }
   };
 
-  const primaryProfile = profileData.providers[0] || null;
-  const profileStatus = primaryProfile?.status || null;
+  const primaryStatusInfo = formatComplianceStatus(providerProfiles[0]?.status);
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
-      {/* Zona 4: Cabecera del Portal Prestador */}
-      <section
-        className="p-6 rounded-2xl border border-black/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
-        style={cardStyle}
-      >
-        <div className="flex items-center space-x-3.5">
-          <div className="p-3 rounded-xl border border-white/15" style={innerStyle}>
-            <Wrench size={22} className="text-emerald-400" />
-          </div>
-          <div>
-            <h2 className="text-xl font-black tracking-tight">Portal Prestador Verificado</h2>
-            <p className="text-xs opacity-80">
-              Gestión de credenciales de compliance, flota vehicular y reputación cruzada en{' '}
-              {brand.countryName || 'TrustLink'}.
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          {profileStatus && (
-            <span
-              className="text-xs font-bold px-3.5 py-1.5 rounded-xl uppercase tracking-wider border border-white/15"
-              style={innerStyle}
-            >
-              Estado: {profileStatus}
-            </span>
-          )}
-        </div>
-      </section>
-
-      {errorMsg && (
-        <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <AlertCircle size={16} className="text-rose-400 shrink-0" />
-          <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {successMsg && (
-        <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-          <span>{successMsg}</span>
-        </div>
-      )}
-
-      {loading ? (
+    <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
+      <main className="max-w-6xl mx-auto space-y-6">
+        {/* Cabecera neutra y coherente del Portal Prestador */}
         <div
-          className="text-center py-12 rounded-2xl border border-black/20 text-xs flex items-center justify-center gap-2"
+          className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
           style={cardStyle}
         >
-          <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
-        </div>
-      ) : (
-        <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Zona 4: Sección Compliance y Credenciales */}
-            <section
-              className="p-6 rounded-2xl border border-black/20 space-y-5 flex flex-col justify-between"
-              style={cardStyle}
+          <div className="flex items-center gap-3">
+            <div
+              className="p-3 rounded-xl text-white shadow-lg"
+              style={{ backgroundColor: brand?.primaryColor || '#10b981' }}
             >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-black/20 pb-3">
-                  <h3 className="text-base font-bold flex items-center gap-2">
-                    <ShieldCheck size={18} className="text-emerald-400" /> Credenciales y Compliance
-                  </h3>
-                  <span
-                    className="text-[11px] px-2.5 py-1 rounded-lg border border-white/15"
-                    style={innerStyle}
-                  >
-                    {profileData.providers.length} registro(s)
-                  </span>
-                </div>
-
-                {/* Zona 5: Formulario Nuevo Compliance */}
-                <form
-                  onSubmit={handleCreateCompliance}
-                  className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                  style={innerStyle}
-                >
-                  <p className="font-bold">Registrar Nueva Especialidad / Documentación</p>
-                  <input
-                    type="text"
-                    required
-                    value={newSpecialty}
-                    onChange={(e) => setNewSpecialty(e.target.value)}
-                    placeholder="Especialidad (ej: Electricista Matriculado)"
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <input
-                      type="text"
-                      value={newCrimUrl}
-                      onChange={(e) => setNewCrimUrl(e.target.value)}
-                      placeholder="URL Certificado Antecedentes"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                      style={cardStyle}
-                    />
-                    <input
-                      type="text"
-                      value={newArtUrl}
-                      onChange={(e) => setNewArtUrl(e.target.value)}
-                      placeholder="URL Póliza ART / Seguro"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                      style={cardStyle}
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={savingProfile}
-                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    <Plus size={14} /> {savingProfile ? 'Guardando...' : 'Agregar Credencial'}
-                  </button>
-                </form>
-
-                {/* Zona 5: Listado de Credenciales */}
-                <div className="space-y-3">
-                  {profileData.providers.length === 0 ? (
-                    <div
-                      className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
-                      style={innerStyle}
-                    >
-                      No tenés credenciales de compliance registradas aún.
-                    </div>
-                  ) : (
-                    profileData.providers.map((p) => {
-                      const isEditing = editingProviderId === p.id;
-                      return (
-                        <div
-                          key={p.id}
-                          className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                          style={innerStyle}
-                        >
-                          {isEditing ? (
-                            <div className="space-y-2.5">
-                              <input
-                                type="text"
-                                value={editSpecialty}
-                                onChange={(e) => setEditSpecialty(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                                style={cardStyle}
-                              />
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <input
-                                  type="text"
-                                  value={editCrimUrl}
-                                  onChange={(e) => setEditCrimUrl(e.target.value)}
-                                  placeholder="URL Antecedentes"
-                                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                                  style={cardStyle}
-                                />
-                                <input
-                                  type="text"
-                                  value={editArtUrl}
-                                  onChange={(e) => setEditArtUrl(e.target.value)}
-                                  placeholder="URL ART / Seguro"
-                                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                                  style={cardStyle}
-                                />
-                              </div>
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingProviderId(null)}
-                                  className="px-3 py-1.5 rounded-lg font-bold border border-white/15 inline-flex items-center gap-1 cursor-pointer"
-                                  style={cardStyle}
-                                >
-                                  <X size={13} /> Cancelar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveEditCompliance(p.id)}
-                                  disabled={updatingProfile}
-                                  className="bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg font-bold inline-flex items-center gap-1 cursor-pointer"
-                                >
-                                  <Save size={13} /> {updatingProfile ? 'Guardando...' : 'Guardar'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-sm">{p.specialty}</span>
-                                  <span
-                                    className="text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-white/15"
-                                    style={cardStyle}
-                                  >
-                                    {p.status}
-                                  </span>
-                                </div>
-                                <p className="opacity-80">
-                                  Antecedentes: {p.criminal_record_url || 'No cargado'} · ART:{' '}
-                                  {p.art_insurance_url || 'No cargado'}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => startEditingCompliance(p)}
-                                className="px-2.5 py-1.5 rounded-lg border border-white/15 inline-flex items-center gap-1 cursor-pointer shrink-0"
-                                style={cardStyle}
-                              >
-                                <Edit3 size={12} /> Editar
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            </section>
-
-            {/* Zona 4: Sección Flota Vehicular Habilitada */}
-            <section
-              className="p-6 rounded-2xl border border-black/20 space-y-5 flex flex-col justify-between"
-              style={cardStyle}
-            >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between border-b border-black/20 pb-3">
-                  <h3 className="text-base font-bold flex items-center gap-2">
-                    <Car size={18} className="text-sky-400" /> Flota Vehicular Habilitada
-                  </h3>
-                  <span
-                    className="text-[11px] px-2.5 py-1 rounded-lg border border-white/15"
-                    style={innerStyle}
-                  >
-                    {profileData.vehicles.length} vehículo(s)
-                  </span>
-                </div>
-
-                {/* Zona 5: Formulario Nuevo Vehículo */}
-                <form
-                  onSubmit={handleAddVehicle}
-                  className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                  style={innerStyle}
-                >
-                  <p className="font-bold">Asociar Vehículo</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    <select
-                      value={vehType}
-                      onChange={(e) => setVehType(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                      style={cardStyle}
-                    >
-                      <option value="utilitario">Utilitario</option>
-                      <option value="auto">Automóvil</option>
-                      <option value="moto">Motocicleta</option>
-                      <option value="camioneta">Camioneta</option>
-                    </select>
-                    <input
-                      type="text"
-                      required
-                      value={vehBrand}
-                      onChange={(e) => setVehBrand(e.target.value)}
-                      placeholder="Marca (ej: Ford)"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                      style={cardStyle}
-                    />
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <input
-                      type="text"
-                      required
-                      value={vehModel}
-                      onChange={(e) => setVehModel(e.target.value)}
-                      placeholder="Modelo (ej: Fiorino)"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                      style={cardStyle}
-                    />
-                    <input
-                      type="text"
-                      required
-                      value={vehColor}
-                      onChange={(e) => setVehColor(e.target.value)}
-                      placeholder="Color (ej: Blanco)"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                      style={cardStyle}
-                    />
-                    <input
-                      type="text"
-                      required
-                      value={vehPlate}
-                      onChange={(e) => setVehPlate(e.target.value)}
-                      placeholder="Patente (ej: AF123CD)"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs uppercase"
-                      style={cardStyle}
-                    />
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={savingVehicle}
-                    className="bg-sky-600 hover:bg-sky-500 text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                  >
-                    <Plus size={14} /> {savingVehicle ? 'Registrando...' : 'Registrar Vehículo'}
-                  </button>
-                </form>
-
-                {/* Zona 5: Listado de Vehículos */}
-                <div className="space-y-3">
-                  {profileData.vehicles.length === 0 ? (
-                    <div
-                      className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
-                      style={innerStyle}
-                    >
-                      Sin vehículos registrados en tu flota.
-                    </div>
-                  ) : (
-                    profileData.vehicles.map((v) => (
-                      <div
-                        key={v.id}
-                        className="p-4 rounded-xl border border-black/20 flex items-center justify-between gap-3 text-xs"
-                        style={innerStyle}
-                      >
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-sm">
-                              {v.brand} {v.model}
-                            </span>
-                            <span
-                              className="text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-white/15"
-                              style={cardStyle}
-                            >
-                              {v.vehicle_type}
-                            </span>
-                          </div>
-                          <p className="opacity-80 mt-1">
-                            Color: {v.color || '-'} · Patente:{' '}
-                            <strong className="font-mono">{v.license_plate}</strong>
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </section>
+              <Wrench size={22} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white">Portal Prestador</h2>
+              <p className="text-xs text-slate-400 mt-0.5">
+                Credenciales de compliance, flota vehicular y reputación cruzada.
+              </p>
+            </div>
           </div>
 
-          {/* Zona 4: Reputación Cruzada (Servicios y Calificación a Residentes) */}
-          <section
-            className="p-6 rounded-2xl border border-black/20 space-y-5"
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {providerProfiles.length > 0 && (
+              <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                <Star size={14} className="fill-amber-400" />
+                Scoring: {Number(providerProfiles[0].rating_avg || 0).toFixed(2)}
+              </span>
+            )}
+            <span
+              className={`text-xs font-semibold px-3 py-1.5 rounded-xl border ${primaryStatusInfo.badgeClass}`}
+            >
+              Estado: {primaryStatusInfo.label}
+            </span>
+          </div>
+        </div>
+
+        {/* Feedback global de acciones */}
+        {feedback.text && (
+          <div
+            className={`p-4 rounded-xl text-xs border flex items-center gap-2 ${
+              feedback.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                : 'bg-rose-950/60 border-rose-800 text-rose-200'
+            }`}
+          >
+            {feedback.type === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+            <span>{feedback.text}</span>
+          </div>
+        )}
+
+        {/* Bloques principales: Credenciales y Flota Vehicular */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Credenciales y Compliance */}
+          <div
+            className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between border-b border-black/20 pb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2.5 rounded-xl border border-white/15" style={innerStyle}>
-                  <Star size={18} className="text-amber-400" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold">
-                    Servicios Realizados &amp; Reputación Cruzada
-                  </h3>
-                  <p className="text-xs opacity-80">
-                    Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
-                  </p>
-                </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldCheck size={18} className="text-emerald-400" />
+                <h3 className="text-sm font-bold text-white">Credenciales y Compliance</h3>
               </div>
-              <span className="text-xs font-semibold opacity-80">
-                {reviewContracts.length} contrato(s)
+              <span className="text-[11px] font-mono text-slate-400">
+                {providerProfiles.length} registro(s)
               </span>
             </div>
 
-            {loadingReviews ? (
-              <div
-                className="text-center py-8 rounded-xl border border-black/20 text-xs"
+            <form onSubmit={handleAddCompliance} className="space-y-3">
+              <input
+                type="text"
+                value={specialty}
+                onChange={(e) => setSpecialty(e.target.value)}
+                placeholder="Especialidad (ej: Electricista Matriculado)"
+                className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
                 style={innerStyle}
-              >
-                Cargando historial de servicios...
+              />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  value={criminalRecordUrl}
+                  onChange={(e) => setCriminalRecordUrl(e.target.value)}
+                  placeholder="URL Certificado Antecedentes"
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  style={innerStyle}
+                />
+                <input
+                  type="text"
+                  value={insurancePolicyUrl}
+                  onChange={(e) => setInsurancePolicyUrl(e.target.value)}
+                  placeholder="URL Póliza ART / Seguro"
+                  className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                  style={innerStyle}
+                />
               </div>
-            ) : reviewContracts.length === 0 ? (
-              <div
-                className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85"
-                style={innerStyle}
+              <button
+                type="submit"
+                disabled={loadingAction || !specialty.trim()}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50 cursor-pointer"
               >
-                Aún no tenés contratos asignados en tu historial.
+                <Plus size={14} /> Agregar Credencial
+              </button>
+            </form>
+
+            {fetching ? (
+              <div className="text-center py-6 text-xs text-slate-400 flex items-center justify-center gap-2">
+                <Loader2 className="animate-spin" size={15} /> Cargando credenciales...
+              </div>
+            ) : providerProfiles.length === 0 ? (
+              <div className="text-center py-6 text-xs text-slate-500">
+                No tenés credenciales cargadas aún.
               </div>
             ) : (
-              <div className="space-y-4">
-                {reviewContracts.map((item) => {
-                  const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
-                  const commentDraft = ownerCommentDrafts[item.contract_id] || '';
-                  const alreadyRatedOwner = Boolean(item.owner_review_id);
-
+              <div className="space-y-3">
+                {providerProfiles.map((prof) => {
+                  const isEditing = editingProfileId === prof.id;
+                  const profStatus = formatComplianceStatus(prof.status);
                   return (
                     <div
-                      key={item.contract_id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      key={prof.id}
+                      className="p-4 rounded-xl border border-slate-800 bg-slate-900 space-y-3 text-xs"
                       style={innerStyle}
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold px-2 py-0.5 rounded border border-white/15">
-                            Contrato #{item.contract_id}
-                          </span>
-                          <span className="opacity-80">
-                            {item.country_name || 'TrustLink Community'}
-                          </span>
-                        </div>
-                        <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
-                          {item.status}
-                        </span>
-                      </div>
-
-                      <p className="font-bold">
-                        Residente: {item.owner_name || 'Residente Verificado'}
-                      </p>
-                      <p className="opacity-85">{item.description}</p>
-
-                      {item.provider_review_rating && (
-                        <div
-                          className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2"
-                          style={cardStyle}
-                        >
-                          <span className="font-semibold text-emerald-400">
-                            Reseña recibida del residente:{' '}
-                            {'★'.repeat(item.provider_review_rating)} (
-                            {item.provider_review_rating}/5)
-                          </span>
-                          {item.provider_review_comment && (
-                            <span className="opacity-85 italic">
-                              "{item.provider_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {alreadyRatedOwner ? (
-                        <div
-                          className="p-3 rounded-lg border border-white/15 text-xs"
-                          style={cardStyle}
-                        >
-                          Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
-                          {item.owner_review_rating}/5)
-                          {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
-                        </div>
-                      ) : (
-                        <div className="space-y-2.5 pt-2 border-t border-black/20">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="font-semibold">Calificar al residente:</span>
-                            <div className="flex items-center gap-1">
-                              {[1, 2, 3, 4, 5].map((starVal) => (
-                                <button
-                                  key={starVal}
-                                  type="button"
-                                  onClick={() =>
-                                    setOwnerRatingDrafts((prev) => ({
-                                      ...prev,
-                                      [item.contract_id]: starVal,
-                                    }))
-                                  }
-                                  className={`p-1.5 rounded-lg border cursor-pointer ${
-                                    ratingDraft >= starVal
-                                      ? 'bg-amber-600/30 border-amber-500 text-amber-300'
-                                      : 'border-white/15 opacity-70'
-                                  }`}
-                                >
-                                  <Star size={14} className="fill-current" />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="relative">
-                            <MessageSquare
-                              size={14}
-                              className="absolute left-3 top-2.5 opacity-70"
+                      {isEditing ? (
+                        <div className="space-y-2.5">
+                          <input
+                            type="text"
+                            value={editSpecialty}
+                            onChange={(e) => setEditSpecialty(e.target.value)}
+                            placeholder="Especialidad"
+                            className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-emerald-600 text-white"
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              value={editCriminalUrl}
+                              onChange={(e) => setEditCriminalUrl(e.target.value)}
+                              placeholder="URL Certificado Antecedentes"
+                              className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
                             />
                             <input
                               type="text"
-                              value={commentDraft}
-                              onChange={(e) =>
-                                setOwnerCommentDrafts((prev) => ({
-                                  ...prev,
-                                  [item.contract_id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Comentario sobre el trato y acceso en el domicilio..."
-                              className="w-full pl-8 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                              style={cardStyle}
+                              value={editInsuranceUrl}
+                              onChange={(e) => setEditInsuranceUrl(e.target.value)}
+                              placeholder="URL Póliza ART / Seguro"
+                              className="w-full px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
                             />
                           </div>
-
-                          <div className="flex justify-end">
+                          <div className="flex justify-end gap-1.5 pt-1">
                             <button
                               type="button"
-                              onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                              disabled={submittingOwnerReviewId === item.contract_id}
-                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50"
+                              onClick={() => handleSaveEditProfile(prof.id)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
                             >
-                              <Send size={13} />
-                              {submittingOwnerReviewId === item.contract_id
-                                ? 'Enviando...'
-                                : 'Calificar Residente'}
+                              <Save size={12} /> Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProfileId(null)}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
+                            >
+                              <X size={12} /> Cancelar
                             </button>
                           </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-start gap-3">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white">{prof.specialty}</span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
+                              >
+                                {profStatus.label}
+                              </span>
+                            </div>
+                            <p className="text-slate-400 mt-1 break-all">
+                              Antecedentes: {prof.criminal_record_url || 'No cargado'} · ART:{' '}
+                              {prof.insurance_policy_url || 'No cargado'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingProfileId(prof.id);
+                              setEditSpecialty(prof.specialty || '');
+                              setEditCriminalUrl(prof.criminal_record_url || '');
+                              setEditInsuranceUrl(prof.insurance_policy_url || '');
+                            }}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer shrink-0"
+                          >
+                            <Edit3 size={12} /> Editar
+                          </button>
                         </div>
                       )}
                     </div>
@@ -789,9 +547,374 @@ export default function ProviderDashboard() {
                 })}
               </div>
             )}
-          </section>
-        </>
-      )}
+          </div>
+
+          {/* Flota Vehicular Habilitada */}
+          <div
+            className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Car size={18} className="text-sky-400" />
+                <h3 className="text-sm font-bold text-white">Flota Vehicular Habilitada</h3>
+              </div>
+              <span className="text-[11px] font-mono text-slate-400">
+                {vehicles.length} vehículo(s)
+              </span>
+            </div>
+
+            <form onSubmit={handleAddVehicle} className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <select
+                  value={vehicleType}
+                  onChange={(e) => setVehicleType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white"
+                  style={innerStyle}
+                >
+                  <option value="Utilitario">Utilitario</option>
+                  <option value="Automóvil">Automóvil</option>
+                  <option value="Camioneta">Camioneta</option>
+                  <option value="Moto">Moto</option>
+                </select>
+                <input
+                  type="text"
+                  value={brandName}
+                  onChange={(e) => setBrandName(e.target.value)}
+                  placeholder="Marca (ej: Ford)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <input
+                  type="text"
+                  value={modelName}
+                  onChange={(e) => setModelName(e.target.value)}
+                  placeholder="Modelo (ej: Fiorino)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  style={innerStyle}
+                />
+                <input
+                  type="text"
+                  value={colorName}
+                  onChange={(e) => setColorName(e.target.value)}
+                  placeholder="Color (ej: Blanco)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white placeholder-slate-500"
+                  style={innerStyle}
+                />
+                <input
+                  type="text"
+                  value={plate}
+                  onChange={(e) => setPlate(e.target.value)}
+                  placeholder="Patente (ej: AF123CD)"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs font-mono text-white placeholder-slate-500 uppercase"
+                  style={innerStyle}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loadingAction || !plate.trim()}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-50 cursor-pointer"
+              >
+                <Plus size={14} /> Registrar Vehículo
+              </button>
+            </form>
+
+            {vehicles.length === 0 ? (
+              <div className="text-center py-4 text-xs text-slate-500">Sin vehículos registrados.</div>
+            ) : (
+              <div className="space-y-3">
+                {vehicles.map((veh) => {
+                  const isEditingVeh = editingVehicleId === veh.id;
+                  const cleanPlate = (veh.plate || '').trim();
+                  return (
+                    <div
+                      key={veh.id}
+                      className="p-4 rounded-xl border border-slate-800 bg-slate-900 flex justify-between items-start gap-3 text-xs"
+                      style={innerStyle}
+                    >
+                      {isEditingVeh ? (
+                        <div className="space-y-2.5 w-full">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <select
+                              value={editVehicleType}
+                              onChange={(e) => setEditVehicleType(e.target.value)}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                            >
+                              <option value="Utilitario">Utilitario</option>
+                              <option value="Automóvil">Automóvil</option>
+                              <option value="Camioneta">Camioneta</option>
+                              <option value="Moto">Moto</option>
+                            </select>
+                            <input
+                              type="text"
+                              value={editBrand}
+                              onChange={(e) => setEditBrand(e.target.value)}
+                              placeholder="Marca"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                            />
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            <input
+                              type="text"
+                              value={editModel}
+                              onChange={(e) => setEditModel(e.target.value)}
+                              placeholder="Modelo"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                            />
+                            <input
+                              type="text"
+                              value={editColor}
+                              onChange={(e) => setEditColor(e.target.value)}
+                              placeholder="Color"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-white"
+                            />
+                            <input
+                              type="text"
+                              value={editPlate}
+                              onChange={(e) => setEditPlate(e.target.value)}
+                              placeholder="Patente"
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-600 font-mono text-white uppercase"
+                            />
+                          </div>
+                          <div className="flex justify-end gap-1.5 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditVehicle(veh.id)}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold cursor-pointer"
+                            >
+                              Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingVehicleId(null)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-white">
+                                {veh.brand} {veh.model}
+                              </span>
+                              <span className="text-[10px] font-bold uppercase text-sky-300 bg-sky-950/70 border border-sky-800 px-2 py-0.5 rounded">
+                                {veh.vehicle_type || 'Vehículo'}
+                              </span>
+                            </div>
+                            <p className="text-slate-400 mt-1">
+                              Color: {veh.color || 'No especificado'} · Patente:{' '}
+                              {cleanPlate ? (
+                                <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
+                              ) : (
+                                <strong className="text-amber-400">Sin patente</strong>
+                              )}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingVehicleId(veh.id);
+                              setEditVehicleType(veh.vehicle_type || 'Utilitario');
+                              setEditBrand(veh.brand || '');
+                              setEditModel(veh.model || '');
+                              setEditColor(veh.color || '');
+                              setEditPlate(veh.plate || '');
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 cursor-pointer shrink-0"
+                          >
+                            <Edit3 size={12} /> Editar
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Servicios Realizados & Reputación Cruzada */}
+        <div
+          className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-2.5">
+              <Star size={18} className="text-amber-400" />
+              <div>
+                <h3 className="text-sm font-bold text-white">
+                  Servicios Realizados &amp; Reputación Cruzada
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs font-mono text-slate-400">
+              {providerContracts.length} contrato(s)
+            </span>
+          </div>
+
+          {crossReviewFeedback && (
+            <div
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
+                crossReviewFeedback.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                  : 'bg-rose-950/60 border-rose-800 text-rose-200'
+              }`}
+            >
+              {crossReviewFeedback.type === 'success' ? (
+                <CheckCircle2 size={15} />
+              ) : (
+                <AlertCircle size={15} />
+              )}
+              <span>{crossReviewFeedback.message}</span>
+            </div>
+          )}
+
+          {loadingContracts ? (
+            <div className="text-center py-6 text-xs text-slate-400">
+              Cargando servicios y calificaciones cruzadas...
+            </div>
+          ) : providerContracts.length === 0 ? (
+            <div className="text-center py-6 text-xs text-slate-500">
+              Aún no tenés contratos asignados en tu historial.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {providerContracts.map((item) => {
+                const draftRating = ownerRatingDrafts[item.contract_id] || 5;
+                const draftComment = ownerCommentDrafts[item.contract_id] || '';
+                const alreadyRatedOwner = Boolean(item.owner_review_id);
+
+                return (
+                  <div
+                    key={item.contract_id}
+                    className="p-4 rounded-xl border border-slate-800 bg-slate-900 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div>
+                        <span className="font-mono font-bold text-emerald-400">
+                          Contrato #{item.contract_id}
+                        </span>{' '}
+                        ·{' '}
+                        <span className="font-semibold text-white">
+                          Residente:{' '}
+                          {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
+                            'Propietario'}
+                        </span>{' '}
+                        <span className="text-slate-400">({item.country_name || 'Comunidad'})</span>
+                        <p className="text-slate-400 mt-1">{item.description}</p>
+                      </div>
+                      <span className="font-mono text-slate-200 bg-slate-950 border border-slate-800 px-3 py-1 rounded-lg self-start">
+                        ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
+                      </span>
+                    </div>
+
+                    {item.provider_review_rating && (
+                      <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-emerald-300">
+                          Reseña recibida del residente: {'★'.repeat(item.provider_review_rating)} (
+                          {item.provider_review_rating}/5)
+                        </span>
+                        {item.provider_review_comment && (
+                          <span className="text-slate-300 italic">"{item.provider_review_comment}"</span>
+                        )}
+                      </div>
+                    )}
+
+                    {alreadyRatedOwner ? (
+                      <div className="bg-slate-950 border border-indigo-900/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-semibold text-indigo-300">
+                          Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
+                          {item.owner_review_rating}/5)
+                        </span>
+                        {item.owner_review_comment && (
+                          <span className="text-slate-300 italic">"{item.owner_review_comment}"</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="bg-slate-950 border border-slate-800 rounded-lg p-3.5 space-y-2.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-slate-300 font-semibold">
+                            Calificar experiencia con el residente / acceso:
+                          </span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((starVal) => (
+                              <button
+                                key={starVal}
+                                type="button"
+                                onClick={() =>
+                                  setOwnerRatingDrafts((prev) => ({
+                                    ...prev,
+                                    [item.contract_id]: starVal
+                                  }))
+                                }
+                                className={`p-1 rounded-lg border cursor-pointer ${
+                                  draftRating >= starVal
+                                    ? 'bg-amber-950/70 border-amber-700 text-amber-300'
+                                    : 'bg-slate-900 border-slate-800 text-slate-500'
+                                }`}
+                              >
+                                <Star
+                                  size={13}
+                                  className={draftRating >= starVal ? 'fill-amber-400' : ''}
+                                />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row gap-2">
+                          <div className="relative flex-1">
+                            <MessageSquare
+                              size={13}
+                              className="text-slate-500 absolute left-3 top-1/2 -translate-y-1/2"
+                            />
+                            <input
+                              type="text"
+                              value={draftComment}
+                              onChange={(e) =>
+                                setOwnerCommentDrafts((prev) => ({
+                                  ...prev,
+                                  [item.contract_id]: e.target.value
+                                }))
+                              }
+                              placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
+                              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-900 border border-slate-700 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleSubmitOwnerReview(item.contract_id)}
+                            disabled={submittingReviewId === item.contract_id}
+                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 cursor-pointer"
+                          >
+                            <Send size={12} />
+                            {submittingReviewId === item.contract_id
+                              ? 'Enviando...'
+                              : 'Calificar Residente'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </main>
     </div>
   );
 }
