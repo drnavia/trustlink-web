@@ -205,7 +205,7 @@ export default function UserManagementView() {
             <ShieldAlert size={22} />
           </div>
           <div>
-            <h2 className="text-xl md:text-2xl font-black tracking-tight">
+            <h2 className="text-xl font-black text-white">
               Cuentas Privilegiadas
             </h2>
             <p className="text-xs opacity-80 mt-0.5">

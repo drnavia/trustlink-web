@@ -485,7 +485,7 @@ export default function BrandingSettingsView() {
               <Palette size={22} />
             </div>
             <div>
-              <h2 className="text-xl md:text-2xl font-black tracking-tight">
+              <h2 className="text-xl font-black text-white">
                 Colores / Marca
               </h2>
               <p className="text-xs opacity-80 mt-0.5">

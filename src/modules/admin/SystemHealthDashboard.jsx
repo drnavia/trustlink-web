@@ -883,7 +883,7 @@ export default function SystemHealthDashboard() {
             <Activity size={22} />
           </div>
           <div>
-            <h2 className="text-xl font-black tracking-tight">Salud &amp; APIs</h2>
+            <h2 className="text-xl font-black text-white">Salud &amp; APIs</h2>
             <p className="text-xs opacity-80 mt-0.5">
               Estado del sistema, barrios, claves de garita, pases QR y auditoría.
             </p>

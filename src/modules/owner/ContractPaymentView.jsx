@@ -218,7 +218,7 @@ export default function ContractPaymentView({ onViewChange }) {
                 <FileCheck2 size={20} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="text-lg font-black tracking-tight text-white">
+                <h2 className="text-xl font-black text-white">
                   Presupuesto y Orden de Pago
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -325,7 +325,7 @@ export default function ContractPaymentView({ onViewChange }) {
                 <Star size={20} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="text-lg font-black tracking-tight text-white">
+                <h2 className="text-xl font-black text-white">
                   Cierre de Servicio &amp; Calificación Cruzada
                 </h2>
                 <p className="text-xs text-slate-400 mt-0.5">

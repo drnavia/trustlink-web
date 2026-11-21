@@ -176,7 +176,7 @@ export default function LocalAdminView() {
             <ShieldAlert size={22} />
           </div>
           <div>
-            <h2 className="text-xl font-black">Vista Admin Barrio</h2>
+            <h2 className="text-xl font-black text-white">Vista Admin Barrio</h2>
             <p className="text-xs opacity-80 mt-0.5">
               Reportes y suspensiones locales dentro de la comunidad.
             </p>
