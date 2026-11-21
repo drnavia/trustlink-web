@@ -2,7 +2,8 @@
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
  * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional), aplicación explícita
- * de las Zonas 1 a 6 y submenú de Modo Maestro reordenado con color activo distintivo por opción.
+ * de las 6 zonas de apariencia y submenú de Modo Maestro reordenado con color activo distintivo.
+ * Unifica la etiqueta del administrador local como "Vista Admin Barrio" en barra superior y encabezado.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -44,6 +45,7 @@ function MainAppContent() {
   const [currentView, setCurrentView] = useState(user ? 'resident' : 'landing');
   const [masterModeOpen, setMasterModeOpen] = useState(false);
 
+  // Sincroniza la vista inicial según el rol autenticado
   useEffect(() => {
     if (!user) {
       setCurrentView('landing');
@@ -81,6 +83,7 @@ function MainAppContent() {
     setMasterModeOpen(false);
   };
 
+  // Identidad configurable de la barra superior (Zona 1) con fallback a valores por defecto
   const displayBrandName = (brand.brandName || brand.name || 'TrustLink').trim() || 'TrustLink';
   const displayBrandBadge = (brand.brandBadge || 'Community').trim() || 'Community';
   const displayBrandSubtitle =
@@ -201,6 +204,7 @@ function MainAppContent() {
               </button>
             )}
 
+            {/* Etiqueta unificada con el título interno y el submenú de Modo Maestro */}
             {isLocalAdmin && (
               <button
                 type="button"
@@ -211,7 +215,7 @@ function MainAppContent() {
                     : 'bg-black/25 hover:bg-black/35'
                 }`}
               >
-                <ShieldAlert size={13} /> Admin Barrio
+                <ShieldAlert size={13} /> Vista Admin Barrio
               </button>
             )}
 
@@ -391,7 +395,7 @@ function MainAppContent() {
         )}
         {currentView === 'resident' && <ResidentDashboard onViewChange={setCurrentView} />}
         {currentView === 'provider' && <ProviderDashboard />}
-        {currentView === 'payments' && <ContractPaymentView />}
+        {currentView === 'payments' && <ContractPaymentView onViewChange={setCurrentView} />}
         {currentView === 'security' && <SecurityScanner />}
         {currentView === 'admin' && <AdminComplianceView />}
         {currentView === 'health' && (
