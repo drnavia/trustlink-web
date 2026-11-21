@@ -1,8 +1,9 @@
 /**
  * @file ResidentDashboard.jsx
  * @description Portal del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
- * Permite buscar prestadores verificados, emitir pases QR de acceso vinculados a cada prestador
- * y derivar al flujo de contratos y pagos con respiro limpio en la barra del directorio.
+ * Muestra cada prestador verificado unificado en una sola tarjeta (consolidando sus especialidades
+ * aprobadas, calificación promedio y cantidad real de trabajos), permite filtrar por nombre o
+ * especialidad, emitir pases QR vinculados al prestador y derivar a Pagos y Reseñas.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -85,7 +86,7 @@ export default function ResidentDashboard({ onViewChange }) {
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
   });
 
-  // Obtiene el directorio de prestadores aprobados desde PostgreSQL
+  // Obtiene el directorio unificado de prestadores aprobados desde PostgreSQL
   const fetchVerifiedProviders = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -112,16 +113,21 @@ export default function ResidentDashboard({ onViewChange }) {
     fetchVerifiedProviders();
   }, []);
 
-  // Filtro dinámico por nombre o especialidad
+  // Filtro dinámico por nombre, apellido o cualquiera de las especialidades del prestador
   const filteredProviders = providers.filter((p) => {
     const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
-    const specialty = (p.specialty || '').toLowerCase();
+    const specialtiesText = (
+      p.specialties_label ||
+      (Array.isArray(p.specialties) ? p.specialties.join(' ') : '') ||
+      p.specialty ||
+      ''
+    ).toLowerCase();
     const query = searchTerm.trim().toLowerCase();
     if (!query) return true;
-    return fullName.includes(query) || specialty.includes(query);
+    return fullName.includes(query) || specialtiesText.includes(query);
   });
 
-  // Abre el modal de pase QR para un prestador específico
+  // Abre el modal de pase QR para el prestador unificado seleccionado
   const handleOpenQrModal = (provider) => {
     const now = new Date();
     const endDefault = new Date(now.getTime() + 4 * 60 * 60 * 1000);
@@ -234,7 +240,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </div>
         )}
 
-        {/* Listado de prestadores verificados */}
+        {/* Listado de prestadores verificados unificados */}
         {loading ? (
           <div className="text-center py-16 text-slate-400 text-xs">
             Consultando base de datos PostgreSQL...
@@ -250,17 +256,30 @@ export default function ResidentDashboard({ onViewChange }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredProviders.map((p) => {
               const totalJobs = Number(p.total_jobs || 0);
+              const specialtiesList = Array.isArray(p.specialties) && p.specialties.length > 0
+                ? p.specialties
+                : [p.specialty || 'Servicio Verificado'];
+
               return (
                 <div
-                  key={p.provider_id}
+                  key={p.user_id || p.provider_id}
                   className="bg-slate-950 border border-slate-800 hover:border-slate-700 p-5 rounded-2xl shadow-xl flex flex-col justify-between gap-5 transition-all"
                   style={cardStyle}
                 >
                   <div>
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/70 border border-emerald-800 px-2.5 py-0.5 rounded-md">
-                        {p.specialty || 'Servicio Verificado'}
-                      </span>
+                    <div className="flex justify-between items-start gap-2 mb-2.5">
+                      {/* Especialidades consolidadas del prestador en píldoras */}
+                      <div className="flex flex-wrap gap-1.5">
+                        {specialtiesList.map((spec) => (
+                          <span
+                            key={spec}
+                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded-md"
+                          >
+                            {spec}
+                          </span>
+                        ))}
+                      </div>
+
                       <span className="text-amber-400 font-bold text-xs bg-amber-950/70 border border-amber-800 px-2 py-0.5 rounded-md flex items-center gap-1 shrink-0">
                         <Star size={11} className="fill-amber-400" />
                         {Number(p.rating_avg || 0).toFixed(1)}
@@ -340,7 +359,9 @@ export default function ResidentDashboard({ onViewChange }) {
                     {qrModalProvider.first_name} {qrModalProvider.last_name}
                   </h3>
                   <p className="text-xs text-slate-400">
-                    {qrModalProvider.specialty || 'Prestador Verificado'}
+                    {qrModalProvider.specialties_label ||
+                      qrModalProvider.specialty ||
+                      'Prestador Verificado'}
                   </p>
                 </div>
                 <button
@@ -367,7 +388,8 @@ export default function ResidentDashboard({ onViewChange }) {
                       Pase QR emitido correctamente (#{generatedPass.id || 'Nuevo'})
                     </p>
                     <p className="text-slate-300">
-                      Ubicación: {generatedPass.fraction || fraction} · {generatedPass.lot_number || lotNumber}
+                      Ubicación: {generatedPass.fraction || fraction} ·{' '}
+                      {generatedPass.lot_number || lotNumber}
                     </p>
                     <div className="bg-slate-950 border border-slate-800 rounded-lg p-2.5 font-mono text-[11px] text-emerald-300 break-all">
                       {generatedPass.qr_token || generatedPass.token || 'Token generado'}
@@ -382,7 +404,11 @@ export default function ResidentDashboard({ onViewChange }) {
                       }
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-slate-200 border border-slate-700 cursor-pointer"
                     >
-                      {copiedToken ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                      {copiedToken ? (
+                        <Check size={14} className="text-emerald-400" />
+                      ) : (
+                        <Copy size={14} />
+                      )}
                       {copiedToken ? 'Copiado' : 'Copiar Token QR'}
                     </button>
 
