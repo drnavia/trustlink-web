@@ -1,9 +1,9 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar presets rápidos de piel,
- * logo opcional (SVG, PNG, JPG) con recomendación de dimensiones, identidad opcional del menú,
- * fondos y tipografías de las Zonas 1 a 6 en formato compacto y modo oscuro, con vista previa
- * en vivo alineada y persistencia en PostgreSQL.
+ * @description Vista exclusiva de 'superadmin' para configurar presets rápidos minimalistas,
+ * logo opcional (SVG, PNG, JPG) con vista previa directa de la imagen o emblema vigente,
+ * identidad opcional del menú, fondos y tipografías de las Zonas 1 a 6 en formato compacto
+ * y modo oscuro, con vista previa en vivo alineada y persistencia en PostgreSQL.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -418,9 +418,9 @@ export default function BrandingSettingsView() {
         </span>
       </div>
 
-      {/* 1. Presets de Piel Rápidos */}
+      {/* 1. Presets de Piel Rápidos (Minimalistas y Compactos) */}
       <section
-        className="border border-black/20 p-4 md:p-5 rounded-2xl space-y-3.5"
+        className="border border-black/20 p-4 rounded-2xl space-y-3"
         style={innerStyle}
       >
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -428,11 +428,11 @@ export default function BrandingSettingsView() {
             <Sparkles size={14} /> Presets de Piel Rápidos
           </h3>
           <p className="text-[11px] opacity-80">
-            Previsualizá un esquema al instante; luego presioná Guardar y Aplicar para persistir en PostgreSQL.
+            Previsualizá un esquema al instante; luego presioná Guardar y Aplicar.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
           {Object.entries(BRANDING_PRESETS).map(([key, preset]) => {
             const isSelected = selectedPresetKey === key;
             return (
@@ -440,43 +440,39 @@ export default function BrandingSettingsView() {
                 key={key}
                 type="button"
                 onClick={() => handleApplyPreset(key)}
-                className={`p-3.5 rounded-xl border text-left transition-all flex flex-col justify-between gap-3 cursor-pointer ${
+                title={preset.description}
+                className={`px-3 py-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
                   isSelected
                     ? 'border-emerald-400 ring-2 ring-emerald-500/40'
                     : 'border-white/15 hover:border-white/30'
                 }`}
                 style={cardStyle}
               >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold">{preset.name}</span>
-                    <span className="text-[10px] font-mono opacity-75">
-                      {preset.config.darkMode ? 'Dark' : 'Light'}
-                    </span>
-                  </div>
-                  <p className="text-[11px] opacity-75 leading-snug">
-                    {preset.description}
-                  </p>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold truncate">{preset.name}</p>
+                  <span className="text-[10px] font-mono opacity-70">
+                    {preset.config.darkMode ? 'Dark' : 'Light'}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-1.5 pt-1">
+                <div className="flex items-center gap-1 shrink-0">
                   <span
-                    className="w-4 h-4 rounded-full border border-white/30"
+                    className="w-3.5 h-3.5 rounded-full border border-white/30"
                     style={{ backgroundColor: preset.config.menuBgColor }}
                     title="Zona 1 — Menú"
                   />
                   <span
-                    className="w-4 h-4 rounded-full border border-white/30"
+                    className="w-3.5 h-3.5 rounded-full border border-white/30"
                     style={{ backgroundColor: preset.config.platformBgColor }}
                     title="Zona 3 — Plataforma"
                   />
                   <span
-                    className="w-4 h-4 rounded-full border border-white/30"
+                    className="w-3.5 h-3.5 rounded-full border border-white/30"
                     style={{ backgroundColor: preset.config.cardBgColor }}
                     title="Zona 4 — Tarjetas"
                   />
                   <span
-                    className="w-4 h-4 rounded-full border border-white/30"
+                    className="w-3.5 h-3.5 rounded-full border border-white/30"
                     style={{ backgroundColor: preset.config.innerBgColor }}
                     title="Zona 5 — Cajas internas"
                   />
@@ -515,24 +511,45 @@ export default function BrandingSettingsView() {
         </div>
       )}
 
-      {/* 2. Fila Intermedia: Logo con dimensión recomendada + Identidad del Menú */}
+      {/* 2. Fila Intermedia: Logo con vista previa directa + Identidad del Menú */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div
           className="lg:col-span-5 border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
           style={innerStyle}
         >
-          <div className="space-y-1">
-            <span className="text-xs font-bold flex items-center gap-1.5">
-              <ImageIcon size={14} className="text-emerald-400" /> Logo (SVG, PNG, JPG)
-            </span>
-            <p className="text-[11px] opacity-80 leading-relaxed">
-              Opcional (máx. 1 MB). Dimensión recomendada: <strong>240×72 px</strong> horizontal o{' '}
-              <strong>128×128 px</strong> cuadrado (SVG o PNG transparente para máxima nitidez).
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <span className="text-xs font-bold flex items-center gap-1.5">
+                <ImageIcon size={14} className="text-emerald-400 shrink-0" /> Logo (SVG, PNG, JPG)
+              </span>
+              <p className="text-[11px] opacity-80 leading-relaxed">
+                Opcional (máx. 1 MB). Dimensión recomendada: <strong>240×72 px</strong> horizontal o{' '}
+                <strong>128×128 px</strong> cuadrado.
+              </p>
+            </div>
+
+            {/* Vista previa del logo actual (cargado o por defecto) */}
+            <div
+              className="w-16 h-14 rounded-xl border border-white/15 flex items-center justify-center p-1.5 shrink-0"
+              style={cardStyle}
+              title={formState.logoUrl ? 'Logo personalizado cargado' : 'Emblema por defecto'}
+            >
+              {formState.logoUrl ? (
+                <img
+                  src={formState.logoUrl}
+                  alt={previewTitle}
+                  className="max-h-full max-w-full object-contain rounded"
+                />
+              ) : (
+                <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
+                  <ShieldCheck size={18} />
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <div className="flex items-center gap-2">
               <label
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
                 style={cardStyle}
@@ -557,11 +574,13 @@ export default function BrandingSettingsView() {
               )}
             </div>
 
-            {formState.logoFileName && (
-              <p className="text-[11px] opacity-80 truncate">
-                Archivo: <span className="font-mono">{formState.logoFileName}</span>
-              </p>
-            )}
+            <span className="text-[10px] opacity-75 truncate max-w-[160px]">
+              {formState.logoFileName
+                ? formState.logoFileName
+                : formState.logoUrl
+                ? 'Logo personalizado'
+                : 'Emblema por defecto'}
+            </span>
           </div>
         </div>
 
