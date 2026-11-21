@@ -1,8 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional) y aplicación explícita
- * de las Zonas 1 a 6.
+ * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional), aplicación explícita
+ * de las Zonas 1 a 6 y submenú de Modo Maestro reordenado con color activo distintivo por opción.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -298,64 +298,69 @@ function MainAppContent() {
           </span>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* 1. Compliance Prestadores (Esmeralda) */}
             <button
               type="button"
               onClick={() => setCurrentView('admin')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'admin'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-emerald-600 text-white ring-2 ring-emerald-400/50'
                   : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
-              <UserCheck size={12} /> Ops TrustLink
+              <UserCheck size={12} /> Compliance Prestadores
             </button>
 
-            <button
-              type="button"
-              onClick={() => setCurrentView('health')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
-                currentView === 'health'
-                  ? 'bg-sky-600 text-white'
-                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
-              }`}
-            >
-              <Activity size={12} /> Salud &amp; APIs
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setCurrentView('users_master')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
-                currentView === 'users_master'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
-              }`}
-            >
-              <ShieldAlert size={12} /> Cuentas Privilegiadas
-            </button>
-
+            {/* 2. Vista Admin Barrio (Ámbar) */}
             <button
               type="button"
               onClick={() => setCurrentView('local_admin')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'local_admin'
-                  ? 'bg-amber-600 text-white'
+                  ? 'bg-amber-600 text-white ring-2 ring-amber-400/50'
                   : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <ShieldAlert size={12} /> Vista Admin Barrio
             </button>
 
+            {/* 3. Cuentas Privilegiadas (Púrpura) */}
+            <button
+              type="button"
+              onClick={() => setCurrentView('users_master')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'users_master'
+                  ? 'bg-purple-600 text-white ring-2 ring-purple-400/50'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
+              }`}
+            >
+              <ShieldAlert size={12} /> Cuentas Privilegiadas
+            </button>
+
+            {/* 4. Colores / Marca (Fucsia / Rosa) */}
             <button
               type="button"
               onClick={() => setCurrentView('branding_master')}
               className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
                 currentView === 'branding_master'
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-pink-600 text-white ring-2 ring-pink-400/50'
                   : 'bg-black/25 hover:bg-black/35 border border-white/15'
               }`}
             >
               <Palette size={12} /> Colores / Marca
+            </button>
+
+            {/* 5. Salud & APIs (Cielo) */}
+            <button
+              type="button"
+              onClick={() => setCurrentView('health')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold transition-colors cursor-pointer ${
+                currentView === 'health'
+                  ? 'bg-sky-600 text-white ring-2 ring-sky-400/50'
+                  : 'bg-black/25 hover:bg-black/35 border border-white/15'
+              }`}
+            >
+              <Activity size={12} /> Salud &amp; APIs
             </button>
           </div>
         </div>

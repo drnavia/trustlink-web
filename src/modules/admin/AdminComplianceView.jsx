@@ -1,7 +1,7 @@
 /**
  * @file AdminComplianceView.jsx
- * @description Panel de control central para que el equipo de Operaciones de TrustLink
- * audite y apruebe/rechace el compliance de los prestadores registrados en la red,
+ * @description Panel de control central para que el equipo de Operaciones audite
+ * y apruebe/rechace el compliance de los prestadores registrados en la red,
  * con aplicación explícita de Zona 4 (tarjetas principales) y Zona 5 (cajas internas).
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
@@ -101,7 +101,7 @@ export default function AdminComplianceView() {
 
   return (
     <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
-      {/* Zona 4: Encabezado Ops TrustLink */}
+      {/* Zona 4: Encabezado Compliance Prestadores */}
       <section
         className="p-6 rounded-2xl border border-black/20 flex flex-col md:flex-row md:items-center justify-between gap-4"
         style={cardStyle}
@@ -111,9 +111,11 @@ export default function AdminComplianceView() {
             <UserCheck size={22} />
           </div>
           <div>
-            <h2 className="text-xl md:text-2xl font-black tracking-tight">Ops TrustLink</h2>
+            <h2 className="text-xl md:text-2xl font-black tracking-tight">
+              Compliance Prestadores
+            </h2>
             <p className="text-xs opacity-80 mt-0.5">
-              Certificación y compliance de prestadores en la red.
+              Certificación y auditoría de prestadores en la red.
             </p>
           </div>
         </div>
