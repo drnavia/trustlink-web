@@ -2,6 +2,7 @@
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL. Permite gestionar
  * credenciales de compliance, flota vehicular habilitada y calificaciones cruzadas con residentes.
+ * Incluye ícono de cabecera suavizado y validación explícita de patentes.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -349,17 +350,17 @@ export default function ProviderDashboard() {
   return (
     <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera neutra y coherente del Portal Prestador */}
+        {/* Cabecera del Portal Prestador con ícono suavizado y sobrio */}
         <div
           className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
           style={cardStyle}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3.5">
             <div
-              className="p-3 rounded-xl text-white shadow-lg"
-              style={{ backgroundColor: brand?.primaryColor || '#10b981' }}
+              className="p-3 rounded-xl bg-slate-900 border border-slate-700/80 text-emerald-400 shrink-0"
+              style={innerStyle}
             >
-              <Wrench size={22} />
+              <Wrench size={20} strokeWidth={1.8} />
             </div>
             <div>
               <h2 className="text-xl font-black text-white">Portal Prestador</h2>

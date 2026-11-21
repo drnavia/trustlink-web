@@ -2,7 +2,7 @@
  * @file ResidentDashboard.jsx
  * @description Portal del Residente conectado 100% a la base de datos PostgreSQL mediante API REST.
  * Permite buscar prestadores verificados, emitir pases QR de acceso vinculados a cada prestador
- * y derivar al flujo de contratos y pagos sin duplicar información ya presente en el header global.
+ * y derivar al flujo de contratos y pagos con respiro limpio en la barra del directorio.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -20,7 +20,8 @@ import {
   Check,
   X,
   Calendar,
-  MapPin
+  MapPin,
+  Compass
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -189,22 +190,30 @@ export default function ResidentDashboard({ onViewChange }) {
   return (
     <div className="bg-slate-900 text-slate-100 font-sans p-6 md:p-8 min-h-[calc(100vh-120px)]">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Barra limpia del Directorio de Prestadores Verificados (sin duplicar header ni usuario) */}
+        {/* Barra del Directorio de Prestadores Verificados con respiro lateral limpio */}
         <div
-          className="bg-slate-950 border border-slate-800 p-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+          className="bg-slate-950 border border-slate-800 px-6 py-6 rounded-2xl shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
           style={cardStyle}
         >
-          <div>
-            <h2 className="text-xl font-black tracking-tight text-white">
-              Directorio de Prestadores Verificados
-            </h2>
-            <p className="text-xs text-slate-400 mt-1">
-              Profesionales auditados con compliance aprobado para ingreso por QR o contratación directa.
-            </p>
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div
+              className="p-3 rounded-xl border border-slate-700/80 text-emerald-400 shrink-0"
+              style={innerStyle}
+            >
+              <Compass size={20} />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-xl font-black tracking-tight text-white">
+                Directorio de Prestadores Verificados
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Profesionales auditados con compliance aprobado para ingreso por QR o contratación directa.
+              </p>
+            </div>
           </div>
 
           {/* Buscador exclusivo en la barra del directorio */}
-          <div className="relative w-full md:w-80">
+          <div className="relative w-full md:w-80 shrink-0">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
             <input
               type="text"
@@ -270,9 +279,7 @@ export default function ResidentDashboard({ onViewChange }) {
                       </span>
                     </p>
 
-                    <div
-                      className="space-y-1 text-[11px] text-slate-400 border-t border-slate-900 pt-2.5 rounded-lg"
-                    >
+                    <div className="space-y-1 text-[11px] text-slate-400 border-t border-slate-900 pt-2.5 rounded-lg">
                       <p className="flex items-center gap-1.5">
                         <Phone size={12} className="text-slate-500 shrink-0" />
                         <span>{p.phone || 'Teléfono no especificado'}</span>
