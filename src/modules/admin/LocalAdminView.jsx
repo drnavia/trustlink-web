@@ -166,7 +166,7 @@ export default function LocalAdminView() {
 
   return (
     <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6 font-sans">
-      {/* Zona 4: Encabezado Admin Barrio */}
+      {/* Zona 4: Encabezado Vista Admin Barrio */}
       <section
         className="border border-black/20 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
         style={cardStyle}
@@ -176,7 +176,7 @@ export default function LocalAdminView() {
             <ShieldAlert size={22} />
           </div>
           <div>
-            <h2 className="text-xl font-black">Admin Barrio</h2>
+            <h2 className="text-xl font-black">Vista Admin Barrio</h2>
             <p className="text-xs opacity-80 mt-0.5">
               Reportes y suspensiones locales dentro de la comunidad.
             </p>
