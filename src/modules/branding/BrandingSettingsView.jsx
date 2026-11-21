@@ -1,9 +1,9 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar presets rápidos minimalistas,
- * logo opcional (SVG, PNG, JPG) con vista previa directa de la imagen o emblema vigente,
- * identidad opcional del menú, fondos y tipografías de las Zonas 1 a 6 en formato compacto
- * y modo oscuro, con vista previa en vivo alineada y persistencia en PostgreSQL.
+ * @description Vista exclusiva de 'superadmin' para configurar 12 presets rápidos (6 Dark en fila 1
+ * y 6 Light en fila 2) con pares explícitos dark/light, selector de Modo Oscuro reubicado en la
+ * cabecera de presets, logo opcional con vista previa directa, identidad opcional del menú,
+ * fondos y tipografías de las Zonas 1 a 6 en formato compacto y persistencia en PostgreSQL.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
@@ -33,6 +33,24 @@ import {
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
+
+const DARK_PRESET_KEYS = [
+  'default',
+  'countryClub',
+  'graphiteTech',
+  'emeraldPerimeter',
+  'midnightViolet',
+  'amberSunset',
+];
+
+const LIGHT_PRESET_KEYS = [
+  'lightDay',
+  'ivoryClub',
+  'alabaster',
+  'mintDay',
+  'lavenderDay',
+  'cyanUrban',
+];
 
 const ZONES_CONFIG = [
   {
@@ -188,10 +206,23 @@ export default function BrandingSettingsView() {
     }
   };
 
+  /**
+   * Alterna entre la variante dark y light explícita del preset activo
+   * (o usa el preset por defecto si se habían editado colores sueltos).
+   */
   const handleDarkModeToggle = (checked) => {
-    setSelectedPresetKey('custom');
-    setFormState((prev) => ({ ...prev, darkMode: checked }));
-    previewBranding({ darkMode: checked });
+    const targetMode = checked ? 'dark' : 'light';
+    const baseKey =
+      selectedPresetKey && BRANDING_PRESETS[selectedPresetKey]
+        ? selectedPresetKey
+        : 'default';
+
+    const variantConfig = applyBrandingPreset(baseKey, targetMode);
+    setFormState((prev) => ({
+      ...prev,
+      ...variantConfig,
+      darkMode: checked,
+    }));
   };
 
   const handleApplyPreset = (presetKey) => {
@@ -199,11 +230,11 @@ export default function BrandingSettingsView() {
     if (!presetObj) return;
     setFeedback({ type: '', text: '' });
     setSelectedPresetKey(presetKey);
+    const variantConfig = applyBrandingPreset(presetKey, presetObj.defaultMode);
     setFormState((prev) => ({
       ...prev,
-      ...presetObj.config,
+      ...variantConfig,
     }));
-    applyBrandingPreset(presetKey);
   };
 
   const handleLogoUpload = (e) => {
@@ -347,6 +378,58 @@ export default function BrandingSettingsView() {
     (z) => getContrastRatio(formState[z.bgField], formState[z.textField]) < 3
   );
 
+  const renderPresetCard = (presetKey) => {
+    const preset = BRANDING_PRESETS[presetKey];
+    if (!preset) return null;
+    const isSelected = selectedPresetKey === presetKey;
+    const baseSwatch = preset.variants[preset.defaultMode] || preset.variants.dark;
+
+    return (
+      <button
+        key={presetKey}
+        type="button"
+        onClick={() => handleApplyPreset(presetKey)}
+        title={preset.description}
+        className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
+          isSelected
+            ? 'border-emerald-400 ring-2 ring-emerald-500/40'
+            : 'border-white/15 hover:border-white/30'
+        }`}
+        style={cardStyle}
+      >
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold truncate">{preset.name}</p>
+          <span className="text-[9px] font-mono opacity-70 uppercase">
+            {preset.group}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-0.5 shrink-0">
+          <span
+            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            style={{ backgroundColor: baseSwatch.menuBgColor }}
+            title="Zona 1 — Menú"
+          />
+          <span
+            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            style={{ backgroundColor: baseSwatch.platformBgColor }}
+            title="Zona 3 — Plataforma"
+          />
+          <span
+            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            style={{ backgroundColor: baseSwatch.cardBgColor }}
+            title="Zona 4 — Tarjetas"
+          />
+          <span
+            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            style={{ backgroundColor: baseSwatch.innerBgColor }}
+            title="Zona 5 — Cajas internas"
+          />
+        </div>
+      </button>
+    );
+  };
+
   const renderCompactColorInput = (label, field) => {
     const value = formState[field];
     const isValid = HEX_REGEX.test(value);
@@ -419,68 +502,49 @@ export default function BrandingSettingsView() {
           </span>
         </div>
 
-        {/* 1. Presets de Piel Rápidos (Minimalistas y Compactos) */}
+        {/* 1. Presets de Piel Rápidos (Fila 1: 6 Dark · Fila 2: 6 Light) + Switch Modo Oscuro Reubicado */}
         <section
           className="border border-black/20 p-4 rounded-2xl space-y-3"
           style={innerStyle}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-emerald-400">
-              <Sparkles size={14} /> Presets de Piel Rápidos
-            </h3>
-            <p className="text-[11px] opacity-80">
-              Previsualizá un esquema al instante; luego presioná Guardar y Aplicar.
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-emerald-400">
+                <Sparkles size={14} /> Presets de Piel Rápidos
+              </h3>
+              <p className="text-[11px] opacity-80 mt-0.5">
+                Fila superior: 6 estilos Dark · Fila inferior: 6 estilos Light. Cada preset adapta su par oscuro/claro al alternar Modo Oscuro.
+              </p>
+            </div>
+
+            {/* Control Modo Oscuro reubicado en la cabecera de Presets */}
+            <label
+              className="inline-flex items-center gap-2.5 border border-white/15 px-3 py-1.5 rounded-xl cursor-pointer text-xs font-bold self-start sm:self-auto shrink-0"
+              style={cardStyle}
+            >
+              {formState.darkMode ? (
+                <Moon size={14} className="text-emerald-400 shrink-0" />
+              ) : (
+                <Sun size={14} className="text-amber-400 shrink-0" />
+              )}
+              <span>Modo Oscuro: {formState.darkMode ? 'Activado' : 'Desactivado'}</span>
+              <input
+                type="checkbox"
+                checked={Boolean(formState.darkMode)}
+                onChange={(e) => handleDarkModeToggle(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500 cursor-pointer"
+              />
+            </label>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {Object.entries(BRANDING_PRESETS).map(([key, preset]) => {
-              const isSelected = selectedPresetKey === key;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => handleApplyPreset(key)}
-                  title={preset.description}
-                  className={`px-3 py-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2.5 cursor-pointer ${
-                    isSelected
-                      ? 'border-emerald-400 ring-2 ring-emerald-500/40'
-                      : 'border-white/15 hover:border-white/30'
-                  }`}
-                  style={cardStyle}
-                >
-                  <div className="min-w-0">
-                    <p className="text-xs font-bold truncate">{preset.name}</p>
-                    <span className="text-[10px] font-mono opacity-70">
-                      {preset.config.darkMode ? 'Dark' : 'Light'}
-                    </span>
-                  </div>
+          {/* Fila 1: 6 Presets Dark */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {DARK_PRESET_KEYS.map((key) => renderPresetCard(key))}
+          </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/30"
-                      style={{ backgroundColor: preset.config.menuBgColor }}
-                      title="Zona 1 — Menú"
-                    />
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/30"
-                      style={{ backgroundColor: preset.config.platformBgColor }}
-                      title="Zona 3 — Plataforma"
-                    />
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/30"
-                      style={{ backgroundColor: preset.config.cardBgColor }}
-                      title="Zona 4 — Tarjetas"
-                    />
-                    <span
-                      className="w-3.5 h-3.5 rounded-full border border-white/30"
-                      style={{ backgroundColor: preset.config.innerBgColor }}
-                      title="Zona 5 — Cajas internas"
-                    />
-                  </div>
-                </button>
-              );
-            })}
+          {/* Fila 2: 6 Presets Light */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {LIGHT_PRESET_KEYS.map((key) => renderPresetCard(key))}
           </div>
         </section>
 
@@ -653,7 +717,7 @@ export default function BrandingSettingsView() {
           </h3>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Filas compactas de Zonas 1 a 6 + Modo Oscuro */}
+            {/* Columna Izquierda: Filas compactas de Zonas 1 a 6 */}
             <div className="lg:col-span-7 space-y-2.5">
               {ZONES_CONFIG.map((item) => (
                 <div
@@ -674,34 +738,6 @@ export default function BrandingSettingsView() {
                   </div>
                 </div>
               ))}
-
-              {/* Modo Oscuro compacto */}
-              <div
-                className="border border-black/20 px-3.5 py-2.5 rounded-xl flex items-center justify-between gap-3"
-                style={innerStyle}
-              >
-                <div className="flex items-center gap-2">
-                  {formState.darkMode ? (
-                    <Moon size={14} className="text-emerald-400 shrink-0" />
-                  ) : (
-                    <Sun size={14} className="text-amber-400 shrink-0" />
-                  )}
-                  <span className="text-xs font-bold">Modo Oscuro</span>
-                </div>
-
-                <label
-                  className="inline-flex items-center gap-2.5 border border-white/15 px-3 py-1.5 rounded-lg cursor-pointer text-xs font-semibold"
-                  style={cardStyle}
-                >
-                  <span>{formState.darkMode ? 'Activado' : 'Desactivado'}</span>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(formState.darkMode)}
-                    onChange={(e) => handleDarkModeToggle(e.target.checked)}
-                    className="w-4 h-4 accent-emerald-500 cursor-pointer"
-                  />
-                </label>
-              </div>
             </div>
 
             {/* Columna Derecha: Vista Previa en Vivo alineada a la altura de ZONA 1 */}
