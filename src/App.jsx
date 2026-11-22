@@ -3,7 +3,7 @@
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
  * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional), aplicación explícita
  * de las 6 zonas de apariencia y submenú de Modo Maestro reordenado con color activo distintivo.
- * Unifica la etiqueta del administrador local como "Vista Admin Barrio" en barra superior y encabezado.
+ * Unifica la etiqueta del administrador local como "Vista Admin Barrio" y refuerza el botón Salir.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -253,7 +253,7 @@ function MainAppContent() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 bg-black/25 hover:bg-rose-950/70 text-rose-300 border border-white/15 px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer"
+                className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shadow-sm"
                 title="Cerrar sesión"
               >
                 <LogOut size={13} /> Salir
