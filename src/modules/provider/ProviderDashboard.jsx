@@ -1,17 +1,18 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
- * 3. Reputación Cruzada). En Credenciales permite cargar y editar documentación personal en fila
- * con vigencia y validación de TrustLink, y gestionar Especialidades y Credenciales incluyendo
- * la opción del prestador de ocultar o mostrar cada especialidad ante los residentes.
+ * @description Portal del Prestador conectado a la API REST de TrustLink (PostgreSQL).
+ * Incluye el paso 1. Credenciales con diseño minimalista y visual: badges en español
+ * con color semántico, ícono de tilde ("Verificado") para validación, diferenciación
+ * clara entre estado de verificación y visibilidad de especialidades, formulario
+ * desplegable desde cabecera y simetría entre columnas.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wrench,
   ShieldCheck,
+  BadgeCheck,
   Car,
   Plus,
   Edit3,
@@ -23,443 +24,461 @@ import {
   Star,
   MessageSquare,
   Send,
-  RefreshCw,
-  Award,
   FileText,
-  History,
+  Award,
   Eye,
-  EyeOff
+  EyeOff,
+  History,
+  RefreshCw,
 } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
-import { useAuth } from '../auth/AuthContext';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
 
 /**
- * Traduce el estado de validación de TrustLink a etiqueta y estilo en español.
- * @param {string} status
- * @returns {{ label: string, badgeClass: string }}
+ * Traduce estados técnicos (inglés/español) a etiquetas limpias en español
+ * con tono semántico para badges minimalistas.
  */
-function formatTrustlinkValidationStatus(status) {
-  const normalized = (status || 'pending').toLowerCase();
-  if (normalized === 'approved') {
-    return {
-      label: 'Validado TrustLink: Aprobado',
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
-    };
+function normalizeAuditStatus(rawStatus) {
+  const normalized = String(rawStatus || 'pending').toLowerCase().trim();
+  if (normalized === 'approved' || normalized === 'aprobado' || normalized === 'verificado' || normalized === 'verified') {
+    return { label: 'Verificado', tone: 'verified', isVerified: true };
   }
-  if (normalized === 'rejected') {
-    return {
-      label: 'Validado TrustLink: Rechazado',
-      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800',
-    };
+  if (normalized === 'rejected' || normalized === 'rechazado') {
+    return { label: 'Rechazado', tone: 'danger', isVerified: false };
   }
-  return {
-    label: 'Validado TrustLink: Pendiente',
-    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800',
-  };
+  return { label: 'Pendiente', tone: 'warning', isVerified: false };
 }
 
 /**
- * Traduce el estado de especialidad de forma concisa.
- * @param {string} status
- * @returns {{ label: string, badgeClass: string }}
+ * Calcula el estado de vigencia de un documento a partir de su fecha de vencimiento.
+ * Asigna un color distintivo también a 'Sin fecha' para que no pase desapercibido.
  */
-function formatSpecialtyStatus(status) {
-  const normalized = (status || 'pending').toLowerCase();
-  if (normalized === 'approved') {
-    return {
-      label: 'Aprobado',
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
-    };
+function getValidityStatus(expiryDateStr) {
+  if (!expiryDateStr) {
+    return { label: 'Sin fecha', tone: 'info' };
   }
-  if (normalized === 'rejected') {
-    return {
-      label: 'Rechazado',
-      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800',
-    };
+
+  const parsed = new Date(expiryDateStr);
+  if (Number.isNaN(parsed.getTime())) {
+    return { label: 'Sin fecha', tone: 'info' };
   }
-  return {
-    label: 'Pendiente',
-    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800',
-  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return { label: 'Vencido', tone: 'danger' };
+  }
+  if (diffDays <= 30) {
+    return { label: 'Por vencer', tone: 'warning' };
+  }
+  return { label: 'Vigente', tone: 'success' };
 }
 
 /**
- * Normaliza un valor de fecha a formato YYYY-MM-DD para inputs tipo date.
- * @param {string|null|undefined} dateStr
- * @returns {string}
+ * Devuelve clases de color semántico para badges minimalistas y visuales.
+ */
+function getSemanticBadgeClass(tone) {
+  switch (tone) {
+    case 'verified':
+    case 'success':
+      return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35';
+    case 'warning':
+      return 'bg-amber-500/15 text-amber-300 border-amber-500/35';
+    case 'danger':
+      return 'bg-rose-500/15 text-rose-300 border-rose-500/35';
+    case 'info':
+      return 'bg-sky-500/15 text-sky-300 border-sky-500/35';
+    default:
+      return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
+  }
+}
+
+/**
+ * Formatea una fecha a dd/mm/aaaa en español (Argentina).
+ */
+function formatDateShort(dateStr) {
+  if (!dateStr) return 'Sin fecha';
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
+  return parsed.toLocaleDateString('es-AR');
+}
+
+/**
+ * Convierte una fecha a formato YYYY-MM-DD para inputs de tipo date.
  */
 function toDateInputValue(dateStr) {
   if (!dateStr) return '';
-  const raw = String(dateStr).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-    return raw.slice(0, 10);
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return dateStr.slice(0, 10);
   }
-  const parsed = new Date(raw);
+  const parsed = new Date(dateStr);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toISOString().slice(0, 10);
 }
 
-/**
- * Formatea una fecha YYYY-MM-DD o ISO a DD/MM/AAAA.
- * @param {string|null|undefined} dateStr
- * @returns {string}
- */
-function formatDisplayDate(dateStr) {
-  const isoDate = toDateInputValue(dateStr);
-  if (!isoDate) return 'Sin fecha';
-  const [y, m, d] = isoDate.split('-');
-  return `${d}/${m}/${y}`;
-}
-
-/**
- * Evalúa la vigencia de un documento según las fechas Desde / Hasta.
- * @param {string|null|undefined} fromStr
- * @param {string|null|undefined} untilStr
- * @returns {{ label: string, badgeClass: string }}
- */
-function resolveDateValidity(fromStr, untilStr) {
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const fromIso = toDateInputValue(fromStr);
-  const untilIso = toDateInputValue(untilStr);
-
-  if (untilIso && untilIso < todayIso) {
-    return {
-      label: 'Vencido',
-      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800',
-    };
-  }
-  if (fromIso && fromIso > todayIso) {
-    return {
-      label: 'Vigencia futura',
-      badgeClass: 'bg-sky-950/80 text-sky-300 border-sky-800',
-    };
-  }
-  if (fromIso || untilIso) {
-    return {
-      label: 'Vigente',
-      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
-    };
-  }
-  return {
-    label: 'Sin vigencia',
-    badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-700',
-  };
-}
-
 export default function ProviderDashboard() {
   const { brand } = useBranding();
-  const { user } = useAuth();
 
-  // Zona 4: Tarjetas principales
+  // Superficies configurables desde BrandingContext
   const cardStyle = {
-    backgroundColor: brand?.cardBgColor || '#020617',
-    color: brand?.cardTextColor || '#F1F5F9',
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
   };
 
-  // Zona 5: Cajas internas, inputs y contenedores secundarios
   const innerStyle = {
-    backgroundColor: brand?.innerBgColor || '#0F172A',
-    color: brand?.innerTextColor || '#F1F5F9',
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
-  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
+  const primaryActionColor = brand.primaryColor || brand.accentColor || '#10b981';
 
-  // Clave local para recordar especialidades ocultas por decisión del prestador
-  const hiddenStorageKey = `trustlink_hidden_specialties_${user?.id || user?.email || 'default'}`;
-
-  // Paso activo: 'credentials' | 'vehicles' | 'reviews'
+  // Navegación por pasos: 'credentials' | 'vehicles' | 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  const [providerProfiles, setProviderProfiles] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [fetching, setFetching] = useState(true);
-  const [loadingAction, setLoadingAction] = useState(false);
-  const [savingDocs, setSavingDocs] = useState(false);
-  const [feedback, setFeedback] = useState({ type: '', text: '' });
+  // Datos del perfil del prestador
+  const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
-  // IDs de especialidades ocultas por el prestador
-  const [hiddenProfileIds, setHiddenProfileIds] = useState(() => {
-    try {
-      const raw = localStorage.getItem(hiddenStorageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.map(Number) : [];
-    } catch {
-      return [];
-    }
-  });
+  // ---------------------------------------------------------------------------
+  // 1A. DOCUMENTACIÓN PERSONAL
+  // ---------------------------------------------------------------------------
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [docType, setDocType] = useState('Antecedentes Penales');
+  const [docUrl, setDocUrl] = useState('');
+  const [docValidFrom, setDocValidFrom] = useState('');
+  const [docValidTo, setDocValidTo] = useState('');
+  const [savingDoc, setSavingDoc] = useState(false);
 
-  // Estado base de documentación personal (sincronizado con backend)
-  const [baseDocs, setBaseDocs] = useState({
-    criminalRecordUrl: '',
-    criminalFromDate: '',
-    criminalUntilDate: '',
-    insurancePolicyUrl: '',
-    insuranceFromDate: '',
-    insuranceUntilDate: '',
-  });
-
-  // Control de visibilidad del formulario de carga de nueva documentación
-  const [showNewDocForm, setShowNewDocForm] = useState(false);
-  const [newDocType, setNewDocType] = useState('criminal');
-  const [newDocUrl, setNewDocUrl] = useState('');
-  const [newDocFrom, setNewDocFrom] = useState('');
-  const [newDocUntil, setNewDocUntil] = useState('');
-
-  // Control de edición inline dentro de cada fila del Historial Documental
+  // Edición inline de un documento del historial
   const [editingDocKey, setEditingDocKey] = useState(null);
   const [editDocUrl, setEditDocUrl] = useState('');
-  const [editDocFrom, setEditDocFrom] = useState('');
-  const [editDocUntil, setEditDocUntil] = useState('');
+  const [editDocValidFrom, setEditDocValidFrom] = useState('');
+  const [editDocValidTo, setEditDocValidTo] = useState('');
+  const [updatingDoc, setUpdatingDoc] = useState(false);
 
-  // Especialidades / Credenciales
-  const [specialty, setSpecialty] = useState('');
-  const [editingProfileId, setEditingProfileId] = useState(null);
-  const [editSpecialty, setEditSpecialty] = useState('');
+  // ---------------------------------------------------------------------------
+  // 1B. ESPECIALIDADES Y CREDENCIALES (Formulario oculto por defecto)
+  // ---------------------------------------------------------------------------
+  const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
+  const [newSpecialty, setNewSpecialty] = useState('');
+  const [savingSpecialty, setSavingSpecialty] = useState(false);
 
-  // Flota vehicular
-  const [vehicleType, setVehicleType] = useState('Utilitario');
-  const [brandName, setBrandName] = useState('');
-  const [modelName, setModelName] = useState('');
-  const [colorName, setColorName] = useState('');
-  const [plate, setPlate] = useState('');
+  // Visibilidad configurada por el prestador para residentes ('Visible' / 'Oculta')
+  const [hiddenSpecialtyIds, setHiddenSpecialtyIds] = useState({});
 
-  const [editingVehicleId, setEditingVehicleId] = useState(null);
-  const [editVehicleType, setEditVehicleType] = useState('Utilitario');
-  const [editBrand, setEditBrand] = useState('');
-  const [editModel, setEditModel] = useState('');
-  const [editColor, setEditColor] = useState('');
-  const [editPlate, setEditPlate] = useState('');
+  // Edición inline de especialidad
+  const [editingSpecialtyId, setEditingSpecialtyId] = useState(null);
+  const [editSpecialtyName, setEditSpecialtyName] = useState('');
+  const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
 
-  // Reputación cruzada
-  const [providerContracts, setProviderContracts] = useState([]);
-  const [loadingContracts, setLoadingContracts] = useState(true);
+  // ---------------------------------------------------------------------------
+  // 2. FLOTA VEHICULAR
+  // ---------------------------------------------------------------------------
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const [vehType, setVehType] = useState('utilitario');
+  const [vehBrand, setVehBrand] = useState('');
+  const [vehModel, setVehModel] = useState('');
+  const [vehColor, setVehColor] = useState('');
+  const [vehPlate, setVehPlate] = useState('');
+  const [savingVehicle, setSavingVehicle] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // 3. REPUTACIÓN CRUZADA
+  // ---------------------------------------------------------------------------
+  const [reviewContracts, setReviewContracts] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
-  const [submittingReviewId, setSubmittingReviewId] = useState(null);
-  const [crossReviewFeedback, setCrossReviewFeedback] = useState(null);
+  const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const handleToggleSpecialtyVisibility = (prof) => {
-    const idNum = Number(prof.id);
-    setHiddenProfileIds((prev) => {
-      const exists = prev.includes(idNum);
-      const next = exists ? prev.filter((item) => item !== idNum) : [...prev, idNum];
-      try {
-        localStorage.setItem(hiddenStorageKey, JSON.stringify(next));
-      } catch {
-        // Ignora errores de almacenamiento local
-      }
-      setFeedback({
-        type: 'success',
-        text: exists
-          ? `Especialidad "${prof.specialty}" marcada como Visible para residentes (sujeta a validación de TrustLink).`
-          : `Especialidad "${prof.specialty}" ocultada de tu oferta visible para residentes.`,
-      });
-      return next;
-    });
-  };
-
-  const fetchProviderData = useCallback(async () => {
-    setFetching(true);
+  /**
+   * Consulta el perfil del prestador (especialidades, documentación y flota).
+   */
+  const fetchProviderProfile = async () => {
+    setLoading(true);
+    setErrorMsg('');
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
+        method: 'GET',
         headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        const list = data.providers || [];
-        setProviderProfiles(list);
-        setVehicles(data.vehicles || []);
-
-        const withDocs =
-          list.find((p) => p.criminal_record_url || p.insurance_policy_url) || list[0];
-        if (withDocs) {
-          setBaseDocs({
-            criminalRecordUrl: withDocs.criminal_record_url || '',
-            criminalFromDate: toDateInputValue(
-              withDocs.criminal_record_from || withDocs.created_at
-            ),
-            criminalUntilDate: toDateInputValue(withDocs.criminal_record_expiry),
-            insurancePolicyUrl: withDocs.insurance_policy_url || '',
-            insuranceFromDate: toDateInputValue(withDocs.insurance_from || withDocs.created_at),
-            insuranceUntilDate: toDateInputValue(withDocs.insurance_expiry),
-          });
-        }
+        setProfileData({
+          providers: data.providers || [],
+          vehicles: data.vehicles || [],
+        });
+      } else {
+        setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
       }
     } catch (error) {
-      console.error('Error al cargar datos del prestador:', error);
+      console.error('Error al cargar perfil de prestador:', error);
+      setErrorMsg('Error de conexión con el servidor backend.');
     } finally {
-      setFetching(false);
+      setLoading(false);
     }
-  }, []);
+  };
 
-  const fetchProviderContracts = useCallback(async () => {
-    setLoadingContracts(true);
+  /**
+   * Consulta los contratos del prestador para reseñas cruzadas.
+   */
+  const fetchProviderReviewContracts = async () => {
+    setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/provider-contracts`, {
+        method: 'GET',
         headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        setProviderContracts(data.contracts || []);
+        setReviewContracts(data.contracts || []);
       }
     } catch (error) {
       console.error('Error al cargar contratos del prestador:', error);
     } finally {
-      setLoadingContracts(false);
+      setLoadingReviews(false);
     }
-  }, []);
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([fetchProviderData(), fetchProviderContracts()]);
-  }, [fetchProviderData, fetchProviderContracts]);
+  };
 
   useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    fetchProviderProfile();
+    fetchProviderReviewContracts();
+  }, []);
 
-  const persistPersonalDocs = async (nextDocs, successText) => {
-    setSavingDocs(true);
-    setFeedback({ type: '', text: '' });
+  /**
+   * Construye el listado del historial documental a partir de los registros del prestador.
+   */
+  const documentHistory = useMemo(() => {
+    const items = [];
+    const profiles = profileData.providers || [];
 
-    const docPayload = {
-      criminal_record_url: nextDocs.criminalRecordUrl.trim() || null,
-      criminal_record_from: nextDocs.criminalFromDate || null,
-      criminal_record_expiry: nextDocs.criminalUntilDate || null,
-      insurance_policy_url: nextDocs.insurancePolicyUrl.trim() || null,
-      insurance_from: nextDocs.insuranceFromDate || null,
-      insurance_expiry: nextDocs.insuranceUntilDate || null,
+    profiles.forEach((prof) => {
+      if (Array.isArray(prof.documents) && prof.documents.length > 0) {
+        prof.documents.forEach((doc, idx) => {
+          items.push({
+            key: `doc-${prof.id}-${doc.id || idx}`,
+            profileId: prof.id,
+            docType: doc.doc_type || doc.type || 'Documento',
+            url: doc.url || '',
+            validFrom: doc.valid_from || null,
+            validTo: doc.valid_to || doc.expires_at || null,
+            auditStatus: doc.status || prof.status || 'pending',
+          });
+        });
+      } else {
+        const crimUrl = prof.criminal_record_url || '';
+        const crimTo = prof.criminal_record_expiry || prof.criminal_record_valid_to || null;
+        const crimFrom = prof.criminal_record_valid_from || prof.created_at || null;
+        if (crimUrl || crimTo) {
+          items.push({
+            key: `crim-${prof.id}`,
+            profileId: prof.id,
+            field: 'criminal',
+            docType: 'Antecedentes Penales',
+            url: crimUrl,
+            validFrom: crimFrom,
+            validTo: crimTo,
+            auditStatus: prof.status || 'pending',
+          });
+        }
+
+        const artUrl = prof.art_insurance_url || prof.insurance_policy_url || '';
+        const artTo = prof.art_insurance_expiry || prof.insurance_expiry || null;
+        const artFrom = prof.art_insurance_valid_from || prof.created_at || null;
+        if (artUrl || artTo) {
+          items.push({
+            key: `art-${prof.id}`,
+            profileId: prof.id,
+            field: 'art',
+            docType: 'Póliza ART / Seguro',
+            url: artUrl,
+            validFrom: artFrom,
+            validTo: artTo,
+            auditStatus: prof.status || 'pending',
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [profileData.providers]);
+
+  /**
+   * Cantidad de especialidades actualmente visibles/activas.
+   */
+  const activeSpecialtiesCount = useMemo(() => {
+    return (profileData.providers || []).filter((p) => !hiddenSpecialtyIds[p.id]).length;
+  }, [profileData.providers, hiddenSpecialtyIds]);
+
+  /**
+   * Crea o actualiza un documento de compliance personal.
+   */
+  const handleCreateDocument = async (e) => {
+    e.preventDefault();
+    setSavingDoc(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const baseProfile = profileData.providers[0] || {};
+    const isArt = docType.toLowerCase().includes('art') || docType.toLowerCase().includes('seguro');
+
+    const payload = {
+      specialty: baseProfile.specialty || 'Servicios Verificados',
+      criminal_record_url: !isArt
+        ? docUrl.trim()
+        : baseProfile.criminal_record_url || '',
+      criminal_record_expiry: !isArt
+        ? docValidTo || null
+        : baseProfile.criminal_record_expiry || null,
+      art_insurance_url: isArt
+        ? docUrl.trim()
+        : baseProfile.art_insurance_url || baseProfile.insurance_policy_url || '',
+      insurance_policy_url: isArt
+        ? docUrl.trim()
+        : baseProfile.insurance_policy_url || baseProfile.art_insurance_url || '',
+      art_insurance_expiry: isArt
+        ? docValidTo || null
+        : baseProfile.art_insurance_expiry || baseProfile.insurance_expiry || null,
+      insurance_expiry: isArt
+        ? docValidTo || null
+        : baseProfile.insurance_expiry || baseProfile.art_insurance_expiry || null,
+      valid_from: docValidFrom || null,
+      valid_to: docValidTo || null,
+      document_type: docType,
     };
 
     try {
-      if (providerProfiles.length === 0) {
-        const res = await fetch(`${API_BASE}/api/v1/providers/profile`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            specialty: 'Servicios Generales',
-            ...docPayload,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
-          return false;
-        }
+      const endpoint = baseProfile.id
+        ? `${API_BASE}/api/v1/providers/profile/${baseProfile.id}`
+        : `${API_BASE}/api/v1/providers/profile`;
+      const method = baseProfile.id ? 'PUT' : 'POST';
+
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccessMsg('Documentación cargada y registrada en el historial.');
+        setDocUrl('');
+        setDocValidFrom('');
+        setDocValidTo('');
+        setShowDocForm(false);
+        await fetchProviderProfile();
       } else {
-        await Promise.all(
-          providerProfiles.map((prof) =>
-            fetch(`${API_BASE}/api/v1/providers/profile/${prof.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-              body: JSON.stringify({
-                specialty: prof.specialty,
-                ...docPayload,
-              }),
-            })
-          )
-        );
+        setErrorMsg(data.error || 'No se pudo guardar la documentación.');
       }
-
-      setFeedback({ type: 'success', text: successText });
-      await fetchProviderData();
-      return true;
     } catch (error) {
-      console.error('Error al guardar documentación personal:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
-      return false;
+      console.error('Error al cargar documentación:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
-      setSavingDocs(false);
+      setSavingDoc(false);
     }
   };
 
-  const handleCreateNewDoc = async (e) => {
-    e.preventDefault();
-    if (newDocFrom && newDocUntil && newDocUntil < newDocFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
+  /**
+   * Abre el modo de edición para un ítem del historial documental.
+   */
+  const startEditingDocument = (docItem) => {
+    setEditingDocKey(docItem.key);
+    setEditDocUrl(docItem.url || '');
+    setEditDocValidFrom(toDateInputValue(docItem.validFrom));
+    setEditDocValidTo(toDateInputValue(docItem.validTo));
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  /**
+   * Guarda los cambios de URL y vigencia de un documento del historial.
+   */
+  const handleSaveDocumentEdit = async (docItem) => {
+    setUpdatingDoc(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const targetProfile =
+      profileData.providers.find((p) => p.id === docItem.profileId) || profileData.providers[0] || {};
+    const isArt = docItem.field === 'art' || docItem.docType.toLowerCase().includes('art');
+
+    const payload = {
+      specialty: targetProfile.specialty || 'Servicios Verificados',
+      criminal_record_url: !isArt
+        ? editDocUrl.trim()
+        : targetProfile.criminal_record_url || '',
+      criminal_record_expiry: !isArt
+        ? editDocValidTo || null
+        : targetProfile.criminal_record_expiry || null,
+      art_insurance_url: isArt
+        ? editDocUrl.trim()
+        : targetProfile.art_insurance_url || targetProfile.insurance_policy_url || '',
+      insurance_policy_url: isArt
+        ? editDocUrl.trim()
+        : targetProfile.insurance_policy_url || targetProfile.art_insurance_url || '',
+      art_insurance_expiry: isArt
+        ? editDocValidTo || null
+        : targetProfile.art_insurance_expiry || targetProfile.insurance_expiry || null,
+      insurance_expiry: isArt
+        ? editDocValidTo || null
+        : targetProfile.insurance_expiry || targetProfile.art_insurance_expiry || null,
+      valid_from: editDocValidFrom || null,
+      valid_to: editDocValidTo || null,
+    };
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${targetProfile.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
       });
-      return;
-    }
+      const data = await response.json();
 
-    const nextDocs =
-      newDocType === 'criminal'
-        ? {
-            ...baseDocs,
-            criminalRecordUrl: newDocUrl,
-            criminalFromDate: newDocFrom,
-            criminalUntilDate: newDocUntil,
-          }
-        : {
-            ...baseDocs,
-            insurancePolicyUrl: newDocUrl,
-            insuranceFromDate: newDocFrom,
-            insuranceUntilDate: newDocUntil,
-          };
-
-    const ok = await persistPersonalDocs(
-      nextDocs,
-      'Documentación registrada. Queda sujeta a validación de TrustLink.'
-    );
-    if (ok) {
-      setNewDocUrl('');
-      setNewDocFrom('');
-      setNewDocUntil('');
-      setShowNewDocForm(false);
+      if (response.ok) {
+        setSuccessMsg('Documento actualizado en el historial.');
+        setEditingDocKey(null);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar el documento.');
+      }
+    } catch (error) {
+      console.error('Error al actualizar documento:', error);
+      setErrorMsg('Error de conexión al actualizar el documento.');
+    } finally {
+      setUpdatingDoc(false);
     }
   };
 
-  const startInlineDocEdit = (row) => {
-    setEditingDocKey(row.docKey);
-    setEditDocUrl(row.url === 'Sin URL' ? '' : row.url || '');
-    setEditDocFrom(toDateInputValue(row.fromDate));
-    setEditDocUntil(toDateInputValue(row.untilDate));
-  };
-
-  const handleSaveInlineDocEdit = async (docKey) => {
-    if (editDocFrom && editDocUntil && editDocUntil < editDocFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
-      });
-      return;
-    }
-
-    const nextDocs =
-      docKey === 'criminal'
-        ? {
-            ...baseDocs,
-            criminalRecordUrl: editDocUrl,
-            criminalFromDate: editDocFrom,
-            criminalUntilDate: editDocUntil,
-          }
-        : {
-            ...baseDocs,
-            insurancePolicyUrl: editDocUrl,
-            insuranceFromDate: editDocFrom,
-            insuranceUntilDate: editDocUntil,
-          };
-
-    const ok = await persistPersonalDocs(
-      nextDocs,
-      'Documento actualizado en el historial. Queda sujeto a validación de TrustLink.'
-    );
-    if (ok) {
-      setEditingDocKey(null);
-    }
-  };
-
-  const handleAddSpecialty = async (e) => {
+  /**
+   * Registra una nueva especialidad para el prestador.
+   */
+  const handleCreateSpecialty = async (e) => {
     e.preventDefault();
-    if (!specialty.trim()) return;
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+    if (!newSpecialty.trim()) return;
+
+    setSavingSpecialty(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const currentDoc = profileData.providers[0] || {};
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/profile`, {
         method: 'POST',
@@ -468,164 +487,136 @@ export default function ProviderDashboard() {
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          specialty: specialty.trim(),
-          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
-          criminal_record_from: baseDocs.criminalFromDate || null,
-          criminal_record_expiry: baseDocs.criminalUntilDate || null,
-          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
-          insurance_from: baseDocs.insuranceFromDate || null,
-          insurance_expiry: baseDocs.insuranceUntilDate || null,
+          specialty: newSpecialty.trim(),
+          criminal_record_url: currentDoc.criminal_record_url || '',
+          art_insurance_url: currentDoc.art_insurance_url || currentDoc.insurance_policy_url || '',
         }),
       });
       const data = await response.json();
+
       if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text:
-            data.message ||
-            'Especialidad agregada. Queda en revisión de compliance para su aprobación.',
-        });
-        setSpecialty('');
-        await fetchProviderData();
+        setSuccessMsg('Especialidad agregada correctamente.');
+        setNewSpecialty('');
+        setShowSpecialtyForm(false);
+        await fetchProviderProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo agregar la especialidad.' });
+        setErrorMsg(data.error || 'No se pudo agregar la especialidad.');
       }
     } catch (error) {
       console.error('Error al agregar especialidad:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
-      setLoadingAction(false);
+      setSavingSpecialty(false);
     }
   };
 
-  const handleSaveEditSpecialty = async (profileId) => {
-    if (!editSpecialty.trim()) return;
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+  /**
+   * Actualiza el nombre de una especialidad existente.
+   */
+  const handleSaveSpecialtyEdit = async (specialtyItem) => {
+    if (!editSpecialtyName.trim()) return;
+
+    setUpdatingSpecialty(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${profileId}`, {
-        method: 'PATCH',
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${specialtyItem.id}`, {
+        method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          specialty: editSpecialty.trim(),
-          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
-          criminal_record_from: baseDocs.criminalFromDate || null,
-          criminal_record_expiry: baseDocs.criminalUntilDate || null,
-          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
-          insurance_from: baseDocs.insuranceFromDate || null,
-          insurance_expiry: baseDocs.insuranceUntilDate || null,
+          specialty: editSpecialtyName.trim(),
+          criminal_record_url: specialtyItem.criminal_record_url || '',
+          art_insurance_url:
+            specialtyItem.art_insurance_url || specialtyItem.insurance_policy_url || '',
         }),
       });
       const data = await response.json();
+
       if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text: data.message || 'Especialidad actualizada.',
-        });
-        setEditingProfileId(null);
-        await fetchProviderData();
+        setSuccessMsg('Especialidad actualizada correctamente.');
+        setEditingSpecialtyId(null);
+        await fetchProviderProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
+        setErrorMsg(data.error || 'No se pudo actualizar la especialidad.');
       }
     } catch (error) {
-      console.error('Error al editar especialidad:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
+      console.error('Error al actualizar especialidad:', error);
+      setErrorMsg('Error de conexión al actualizar la especialidad.');
     } finally {
-      setLoadingAction(false);
+      setUpdatingSpecialty(false);
     }
   };
 
+  /**
+   * Alterna si la especialidad se muestra o se oculta ante residentes.
+   */
+  const toggleSpecialtyVisibility = (specialtyId) => {
+    setHiddenSpecialtyIds((prev) => ({
+      ...prev,
+      [specialtyId]: !prev[specialtyId],
+    }));
+  };
+
+  /**
+   * Registra un vehículo en la flota del prestador.
+   */
   const handleAddVehicle = async (e) => {
     e.preventDefault();
-    if (!plate.trim()) {
-      setFeedback({ type: 'error', text: 'La patente del vehículo es obligatoria.' });
-      return;
-    }
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+    setSavingVehicle(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicles`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          vehicle_type: vehicleType,
-          brand: brandName.trim(),
-          model: modelName.trim(),
-          color: colorName.trim(),
-          plate: plate.trim().toUpperCase(),
+          vehicle_type: vehType,
+          brand: vehBrand.trim(),
+          model: vehModel.trim(),
+          color: vehColor.trim(),
+          license_plate: vehPlate.trim().toUpperCase(),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Vehículo registrado.' });
-        setBrandName('');
-        setModelName('');
-        setColorName('');
-        setPlate('');
-        await fetchProviderData();
+        setSuccessMsg('Vehículo asociado a tu flota correctamente.');
+        setVehBrand('');
+        setVehModel('');
+        setVehColor('');
+        setVehPlate('');
+        setShowVehicleForm(false);
+        await fetchProviderProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el vehículo.' });
+        setErrorMsg(data.error || 'No se pudo registrar el vehículo.');
       }
     } catch (error) {
-      console.error('Error al agregar vehículo:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
+      console.error('Error al registrar vehículo:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
-      setLoadingAction(false);
+      setSavingVehicle(false);
     }
   };
 
-  const handleSaveEditVehicle = async (vehicleId) => {
-    if (!editPlate.trim()) {
-      setFeedback({ type: 'error', text: 'La patente del vehículo no puede quedar vacía.' });
-      return;
-    }
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle/${vehicleId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          vehicle_type: editVehicleType,
-          brand: editBrand.trim(),
-          model: editModel.trim(),
-          color: editColor.trim(),
-          plate: editPlate.trim().toUpperCase(),
-        }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Vehículo actualizado.' });
-        setEditingVehicleId(null);
-        await fetchProviderData();
-      } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
-      }
-    } catch (error) {
-      console.error('Error al editar vehículo:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
+  /**
+   * Envía calificación y comentario hacia el residente de un contrato.
+   */
   const handleSubmitOwnerReview = async (contractId) => {
-    const selectedRating = ownerRatingDrafts[contractId] || 5;
-    const commentText = (ownerCommentDrafts[contractId] || '').trim();
+    const ratingVal = ownerRatingDrafts[contractId] || 5;
+    const commentVal = (ownerCommentDrafts[contractId] || '').trim();
+    setSubmittingOwnerReviewId(contractId);
+    setErrorMsg('');
+    setSuccessMsg('');
 
-    setSubmittingReviewId(contractId);
-    setCrossReviewFeedback(null);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/owner`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -633,1033 +624,867 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           contract_id: contractId,
-          rating: selectedRating,
-          comment: commentText || null,
+          rating: ratingVal,
+          comment: commentVal,
+          target_role: 'owner',
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setCrossReviewFeedback({
-          type: 'success',
-          message: data.message || 'Calificación al residente registrada correctamente.',
-        });
-        await fetchProviderContracts();
+        setSuccessMsg('Calificación al residente registrada correctamente.');
+        await fetchProviderReviewContracts();
       } else {
-        setCrossReviewFeedback({
-          type: 'error',
-          message: data.error || 'No se pudo registrar la calificación.',
-        });
+        setErrorMsg(data.error || 'No se pudo enviar la calificación.');
       }
     } catch (error) {
-      console.error('Error al enviar reseña al residente:', error);
-      setCrossReviewFeedback({
-        type: 'error',
-        message: 'Error de conexión al guardar la calificación.',
-      });
+      console.error('Error al calificar residente:', error);
+      setErrorMsg('Error de conexión al enviar la calificación.');
     } finally {
-      setSubmittingReviewId(null);
+      setSubmittingOwnerReviewId(null);
     }
   };
 
-  const personalDocRows = (() => {
-    const baseSource =
-      providerProfiles.find((p) => p.criminal_record_url || p.insurance_policy_url) ||
-      providerProfiles[0];
-    if (!baseSource) return [];
+  const primaryProfile = profileData.providers[0] || null;
+  const globalAudit = normalizeAuditStatus(primaryProfile?.status);
 
-    const rows = [];
-    const trustStatus = baseSource.status || 'pending';
-
-    if (baseSource.criminal_record_url || baseSource.criminal_record_expiry) {
-      const fromVal = baseSource.criminal_record_from || baseSource.created_at;
-      const untilVal = baseSource.criminal_record_expiry;
-      rows.push({
-        docKey: 'criminal',
-        title: 'Antecedentes Penales',
-        url: baseSource.criminal_record_url || 'Sin URL',
-        fromDate: fromVal,
-        untilDate: untilVal,
-        validity: resolveDateValidity(fromVal, untilVal),
-        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-      });
-    }
-
-    if (baseSource.insurance_policy_url || baseSource.insurance_expiry) {
-      const fromVal = baseSource.insurance_from || baseSource.created_at;
-      const untilVal = baseSource.insurance_expiry;
-      rows.push({
-        docKey: 'insurance',
-        title: 'Póliza ART / Seguro',
-        url: baseSource.insurance_policy_url || 'Sin URL',
-        fromDate: fromVal,
-        untilDate: untilVal,
-        validity: resolveDateValidity(fromVal, untilVal),
-        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-      });
-    }
-
-    return rows;
-  })();
-
-  const primaryStatusInfo = formatSpecialtyStatus(providerProfiles[0]?.status);
-
-  const steps = [
-    {
-      id: 'credentials',
-      stepNumber: '1',
-      label: 'Credenciales',
-      count: providerProfiles.length,
-      icon: ShieldCheck,
-    },
-    {
-      id: 'vehicles',
-      stepNumber: '2',
-      label: 'Flota Vehicular',
-      count: vehicles.length,
-      icon: Car,
-    },
-    {
-      id: 'reviews',
-      stepNumber: '3',
-      label: 'Reputación Cruzada',
-      count: providerContracts.length,
-      icon: Star,
-    },
-  ];
-
-  const activeStepMeta = steps.find((s) => s.id === activeStep) || steps[0];
+  // Clases compartidas para simetría visual entre columnas
+  const listHeaderTitleClass =
+    'text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5';
+  const listCounterBadgeClass =
+    'text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15 shrink-0';
+  const rowActionBtnClass =
+    'px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-85 shrink-0';
 
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Prestador + Indicadores de Pasos Clicables */}
-        <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
-                style={innerStyle}
-              >
-                <Wrench size={20} strokeWidth={1.8} />
-              </div>
-              <div>
-                <h2 className="text-xl font-black tracking-tight">
-                  Portal Prestador — {activeStepMeta.stepNumber}. {activeStepMeta.label}
-                </h2>
-                <p className="text-xs opacity-80 mt-0.5">
-                  {activeStep === 'credentials' &&
-                    'Documentación personal del prestador, vigencia por fechas y especialidades habilitadas.'}
-                  {activeStep === 'vehicles' &&
-                    'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
-                  {activeStep === 'reviews' &&
-                    'Reseñas recibidas de residentes y calificación cruzada por servicio realizado.'}
-                </p>
-              </div>
+    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
+      {/* Cabecera principal y selectores de pasos */}
+      <section
+        className="p-6 rounded-2xl border border-black/20 space-y-5"
+        style={cardStyle}
+      >
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-3 rounded-xl border border-white/15" style={innerStyle}>
+              <Wrench size={22} className="text-emerald-400" />
             </div>
-
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {providerProfiles.length > 0 && (
-                <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                  <Star size={14} className="fill-amber-400" />
-                  Scoring: {Number(providerProfiles[0].rating_avg || 0).toFixed(2)}
-                </span>
-              )}
-              <span
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border ${primaryStatusInfo.badgeClass}`}
-              >
-                Estado: {primaryStatusInfo.label}
-              </span>
-              <button
-                type="button"
-                onClick={refreshAll}
-                disabled={fetching || loadingContracts}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
-                style={innerStyle}
-              >
-                <RefreshCw
-                  size={13}
-                  className={fetching || loadingContracts ? 'animate-spin' : ''}
-                />
-                Actualizar
-              </button>
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Portal Prestador — 1. Credenciales</h2>
+              <p className="text-xs opacity-80">
+                Documentación personal, vigencia por fechas y especialidades verificadas en TrustLink.
+              </p>
             </div>
           </div>
 
-          {/* Barra de indicadores de pasos seleccionables mediante clic */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-            {steps.map((item) => {
-              const IconComp = item.icon;
-              const isSelected = activeStep === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveStep(item.id)}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                    isSelected
-                      ? 'text-white border-transparent shadow-sm'
-                      : 'border-white/15 opacity-85 hover:opacity-100'
-                  }`}
-                  style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-black/25 text-white' : 'bg-white/10'
-                      }`}
-                    >
-                      {item.stepNumber}
-                    </span>
-                    <IconComp size={14} className="shrink-0" />
-                    <span className="text-xs font-bold truncate">{item.label}</span>
-                  </div>
-                  <span
-                    className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                      isSelected ? 'bg-black/25 text-white' : 'bg-black/20'
-                    }`}
-                  >
-                    {item.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* Feedback global */}
-        {feedback.text && (
-          <div
-            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {feedback.type === 'success' ? (
-                <CheckCircle2 size={16} />
-              ) : (
-                <AlertCircle size={16} />
-              )}
-              <span>{feedback.text}</span>
-            </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5"
+              style={innerStyle}
+            >
+              <Star size={13} className="text-amber-400 fill-amber-400" />
+              Scoring: {Number(primaryProfile?.rating_avg || 0).toFixed(2)}
+            </span>
+            <span
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl border inline-flex items-center gap-1.5 ${getSemanticBadgeClass(
+                globalAudit.tone
+              )}`}
+            >
+              {globalAudit.isVerified && <BadgeCheck size={14} />}
+              Estado: {globalAudit.label}
+            </span>
             <button
               type="button"
-              onClick={() => setFeedback({ type: '', text: '' })}
-              className="p-1 rounded-lg hover:bg-black/20 cursor-pointer"
-              aria-label="Cerrar aviso"
+              onClick={() => {
+                fetchProviderProfile();
+                fetchProviderReviewContracts();
+              }}
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5 cursor-pointer hover:opacity-85"
+              style={innerStyle}
             >
-              <X size={14} />
+              <RefreshCw size={13} /> Actualizar
             </button>
           </div>
-        )}
+        </div>
 
-        {/* PASO 1: Documentación Personal / Especialidades y Credenciales */}
-        {activeStep === 'credentials' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Botón de carga + Historial en filas con edición inline */}
-            <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
-              style={cardStyle}
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
-                <div className="flex items-center gap-2">
-                  <FileText size={16} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold">Documentación Personal</h3>
-                </div>
+        {/* Pestañas de pasos */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={() => setActiveStep('credentials')}
+            className={`px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
+              activeStep === 'credentials'
+                ? 'text-white border-emerald-400/50'
+                : 'border-white/15 opacity-80 hover:opacity-100'
+            }`}
+            style={activeStep === 'credentials' ? { backgroundColor: primaryActionColor } : innerStyle}
+          >
+            <span className="flex items-center gap-2">
+              <ShieldCheck size={15} /> 1. Credenciales
+            </span>
+            <span className="font-mono px-2 py-0.5 rounded bg-black/20">
+              {profileData.providers.length}
+            </span>
+          </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewDocForm((prev) => !prev);
-                    setNewDocType('criminal');
-                    setNewDocUrl('');
-                    setNewDocFrom('');
-                    setNewDocUntil('');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95"
-                  style={{ backgroundColor: primaryActionColor }}
-                >
-                  {showNewDocForm ? (
-                    <>
-                      <X size={13} /> Cerrar
-                    </>
-                  ) : (
-                    <>
-                      <Plus size={13} /> Cargar Documentación
-                    </>
-                  )}
-                </button>
-              </div>
+          <button
+            type="button"
+            onClick={() => setActiveStep('vehicles')}
+            className={`px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
+              activeStep === 'vehicles'
+                ? 'text-white border-emerald-400/50'
+                : 'border-white/15 opacity-80 hover:opacity-100'
+            }`}
+            style={activeStep === 'vehicles' ? { backgroundColor: primaryActionColor } : innerStyle}
+          >
+            <span className="flex items-center gap-2">
+              <Car size={15} /> 2. Flota Vehicular
+            </span>
+            <span className="font-mono px-2 py-0.5 rounded bg-black/20">
+              {profileData.vehicles.length}
+            </span>
+          </button>
 
-              {showNewDocForm && (
-                <form
-                  onSubmit={handleCreateNewDoc}
-                  className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
-                  style={innerStyle}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                      Nueva Documentación
-                    </span>
-                    <select
-                      value={newDocType}
-                      onChange={(e) => setNewDocType(e.target.value)}
-                      className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    >
-                      <option value="criminal">Antecedentes Penales</option>
-                      <option value="insurance">Póliza ART / Seguro</option>
-                    </select>
-                  </div>
+          <button
+            type="button"
+            onClick={() => setActiveStep('reviews')}
+            className={`px-4 py-3 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
+              activeStep === 'reviews'
+                ? 'text-white border-emerald-400/50'
+                : 'border-white/15 opacity-80 hover:opacity-100'
+            }`}
+            style={activeStep === 'reviews' ? { backgroundColor: primaryActionColor } : innerStyle}
+          >
+            <span className="flex items-center gap-2">
+              <Star size={15} /> 3. Reputación Cruzada
+            </span>
+            <span className="font-mono px-2 py-0.5 rounded bg-black/20">
+              {reviewContracts.length}
+            </span>
+          </button>
+        </div>
+      </section>
 
+      {/* Mensajes de estado */}
+      {errorMsg && (
+        <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle size={16} className="text-rose-400 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div
+          className="text-center py-12 rounded-2xl border border-black/20 text-xs flex items-center justify-center gap-2"
+          style={cardStyle}
+        >
+          <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
+        </div>
+      ) : activeStep === 'credentials' ? (
+        /* =====================================================================
+           PASO 1: DOCUMENTACIÓN PERSONAL + ESPECIALIDADES Y CREDENCIALES
+           ===================================================================== */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          {/* COLUMNA IZQUIERDA: Documentación Personal */}
+          <section
+            className="p-6 rounded-2xl border border-black/20 space-y-5"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <FileText size={18} className="text-emerald-400 shrink-0" /> Documentación Personal
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowDocForm((prev) => !prev)}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                {showDocForm ? <X size={14} /> : <Plus size={14} />}
+                {showDocForm ? 'Cerrar' : 'Cargar Documentación'}
+              </button>
+            </div>
+
+            {showDocForm && (
+              <form
+                onSubmit={handleCreateDocument}
+                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                style={innerStyle}
+              >
+                <p className="font-bold">Nuevo Documento de Compliance</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <select
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={cardStyle}
+                  >
+                    <option value="Antecedentes Penales">Antecedentes Penales</option>
+                    <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
+                  </select>
                   <input
                     type="text"
                     required
-                    value={newDocUrl}
-                    onChange={(e) => setNewDocUrl(e.target.value)}
-                    placeholder="URL del documento (https://...)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    value={docUrl}
+                    onChange={(e) => setDocUrl(e.target.value)}
+                    placeholder="URL o enlace del documento"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                     style={cardStyle}
                   />
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
-                      <input
-                        type="date"
-                        value={newDocFrom}
-                        onChange={(e) => setNewDocFrom(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
-                      <input
-                        type="date"
-                        value={newDocUntil}
-                        onChange={(e) => setNewDocUntil(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewDocForm(false)}
-                      className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                    <input
+                      type="date"
+                      value={docValidFrom}
+                      onChange={(e) => setDocValidFrom(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                       style={cardStyle}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={savingDocs || !newDocUrl.trim()}
-                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
-                      style={{ backgroundColor: primaryActionColor }}
-                    >
-                      <Save size={12} /> {savingDocs ? 'Guardando...' : 'Guardar'}
-                    </button>
+                    />
                   </div>
-                </form>
-              )}
-
-              <div className="space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
-                    <History size={13} className="text-sky-400" />
-                    Historial Documental
-                  </span>
-                  <span className="text-[10px] font-mono opacity-75">
-                    {personalDocRows.length} doc(s)
-                  </span>
+                  <div>
+                    <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
+                    <input
+                      type="date"
+                      value={docValidTo}
+                      onChange={(e) => setDocValidTo(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                      style={cardStyle}
+                    />
+                  </div>
                 </div>
-
-                {fetching ? (
-                  <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin" size={14} /> Cargando documentación...
-                  </div>
-                ) : personalDocRows.length === 0 ? (
-                  <div
-                    className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
-                    style={innerStyle}
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDocForm(false)}
+                    className={rowActionBtnClass}
+                    style={cardStyle}
                   >
-                    Sin documentación cargada. Usá el botón <strong>Cargar Documentación</strong> para
-                    registrar tus antecedentes o seguro.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {personalDocRows.map((row) => {
-                      const isRowEditing = editingDocKey === row.docKey;
-                      return (
-                        <div
-                          key={row.docKey}
-                          className="p-3 rounded-xl border border-black/20 space-y-2 text-[11px]"
-                          style={innerStyle}
-                        >
-                          {isRowEditing ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-xs">{row.title}</span>
-                                <span className="text-[10px] opacity-70">Editando en fila</span>
-                              </div>
-                              <input
-                                type="text"
-                                value={editDocUrl}
-                                onChange={(e) => setEditDocUrl(e.target.value)}
-                                placeholder="URL del documento"
-                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] opacity-70 mb-0.5">
-                                    Desde
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editDocFrom}
-                                    onChange={(e) => setEditDocFrom(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] opacity-70 mb-0.5">
-                                    Hasta
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editDocUntil}
-                                    onChange={(e) => setEditDocUntil(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex justify-end gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  disabled={savingDocs}
-                                  onClick={() => handleSaveInlineDocEdit(row.docKey)}
-                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50"
-                                  style={{ backgroundColor: primaryActionColor }}
-                                >
-                                  <Save size={11} /> Guardar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingDocKey(null)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                                  style={cardStyle}
-                                >
-                                  <X size={11} /> Cancelar
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                              <div className="space-y-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold text-xs">{row.title}</span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.validity.badgeClass}`}
-                                  >
-                                    {row.validity.label}
-                                  </span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.trustlinkValidation.badgeClass}`}
-                                  >
-                                    {row.trustlinkValidation.label}
-                                  </span>
-                                </div>
-                                <div className="truncate opacity-80">{row.url}</div>
-                                <div className="font-mono text-[10px] opacity-70">
-                                  Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
-                                  {formatDisplayDate(row.untilDate)}
-                                </div>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => startInlineDocEdit(row)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90 shrink-0 self-start sm:self-center"
-                                style={cardStyle}
-                              >
-                                <Edit3 size={11} /> Editar
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            {/* Columna Derecha: Especialidades y Credenciales + Visibilidad elegida por el prestador */}
-            <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
-              style={cardStyle}
-            >
-              <div className="flex items-center justify-between border-b border-black/20 pb-3">
-                <div className="flex items-center gap-2">
-                  <Award size={16} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold">Especialidades y Credenciales</h3>
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingDoc}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryActionColor }}
+                  >
+                    <Save size={13} /> {savingDoc ? 'Guardando...' : 'Guardar Documento'}
+                  </button>
                 </div>
-                <span className="text-[11px] font-mono opacity-80">
-                  {providerProfiles.length} activa(s)
-                </span>
-              </div>
-
-              <form onSubmit={handleAddSpecialty} className="flex gap-2 text-xs">
-                <input
-                  type="text"
-                  required
-                  value={specialty}
-                  onChange={(e) => setSpecialty(e.target.value)}
-                  placeholder="Nueva especialidad (ej: Plomero Matriculado)"
-                  className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <button
-                  type="submit"
-                  disabled={loadingAction || !specialty.trim()}
-                  className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer shrink-0 hover:opacity-95"
-                  style={{ backgroundColor: primaryActionColor }}
-                >
-                  <Plus size={14} /> Agregar
-                </button>
               </form>
+            )}
 
-              {fetching ? (
-                <div className="text-center py-8 text-xs opacity-80 flex items-center justify-center gap-2">
-                  <Loader2 className="animate-spin" size={15} /> Cargando especialidades...
-                </div>
-              ) : providerProfiles.length === 0 ? (
-                <div
-                  className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-75"
-                  style={innerStyle}
-                >
-                  Aún no agregaste especialidades. Ingresá tu oficio arriba.
-                </div>
-              ) : (
-                <div className="space-y-2.5">
-                  {providerProfiles.map((prof) => {
-                    const isEditing = editingProfileId === prof.id;
-                    const profStatus = formatSpecialtyStatus(prof.status);
-                    const isHiddenByProvider = hiddenProfileIds.includes(Number(prof.id));
-
-                    return (
-                      <div
-                        key={prof.id}
-                        className="p-3.5 rounded-xl border border-black/20 text-xs space-y-2"
-                        style={innerStyle}
-                      >
-                        {isEditing ? (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={editSpecialty}
-                              onChange={(e) => setEditSpecialty(e.target.value)}
-                              className="flex-1 px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                              style={cardStyle}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditSpecialty(prof.id)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white font-bold cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
-                            >
-                              <Save size={12} /> Guardar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingProfileId(null)}
-                              className="p-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                              style={cardStyle}
-                              aria-label="Cancelar"
-                            >
-                              <X size={13} />
-                            </button>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="space-y-1 min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="font-bold truncate">{prof.specialty}</span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
-                                  >
-                                    {profStatus.label}
-                                  </span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                                      isHiddenByProvider
-                                        ? 'bg-slate-800 text-slate-300 border-slate-700'
-                                        : 'bg-sky-950/80 text-sky-300 border-sky-800'
-                                    }`}
-                                  >
-                                    {isHiddenByProvider ? 'Oculta' : 'Visible'}
-                                  </span>
-                                </div>
-                                <p className="text-[11px] opacity-75">
-                                  {isHiddenByProvider
-                                    ? 'Oculta por tu configuración actual (no se mostrará a residentes aunque esté validada).'
-                                    : prof.status === 'approved'
-                                    ? 'Validada por TrustLink y habilitada para visualizarse a residentes.'
-                                    : 'Pendiente de validación de TrustLink para habilitarse a residentes.'}
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleSpecialtyVisibility(prof)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90"
-                                  style={cardStyle}
-                                  title={
-                                    isHiddenByProvider
-                                      ? 'Mostrar especialidad'
-                                      : 'Ocultar especialidad'
-                                  }
-                                >
-                                  {isHiddenByProvider ? (
-                                    <>
-                                      <Eye size={11} className="text-emerald-400" /> Mostrar
-                                    </>
-                                  ) : (
-                                    <>
-                                      <EyeOff size={11} className="text-amber-400" /> Ocultar
-                                    </>
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingProfileId(prof.id);
-                                    setEditSpecialty(prof.specialty || '');
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer hover:opacity-90"
-                                  style={cardStyle}
-                                >
-                                  <Edit3 size={11} /> Editar
-                                </button>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          </div>
-        )}
-
-        {/* PASO 2: Flota Vehicular Habilitada */}
-        {activeStep === 'vehicles' && (
-          <div
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-            style={cardStyle}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Car size={18} className="text-sky-400" />
-                <h3 className="text-sm font-bold">Flota Vehicular Habilitada</h3>
-              </div>
-              <span className="text-[11px] font-mono opacity-80">
-                {vehicles.length} vehículo(s)
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className={listHeaderTitleClass}>
+                <History size={13} className="opacity-80" /> HISTORIAL DOCUMENTAL
+              </span>
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {documentHistory.length} doc(s)
               </span>
             </div>
 
-            <form onSubmit={handleAddVehicle} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <select
-                  value={vehicleType}
-                  onChange={(e) => setVehicleType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+            <div className="space-y-3">
+              {documentHistory.length === 0 ? (
+                <div
+                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
                   style={innerStyle}
                 >
-                  <option value="Utilitario">Utilitario</option>
-                  <option value="Automóvil">Automóvil</option>
-                  <option value="Camioneta">Camioneta</option>
-                  <option value="Moto">Moto</option>
-                </select>
-                <input
-                  type="text"
-                  value={brandName}
-                  onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="Marca (ej: Ford)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-              </div>
+                  No hay documentación cargada aún. Usá &ldquo;+ Cargar Documentación&rdquo; para agregarla.
+                </div>
+              ) : (
+                documentHistory.map((docItem) => {
+                  const isEditingDoc = editingDocKey === docItem.key;
+                  const validity = getValidityStatus(docItem.validTo);
+                  const audit = normalizeAuditStatus(docItem.auditStatus);
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder="Modelo (ej: Fiorino)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <input
-                  type="text"
-                  value={colorName}
-                  onChange={(e) => setColorName(e.target.value)}
-                  placeholder="Color (ej: Blanco)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <input
-                  type="text"
-                  value={plate}
-                  onChange={(e) => setPlate(e.target.value)}
-                  placeholder="Patente (ej: AF123CD)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
-                  style={innerStyle}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loadingAction || !plate.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
-                style={{ backgroundColor: primaryActionColor }}
-              >
-                <Plus size={14} /> Registrar Vehículo
-              </button>
-            </form>
-
-            {vehicles.length === 0 ? (
-              <div className="text-center py-4 text-xs opacity-75">Sin vehículos registrados.</div>
-            ) : (
-              <div className="space-y-3">
-                {vehicles.map((veh) => {
-                  const isEditingVeh = editingVehicleId === veh.id;
-                  const cleanPlate = (veh.plate || '').trim();
                   return (
                     <div
-                      key={veh.id}
-                      className="p-4 rounded-xl border border-black/20 flex justify-between items-start gap-3 text-xs"
+                      key={docItem.key}
+                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
-                      {isEditingVeh ? (
-                        <div className="space-y-2.5 w-full">
+                      {isEditingDoc ? (
+                        <div className="space-y-2.5">
+                          <div className="font-bold">{docItem.docType}</div>
+                          <input
+                            type="text"
+                            value={editDocUrl}
+                            onChange={(e) => setEditDocUrl(e.target.value)}
+                            placeholder="URL del documento"
+                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            style={cardStyle}
+                          />
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <select
-                              value={editVehicleType}
-                              onChange={(e) => setEditVehicleType(e.target.value)}
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            >
-                              <option value="Utilitario">Utilitario</option>
-                              <option value="Automóvil">Automóvil</option>
-                              <option value="Camioneta">Camioneta</option>
-                              <option value="Moto">Moto</option>
-                            </select>
-                            <input
-                              type="text"
-                              value={editBrand}
-                              onChange={(e) => setEditBrand(e.target.value)}
-                              placeholder="Marca"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            />
+                            <div>
+                              <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                              <input
+                                type="date"
+                                value={editDocValidFrom}
+                                onChange={(e) => setEditDocValidFrom(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
+                              <input
+                                type="date"
+                                value={editDocValidTo}
+                                onChange={(e) => setEditDocValidTo(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                            </div>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <input
-                              type="text"
-                              value={editModel}
-                              onChange={(e) => setEditModel(e.target.value)}
-                              placeholder="Modelo"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            />
-                            <input
-                              type="text"
-                              value={editColor}
-                              onChange={(e) => setEditColor(e.target.value)}
-                              placeholder="Color"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            />
-                            <input
-                              type="text"
-                              value={editPlate}
-                              onChange={(e) => setEditPlate(e.target.value)}
-                              placeholder="Patente"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15 font-mono uppercase"
-                              style={cardStyle}
-                            />
-                          </div>
-                          <div className="flex justify-end gap-1.5 pt-1">
+                          <div className="flex justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => handleSaveEditVehicle(veh.id)}
-                              className="px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
+                              onClick={() => setEditingDocKey(null)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
                             >
-                              Guardar
+                              <X size={12} /> Cancelar
                             </button>
                             <button
                               type="button"
-                              onClick={() => setEditingVehicleId(null)}
-                              className="px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                              style={cardStyle}
+                              onClick={() => handleSaveDocumentEdit(docItem)}
+                              disabled={updatingDoc}
+                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
                             >
-                              Cancelar
+                              <Save size={12} /> {updatingDoc ? 'Guardando...' : 'Guardar'}
                             </button>
                           </div>
                         </div>
                       ) : (
-                        <>
-                          <div>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1.5 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold">
-                                {veh.brand} {veh.model}
+                              <span className="font-bold text-sm">{docItem.docType}</span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
+                                  validity.tone
+                                )}`}
+                              >
+                                {validity.label}
                               </span>
-                              <span className="text-[10px] font-bold uppercase text-sky-300 bg-sky-950/70 border border-sky-800 px-2 py-0.5 rounded">
-                                {veh.vehicle_type || 'Vehículo'}
+                              <span
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
+                                  audit.tone
+                                )}`}
+                                title="Estado de verificación en TrustLink"
+                              >
+                                {audit.isVerified && <BadgeCheck size={12} />}
+                                {audit.label}
                               </span>
                             </div>
-                            <p className="opacity-80 mt-1">
-                              Color: {veh.color || 'No especificado'} · Patente:{' '}
-                              {cleanPlate ? (
-                                <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
-                              ) : (
-                                <strong className="text-amber-400">Sin patente</strong>
-                              )}
+                            {docItem.url && (
+                              <p className="opacity-80 truncate">{docItem.url}</p>
+                            )}
+                            <p className="opacity-80">
+                              Vigencia: {formatDateShort(docItem.validFrom)} — {formatDateShort(docItem.validTo)}
                             </p>
                           </div>
 
                           <button
                             type="button"
-                            onClick={() => {
-                              setEditingVehicleId(veh.id);
-                              setEditVehicleType(veh.vehicle_type || 'Utilitario');
-                              setEditBrand(veh.brand || '');
-                              setEditModel(veh.model || '');
-                              setEditColor(veh.color || '');
-                              setEditPlate(veh.plate || '');
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
+                            onClick={() => startEditingDocument(docItem)}
+                            className={rowActionBtnClass}
                             style={cardStyle}
                           >
                             <Edit3 size={12} /> Editar
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
                   );
-                })}
-              </div>
-            )}
-          </div>
-        )}
+                })
+              )}
+            </div>
+          </section>
 
-        {/* PASO 3: Servicios Realizados & Reputación Cruzada */}
-        {activeStep === 'reviews' && (
-          <div
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          {/* COLUMNA DERECHA: Especialidades y Credenciales */}
+          <section
+            className="p-6 rounded-2xl border border-black/20 space-y-5"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between border-b border-black/20 pb-4">
-              <div className="flex items-center gap-2.5">
-                <Star size={18} className="text-amber-400" />
-                <div>
-                  <h3 className="text-sm font-bold">
-                    Servicios Realizados &amp; Reputación Cruzada
-                  </h3>
-                  <p className="text-xs opacity-80">
-                    Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
-                  </p>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Award size={18} className="text-emerald-400 shrink-0" /> Especialidades y Credenciales
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowSpecialtyForm((prev) => !prev)}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                {showSpecialtyForm ? <X size={14} /> : <Plus size={14} />}
+                {showSpecialtyForm ? 'Cerrar' : 'Cargar Especialidad'}
+              </button>
+            </div>
+
+            {showSpecialtyForm && (
+              <form
+                onSubmit={handleCreateSpecialty}
+                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                style={innerStyle}
+              >
+                <p className="font-bold">Nueva Especialidad</p>
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <input
+                    type="text"
+                    required
+                    value={newSpecialty}
+                    onChange={(e) => setNewSpecialty(e.target.value)}
+                    placeholder="Nueva especialidad (ej: Plomero Matriculado)"
+                    className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <button
+                    type="submit"
+                    disabled={savingSpecialty}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer disabled:opacity-50 shrink-0"
+                    style={{ backgroundColor: primaryActionColor }}
+                  >
+                    <Plus size={14} /> {savingSpecialty ? 'Agregando...' : 'Agregar'}
+                  </button>
                 </div>
-              </div>
-              <span className="text-xs font-mono opacity-80">
-                {providerContracts.length} contrato(s)
+              </form>
+            )}
+
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className={listHeaderTitleClass}>
+                <ShieldCheck size={13} className="opacity-80" /> ESPECIALIDADES CARGADAS
+              </span>
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {activeSpecialtiesCount} activa(s)
               </span>
             </div>
 
-            {crossReviewFeedback && (
-              <div
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
-                  crossReviewFeedback.type === 'success'
-                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                    : 'bg-rose-950/60 border-rose-800 text-rose-200'
-                }`}
-              >
-                {crossReviewFeedback.type === 'success' ? (
-                  <CheckCircle2 size={15} />
-                ) : (
-                  <AlertCircle size={15} />
-                )}
-                <span>{crossReviewFeedback.message}</span>
-              </div>
-            )}
-
-            {loadingContracts ? (
-              <div className="text-center py-6 text-xs opacity-80">
-                Cargando servicios y calificaciones cruzadas...
-              </div>
-            ) : providerContracts.length === 0 ? (
-              <div className="text-center py-6 text-xs opacity-75">
-                Aún no tenés contratos asignados en tu historial.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {providerContracts.map((item) => {
-                  const draftRating = ownerRatingDrafts[item.contract_id] || 5;
-                  const draftComment = ownerCommentDrafts[item.contract_id] || '';
-                  const alreadyRatedOwner = Boolean(item.owner_review_id);
+            <div className="space-y-3">
+              {profileData.providers.length === 0 ? (
+                <div
+                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
+                  style={innerStyle}
+                >
+                  No tenés especialidades registradas aún. Usá &ldquo;+ Cargar Especialidad&rdquo; para agregar una.
+                </div>
+              ) : (
+                profileData.providers.map((p) => {
+                  const isEditing = editingSpecialtyId === p.id;
+                  const isHidden = Boolean(hiddenSpecialtyIds[p.id]);
+                  const specAudit = normalizeAuditStatus(p.status);
 
                   return (
                     <div
-                      key={item.contract_id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      key={p.id}
+                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <span className="font-mono font-bold text-emerald-400">
-                            Contrato #{item.contract_id}
-                          </span>{' '}
-                          ·{' '}
-                          <span className="font-semibold">
-                            Residente:{' '}
-                            {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
-                              'Propietario'}
-                          </span>{' '}
-                          <span className="opacity-75">({item.country_name || 'Comunidad'})</span>
-                          <p className="opacity-80 mt-1">{item.description}</p>
-                        </div>
-                        <span
-                          className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
-                          style={cardStyle}
-                        >
-                          ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
-                        </span>
-                      </div>
-
-                      {item.provider_review_rating && (
-                        <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-emerald-300">
-                            Reseña recibida del residente: {'★'.repeat(item.provider_review_rating)} (
-                            {item.provider_review_rating}/5)
-                          </span>
-                          {item.provider_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.provider_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {alreadyRatedOwner ? (
-                        <div
-                          className="border border-white/15 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2"
-                          style={cardStyle}
-                        >
-                          <span className="font-semibold text-indigo-300">
-                            Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
-                            {item.owner_review_rating}/5)
-                          </span>
-                          {item.owner_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.owner_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div
-                          className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
-                          style={cardStyle}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="opacity-90 font-semibold">
-                              Calificar experiencia con el residente / acceso:
-                            </span>
-                            <div className="flex items-center gap-1">
-                              {[1, 2, 3, 4, 5].map((starVal) => (
-                                <button
-                                  key={starVal}
-                                  type="button"
-                                  onClick={() =>
-                                    setOwnerRatingDrafts((prev) => ({
-                                      ...prev,
-                                      [item.contract_id]: starVal,
-                                    }))
-                                  }
-                                  className={`p-1 rounded-lg border cursor-pointer ${
-                                    draftRating >= starVal
-                                      ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                      : 'border-white/15 opacity-60'
-                                  }`}
-                                  style={draftRating >= starVal ? undefined : innerStyle}
-                                >
-                                  <Star
-                                    size={13}
-                                    className={draftRating >= starVal ? 'fill-amber-400' : ''}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <div className="relative flex-1">
-                              <MessageSquare
-                                size={13}
-                                className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
-                              />
-                              <input
-                                type="text"
-                                value={draftComment}
-                                onChange={(e) =>
-                                  setOwnerCommentDrafts((prev) => ({
-                                    ...prev,
-                                    [item.contract_id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
-                                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={innerStyle}
-                              />
-                            </div>
+                      {isEditing ? (
+                        <div className="space-y-2.5">
+                          <input
+                            type="text"
+                            value={editSpecialtyName}
+                            onChange={(e) => setEditSpecialtyName(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            style={cardStyle}
+                          />
+                          <div className="flex justify-end gap-2">
                             <button
                               type="button"
-                              onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                              disabled={submittingContractId === item.contract_id}
-                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                              onClick={() => setEditingSpecialtyId(null)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <X size={12} /> Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSpecialtyEdit(p)}
+                              disabled={updatingSpecialty}
+                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
                               style={{ backgroundColor: primaryActionColor }}
                             >
-                              <Send size={12} />
-                              {submittingContractId === item.contract_id
-                                ? 'Enviando...'
-                                : 'Calificar Residente'}
+                              <Save size={12} /> {updatingSpecialty ? 'Guardando...' : 'Guardar'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm">{p.specialty}</span>
+                              {/* Estado de verificación con tilde + color semántico */}
+                              <span
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
+                                  specAudit.tone
+                                )}`}
+                              >
+                                {specAudit.isVerified && <BadgeCheck size={12} />}
+                                {specAudit.isVerified ? 'Verificada' : specAudit.label}
+                              </span>
+                              {/* Visibilidad para residentes diferenciada */}
+                              <span
+                                className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${
+                                  isHidden
+                                    ? 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                                    : 'bg-sky-500/15 text-sky-300 border-sky-500/35'
+                                }`}
+                              >
+                                {isHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                                {isHidden ? 'Oculta' : 'Visible'}
+                              </span>
+                            </div>
+                            <p className="opacity-80">
+                              {specAudit.isVerified
+                                ? isHidden
+                                  ? 'Verificada por TrustLink, pero oculta para residentes por tu configuración.'
+                                  : 'Verificada y habilitada para mostrarse a residentes en la red.'
+                                : 'Pendiente de verificación de TrustLink para habilitarse a residentes.'}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleSpecialtyVisibility(p.id)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                              {isHidden ? 'Mostrar' : 'Ocultar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSpecialtyId(p.id);
+                                setEditSpecialtyName(p.specialty || '');
+                              }}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <Edit3 size={12} /> Editar
                             </button>
                           </div>
                         </div>
                       )}
                     </div>
                   );
-                })}
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      ) : activeStep === 'vehicles' ? (
+        /* =====================================================================
+           PASO 2: FLOTA VEHICULAR HABILITADA
+           ===================================================================== */
+        <section
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Car size={18} className="text-sky-400" /> Flota Vehicular Habilitada
+            </h3>
+            <div className="flex items-center gap-2.5">
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {profileData.vehicles.length} vehículo(s)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowVehicleForm((prev) => !prev)}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                {showVehicleForm ? <X size={14} /> : <Plus size={14} />}
+                {showVehicleForm ? 'Cerrar' : 'Cargar Vehículo'}
+              </button>
+            </div>
+          </div>
+
+          {showVehicleForm && (
+            <form
+              onSubmit={handleAddVehicle}
+              className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+              style={innerStyle}
+            >
+              <p className="font-bold">Asociar Vehículo</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <select
+                  value={vehType}
+                  onChange={(e) => setVehType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                >
+                  <option value="utilitario">Utilitario</option>
+                  <option value="auto">Automóvil</option>
+                  <option value="moto">Motocicleta</option>
+                  <option value="camioneta">Camioneta</option>
+                </select>
+                <input
+                  type="text"
+                  required
+                  value={vehBrand}
+                  onChange={(e) => setVehBrand(e.target.value)}
+                  placeholder="Marca (ej: Ford)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={vehModel}
+                  onChange={(e) => setVehModel(e.target.value)}
+                  placeholder="Modelo (ej: Fiorino)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+                <input
+                  type="text"
+                  required
+                  value={vehColor}
+                  onChange={(e) => setVehColor(e.target.value)}
+                  placeholder="Color (ej: Blanco)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+                <input
+                  type="text"
+                  required
+                  value={vehPlate}
+                  onChange={(e) => setVehPlate(e.target.value)}
+                  placeholder="Patente (ej: AF123CD)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs uppercase"
+                  style={cardStyle}
+                />
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingVehicle}
+                  className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryActionColor }}
+                >
+                  <Plus size={14} /> {savingVehicle ? 'Registrando...' : 'Registrar Vehículo'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          <div className="space-y-3">
+            {profileData.vehicles.length === 0 ? (
+              <div
+                className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
+                style={innerStyle}
+              >
+                Sin vehículos registrados en tu flota.
+              </div>
+            ) : (
+              profileData.vehicles.map((v) => (
+                <div
+                  key={v.id}
+                  className="p-4 rounded-xl border border-black/20 flex items-center justify-between gap-3 text-xs"
+                  style={innerStyle}
+                >
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">
+                        {v.brand} {v.model}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${getSemanticBadgeClass(
+                          'info'
+                        )}`}
+                      >
+                        {v.vehicle_type}
+                      </span>
+                    </div>
+                    <p className="opacity-80 mt-1">
+                      Color: {v.color || '-'} · Patente:{' '}
+                      <strong className="font-mono">{v.license_plate}</strong>
+                    </p>
+                  </div>
+                </div>
+              ))
             )}
           </div>
-        )}
-      </main>
+        </section>
+      ) : (
+        /* =====================================================================
+           PASO 3: REPUTACIÓN CRUZADA
+           ===================================================================== */
+        <section
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between border-b border-black/20 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-xl border border-white/15" style={innerStyle}>
+                <Star size={18} className="text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold">Servicios Realizados &amp; Reputación Cruzada</h3>
+                <p className="text-xs opacity-80">
+                  Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                </p>
+              </div>
+            </div>
+            <span className={listCounterBadgeClass} style={innerStyle}>
+              {reviewContracts.length} contrato(s)
+            </span>
+          </div>
+
+          {loadingReviews ? (
+            <div
+              className="text-center py-8 rounded-xl border border-black/20 text-xs"
+              style={innerStyle}
+            >
+              Cargando historial de servicios...
+            </div>
+          ) : reviewContracts.length === 0 ? (
+            <div
+              className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85"
+              style={innerStyle}
+            >
+              Aún no tenés contratos asignados en tu historial.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reviewContracts.map((item) => {
+                const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
+                const commentDraft = ownerCommentDrafts[item.contract_id] || '';
+                const alreadyRatedOwner = Boolean(item.owner_review_id);
+
+                return (
+                  <div
+                    key={item.contract_id}
+                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold px-2 py-0.5 rounded border border-white/15">
+                          Contrato #{item.contract_id}
+                        </span>
+                        <span className="opacity-80">
+                          {item.country_name || 'TrustLink Community'}
+                        </span>
+                      </div>
+                      <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <p className="font-bold">
+                      Residente: {item.owner_name || 'Residente Verificado'}
+                    </p>
+                    <p className="opacity-85">{item.description}</p>
+
+                    {item.provider_review_rating && (
+                      <div
+                        className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2"
+                        style={cardStyle}
+                      >
+                        <span className="font-semibold text-emerald-400">
+                          Reseña recibida del residente:{' '}
+                          {'★'.repeat(item.provider_review_rating)} ({item.provider_review_rating}/5)
+                        </span>
+                        {item.provider_review_comment && (
+                          <span className="opacity-85 italic">
+                            &ldquo;{item.provider_review_comment}&rdquo;
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {alreadyRatedOwner ? (
+                      <div
+                        className="p-3 rounded-lg border border-white/15 text-xs"
+                        style={cardStyle}
+                      >
+                        Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
+                        {item.owner_review_rating}/5)
+                        {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 pt-2 border-t border-black/20">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold">Calificar al residente:</span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((starVal) => (
+                              <button
+                                key={starVal}
+                                type="button"
+                                onClick={() =>
+                                  setOwnerRatingDrafts((prev) => ({
+                                    ...prev,
+                                    [item.contract_id]: starVal,
+                                  }))
+                                }
+                                className={`p-1.5 rounded-lg border cursor-pointer ${
+                                  ratingDraft >= starVal
+                                    ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                                    : 'border-white/15 opacity-70'
+                                }`}
+                              >
+                                <Star size={14} className="fill-current" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="relative">
+                          <MessageSquare
+                            size={14}
+                            className="absolute left-3 top-2.5 opacity-70"
+                          />
+                          <input
+                            type="text"
+                            value={commentDraft}
+                            onChange={(e) =>
+                              setOwnerCommentDrafts((prev) => ({
+                                ...prev,
+                                [item.contract_id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Comentario sobre el trato y acceso en el domicilio..."
+                            className="w-full pl-8 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                            style={cardStyle}
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleSubmitOwnerReview(item.contract_id)}
+                            disabled={submittingOwnerReviewId === item.contract_id}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Send size={13} />
+                            {submittingOwnerReviewId === item.contract_id
+                              ? 'Enviando...'
+                              : 'Calificar Residente'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
