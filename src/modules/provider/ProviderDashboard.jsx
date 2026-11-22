@@ -2,10 +2,9 @@
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
  * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
- * 3. Reputación Cruzada). En Credenciales presenta un formulario compacto de Documentación Personal
- * (Antecedentes Penales y Póliza ART/Seguro con vigencia Desde/Hasta), un historial en filas por
- * persona con vigencia por fecha, estado de validación de TrustLink y edición, y la columna de
- * Especialidades y Credenciales. Aplica las Zonas 4 y 5 de apariencia.
+ * 3. Reputación Cruzada). En Credenciales muestra un botón para desplegar el formulario de carga
+ * documental cuando se necesita, y permite editar cada documento directamente dentro de su fila
+ * en el Historial Documental. Aplica las Zonas 4 y 5 de apariencia.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -173,13 +172,28 @@ export default function ProviderDashboard() {
   const [savingDocs, setSavingDocs] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Documentación Personal (Antecedentes + ART/Seguro con vigencias Desde/Hasta)
-  const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
-  const [criminalFromDate, setCriminalFromDate] = useState('');
-  const [criminalUntilDate, setCriminalUntilDate] = useState('');
-  const [insurancePolicyUrl, setInsurancePolicyUrl] = useState('');
-  const [insuranceFromDate, setInsuranceFromDate] = useState('');
-  const [insuranceUntilDate, setInsuranceUntilDate] = useState('');
+  // Estado base de documentación personal (sincronizado con backend)
+  const [baseDocs, setBaseDocs] = useState({
+    criminalRecordUrl: '',
+    criminalFromDate: '',
+    criminalUntilDate: '',
+    insurancePolicyUrl: '',
+    insuranceFromDate: '',
+    insuranceUntilDate: '',
+  });
+
+  // Control de visibilidad del formulario de carga de nueva documentación
+  const [showNewDocForm, setShowNewDocForm] = useState(false);
+  const [newDocType, setNewDocType] = useState('criminal'); // 'criminal' | 'insurance'
+  const [newDocUrl, setNewDocUrl] = useState('');
+  const [newDocFrom, setNewDocFrom] = useState('');
+  const [newDocUntil, setNewDocUntil] = useState('');
+
+  // Control de edición inline dentro de cada fila del Historial Documental ('criminal' | 'insurance' | null)
+  const [editingDocKey, setEditingDocKey] = useState(null);
+  const [editDocUrl, setEditDocUrl] = useState('');
+  const [editDocFrom, setEditDocFrom] = useState('');
+  const [editDocUntil, setEditDocUntil] = useState('');
 
   // Especialidades / Credenciales
   const [specialty, setSpecialty] = useState('');
@@ -227,16 +241,16 @@ export default function ProviderDashboard() {
         const withDocs =
           list.find((p) => p.criminal_record_url || p.insurance_policy_url) || list[0];
         if (withDocs) {
-          setCriminalRecordUrl(withDocs.criminal_record_url || '');
-          setCriminalFromDate(
-            toDateInputValue(withDocs.criminal_record_from || withDocs.created_at)
-          );
-          setCriminalUntilDate(toDateInputValue(withDocs.criminal_record_expiry));
-          setInsurancePolicyUrl(withDocs.insurance_policy_url || '');
-          setInsuranceFromDate(
-            toDateInputValue(withDocs.insurance_from || withDocs.created_at)
-          );
-          setInsuranceUntilDate(toDateInputValue(withDocs.insurance_expiry));
+          setBaseDocs({
+            criminalRecordUrl: withDocs.criminal_record_url || '',
+            criminalFromDate: toDateInputValue(
+              withDocs.criminal_record_from || withDocs.created_at
+            ),
+            criminalUntilDate: toDateInputValue(withDocs.criminal_record_expiry),
+            insurancePolicyUrl: withDocs.insurance_policy_url || '',
+            insuranceFromDate: toDateInputValue(withDocs.insurance_from || withDocs.created_at),
+            insuranceUntilDate: toDateInputValue(withDocs.insurance_expiry),
+          });
         }
       }
     } catch (error) {
@@ -271,51 +285,18 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  // Carga los datos de un documento del historial en el formulario para editarlo
-  const handleEditPersonalDoc = (docRow) => {
-    if (docRow.docKey === 'criminal') {
-      setCriminalRecordUrl(docRow.url || '');
-      setCriminalFromDate(toDateInputValue(docRow.fromDate));
-      setCriminalUntilDate(toDateInputValue(docRow.untilDate));
-    } else if (docRow.docKey === 'insurance') {
-      setInsurancePolicyUrl(docRow.url || '');
-      setInsuranceFromDate(toDateInputValue(docRow.fromDate));
-      setInsuranceUntilDate(toDateInputValue(docRow.untilDate));
-    }
-    setFeedback({
-      type: 'success',
-      text: `Editá "${docRow.title}" en el formulario y guardá los cambios.`,
-    });
-  };
-
-  // Guarda/actualiza la documentación personal (Antecedentes + ART/Seguro)
-  const handleSavePersonalDocs = async (e) => {
-    e.preventDefault();
-    if (criminalFromDate && criminalUntilDate && criminalUntilDate < criminalFromDate) {
-      setFeedback({
-        type: 'error',
-        text: 'En Antecedentes Penales, la fecha "Hasta" no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-    if (insuranceFromDate && insuranceUntilDate && insuranceUntilDate < insuranceFromDate) {
-      setFeedback({
-        type: 'error',
-        text: 'En Póliza ART / Seguro, la fecha "Hasta" no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-
+  // Persiste un objeto de documentación actualizado en los perfiles del prestador
+  const persistPersonalDocs = async (nextDocs, successText) => {
     setSavingDocs(true);
     setFeedback({ type: '', text: '' });
 
     const docPayload = {
-      criminal_record_url: criminalRecordUrl.trim() || null,
-      criminal_record_from: criminalFromDate || null,
-      criminal_record_expiry: criminalUntilDate || null,
-      insurance_policy_url: insurancePolicyUrl.trim() || null,
-      insurance_from: insuranceFromDate || null,
-      insurance_expiry: insuranceUntilDate || null,
+      criminal_record_url: nextDocs.criminalRecordUrl.trim() || null,
+      criminal_record_from: nextDocs.criminalFromDate || null,
+      criminal_record_expiry: nextDocs.criminalUntilDate || null,
+      insurance_policy_url: nextDocs.insurancePolicyUrl.trim() || null,
+      insurance_from: nextDocs.insuranceFromDate || null,
+      insurance_expiry: nextDocs.insuranceUntilDate || null,
     };
 
     try {
@@ -331,7 +312,7 @@ export default function ProviderDashboard() {
         const data = await res.json();
         if (!res.ok) {
           setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
-          return;
+          return false;
         }
       } else {
         await Promise.all(
@@ -348,16 +329,95 @@ export default function ProviderDashboard() {
         );
       }
 
-      setFeedback({
-        type: 'success',
-        text: 'Documentación personal guardada. Queda sujeta a validación de TrustLink.',
-      });
+      setFeedback({ type: 'success', text: successText });
       await fetchProviderData();
+      return true;
     } catch (error) {
       console.error('Error al guardar documentación personal:', error);
       setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
+      return false;
     } finally {
       setSavingDocs(false);
+    }
+  };
+
+  // Crea/actualiza un documento desde el formulario desplegable de Nueva Documentación
+  const handleCreateNewDoc = async (e) => {
+    e.preventDefault();
+    if (newDocFrom && newDocUntil && newDocUntil < newDocFrom) {
+      setFeedback({
+        type: 'error',
+        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
+      });
+      return;
+    }
+
+    const nextDocs =
+      newDocType === 'criminal'
+        ? {
+            ...baseDocs,
+            criminalRecordUrl: newDocUrl,
+            criminalFromDate: newDocFrom,
+            criminalUntilDate: newDocUntil,
+          }
+        : {
+            ...baseDocs,
+            insurancePolicyUrl: newDocUrl,
+            insuranceFromDate: newDocFrom,
+            insuranceUntilDate: newDocUntil,
+          };
+
+    const ok = await persistPersonalDocs(
+      nextDocs,
+      'Documentación registrada. Queda sujeta a validación de TrustLink.'
+    );
+    if (ok) {
+      setNewDocUrl('');
+      setNewDocFrom('');
+      setNewDocUntil('');
+      setShowNewDocForm(false);
+    }
+  };
+
+  // Inicia la edición en línea dentro de la fila del historial seleccionada
+  const startInlineDocEdit = (row) => {
+    setEditingDocKey(row.docKey);
+    setEditDocUrl(row.url === 'Sin URL' ? '' : row.url || '');
+    setEditDocFrom(toDateInputValue(row.fromDate));
+    setEditDocUntil(toDateInputValue(row.untilDate));
+  };
+
+  // Guarda la edición en línea de una fila del historial
+  const handleSaveInlineDocEdit = async (docKey) => {
+    if (editDocFrom && editDocUntil && editDocUntil < editDocFrom) {
+      setFeedback({
+        type: 'error',
+        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
+      });
+      return;
+    }
+
+    const nextDocs =
+      docKey === 'criminal'
+        ? {
+            ...baseDocs,
+            criminalRecordUrl: editDocUrl,
+            criminalFromDate: editDocFrom,
+            criminalUntilDate: editDocUntil,
+          }
+        : {
+            ...baseDocs,
+            insurancePolicyUrl: editDocUrl,
+            insuranceFromDate: editDocFrom,
+            insuranceUntilDate: editDocUntil,
+          };
+
+    const ok = await persistPersonalDocs(
+      nextDocs,
+      'Documento actualizado en el historial. Queda sujeto a validación de TrustLink.'
+    );
+    if (ok) {
+      setEditingDocKey(null);
     }
   };
 
@@ -376,12 +436,12 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           specialty: specialty.trim(),
-          criminal_record_url: criminalRecordUrl.trim() || null,
-          criminal_record_from: criminalFromDate || null,
-          criminal_record_expiry: criminalUntilDate || null,
-          insurance_policy_url: insurancePolicyUrl.trim() || null,
-          insurance_from: insuranceFromDate || null,
-          insurance_expiry: insuranceUntilDate || null,
+          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
+          criminal_record_from: baseDocs.criminalFromDate || null,
+          criminal_record_expiry: baseDocs.criminalUntilDate || null,
+          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
+          insurance_from: baseDocs.insuranceFromDate || null,
+          insurance_expiry: baseDocs.insuranceUntilDate || null,
         }),
       });
       const data = await response.json();
@@ -418,12 +478,12 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           specialty: editSpecialty.trim(),
-          criminal_record_url: criminalRecordUrl.trim() || null,
-          criminal_record_from: criminalFromDate || null,
-          criminal_record_expiry: criminalUntilDate || null,
-          insurance_policy_url: insurancePolicyUrl.trim() || null,
-          insurance_from: insuranceFromDate || null,
-          insurance_expiry: insuranceUntilDate || null,
+          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
+          criminal_record_from: baseDocs.criminalFromDate || null,
+          criminal_record_expiry: baseDocs.criminalUntilDate || null,
+          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
+          insurance_from: baseDocs.insuranceFromDate || null,
+          insurance_expiry: baseDocs.insuranceUntilDate || null,
         }),
       });
       const data = await response.json();
@@ -568,7 +628,7 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Construye las filas de documentación personal (una por documento de la persona, no por especialidad)
+  // Filas del historial documental por persona (Antecedentes Penales y Póliza ART / Seguro)
   const personalDocRows = (() => {
     const baseSource =
       providerProfiles.find((p) => p.criminal_record_url || p.insurance_policy_url) ||
@@ -765,104 +825,122 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Documentación Personal minimalista + filas por persona (Izquierda) / Especialidades (Derecha) */}
+        {/* PASO 1: Documentación Personal (botón para cargar + edición inline en historial) / Especialidades */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Formulario minimalista + Historial en filas de documentación de la persona */}
+            {/* Columna Izquierda: Botón de carga + Historial en filas con edición inline */}
             <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-5"
+              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
-              <div className="flex items-center justify-between border-b border-black/20 pb-3">
+              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
                 <div className="flex items-center gap-2">
                   <FileText size={16} className="text-emerald-400" />
                   <h3 className="text-sm font-bold">Documentación Personal</h3>
                 </div>
-                <span className="text-[11px] opacity-75">Por persona</span>
-              </div>
-
-              <form onSubmit={handleSavePersonalDocs} className="space-y-2.5 text-xs">
-                {/* Fila compacta 1: Antecedentes Penales */}
-                <div
-                  className="p-2.5 rounded-xl border border-black/20 space-y-2"
-                  style={innerStyle}
-                >
-                  <div className="text-[11px] font-bold opacity-85">Antecedentes Penales</div>
-                  <input
-                    type="text"
-                    value={criminalRecordUrl}
-                    onChange={(e) => setCriminalRecordUrl(e.target.value)}
-                    placeholder="URL de antecedentes"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="date"
-                      value={criminalFromDate}
-                      onChange={(e) => setCriminalFromDate(e.target.value)}
-                      aria-label="Antecedentes Desde"
-                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    />
-                    <input
-                      type="date"
-                      value={criminalUntilDate}
-                      onChange={(e) => setCriminalUntilDate(e.target.value)}
-                      aria-label="Antecedentes Hasta"
-                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    />
-                  </div>
-                </div>
-
-                {/* Fila compacta 2: Póliza ART / Seguro */}
-                <div
-                  className="p-2.5 rounded-xl border border-black/20 space-y-2"
-                  style={innerStyle}
-                >
-                  <div className="text-[11px] font-bold opacity-85">Póliza ART / Seguro</div>
-                  <input
-                    type="text"
-                    value={insurancePolicyUrl}
-                    onChange={(e) => setInsurancePolicyUrl(e.target.value)}
-                    placeholder="URL de póliza ART / Seguro"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      type="date"
-                      value={insuranceFromDate}
-                      onChange={(e) => setInsuranceFromDate(e.target.value)}
-                      aria-label="ART Desde"
-                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    />
-                    <input
-                      type="date"
-                      value={insuranceUntilDate}
-                      onChange={(e) => setInsuranceUntilDate(e.target.value)}
-                      aria-label="ART Hasta"
-                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    />
-                  </div>
-                </div>
 
                 <button
-                  type="submit"
-                  disabled={savingDocs}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                  type="button"
+                  onClick={() => {
+                    setShowNewDocForm((prev) => !prev);
+                    setNewDocType('criminal');
+                    setNewDocUrl('');
+                    setNewDocFrom('');
+                    setNewDocUntil('');
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95"
                   style={{ backgroundColor: primaryActionColor }}
                 >
-                  <Save size={13} />
-                  {savingDocs ? 'Guardando...' : 'Guardar Documentación'}
+                  {showNewDocForm ? (
+                    <>
+                      <X size={13} /> Cerrar
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={13} /> Cargar Documentación
+                    </>
+                  )}
                 </button>
-              </form>
+              </div>
 
-              {/* Historial en filas de la documentación cargada por persona */}
-              <div className="pt-3 border-t border-black/20 space-y-2 text-xs">
+              {/* Formulario desplegable solo cuando el prestador necesita cargar nueva documentación */}
+              {showNewDocForm && (
+                <form
+                  onSubmit={handleCreateNewDoc}
+                  className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
+                  style={innerStyle}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                      Nueva Documentación
+                    </span>
+                    <select
+                      value={newDocType}
+                      onChange={(e) => setNewDocType(e.target.value)}
+                      className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    >
+                      <option value="criminal">Antecedentes Penales</option>
+                      <option value="insurance">Póliza ART / Seguro</option>
+                    </select>
+                  </div>
+
+                  <input
+                    type="text"
+                    required
+                    value={newDocUrl}
+                    onChange={(e) => setNewDocUrl(e.target.value)}
+                    placeholder="URL del documento (https://...)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
+                      <input
+                        type="date"
+                        value={newDocFrom}
+                        onChange={(e) => setNewDocFrom(e.target.value)}
+                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
+                      <input
+                        type="date"
+                        value={newDocUntil}
+                        onChange={(e) => setNewDocUntil(e.target.value)}
+                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewDocForm(false)}
+                      className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
+                      style={cardStyle}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingDocs || !newDocUrl.trim()}
+                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
+                      style={{ backgroundColor: primaryActionColor }}
+                    >
+                      <Save size={12} /> {savingDocs ? 'Guardando...' : 'Guardar'}
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Historial en filas de la documentación cargada por persona con edición inline */}
+              <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
                     <History size={13} className="text-sky-400" />
@@ -873,52 +951,124 @@ export default function ProviderDashboard() {
                   </span>
                 </div>
 
-                {personalDocRows.length === 0 ? (
+                {fetching ? (
+                  <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
+                    <Loader2 className="animate-spin" size={14} /> Cargando documentación...
+                  </div>
+                ) : personalDocRows.length === 0 ? (
                   <div
-                    className="p-3 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
+                    className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
                     style={innerStyle}
                   >
-                    Sin documentación cargada todavía.
+                    Sin documentación cargada. Usá el botón <strong>Cargar Documentación</strong> para
+                    registrar tus antecedentes o seguro.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {personalDocRows.map((row) => (
-                      <div
-                        key={row.docKey}
-                        className="p-3 rounded-xl border border-black/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]"
-                        style={innerStyle}
-                      >
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold text-xs">{row.title}</span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.validity.badgeClass}`}
-                            >
-                              {row.validity.label}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.trustlinkValidation.badgeClass}`}
-                            >
-                              {row.trustlinkValidation.label}
-                            </span>
-                          </div>
-                          <div className="truncate opacity-80">{row.url}</div>
-                          <div className="font-mono text-[10px] opacity-70">
-                            Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
-                            {formatDisplayDate(row.untilDate)}
-                          </div>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => handleEditPersonalDoc(row)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90 shrink-0 self-start sm:self-center"
-                          style={cardStyle}
+                    {personalDocRows.map((row) => {
+                      const isRowEditing = editingDocKey === row.docKey;
+                      return (
+                        <div
+                          key={row.docKey}
+                          className="p-3 rounded-xl border border-black/20 space-y-2 text-[11px]"
+                          style={innerStyle}
                         >
-                          <Edit3 size={11} /> Editar
-                        </button>
-                      </div>
-                    ))}
+                          {isRowEditing ? (
+                            <div className="space-y-2">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-xs">{row.title}</span>
+                                <span className="text-[10px] opacity-70">Editando en fila</span>
+                              </div>
+                              <input
+                                type="text"
+                                value={editDocUrl}
+                                onChange={(e) => setEditDocUrl(e.target.value)}
+                                placeholder="URL del documento"
+                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                style={cardStyle}
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] opacity-70 mb-0.5">
+                                    Desde
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editDocFrom}
+                                    onChange={(e) => setEditDocFrom(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] opacity-70 mb-0.5">
+                                    Hasta
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editDocUntil}
+                                    onChange={(e) => setEditDocUntil(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-1.5 pt-1">
+                                <button
+                                  type="button"
+                                  disabled={savingDocs}
+                                  onClick={() => handleSaveInlineDocEdit(row.docKey)}
+                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50"
+                                  style={{ backgroundColor: primaryActionColor }}
+                                >
+                                  <Save size={11} /> Guardar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingDocKey(null)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                                  style={cardStyle}
+                                >
+                                  <X size={11} /> Cancelar
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="space-y-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-xs">{row.title}</span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.validity.badgeClass}`}
+                                  >
+                                    {row.validity.label}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.trustlinkValidation.badgeClass}`}
+                                  >
+                                    {row.trustlinkValidation.label}
+                                  </span>
+                                </div>
+                                <div className="truncate opacity-80">{row.url}</div>
+                                <div className="font-mono text-[10px] opacity-70">
+                                  Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
+                                  {formatDisplayDate(row.untilDate)}
+                                </div>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => startInlineDocEdit(row)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90 shrink-0 self-start sm:self-center"
+                                style={cardStyle}
+                              >
+                                <Edit3 size={11} /> Editar
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
