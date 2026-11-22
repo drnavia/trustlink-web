@@ -3,8 +3,8 @@
  * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
  * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas)
  * con el formulario de Pases QR reordenado, buscador, filtro por estado, paginación,
- * edición inline de pases VIGENTES (incluyendo Válido Desde y Válido Hasta) y detalle
- * completo en cada tarjeta: prestador, especialidad, destino, vehículo/peatonal y vigencia.
+ * edición inline de pases VIGENTES (incluyendo patente de flota y Válido Desde / Hasta)
+ * y actualización inmediata de `vehicle_plate` al guardar.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -166,7 +166,7 @@ export default function ResidentDashboard({ onViewChange }) {
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passPage, setPassPage] = useState(1);
 
-  // Estado de edición inline para un pase QR vigente (incluye Válido Desde y Válido Hasta)
+  // Estado de edición inline para un pase QR vigente
   const [editingPassId, setEditingPassId] = useState(null);
   const [editFraction, setEditFraction] = useState('');
   const [editLot, setEditLot] = useState('');
@@ -393,7 +393,8 @@ export default function ResidentDashboard({ onViewChange }) {
   };
 
   /**
-   * Guarda los cambios de un pase QR vigente mediante PATCH /api/v1/passes/:id.
+   * Guarda los cambios de un pase QR vigente mediante PATCH /api/v1/passes/:id
+   * y actualiza `vehicle_plate` de inmediato en el estado y en la consulta al backend.
    */
   const handleSavePassEdit = async (pass) => {
     if (!isPassCurrentlyActive(pass)) {
@@ -422,6 +423,8 @@ export default function ResidentDashboard({ onViewChange }) {
       return;
     }
 
+    const normalizedPlate = editPlate.trim() ? editPlate.trim().toUpperCase() : null;
+
     setSavingPassEdit(true);
     setFeedback(null);
     try {
@@ -434,13 +437,32 @@ export default function ResidentDashboard({ onViewChange }) {
         body: JSON.stringify({
           fraction_number: editFraction.trim() || null,
           lot_number: editLot.trim() || null,
-          vehicle_plate: editPlate.trim().toUpperCase() || null,
+          vehicle_plate: normalizedPlate,
           start_time: startObj.toISOString(),
           end_time: endObj.toISOString(),
         }),
       });
       const data = await response.json();
       if (response.ok) {
+        const persistedPlate =
+          data.pass?.vehicle_plate !== undefined ? data.pass.vehicle_plate : normalizedPlate;
+
+        setPasses((prev) =>
+          prev.map((item) =>
+            item.id === pass.id
+              ? {
+                  ...item,
+                  fraction_number:
+                    data.pass?.fraction_number ?? (editFraction.trim() || null),
+                  lot_number: data.pass?.lot_number ?? (editLot.trim() || null),
+                  vehicle_plate: persistedPlate,
+                  start_time: data.pass?.start_time ?? startObj.toISOString(),
+                  end_time: data.pass?.end_time ?? endObj.toISOString(),
+                }
+              : item
+          )
+        );
+
         setFeedback({
           type: 'success',
           text: data.message || `Pase #${pass.id} actualizado correctamente.`,
