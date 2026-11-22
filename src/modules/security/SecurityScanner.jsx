@@ -1,11 +1,12 @@
 /**
  * @file SecurityScanner.jsx
  * @description Consola de Garita para validación ultrarrápida de pases QR en accesos perimetrales.
- * Aplica de forma homogénea Zonas 4 y 5, color principal de marca y título unificado text-xl.
+ * Soporta ingreso manual/pistola, lectura por URL (?qr_token= / ?token=) y escaneo en vivo con cámara
+ * del dispositivo (BarcodeDetector + fallback seguro a cámara/manual), aplicando Zonas 4 y 5.
  * @location /trustlink-web/src/modules/security/SecurityScanner.jsx
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ShieldCheck,
   ShieldAlert,
@@ -15,7 +16,10 @@ import {
   User,
   Car,
   MapPin,
-  Clock
+  Clock,
+  Camera,
+  CameraOff,
+  AlertCircle
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -38,7 +42,30 @@ function formatDateTime(isoValue) {
   });
 }
 
-export default function SecurityScanner() {
+/**
+ * Extrae el token QR si el código escaneado contiene una URL con ?qr_token=... o ?token=...
+ * @param {string} rawValue
+ * @returns {string}
+ */
+function normalizeScannedToken(rawValue) {
+  const trimmed = String(rawValue || '').trim();
+  if (!trimmed) return '';
+  try {
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      const url = new URL(trimmed);
+      return (
+        url.searchParams.get('qr_token') ||
+        url.searchParams.get('token') ||
+        trimmed
+      ).trim();
+    }
+  } catch {
+    // Si no es una URL válida, se usa el valor tal cual
+  }
+  return trimmed;
+}
+
+export default function SecurityScanner({ initialToken = '', onClearInitialToken }) {
   const { brand } = useBranding();
 
   // Zona 4: Tarjetas principales
@@ -56,13 +83,40 @@ export default function SecurityScanner() {
   // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
-  const [qrToken, setQrToken] = useState('');
+  const [qrToken, setQrToken] = useState(initialToken || '');
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
 
-  const handleVerifyPass = async (e) => {
-    if (e) e.preventDefault();
-    const cleanToken = qrToken.trim();
+  // Estado de cámara y escáner QR en vivo
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraError, setCameraError] = useState('');
+  const [detectorSupported, setDetectorSupported] = useState(false);
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const scanIntervalRef = useRef(null);
+  const detectorRef = useRef(null);
+  const autoVerifiedInitialRef = useRef(false);
+
+  const stopCameraScanner = useCallback(() => {
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setCameraActive(false);
+    setCameraStarting(false);
+  }, []);
+
+  const verifyTokenValue = useCallback(async (tokenToVerify) => {
+    const cleanToken = normalizeScannedToken(tokenToVerify);
     if (!cleanToken) return;
 
     setVerifying(true);
@@ -103,11 +157,122 @@ export default function SecurityScanner() {
     } finally {
       setVerifying(false);
     }
+  }, []);
+
+  // Verifica soporte nativo de BarcodeDetector para QR en el navegador
+  useEffect(() => {
+    let mounted = true;
+    const initDetector = async () => {
+      if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
+        try {
+          if (typeof window.BarcodeDetector.getSupportedFormats === 'function') {
+            const formats = await window.BarcodeDetector.getSupportedFormats();
+            if (mounted && Array.isArray(formats) && formats.includes('qr_code')) {
+              detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
+              setDetectorSupported(true);
+              return;
+            }
+          }
+          detectorRef.current = new window.BarcodeDetector({ formats: ['qr_code'] });
+          if (mounted) setDetectorSupported(true);
+        } catch {
+          if (mounted) setDetectorSupported(false);
+        }
+      }
+    };
+    initDetector();
+    return () => {
+      mounted = false;
+      stopCameraScanner();
+    };
+  }, [stopCameraScanner]);
+
+  // Si llega un token por URL (?qr_token= o ?token=), lo pre-carga y valida automáticamente una vez
+  useEffect(() => {
+    if (initialToken && !autoVerifiedInitialRef.current) {
+      autoVerifiedInitialRef.current = true;
+      const normalized = normalizeScannedToken(initialToken);
+      setQrToken(normalized);
+      verifyTokenValue(normalized);
+      if (typeof onClearInitialToken === 'function') {
+        onClearInitialToken();
+      }
+    }
+  }, [initialToken, verifyTokenValue, onClearInitialToken]);
+
+  const startCameraScanner = async () => {
+    setCameraError('');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError(
+        'Este navegador no admite acceso directo a la cámara. Ingresá o pegá el token manualmente.'
+      );
+      return;
+    }
+
+    setCameraStarting(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: 'environment' },
+        },
+        audio: false,
+      });
+
+      streamRef.current = stream;
+      setCameraActive(true);
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play().catch(() => {});
+      }
+
+      if (detectorRef.current && videoRef.current) {
+        scanIntervalRef.current = setInterval(async () => {
+          if (!videoRef.current || videoRef.current.readyState < 2 || !detectorRef.current) {
+            return;
+          }
+          try {
+            const barcodes = await detectorRef.current.detect(videoRef.current);
+            if (Array.isArray(barcodes) && barcodes.length > 0 && barcodes[0]?.rawValue) {
+              const detectedToken = normalizeScannedToken(barcodes[0].rawValue);
+              if (detectedToken) {
+                stopCameraScanner();
+                setQrToken(detectedToken);
+                verifyTokenValue(detectedToken);
+              }
+            }
+          } catch {
+            // Ignora frames intermedios no decodificables
+          }
+        }, 350);
+      } else {
+        setCameraError(
+          'Cámara abierta. Si tu navegador no lee códigos QR en vivo automáticamente, ingresá el token en el campo de abajo.'
+        );
+      }
+    } catch (err) {
+      console.error('Error al acceder a la cámara:', err);
+      setCameraError(
+        'No se pudo iniciar la cámara (verificá permisos del navegador o el uso de HTTPS/localhost).'
+      );
+      stopCameraScanner();
+    } finally {
+      setCameraStarting(false);
+    }
+  };
+
+  const handleVerifyPass = async (e) => {
+    if (e) e.preventDefault();
+    if (!qrToken.trim()) return;
+    stopCameraScanner();
+    await verifyTokenValue(qrToken);
   };
 
   const handleClearScanner = () => {
+    stopCameraScanner();
     setQrToken('');
     setResult(null);
+    setCameraError('');
   };
 
   const details = result?.details || {};
@@ -120,22 +285,77 @@ export default function SecurityScanner() {
           className="border border-black/20 p-6 md:p-8 rounded-2xl shadow-sm space-y-6"
           style={cardStyle}
         >
-          <div className="flex items-center gap-3.5">
-            <div
-              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
+                style={innerStyle}
+              >
+                <ShieldCheck size={22} strokeWidth={1.8} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black tracking-tight">
+                  Validación Ultrarrápida de Accesos
+                </h2>
+                <p className="text-xs opacity-80 mt-0.5">
+                  Escanee el código QR con la cámara, abra un enlace con token o ingrese el token manualmente.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={cameraActive ? stopCameraScanner : startCameraScanner}
+              disabled={cameraStarting}
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50 shrink-0 self-start sm:self-auto"
               style={innerStyle}
             >
-              <ShieldCheck size={22} strokeWidth={1.8} />
-            </div>
-            <div>
-              <h2 className="text-xl font-black tracking-tight">
-                Validación Ultrarrápida de Accesos
-              </h2>
-              <p className="text-xs opacity-80 mt-0.5">
-                Escanee el código QR o ingrese el token digital presentado por el prestador.
-              </p>
-            </div>
+              {cameraActive ? (
+                <>
+                  <CameraOff size={14} className="text-rose-400" />
+                  Cerrar Cámara
+                </>
+              ) : (
+                <>
+                  <Camera size={14} className="text-emerald-400" />
+                  {cameraStarting ? 'Abriendo cámara...' : 'Escanear con Cámara'}
+                </>
+              )}
+            </button>
           </div>
+
+          {/* Visor de cámara en vivo cuando está activo */}
+          {cameraActive && (
+            <div
+              className="p-4 rounded-2xl border border-white/15 space-y-3"
+              style={innerStyle}
+            >
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-bold flex items-center gap-1.5">
+                  <Camera size={14} className="text-emerald-400" />
+                  Cámara activa — Apuntá hacia el código QR
+                </span>
+                <span className="text-[11px] font-mono opacity-75">
+                  {detectorSupported ? 'Detección QR automática' : 'Vista previa de cámara'}
+                </span>
+              </div>
+              <div className="relative rounded-xl overflow-hidden bg-black aspect-video max-h-72 mx-auto w-full flex items-center justify-center border border-white/10">
+                <video
+                  ref={videoRef}
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            </div>
+          )}
+
+          {cameraError && (
+            <div className="flex items-center gap-2 bg-amber-950/50 border border-amber-800/80 text-amber-200 p-3.5 rounded-xl text-xs">
+              <AlertCircle size={15} className="text-amber-400 shrink-0" />
+              <span>{cameraError}</span>
+            </div>
+          )}
 
           {/* Formulario de escaneo / ingreso de token */}
           <form

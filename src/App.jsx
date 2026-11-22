@@ -2,8 +2,8 @@
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
  * identidad configurable en el menú (nombre, etiqueta, subtítulo y logo opcional), aplicación explícita
- * de las 6 zonas de apariencia y submenú de Modo Maestro reordenado con color activo distintivo.
- * Unifica la etiqueta del administrador local como "Vista Admin Barrio" y refuerza el botón Salir.
+ * de las 6 zonas de apariencia, submenú de Modo Maestro reordenado con color activo distintivo,
+ * unificación de "Vista Admin Barrio", botón "Salir" sobrio y soporte de ?qr_token= / ?token= en URL.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -44,9 +44,31 @@ function MainAppContent() {
   const { user, isAuthenticated, logout } = useAuth();
   const [currentView, setCurrentView] = useState(user ? 'resident' : 'landing');
   const [masterModeOpen, setMasterModeOpen] = useState(false);
+  const [urlQrToken, setUrlQrToken] = useState('');
 
-  // Sincroniza la vista inicial según el rol autenticado
+  // Lee ?qr_token= o ?token= al abrir la web desde un QR con URL
   useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const incomingToken = (params.get('qr_token') || params.get('token') || '').trim();
+      if (incomingToken) {
+        setUrlQrToken(incomingToken);
+        setCurrentView('security');
+        const cleanUrl = `${window.location.pathname}${window.location.hash || ''}`;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch {
+      // Ignora si el entorno no permite manipular window.location
+    }
+  }, []);
+
+  // Sincroniza la vista inicial según el rol autenticado (respetando redirección por QR en URL)
+  useEffect(() => {
+    if (urlQrToken) {
+      setCurrentView('security');
+      return;
+    }
+
     if (!user) {
       setCurrentView('landing');
       setMasterModeOpen(false);
@@ -66,7 +88,7 @@ function MainAppContent() {
       setCurrentView('resident');
       setMasterModeOpen(false);
     }
-  }, [user]);
+  }, [user, urlQrToken]);
 
   const userRole = user?.role || null;
   const isSuperadmin = userRole === 'superadmin';
@@ -75,15 +97,15 @@ function MainAppContent() {
   const canSeeProvider = userRole === 'provider' || isSuperadmin;
   const canSeePaymentsAndReviews =
     userRole === 'owner' || userRole === 'family' || userRole === 'provider' || isSuperadmin;
-  const canSeeSecurity = userRole === 'security' || isSuperadmin;
+  const canSeeSecurity = userRole === 'security' || isSuperadmin || Boolean(urlQrToken);
 
   const handleLogout = () => {
     logout();
+    setUrlQrToken('');
     setCurrentView('landing');
     setMasterModeOpen(false);
   };
 
-  // Identidad configurable de la barra superior (Zona 1) con fallback a valores por defecto
   const displayBrandName = (brand.brandName || brand.name || 'TrustLink').trim() || 'TrustLink';
   const displayBrandBadge = (brand.brandBadge || 'Community').trim() || 'Community';
   const displayBrandSubtitle =
@@ -204,7 +226,6 @@ function MainAppContent() {
               </button>
             )}
 
-            {/* Etiqueta unificada con el título interno y el submenú de Modo Maestro */}
             {isLocalAdmin && (
               <button
                 type="button"
@@ -253,7 +274,7 @@ function MainAppContent() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 bg-rose-950/55 hover:bg-rose-900/75 text-rose-200 border border-rose-800/70 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                className="inline-flex items-center gap-1.5 bg-rose-950/55 hover:bg-rose-900/75 text-rose-200 border border-rose-800/70 px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer"
                 title="Cerrar sesión"
               >
                 <LogOut size={13} /> Salir
@@ -302,7 +323,6 @@ function MainAppContent() {
           </span>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* 1. Compliance Prestadores (Esmeralda) */}
             <button
               type="button"
               onClick={() => setCurrentView('admin')}
@@ -315,7 +335,6 @@ function MainAppContent() {
               <UserCheck size={12} /> Compliance Prestadores
             </button>
 
-            {/* 2. Vista Admin Barrio (Ámbar) */}
             <button
               type="button"
               onClick={() => setCurrentView('local_admin')}
@@ -328,7 +347,6 @@ function MainAppContent() {
               <ShieldAlert size={12} /> Vista Admin Barrio
             </button>
 
-            {/* 3. Cuentas Privilegiadas (Púrpura) */}
             <button
               type="button"
               onClick={() => setCurrentView('users_master')}
@@ -341,7 +359,6 @@ function MainAppContent() {
               <ShieldAlert size={12} /> Cuentas Privilegiadas
             </button>
 
-            {/* 4. Colores / Marca (Fucsia / Rosa) */}
             <button
               type="button"
               onClick={() => setCurrentView('branding_master')}
@@ -354,7 +371,6 @@ function MainAppContent() {
               <Palette size={12} /> Colores / Marca
             </button>
 
-            {/* 5. Salud & APIs (Cielo) */}
             <button
               type="button"
               onClick={() => setCurrentView('health')}
@@ -396,7 +412,12 @@ function MainAppContent() {
         {currentView === 'resident' && <ResidentDashboard onViewChange={setCurrentView} />}
         {currentView === 'provider' && <ProviderDashboard />}
         {currentView === 'payments' && <ContractPaymentView onViewChange={setCurrentView} />}
-        {currentView === 'security' && <SecurityScanner />}
+        {currentView === 'security' && (
+          <SecurityScanner
+            initialToken={urlQrToken}
+            onClearInitialToken={() => setUrlQrToken('')}
+          />
+        )}
         {currentView === 'admin' && <AdminComplianceView />}
         {currentView === 'health' && (
           <SystemHealthDashboard onNavigate={(view) => setCurrentView(view)} />
