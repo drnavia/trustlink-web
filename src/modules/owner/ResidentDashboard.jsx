@@ -2,10 +2,8 @@
  * @file ResidentDashboard.jsx
  * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
  * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas)
- * con el formulario de Pases QR reordenado:
- * - Fila 1: Prestador Verificado | Manzana / Fracción | Lote / Destino | Patente (opcional, seleccionable de su flota)
- * - Fila 2: Válido Desde | Válido Hasta | Botón "Emitir Pase QR"
- * Además incluye buscador, filtro por estado y paginación en el listado de pases emitidos.
+ * con el formulario de Pases QR reordenado, buscador, filtro por estado, paginación
+ * y edición inline exclusiva para pases QR VIGENTES (no cancelados, vencidos ni usados).
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -27,11 +25,13 @@ import {
   RefreshCw,
   MessageSquare,
   Send,
-  Calendar,
   Car,
   ChevronLeft,
   ChevronRight,
   MapPin,
+  Edit3,
+  Save,
+  X,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -53,31 +53,54 @@ function toLocalDateTimeInput(dateObj) {
 }
 
 /**
- * Normaliza el estado de un pase QR para mostrar badge semántico en español.
+ * Determina si un pase está realmente vigente (no cancelado, no usado y con end_time futuro).
  */
-function formatPassBadge(status) {
-  const normalized = String(status || 'pending').toLowerCase();
-  if (normalized === 'pending' || normalized === 'active') {
-    return {
-      label: 'VIGENTE',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-    };
+function isPassCurrentlyActive(pass) {
+  const rawStatus = String(pass?.status || 'pending').toLowerCase();
+  if (rawStatus !== 'pending' && rawStatus !== 'active') return false;
+  if (pass?.end_time) {
+    const endMs = new Date(pass.end_time).getTime();
+    if (!Number.isNaN(endMs) && endMs < Date.now()) {
+      return false;
+    }
   }
-  if (normalized === 'used') {
+  return true;
+}
+
+/**
+ * Normaliza el estado de un pase QR para mostrar badge semántico y determinar si es editable.
+ */
+function formatPassBadge(pass) {
+  const rawStatus = String(pass?.status || 'pending').toLowerCase();
+  if (rawStatus === 'cancelled') {
     return {
-      label: 'USADO',
-      badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
-    };
-  }
-  if (normalized === 'cancelled') {
-    return {
+      key: 'cancelled',
       label: 'CANCELADO',
       badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
+      canEdit: false,
+    };
+  }
+  if (rawStatus === 'used') {
+    return {
+      key: 'used',
+      label: 'USADO',
+      badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
+      canEdit: false,
+    };
+  }
+  if (!isPassCurrentlyActive(pass) || rawStatus === 'expired') {
+    return {
+      key: 'expired',
+      label: 'VENCIDO',
+      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
+      canEdit: false,
     };
   }
   return {
-    label: 'VENCIDO',
-    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
+    key: 'pending',
+    label: 'VIGENTE',
+    badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
+    canEdit: true,
   };
 }
 
@@ -105,7 +128,7 @@ export default function ResidentDashboard({ onViewChange }) {
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // 2. Pases QR + Buscador, Filtro y Paginación
+  // 2. Pases QR + Buscador, Filtro, Paginación y Edición de Vigentes
   const [passes, setPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [selectedProviderId, setSelectedProviderId] = useState('');
@@ -123,6 +146,14 @@ export default function ResidentDashboard({ onViewChange }) {
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passPage, setPassPage] = useState(1);
+
+  // Estado de edición inline para un pase QR vigente
+  const [editingPassId, setEditingPassId] = useState(null);
+  const [editFraction, setEditFraction] = useState('');
+  const [editLot, setEditLot] = useState('');
+  const [editPlate, setEditPlate] = useState('');
+  const [editValidUntil, setEditValidUntil] = useState('');
+  const [savingPassEdit, setSavingPassEdit] = useState(false);
 
   // 3. Visitas y Pagos
   const [pendingContracts, setPendingContracts] = useState([]);
@@ -227,7 +258,6 @@ export default function ResidentDashboard({ onViewChange }) {
     refreshAll();
   }, [refreshAll]);
 
-  // Prestador actualmente seleccionado y flota vehicular disponible para elegir patente
   const selectedProviderObj = useMemo(
     () =>
       providers.find((p) => String(p.provider_id) === String(selectedProviderId)) || null,
@@ -314,6 +344,89 @@ export default function ResidentDashboard({ onViewChange }) {
     }
   };
 
+  /**
+   * Inicia la edición inline de un pase QR que aún se encuentra VIGENTE.
+   */
+  const startEditingPass = (pass) => {
+    if (!isPassCurrentlyActive(pass)) {
+      setFeedback({
+        type: 'error',
+        text: 'Solo podés editar pases QR que se encuentren vigentes.',
+      });
+      return;
+    }
+    setEditingPassId(pass.id);
+    setEditFraction(pass.fraction_number || '');
+    setEditLot(pass.lot_number || pass.destination || '');
+    setEditPlate(pass.vehicle_plate || '');
+    setEditValidUntil(
+      pass.end_time
+        ? toLocalDateTimeInput(pass.end_time)
+        : toLocalDateTimeInput(new Date(Date.now() + 4 * 3600 * 1000))
+    );
+    setFeedback(null);
+  };
+
+  /**
+   * Guarda los cambios de un pase QR vigente mediante PATCH /api/v1/passes/:id.
+   */
+  const handleSavePassEdit = async (pass) => {
+    if (!isPassCurrentlyActive(pass)) {
+      setFeedback({
+        type: 'error',
+        text: 'El pase ya no está vigente y no puede modificarse.',
+      });
+      setEditingPassId(null);
+      return;
+    }
+
+    const endObj = editValidUntil ? new Date(editValidUntil) : null;
+    if (!endObj || Number.isNaN(endObj.getTime()) || endObj <= new Date()) {
+      setFeedback({
+        type: 'error',
+        text: 'Indicá una fecha/hora de vigencia hasta válida y posterior a la hora actual.',
+      });
+      return;
+    }
+
+    setSavingPassEdit(true);
+    setFeedback(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/${pass.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          fraction_number: editFraction.trim() || null,
+          lot_number: editLot.trim() || null,
+          vehicle_plate: editPlate.trim().toUpperCase() || null,
+          end_time: endObj.toISOString(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({
+          type: 'success',
+          text: data.message || `Pase #${pass.id} actualizado correctamente.`,
+        });
+        setEditingPassId(null);
+        await fetchMyPasses();
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo actualizar el pase QR.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al editar pase QR:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al actualizar el pase QR.' });
+    } finally {
+      setSavingPassEdit(false);
+    }
+  };
+
   const handlePayContract = async (contractId, amount) => {
     setPayingId(contractId);
     setFeedback(null);
@@ -394,15 +507,12 @@ export default function ResidentDashboard({ onViewChange }) {
     return fullName.includes(q) || spec.includes(q);
   });
 
-  // Filtrado por texto y estado + paginación para "Mis Pases QR"
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
     return passes.filter((pass) => {
-      const rawStatus = String(pass.status || 'pending').toLowerCase();
+      const badge = formatPassBadge(pass);
       const matchesStatus =
-        passStatusFilter === 'all' ||
-        (passStatusFilter === 'pending' && (rawStatus === 'pending' || rawStatus === 'active')) ||
-        rawStatus === passStatusFilter;
+        passStatusFilter === 'all' || badge.key === passStatusFilter;
 
       if (!matchesStatus) return false;
       if (!q) return true;
@@ -467,7 +577,6 @@ export default function ResidentDashboard({ onViewChange }) {
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Residente + 4 Pasos Clicables */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
@@ -488,7 +597,7 @@ export default function ResidentDashboard({ onViewChange }) {
                   {activeStep === 'providers' &&
                     'Explorá prestadores verificados en TrustLink y generá pases QR de ingreso seguro.'}
                   {activeStep === 'passes' &&
-                    'Emití y gestioná tus pases QR vigentes para ingreso de prestadores al barrio.'}
+                    'Emití, editá pases vigentes y gestioná tus pases QR para ingreso de prestadores al barrio.'}
                   {activeStep === 'payments' &&
                     'Aprobá presupuestos acordados y aboná con desglose transparente (7% comisión plataforma).'}
                   {activeStep === 'reviews' &&
@@ -556,7 +665,6 @@ export default function ResidentDashboard({ onViewChange }) {
           </div>
         </section>
 
-        {/* Feedback global */}
         {feedback && (
           <div
             className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
@@ -687,7 +795,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* PASO 2: Pases QR (Reubicado con Manzana/Fracción, Lote/Destino, Flota y Paginación) */}
+        {/* PASO 2: Pases QR */}
         {activeStep === 'passes' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -701,13 +809,12 @@ export default function ResidentDashboard({ onViewChange }) {
               <span className="text-xs font-mono opacity-80">{passes.length} pase(s)</span>
             </div>
 
-            {/* Formulario UX/UI reordenado en 2 filas equilibradas */}
+            {/* Formulario de emisión de pase QR */}
             <form
               onSubmit={handleCreatePass}
               className="p-4 rounded-xl border border-white/15 space-y-3.5 text-xs"
               style={innerStyle}
             >
-              {/* Fila 1: Prestador Verificado | Manzana / Fracción | Lote / Destino | Patente (de flota) */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
                 <div className="lg:col-span-4">
                   <label className="block text-[10px] opacity-75 mb-1">Prestador Verificado</label>
@@ -768,7 +875,10 @@ export default function ResidentDashboard({ onViewChange }) {
                       <option value="">Sin vehículo / Ingreso peatonal</option>
                       {selectedProviderFleet.map((veh) => (
                         <option key={veh.id || veh.plate} value={veh.plate}>
-                          {veh.plate} — {[veh.brand, veh.model].filter(Boolean).join(' ') || veh.vehicle_type || 'Vehículo'}
+                          {veh.plate} —{' '}
+                          {[veh.brand, veh.model].filter(Boolean).join(' ') ||
+                            veh.vehicle_type ||
+                            'Vehículo'}
                         </option>
                       ))}
                     </select>
@@ -785,7 +895,6 @@ export default function ResidentDashboard({ onViewChange }) {
                 </div>
               </div>
 
-              {/* Fila 2: Válido Desde | Válido Hasta | Botón "Emitir Pase QR" */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
                 <div className="lg:col-span-4">
                   <label className="block text-[10px] opacity-75 mb-1">Válido Desde</label>
@@ -823,7 +932,7 @@ export default function ResidentDashboard({ onViewChange }) {
               </div>
             </form>
 
-            {/* Buscador y filtro por estado para reducir ruido visual */}
+            {/* Buscador y filtro por estado */}
             <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-2.5 opacity-60" size={14} />
@@ -876,38 +985,174 @@ export default function ResidentDashboard({ onViewChange }) {
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {paginatedPasses.map((pass) => {
-                    const badge = formatPassBadge(pass.status);
+                    const badge = formatPassBadge(pass);
+                    const isEditing = editingPassId === pass.id && badge.canEdit;
                     const locationParts = [pass.fraction_number, pass.lot_number]
                       .filter(Boolean)
                       .join(' · ');
+
+                    const matchedProvider = providers.find(
+                      (p) => Number(p.provider_id) === Number(pass.provider_id)
+                    );
+                    const passFleet = Array.isArray(matchedProvider?.vehicles)
+                      ? matchedProvider.vehicles.filter((v) => v && String(v.plate || '').trim())
+                      : [];
+
                     return (
                       <div
                         key={pass.id}
-                        className="p-4 rounded-xl border border-black/20 space-y-1.5 text-xs"
+                        className="p-4 rounded-xl border border-black/20 space-y-2 text-xs"
                         style={innerStyle}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-mono font-bold text-emerald-400">
-                            Pase #{pass.id}
-                          </span>
-                          <span
-                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${badge.badgeClass}`}
-                          >
-                            {badge.label}
-                          </span>
-                        </div>
-                        <p className="font-bold">
-                          {pass.provider_name || `Prestador #${pass.provider_id}`}
-                        </p>
-                        <p className="opacity-80 flex items-center gap-1.5 flex-wrap">
-                          <MapPin size={12} /> Destino:{' '}
-                          {locationParts || pass.destination || 'Domicilio'}
-                          {pass.vehicle_plate && (
-                            <span className="inline-flex items-center gap-1 ml-2 font-mono text-sky-300">
-                              <Car size={12} /> {pass.vehicle_plate}
-                            </span>
-                          )}
-                        </p>
+                        {isEditing ? (
+                          <div className="space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono font-bold text-emerald-400">
+                                Editando Pase #{pass.id} (VIGENTE)
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.badgeClass}`}
+                              >
+                                {badge.label}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] opacity-75 mb-0.5">
+                                  Manzana / Fracción
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editFraction}
+                                  onChange={(e) => setEditFraction(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] opacity-75 mb-0.5">
+                                  Lote / Destino
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editLot}
+                                  onChange={(e) => setEditLot(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] opacity-75 mb-0.5">
+                                  Patente (Flota)
+                                </label>
+                                {passFleet.length > 0 ? (
+                                  <select
+                                    value={editPlate}
+                                    onChange={(e) => setEditPlate(e.target.value)}
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                                    style={cardStyle}
+                                  >
+                                    <option value="">Sin vehículo / Ingreso peatonal</option>
+                                    {passFleet.map((veh) => (
+                                      <option key={veh.id || veh.plate} value={veh.plate}>
+                                        {veh.plate} —{' '}
+                                        {[veh.brand, veh.model].filter(Boolean).join(' ') ||
+                                          'Vehículo'}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={editPlate}
+                                    onChange={(e) => setEditPlate(e.target.value)}
+                                    placeholder="Patente opcional"
+                                    className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                                    style={cardStyle}
+                                  />
+                                )}
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] opacity-75 mb-0.5">
+                                  Válido Hasta
+                                </label>
+                                <input
+                                  type="datetime-local"
+                                  value={editValidUntil}
+                                  onChange={(e) => setEditValidUntil(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingPassId(null)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <X size={11} /> Cancelar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingPassEdit}
+                                onClick={() => handleSavePassEdit(pass)}
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold text-[11px] cursor-pointer disabled:opacity-50"
+                                style={{ backgroundColor: primaryActionColor }}
+                              >
+                                <Save size={11} />{' '}
+                                {savingPassEdit ? 'Guardando...' : 'Guardar Cambios'}
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono font-bold text-emerald-400">
+                                Pase #{pass.id}
+                              </span>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${badge.badgeClass}`}
+                                >
+                                  {badge.label}
+                                </span>
+                                {badge.canEdit && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingPass(pass)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90"
+                                    style={cardStyle}
+                                    title="Editar pase vigente por imprevistos"
+                                  >
+                                    <Edit3 size={11} /> Editar
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <p className="font-bold">
+                              {pass.provider_name || `Prestador #${pass.provider_id}`}
+                            </p>
+
+                            <p className="opacity-80 flex items-center gap-1.5 flex-wrap">
+                              <MapPin size={12} /> Destino:{' '}
+                              {locationParts || pass.destination || 'Domicilio'}
+                              {pass.vehicle_plate && (
+                                <span className="inline-flex items-center gap-1 ml-2 font-mono text-sky-300">
+                                  <Car size={12} /> {pass.vehicle_plate}
+                                </span>
+                              )}
+                            </p>
+                          </>
+                        )}
                       </div>
                     );
                   })}
