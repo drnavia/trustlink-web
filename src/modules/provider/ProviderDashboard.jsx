@@ -2,9 +2,9 @@
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
  * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
- * 3. Reputación Cruzada). En Credenciales muestra un botón para desplegar el formulario de carga
- * documental cuando se necesita, y permite editar cada documento directamente dentro de su fila
- * en el Historial Documental. Aplica las Zonas 4 y 5 de apariencia.
+ * 3. Reputación Cruzada). En Credenciales permite cargar y editar documentación personal en fila
+ * con vigencia y validación de TrustLink, y gestionar Especialidades y Credenciales incluyendo
+ * la opción del prestador de ocultar o mostrar cada especialidad ante los residentes.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -26,9 +26,12 @@ import {
   RefreshCw,
   Award,
   FileText,
-  History
+  History,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = 'http://localhost:4000';
 
@@ -147,6 +150,7 @@ function resolveDateValidity(fromStr, untilStr) {
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
+  const { user } = useAuth();
 
   // Zona 4: Tarjetas principales
   const cardStyle = {
@@ -162,6 +166,9 @@ export default function ProviderDashboard() {
 
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Clave local para recordar especialidades ocultas por decisión del prestador
+  const hiddenStorageKey = `trustlink_hidden_specialties_${user?.id || user?.email || 'default'}`;
+
   // Paso activo: 'credentials' | 'vehicles' | 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
@@ -171,6 +178,17 @@ export default function ProviderDashboard() {
   const [loadingAction, setLoadingAction] = useState(false);
   const [savingDocs, setSavingDocs] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+
+  // IDs de especialidades ocultas por el prestador
+  const [hiddenProfileIds, setHiddenProfileIds] = useState(() => {
+    try {
+      const raw = localStorage.getItem(hiddenStorageKey);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.map(Number) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Estado base de documentación personal (sincronizado con backend)
   const [baseDocs, setBaseDocs] = useState({
@@ -184,12 +202,12 @@ export default function ProviderDashboard() {
 
   // Control de visibilidad del formulario de carga de nueva documentación
   const [showNewDocForm, setShowNewDocForm] = useState(false);
-  const [newDocType, setNewDocType] = useState('criminal'); // 'criminal' | 'insurance'
+  const [newDocType, setNewDocType] = useState('criminal');
   const [newDocUrl, setNewDocUrl] = useState('');
   const [newDocFrom, setNewDocFrom] = useState('');
   const [newDocUntil, setNewDocUntil] = useState('');
 
-  // Control de edición inline dentro de cada fila del Historial Documental ('criminal' | 'insurance' | null)
+  // Control de edición inline dentro de cada fila del Historial Documental
   const [editingDocKey, setEditingDocKey] = useState(null);
   const [editDocUrl, setEditDocUrl] = useState('');
   const [editDocFrom, setEditDocFrom] = useState('');
@@ -225,6 +243,26 @@ export default function ProviderDashboard() {
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
+
+  const handleToggleSpecialtyVisibility = (prof) => {
+    const idNum = Number(prof.id);
+    setHiddenProfileIds((prev) => {
+      const exists = prev.includes(idNum);
+      const next = exists ? prev.filter((item) => item !== idNum) : [...prev, idNum];
+      try {
+        localStorage.setItem(hiddenStorageKey, JSON.stringify(next));
+      } catch {
+        // Ignora errores de almacenamiento local
+      }
+      setFeedback({
+        type: 'success',
+        text: exists
+          ? `Especialidad "${prof.specialty}" marcada como Visible para residentes (sujeta a validación de TrustLink).`
+          : `Especialidad "${prof.specialty}" ocultada de tu oferta visible para residentes.`,
+      });
+      return next;
+    });
+  };
 
   const fetchProviderData = useCallback(async () => {
     setFetching(true);
@@ -285,7 +323,6 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  // Persiste un objeto de documentación actualizado en los perfiles del prestador
   const persistPersonalDocs = async (nextDocs, successText) => {
     setSavingDocs(true);
     setFeedback({ type: '', text: '' });
@@ -341,7 +378,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Crea/actualiza un documento desde el formulario desplegable de Nueva Documentación
   const handleCreateNewDoc = async (e) => {
     e.preventDefault();
     if (newDocFrom && newDocUntil && newDocUntil < newDocFrom) {
@@ -379,7 +415,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Inicia la edición en línea dentro de la fila del historial seleccionada
   const startInlineDocEdit = (row) => {
     setEditingDocKey(row.docKey);
     setEditDocUrl(row.url === 'Sin URL' ? '' : row.url || '');
@@ -387,7 +422,6 @@ export default function ProviderDashboard() {
     setEditDocUntil(toDateInputValue(row.untilDate));
   };
 
-  // Guarda la edición en línea de una fila del historial
   const handleSaveInlineDocEdit = async (docKey) => {
     if (editDocFrom && editDocUntil && editDocUntil < editDocFrom) {
       setFeedback({
@@ -421,7 +455,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Agrega una nueva especialidad
   const handleAddSpecialty = async (e) => {
     e.preventDefault();
     if (!specialty.trim()) return;
@@ -628,7 +661,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  // Filas del historial documental por persona (Antecedentes Penales y Póliza ART / Seguro)
   const personalDocRows = (() => {
     const baseSource =
       providerProfiles.find((p) => p.criminal_record_url || p.insurance_policy_url) ||
@@ -825,7 +857,7 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Documentación Personal (botón para cargar + edición inline en historial) / Especialidades */}
+        {/* PASO 1: Documentación Personal / Especialidades y Credenciales */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Columna Izquierda: Botón de carga + Historial en filas con edición inline */}
@@ -863,7 +895,6 @@ export default function ProviderDashboard() {
                 </button>
               </div>
 
-              {/* Formulario desplegable solo cuando el prestador necesita cargar nueva documentación */}
               {showNewDocForm && (
                 <form
                   onSubmit={handleCreateNewDoc}
@@ -939,7 +970,6 @@ export default function ProviderDashboard() {
                 </form>
               )}
 
-              {/* Historial en filas de la documentación cargada por persona con edición inline */}
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
@@ -1074,7 +1104,7 @@ export default function ProviderDashboard() {
               </div>
             </section>
 
-            {/* Columna Derecha: Especialidades y Credenciales */}
+            {/* Columna Derecha: Especialidades y Credenciales + Visibilidad elegida por el prestador */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
@@ -1125,11 +1155,12 @@ export default function ProviderDashboard() {
                   {providerProfiles.map((prof) => {
                     const isEditing = editingProfileId === prof.id;
                     const profStatus = formatSpecialtyStatus(prof.status);
+                    const isHiddenByProvider = hiddenProfileIds.includes(Number(prof.id));
 
                     return (
                       <div
                         key={prof.id}
-                        className="p-3.5 rounded-xl border border-black/20 text-xs space-y-1"
+                        className="p-3.5 rounded-xl border border-black/20 text-xs space-y-2"
                         style={innerStyle}
                       >
                         {isEditing ? (
@@ -1161,32 +1192,69 @@ export default function ProviderDashboard() {
                           </div>
                         ) : (
                           <>
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-wrap min-w-0">
-                                <span className="font-bold truncate">{prof.specialty}</span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
-                                >
-                                  {profStatus.label}
-                                </span>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="space-y-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold truncate">{prof.specialty}</span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
+                                  >
+                                    {profStatus.label}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                      isHiddenByProvider
+                                        ? 'bg-slate-800 text-slate-300 border-slate-700'
+                                        : 'bg-sky-950/80 text-sky-300 border-sky-800'
+                                    }`}
+                                  >
+                                    {isHiddenByProvider ? 'Oculta' : 'Visible'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] opacity-75">
+                                  {isHiddenByProvider
+                                    ? 'Oculta por tu configuración actual (no se mostrará a residentes aunque esté validada).'
+                                    : prof.status === 'approved'
+                                    ? 'Validada por TrustLink y habilitada para visualizarse a residentes.'
+                                    : 'Pendiente de validación de TrustLink para habilitarse a residentes.'}
+                                </p>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingProfileId(prof.id);
-                                  setEditSpecialty(prof.specialty || '');
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
-                                style={cardStyle}
-                              >
-                                <Edit3 size={11} /> Editar
-                              </button>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleSpecialtyVisibility(prof)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90"
+                                  style={cardStyle}
+                                  title={
+                                    isHiddenByProvider
+                                      ? 'Mostrar especialidad'
+                                      : 'Ocultar especialidad'
+                                  }
+                                >
+                                  {isHiddenByProvider ? (
+                                    <>
+                                      <Eye size={11} className="text-emerald-400" /> Mostrar
+                                    </>
+                                  ) : (
+                                    <>
+                                      <EyeOff size={11} className="text-amber-400" /> Ocultar
+                                    </>
+                                  )}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingProfileId(prof.id);
+                                    setEditSpecialty(prof.specialty || '');
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer hover:opacity-90"
+                                  style={cardStyle}
+                                >
+                                  <Edit3 size={11} /> Editar
+                                </button>
+                              </div>
                             </div>
-                            <p className="text-[11px] opacity-75">
-                              {prof.status === 'approved'
-                                ? 'Visible para residentes en el directorio.'
-                                : 'Pendiente de aprobación de compliance para mostrarse a residentes.'}
-                            </p>
                           </>
                         )}
                       </div>
