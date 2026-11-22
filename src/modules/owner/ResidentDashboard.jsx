@@ -1,9 +1,8 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
- * Incluye el Directorio de Prestadores Verificados unificado, la emisión de pases QR con modal
- * y la sección "Mis Pases QR" para gestionar, copiar, inspeccionar y cancelar pases emitidos,
- * aplicando de forma homogénea las Zonas 4 y 5 de apariencia.
+ * @description Hub integral del Residente conectado 100% a PostgreSQL mediante API REST.
+ * Organiza el flujo en 4 pasos clicables superiores (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos,
+ * 4. Reseñas) para gestionar todo desde el Portal Residente con UX/UI limpia y fiel a Zonas 4 y 5.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -27,7 +26,11 @@ import {
   Ticket,
   Ban,
   RefreshCw,
-  Eye
+  Eye,
+  CreditCard,
+  FilePlus2,
+  MessageSquare,
+  Send
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -35,11 +38,6 @@ import { useAuth } from '../auth/AuthContext';
 const API_BASE = 'http://localhost:4000';
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
-/**
- * Formatea una fecha local compatible con input datetime-local (YYYY-MM-DDTHH:mm).
- * @param {Date} dateObj
- * @returns {string}
- */
 function formatLocalDateTimeInput(dateObj) {
   const pad = (n) => String(n).padStart(2, '0');
   const year = dateObj.getFullYear();
@@ -50,9 +48,6 @@ function formatLocalDateTimeInput(dateObj) {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 }
 
-/**
- * Convierte un timestamp o epoch UTC a milisegundos epoch UTC sin alterar horas manualmente.
- */
 function parseUtcTimestampMs(value, fallbackMs = null) {
   if (fallbackMs !== null && fallbackMs !== undefined && !Number.isNaN(Number(fallbackMs))) {
     return Number(fallbackMs);
@@ -67,9 +62,6 @@ function parseUtcTimestampMs(value, fallbackMs = null) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/**
- * Formatea fecha/hora en la zona horaria del usuario (por defecto UTC-3).
- */
 function formatPassDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
   const ms = parseUtcTimestampMs(value, fallbackMs);
   if (ms === null) return 'No especificado';
@@ -111,27 +103,44 @@ export default function ResidentDashboard({ onViewChange }) {
   // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
-  // Pestaña activa del portal: 'directory' | 'my_passes'
-  const [activeSection, setActiveSection] = useState('directory');
+  // Paso activo del flujo del residente: 'providers' | 'passes' | 'payments' | 'reviews'
+  const [activeStep, setActiveStep] = useState('providers');
 
-  // Directorio de prestadores verificados
+  // 1. Directorio de prestadores
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Historial de pases QR generados por el residente
+  // 2. Historial de pases QR del residente
   const [myPasses, setMyPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [passesError, setPassesError] = useState('');
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
-  const [passActionFeedback, setPassActionFeedback] = useState(null);
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [inspectingPass, setInspectingPass] = useState(null);
 
-  // Modal de emisión de pase QR vinculada al prestador seleccionado
+  // 3. Contratos pendientes de pago y visitas/pases para contratar
+  const [pendingContracts, setPendingContracts] = useState([]);
+  const [loadingContracts, setLoadingContracts] = useState(true);
+  const [payingId, setPayingId] = useState(null);
+  const [creatingFromPassId, setCreatingFromPassId] = useState(null);
+  const [quoteDescriptions, setQuoteDescriptions] = useState({});
+  const [quoteAmounts, setQuoteAmounts] = useState({});
+
+  // 4. Calificación cruzada
+  const [reviewContracts, setReviewContracts] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
+  const [ratingDrafts, setRatingDrafts] = useState({});
+  const [commentDrafts, setCommentDrafts] = useState({});
+  const [submittingContractId, setSubmittingContractId] = useState(null);
+
+  // Retroalimentación global del portal
+  const [feedback, setFeedback] = useState(null);
+
+  // Modal de emisión de pase QR
   const [qrModalProvider, setQrModalProvider] = useState(null);
   const [fraction, setFraction] = useState('Fracción A');
   const [lotNumber, setLotNumber] = useState('Lote 12');
@@ -193,10 +202,52 @@ export default function ResidentDashboard({ onViewChange }) {
     }
   }, []);
 
+  const fetchPendingContracts = useCallback(async () => {
+    setLoadingContracts(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPendingContracts(data.contracts || []);
+      }
+    } catch (error) {
+      console.error('Error al obtener contratos pendientes:', error);
+    } finally {
+      setLoadingContracts(false);
+    }
+  }, []);
+
+  const fetchReviewContracts = useCallback(async () => {
+    setLoadingReviews(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setReviewContracts(data.contracts || []);
+      }
+    } catch (error) {
+      console.error('Error al obtener contratos para reseñas:', error);
+    } finally {
+      setLoadingReviews(false);
+    }
+  }, []);
+
+  const refreshAllPortalData = useCallback(async () => {
+    await Promise.all([
+      fetchVerifiedProviders(),
+      fetchMyPasses(),
+      fetchPendingContracts(),
+      fetchReviewContracts(),
+    ]);
+  }, [fetchVerifiedProviders, fetchMyPasses, fetchPendingContracts, fetchReviewContracts]);
+
   useEffect(() => {
-    fetchVerifiedProviders();
-    fetchMyPasses();
-  }, [fetchVerifiedProviders, fetchMyPasses]);
+    refreshAllPortalData();
+  }, [refreshAllPortalData]);
 
   const resolvePassBadge = (pass) => {
     const rawStatus = String(pass.status || 'pending').toLowerCase();
@@ -279,6 +330,19 @@ export default function ResidentDashboard({ onViewChange }) {
     return hay.includes(q);
   });
 
+  const nowMs = Date.now();
+  const linkedPassIds = new Set([
+    ...pendingContracts.map((c) => Number(c.pass_id)).filter(Boolean),
+    ...reviewContracts.map((c) => Number(c.pass_id)).filter(Boolean),
+  ]);
+  const visitsReadyForContract = myPasses.filter((p) => {
+    const st = String(p.status || 'pending').toLowerCase();
+    const endMs = parseUtcTimestampMs(p.end_time, p.end_utc_ms);
+    const isExpired = st === 'expired' || (st === 'pending' && endMs !== null && nowMs > endMs);
+    if (st === 'cancelled' || isExpired) return false;
+    return !linkedPassIds.has(Number(p.id));
+  });
+
   const handleOpenQrModal = (provider) => {
     const now = new Date();
     const endDefault = new Date(now.getTime() + 4 * 60 * 60 * 1000);
@@ -322,9 +386,9 @@ export default function ResidentDashboard({ onViewChange }) {
       if (response.ok) {
         const created = data.pass || data;
         setGeneratedPass(created);
-        setPassActionFeedback({
+        setFeedback({
           type: 'success',
-          message: `Pase QR #${created?.id || ''} emitido para ${qrModalProvider.first_name} ${qrModalProvider.last_name}.`,
+          text: `Pase QR #${created?.id || ''} emitido para ${qrModalProvider.first_name} ${qrModalProvider.last_name}.`,
         });
         await fetchMyPasses();
       } else {
@@ -356,7 +420,7 @@ export default function ResidentDashboard({ onViewChange }) {
 
   const handleCancelMyPass = async (passId) => {
     setCancellingPassId(passId);
-    setPassActionFeedback(null);
+    setFeedback(null);
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/${passId}/cancel`, {
         method: 'PATCH',
@@ -364,28 +428,172 @@ export default function ResidentDashboard({ onViewChange }) {
       });
       const data = await response.json();
       if (response.ok) {
-        setPassActionFeedback({
+        setFeedback({
           type: 'success',
-          message: data.message || `Pase QR #${passId} cancelado.`,
+          text: data.message || `Pase QR #${passId} cancelado.`,
         });
         if (inspectingPass?.id === passId) {
           setInspectingPass(null);
         }
         await fetchMyPasses();
       } else {
-        setPassActionFeedback({
+        setFeedback({
           type: 'error',
-          message: data.error || 'No se pudo cancelar el pase QR.',
+          text: data.error || 'No se pudo cancelar el pase QR.',
         });
       }
     } catch (error) {
       console.error('Error al cancelar pase QR:', error);
-      setPassActionFeedback({
+      setFeedback({
         type: 'error',
-        message: 'Error de conexión al cancelar el pase QR.',
+        text: 'Error de conexión al cancelar el pase QR.',
       });
     } finally {
       setCancellingPassId(null);
+    }
+  };
+
+  const handleCreateContractFromPass = async (passItem, e) => {
+    if (e) e.preventDefault();
+    const rawDesc = (quoteDescriptions[passItem.id] || '').trim();
+    const description =
+      rawDesc ||
+      `Servicio de ${passItem.specialty || 'prestador verificado'} — Pase #${passItem.id}`;
+    const amountNum = Number(quoteAmounts[passItem.id]);
+
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
+      setFeedback({
+        type: 'error',
+        text: 'Ingresá un monto acordado mayor a cero para generar el contrato.',
+      });
+      return;
+    }
+
+    setCreatingFromPassId(passItem.id);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contract`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          provider_id: passItem.provider_id,
+          pass_id: passItem.id,
+          description,
+          agreed_amount: amountNum,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({
+          type: 'success',
+          text:
+            data.message ||
+            `Contrato generado para el pase #${passItem.id}. Ya podés confirmar y pagar la orden.`,
+        });
+        setQuoteDescriptions((prev) => ({ ...prev, [passItem.id]: '' }));
+        setQuoteAmounts((prev) => ({ ...prev, [passItem.id]: '' }));
+        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo generar el contrato desde la visita.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al generar contrato desde pase QR:', error);
+      setFeedback({
+        type: 'error',
+        text: 'Error de conexión al generar el contrato.',
+      });
+    } finally {
+      setCreatingFromPassId(null);
+    }
+  };
+
+  const handlePayContract = async (contract) => {
+    setPayingId(contract.id);
+    setFeedback(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/payments/checkout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          contract_id: contract.id,
+          agreed_amount: contract.agreed_amount,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({
+          type: 'success',
+          text: data.message || `Orden de pago procesada para el contrato #${contract.id}.`,
+        });
+        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo procesar la orden de pago.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al procesar pago:', error);
+      setFeedback({
+        type: 'error',
+        text: 'Error de conexión al procesar el pago.',
+      });
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  const handleSubmitProviderReview = async (contractId) => {
+    const rating = ratingDrafts[contractId] || 5;
+    const comment = (commentDrafts[contractId] || '').trim();
+    setSubmittingContractId(contractId);
+    setFeedback(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/provider`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          contract_id: contractId,
+          rating,
+          comment: comment || null,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({
+          type: 'success',
+          text: data.message || 'Calificación al prestador registrada con éxito.',
+        });
+        await fetchReviewContracts();
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo registrar la calificación.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al enviar reseña al prestador:', error);
+      setFeedback({
+        type: 'error',
+        text: 'Error de conexión al guardar la calificación.',
+      });
+    } finally {
+      setSubmittingContractId(null);
     }
   };
 
@@ -395,73 +603,171 @@ export default function ResidentDashboard({ onViewChange }) {
     return `${base}?qr_token=${encodeURIComponent(token)}`;
   };
 
+  const steps = [
+    {
+      id: 'providers',
+      stepNumber: '1',
+      label: 'Prestadores',
+      count: providers.length,
+      icon: Compass,
+    },
+    {
+      id: 'passes',
+      stepNumber: '2',
+      label: 'Pases QR',
+      count: myPasses.length,
+      icon: Ticket,
+    },
+    {
+      id: 'payments',
+      stepNumber: '3',
+      label: 'Visitas y Pagos',
+      count: pendingContracts.length + visitsReadyForContract.length,
+      icon: CreditCard,
+    },
+    {
+      id: 'reviews',
+      stepNumber: '4',
+      label: 'Reseñas',
+      count: reviewContracts.length,
+      icon: Star,
+    },
+  ];
+
+  const activeStepMeta = steps.find((s) => s.id === activeStep) || steps[0];
+
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Barra superior de la vista con navegación entre Directorio y Mis Pases QR */}
-        <div
-          className="border border-black/20 px-6 py-5 rounded-2xl shadow-sm flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4"
+        {/* Cabecera del Portal Residente + Indicadores de Pasos Clicables */}
+        <section
+          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
         >
-          <div className="flex items-center gap-3.5 min-w-0">
-            <div
-              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div
+                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
+                style={innerStyle}
+              >
+                <activeStepMeta.icon size={20} strokeWidth={1.8} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-xl font-black tracking-tight">
+                  Portal Residente — {activeStepMeta.stepNumber}. {activeStepMeta.label}
+                </h2>
+                <p className="text-xs opacity-80 mt-0.5">
+                  {activeStep === 'providers' &&
+                    'Prestadores verificados con compliance aprobado para emitir pase QR o contratar.'}
+                  {activeStep === 'passes' &&
+                    'Pases QR generados por tu cuenta, vigencia In/Out, copia de token y cancelación.'}
+                  {activeStep === 'payments' &&
+                    'Generá contratos desde visitas/pases vigentes y pagá órdenes con Take Rate del 7% / 93%.'}
+                  {activeStep === 'reviews' &&
+                    'Calificá el servicio al finalizar y consultá el historial de reseñas de tus contratos.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={refreshAllPortalData}
+              disabled={loadingProviders || loadingPasses || loadingContracts || loadingReviews}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50 shrink-0"
               style={innerStyle}
             >
-              {activeSection === 'directory' ? (
-                <Compass size={20} strokeWidth={1.8} />
-              ) : (
-                <Ticket size={20} strokeWidth={1.8} />
-              )}
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-xl font-black tracking-tight">
-                {activeSection === 'directory'
-                  ? 'Directorio de Prestadores Verificados'
-                  : `Mis Pases QR (${myPasses.length})`}
-              </h2>
-              <p className="text-xs opacity-80 mt-0.5">
-                {activeSection === 'directory'
-                  ? 'Profesionales auditados con compliance aprobado para ingreso por QR o contratación directa.'
-                  : 'Historial completo de pases QR generados por tu cuenta, vigencia y control de estado.'}
-              </p>
-            </div>
+              <RefreshCw
+                size={13}
+                className={
+                  loadingProviders || loadingPasses || loadingContracts || loadingReviews
+                    ? 'animate-spin'
+                    : ''
+                }
+              />
+              Actualizar
+            </button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto justify-between lg:justify-end">
-            <div
-              className="inline-flex rounded-xl p-1 border border-white/15"
-              style={innerStyle}
-            >
-              <button
-                type="button"
-                onClick={() => setActiveSection('directory')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeSection === 'directory'
-                    ? 'bg-emerald-600 text-white'
-                    : 'opacity-80 hover:opacity-100'
-                }`}
-              >
-                <Compass size={13} /> Directorio
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveSection('my_passes');
-                  fetchMyPasses();
-                }}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeSection === 'my_passes'
-                    ? 'bg-emerald-600 text-white'
-                    : 'opacity-80 hover:opacity-100'
-                }`}
-              >
-                <Ticket size={13} /> Mis Pases QR ({myPasses.length})
-              </button>
-            </div>
+          {/* Barra de indicadores de pasos seleccionables mediante clic */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+            {steps.map((item) => {
+              const IconComp = item.icon;
+              const isSelected = activeStep === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveStep(item.id)}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                    isSelected
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'border-white/15 opacity-85 hover:opacity-100'
+                  }`}
+                  style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-black/25 text-white' : 'bg-white/10'
+                      }`}
+                    >
+                      {item.stepNumber}
+                    </span>
+                    <IconComp size={14} className="shrink-0" />
+                    <span className="text-xs font-bold truncate">{item.label}</span>
+                  </div>
+                  <span
+                    className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                      isSelected ? 'bg-black/25 text-white' : 'bg-black/20'
+                    }`}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
-            {activeSection === 'directory' ? (
-              <div className="relative w-full sm:w-72">
+        {/* Mensaje de retroalimentación de acciones */}
+        {feedback && (
+          <div
+            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-3 ${
+              feedback.type === 'success'
+                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                : 'bg-rose-950/60 border-rose-800 text-rose-200'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {feedback.type === 'success' ? (
+                <CheckCircle2 size={16} className="shrink-0" />
+              ) : (
+                <AlertCircle size={16} className="shrink-0" />
+              )}
+              <span>{feedback.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeedback(null)}
+              className="p-1 rounded-lg hover:bg-black/20 cursor-pointer shrink-0"
+              aria-label="Cerrar aviso"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
+        {/* PASO 1: Directorio de Prestadores Verificados */}
+        {activeStep === 'providers' && (
+          <div className="space-y-5">
+            <div
+              className="border border-black/20 px-5 py-4 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+              style={cardStyle}
+            >
+              <span className="text-xs font-bold">
+                Prestadores disponibles ({filteredProviders.length})
+              </span>
+              <div className="relative w-full sm:w-80">
                 <Search
                   className="opacity-60 absolute left-3.5 top-1/2 -translate-y-1/2"
                   size={15}
@@ -475,52 +781,8 @@ export default function ResidentDashboard({ onViewChange }) {
                   style={innerStyle}
                 />
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={fetchMyPasses}
-                disabled={loadingPasses}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
-                style={innerStyle}
-              >
-                <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} />
-                Actualizar
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Aviso rápido cuando se acaba de generar un pase */}
-        {passActionFeedback && (
-          <div
-            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-3 ${
-              passActionFeedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              {passActionFeedback.type === 'success' ? (
-                <CheckCircle2 size={16} className="shrink-0" />
-              ) : (
-                <AlertCircle size={16} className="shrink-0" />
-              )}
-              <span>{passActionFeedback.message}</span>
             </div>
-            {activeSection === 'directory' && passActionFeedback.type === 'success' && (
-              <button
-                type="button"
-                onClick={() => setActiveSection('my_passes')}
-                className="px-3 py-1 rounded-lg bg-emerald-900/80 hover:bg-emerald-800 text-white font-bold cursor-pointer shrink-0"
-              >
-                Ver en Mis Pases QR
-              </button>
-            )}
-          </div>
-        )}
 
-        {activeSection === 'directory' ? (
-          <>
             {errorMsg && (
               <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
                 <AlertCircle size={16} className="shrink-0" />
@@ -529,12 +791,12 @@ export default function ResidentDashboard({ onViewChange }) {
             )}
 
             {loadingProviders ? (
-              <div className="text-center py-16 opacity-80 text-xs">
+              <div className="text-center py-14 opacity-80 text-xs">
                 Consultando base de datos PostgreSQL...
               </div>
             ) : filteredProviders.length === 0 ? (
               <div
-                className="text-center py-16 border border-black/20 rounded-2xl opacity-80 text-xs shadow-sm"
+                className="text-center py-14 border border-black/20 rounded-2xl opacity-80 text-xs shadow-sm"
                 style={cardStyle}
               >
                 No hay prestadores aprobados que coincidan con la búsqueda.
@@ -615,7 +877,7 @@ export default function ResidentDashboard({ onViewChange }) {
 
                           <button
                             type="button"
-                            onClick={() => onViewChange && onViewChange('payments')}
+                            onClick={() => setActiveStep('payments')}
                             className="text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition-opacity hover:opacity-95 flex items-center gap-1 cursor-pointer"
                             style={{ backgroundColor: primaryActionColor }}
                           >
@@ -628,9 +890,11 @@ export default function ResidentDashboard({ onViewChange }) {
                 })}
               </div>
             )}
-          </>
-        ) : (
-          /* Sección dedicada: Mis Pases QR generados por el residente */
+          </div>
+        )}
+
+        {/* PASO 2: Mis Pases QR */}
+        {activeStep === 'passes' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
             style={cardStyle}
@@ -639,7 +903,7 @@ export default function ResidentDashboard({ onViewChange }) {
               <div>
                 <h3 className="text-sm font-bold">Historial de Pases QR Emitidos</h3>
                 <p className="text-xs opacity-80 mt-0.5">
-                  Horarios In/Out en {activeTimeZone}. Podés copiar el token o cancelar un pase vigente.
+                  Horarios In/Out en {activeTimeZone}. Copiá el token, revisá el enlace o cancelá un pase vigente.
                 </p>
               </div>
 
@@ -681,9 +945,7 @@ export default function ResidentDashboard({ onViewChange }) {
             )}
 
             {loadingPasses ? (
-              <div className="text-center py-10 text-xs opacity-80">
-                Cargando tus pases QR...
-              </div>
+              <div className="text-center py-10 text-xs opacity-80">Cargando tus pases QR...</div>
             ) : filteredMyPasses.length === 0 ? (
               <div
                 className="text-center py-10 rounded-xl border border-black/20 text-xs opacity-80 space-y-3"
@@ -692,11 +954,11 @@ export default function ResidentDashboard({ onViewChange }) {
                 <p>No tenés pases QR registrados con ese filtro.</p>
                 <button
                   type="button"
-                  onClick={() => setActiveSection('directory')}
+                  onClick={() => setActiveStep('providers')}
                   className="px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
                   style={{ backgroundColor: primaryActionColor }}
                 >
-                  Ir al Directorio para Emitir Pase QR
+                  Ir al Paso 1: Prestadores
                 </button>
               </div>
             ) : (
@@ -814,7 +1076,369 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* Modal de Emisión de Pase QR vinculado al prestador */}
+        {/* PASO 3: Visitas / Pases QR para Contratar + Órdenes de Pago */}
+        {activeStep === 'payments' && (
+          <div className="space-y-6">
+            {/* Órdenes pendientes de pago */}
+            <section
+              className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              style={cardStyle}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
+                <h3 className="text-sm font-bold">
+                  Órdenes de Pago Pendientes ({pendingContracts.length})
+                </h3>
+                <span className="text-[11px] font-mono opacity-80">Take Rate 7% / 93%</span>
+              </div>
+
+              {loadingContracts ? (
+                <div className="text-center py-6 text-xs opacity-80">
+                  Consultando órdenes de pago...
+                </div>
+              ) : pendingContracts.length === 0 ? (
+                <div
+                  className="p-5 rounded-xl border border-black/20 text-xs opacity-80 text-center"
+                  style={innerStyle}
+                >
+                  No tenés órdenes de pago pendientes en este momento. Podés generar una desde las
+                  visitas/pases disponibles abajo.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {pendingContracts.map((contract) => {
+                    const amount = Number(contract.agreed_amount || 0);
+                    const fee = Number((amount * 0.07).toFixed(2));
+                    const providerNet = Number((amount - fee).toFixed(2));
+
+                    return (
+                      <div
+                        key={contract.id}
+                        className="p-4 rounded-xl border border-black/20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 text-xs"
+                        style={innerStyle}
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-emerald-400">
+                              Contrato #{contract.id}
+                            </span>
+                            <span className="font-bold">
+                              {contract.provider_name || 'Prestador Verificado'}
+                            </span>
+                          </div>
+                          <p className="opacity-80">{contract.description}</p>
+                          <p className="text-[11px] opacity-75 font-mono pt-1">
+                            Total: ${amount.toLocaleString('es-AR')} · Comisión (7%): $
+                            {fee.toLocaleString('es-AR')} · Neto Prestador (93%): $
+                            {providerNet.toLocaleString('es-AR')}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handlePayContract(contract)}
+                          disabled={payingId === contract.id}
+                          className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer shrink-0 transition-opacity hover:opacity-95"
+                          style={{ backgroundColor: primaryActionColor }}
+                        >
+                          <CreditCard size={14} />
+                          {payingId === contract.id ? 'Procesando...' : 'Confirmar y Pagar'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+
+            {/* Visitas / Pases QR vigentes sin contrato para contratar */}
+            <section
+              className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              style={cardStyle}
+            >
+              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
+                <div>
+                  <h3 className="text-sm font-bold">
+                    Visitas / Pases QR para Contratar ({visitsReadyForContract.length})
+                  </h3>
+                  <p className="text-xs opacity-80 mt-0.5">
+                    Cargá la descripción y el monto acordado en la visita para generar el contrato y
+                    la orden de pago.
+                  </p>
+                </div>
+              </div>
+
+              {loadingPasses ? (
+                <div className="text-center py-6 text-xs opacity-80">Cargando visitas...</div>
+              ) : visitsReadyForContract.length === 0 ? (
+                <div
+                  className="p-5 rounded-xl border border-black/20 text-xs opacity-80 text-center space-y-3"
+                  style={innerStyle}
+                >
+                  <p>No tenés visitas/pases QR vigentes pendientes de contratar.</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('providers')}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                    style={{ backgroundColor: primaryActionColor }}
+                  >
+                    Emitir Pase QR en Paso 1
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {visitsReadyForContract.map((passItem) => {
+                    const draftDesc = quoteDescriptions[passItem.id] || '';
+                    const draftAmount = quoteAmounts[passItem.id] || '';
+                    const numericAmount = Number(draftAmount);
+                    const hasValidAmount = !Number.isNaN(numericAmount) && numericAmount > 0;
+                    const previewFee = hasValidAmount
+                      ? Number((numericAmount * 0.07).toFixed(2))
+                      : 0;
+                    const previewNet = hasValidAmount
+                      ? Number((numericAmount - previewFee).toFixed(2))
+                      : 0;
+
+                    return (
+                      <form
+                        key={passItem.id}
+                        onSubmit={(e) => handleCreateContractFromPass(passItem, e)}
+                        className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                        style={innerStyle}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-emerald-400">
+                              Pase QR #{passItem.id}
+                            </span>
+                            <span className="font-bold">
+                              {passItem.provider_name || 'Prestador Verificado'}
+                            </span>
+                            {passItem.specialty && (
+                              <span className="text-[10px] font-bold uppercase text-emerald-300 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded">
+                                {passItem.specialty}
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[11px] opacity-80 font-mono">
+                            {[passItem.fraction_number, passItem.lot_number]
+                              .filter(Boolean)
+                              .join(' · ') || 'Sin destino'}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                          <input
+                            type="text"
+                            value={draftDesc}
+                            onChange={(e) =>
+                              setQuoteDescriptions((prev) => ({
+                                ...prev,
+                                [passItem.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Descripción del trabajo acordado"
+                            className="md:col-span-2 w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                            style={cardStyle}
+                          />
+                          <input
+                            type="number"
+                            min="1"
+                            step="0.01"
+                            required
+                            value={draftAmount}
+                            onChange={(e) =>
+                              setQuoteAmounts((prev) => ({
+                                ...prev,
+                                [passItem.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Monto acordado ($)"
+                            className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
+                            style={cardStyle}
+                          />
+                        </div>
+
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                          <span className="text-[11px] font-mono opacity-80">
+                            {hasValidAmount
+                              ? `Comisión (7%): $${previewFee.toLocaleString('es-AR')} · Neto Prestador (93%): $${previewNet.toLocaleString('es-AR')}`
+                              : 'Ingresá el monto para previsualizar el 7% / 93%.'}
+                          </span>
+
+                          <button
+                            type="submit"
+                            disabled={creatingFromPassId === passItem.id || !hasValidAmount}
+                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95 shrink-0"
+                            style={{ backgroundColor: primaryActionColor }}
+                          >
+                            <FilePlus2 size={14} />
+                            {creatingFromPassId === passItem.id
+                              ? 'Generando...'
+                              : 'Generar Contrato y Orden'}
+                          </button>
+                        </div>
+                      </form>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {/* PASO 4: Cierre de Servicio & Calificación Cruzada */}
+        {activeStep === 'reviews' && (
+          <section
+            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
+              <div>
+                <h3 className="text-sm font-bold">
+                  Cierre de Servicio &amp; Calificación Cruzada ({reviewContracts.length})
+                </h3>
+                <p className="text-xs opacity-80 mt-0.5">
+                  Calificá al prestador al concluir el trabajo; tu reseña actualiza su reputación.
+                </p>
+              </div>
+            </div>
+
+            {loadingReviews ? (
+              <div className="text-center py-8 text-xs opacity-80">
+                Cargando servicios para calificación cruzada...
+              </div>
+            ) : reviewContracts.length === 0 ? (
+              <div
+                className="p-6 rounded-xl border border-black/20 text-center text-xs opacity-80"
+                style={innerStyle}
+              >
+                Aún no tenés contratos registrados para calificar.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {reviewContracts.map((item) => {
+                  const draftRating = ratingDrafts[item.contract_id] || 5;
+                  const draftComment = commentDrafts[item.contract_id] || '';
+                  const alreadyRatedProvider = Boolean(item.provider_review_rating);
+
+                  return (
+                    <div
+                      key={item.contract_id}
+                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      style={innerStyle}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <span className="font-mono font-bold text-emerald-400">
+                            Contrato #{item.contract_id}
+                          </span>{' '}
+                          ·{' '}
+                          <span className="font-bold">
+                            {`${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
+                              'Prestador'}
+                          </span>
+                          <p className="opacity-80 mt-0.5">{item.description}</p>
+                        </div>
+                        <span
+                          className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
+                          style={cardStyle}
+                        >
+                          ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+
+                      {alreadyRatedProvider ? (
+                        <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-emerald-300">
+                            Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
+                            {item.provider_review_rating}/5)
+                          </span>
+                          {item.provider_review_comment && (
+                            <span className="opacity-90 italic">
+                              "{item.provider_review_comment}"
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div
+                          className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
+                          style={cardStyle}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="opacity-90 font-semibold">
+                              Calificar desempeño del prestador:
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((starVal) => (
+                                <button
+                                  key={starVal}
+                                  type="button"
+                                  onClick={() =>
+                                    setRatingDrafts((prev) => ({
+                                      ...prev,
+                                      [item.contract_id]: starVal,
+                                    }))
+                                  }
+                                  className={`p-1 rounded-lg border cursor-pointer ${
+                                    draftRating >= starVal
+                                      ? 'bg-amber-950/70 border-amber-700 text-amber-300'
+                                      : 'border-white/15 opacity-60'
+                                  }`}
+                                  style={draftRating >= starVal ? undefined : innerStyle}
+                                >
+                                  <Star
+                                    size={13}
+                                    className={draftRating >= starVal ? 'fill-amber-400' : ''}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="relative flex-1">
+                              <MessageSquare
+                                size={13}
+                                className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
+                              />
+                              <input
+                                type="text"
+                                value={draftComment}
+                                onChange={(e) =>
+                                  setCommentDrafts((prev) => ({
+                                    ...prev,
+                                    [item.contract_id]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Dejá un comentario sobre puntualidad, prolijidad y resolución..."
+                                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                style={innerStyle}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSubmitProviderReview(item.contract_id)}
+                              disabled={submittingContractId === item.contract_id}
+                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                              style={{ backgroundColor: primaryActionColor }}
+                            >
+                              <Send size={12} />
+                              {submittingContractId === item.contract_id
+                                ? 'Enviando...'
+                                : 'Enviar Reseña'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Modal de Emisión de Pase QR */}
         {qrModalProvider && (
           <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
             <div
@@ -892,12 +1516,12 @@ export default function ResidentDashboard({ onViewChange }) {
                       type="button"
                       onClick={() => {
                         setQrModalProvider(null);
-                        setActiveSection('my_passes');
+                        setActiveStep('passes');
                       }}
                       className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
                       style={{ backgroundColor: primaryActionColor }}
                     >
-                      Ver en Mis Pases QR
+                      Ir a Pases QR
                     </button>
                   </div>
                 </div>
@@ -1070,9 +1694,7 @@ export default function ResidentDashboard({ onViewChange }) {
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    handleCopyToken(buildShareableQrUrl(inspectingPass.qr_token))
-                  }
+                  onClick={() => handleCopyToken(buildShareableQrUrl(inspectingPass.qr_token))}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold text-white cursor-pointer"
                   style={{ backgroundColor: primaryActionColor }}
                 >

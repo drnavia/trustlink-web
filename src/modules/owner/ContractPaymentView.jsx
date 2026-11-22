@@ -1,12 +1,13 @@
 /**
  * @file ContractPaymentView.jsx
  * @description Vista de Pagos y Reseñas para el residente conectada a PostgreSQL.
- * Gestiona presupuestos/contratos, cálculo de Take Rate (7% / 93%), pagos y calificación cruzada al prestador,
- * respetando de forma homogénea las zonas de apariencia (Zonas 4 y 5) y los tamaños de título unificados.
+ * Conecta las visitas/pases QR emitidos sin contrato previo con la creación de contratos
+ * (POST /api/v1/reviews/contract), muestra presupuestos/órdenes de pago con desglose de
+ * Take Rate (7% / 93%), procesa pagos y habilita la calificación cruzada al prestador.
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileCheck2,
   Star,
@@ -16,11 +17,50 @@ import {
   MessageSquare,
   Send,
   ArrowRight,
-  Compass
+  Compass,
+  Ticket,
+  FilePlus2,
+  RefreshCw
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
+const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+function parseUtcTimestampMs(value, fallbackMs = null) {
+  if (fallbackMs !== null && fallbackMs !== undefined && !Number.isNaN(Number(fallbackMs))) {
+    return Number(fallbackMs);
+  }
+  if (!value) return null;
+  if (typeof value === 'number') return Number.isNaN(value) ? null : value;
+
+  const raw = String(value).trim();
+  const hasOffsetOrZ = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
+  const normalized = hasOffsetOrZ ? raw : `${raw.replace(' ', 'T')}Z`;
+  const ms = Date.parse(normalized);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
+  const ms = parseUtcTimestampMs(value, fallbackMs);
+  if (ms === null) return 'No especificado';
+  try {
+    return new Date(ms).toLocaleString('es-AR', {
+      timeZone,
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  } catch {
+    return new Date(ms).toLocaleString('es-AR', {
+      day: '2-digit',
+      month: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+}
 
 export default function ContractPaymentView({ onViewChange }) {
   const { brand } = useBranding();
@@ -37,15 +77,24 @@ export default function ContractPaymentView({ onViewChange }) {
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
-  // Color de acento / primario para botones principales de acción
+  // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [contracts, setContracts] = useState([]);
   const [reviewContracts, setReviewContracts] = useState([]);
+  const [eligiblePasses, setEligiblePasses] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [loadingReviews, setLoadingReviews] = useState(true);
+  const [loadingPasses, setLoadingPasses] = useState(true);
+
   const [payingId, setPayingId] = useState(null);
+  const [creatingFromPassId, setCreatingFromPassId] = useState(null);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
+
+  // Borradores de contratación / presupuesto por pass_id
+  const [quoteDescriptions, setQuoteDescriptions] = useState({});
+  const [quoteAmounts, setQuoteAmounts] = useState({});
 
   // Borradores de calificación cruzada hacia el prestador por contract_id
   const [ratingDrafts, setRatingDrafts] = useState({});
@@ -57,7 +106,7 @@ export default function ContractPaymentView({ onViewChange }) {
   });
 
   // Consulta contratos pendientes/activos del residente
-  const fetchContracts = async () => {
+  const fetchContracts = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/contracts`, {
@@ -72,10 +121,10 @@ export default function ContractPaymentView({ onViewChange }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   // Consulta contratos habilitados para calificación cruzada
-  const fetchReviewContracts = async () => {
+  const fetchReviewContracts = useCallback(async () => {
     setLoadingReviews(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
@@ -90,12 +139,105 @@ export default function ContractPaymentView({ onViewChange }) {
     } finally {
       setLoadingReviews(false);
     }
-  };
+  }, []);
+
+  // Consulta pases QR del residente para detectar visitas sin contrato asociado
+  const fetchEligiblePasses = useCallback(async () => {
+    setLoadingPasses(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/my`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        const list = data.passes || [];
+        const nowMs = Date.now();
+        const filtered = list.filter((p) => {
+          const st = String(p.status || 'pending').toLowerCase();
+          const endMs = parseUtcTimestampMs(p.end_time, p.end_utc_ms);
+          const isExpired = st === 'expired' || (st === 'pending' && endMs !== null && nowMs > endMs);
+          if (st === 'cancelled' || isExpired) return false;
+          return true;
+        });
+        setEligiblePasses(filtered);
+      }
+    } catch (error) {
+      console.error('Error al cargar pases para contratación:', error);
+    } finally {
+      setLoadingPasses(false);
+    }
+  }, []);
+
+  const refreshAllSections = useCallback(async () => {
+    await Promise.all([fetchContracts(), fetchReviewContracts(), fetchEligiblePasses()]);
+  }, [fetchContracts, fetchReviewContracts, fetchEligiblePasses]);
 
   useEffect(() => {
-    fetchContracts();
-    fetchReviewContracts();
-  }, []);
+    refreshAllSections();
+  }, [refreshAllSections]);
+
+  // Crea un contrato de servicio a partir de una visita/pase QR y lo deja listo para pago
+  const handleCreateContractFromPass = async (passItem, e) => {
+    if (e) e.preventDefault();
+    const rawDesc = (quoteDescriptions[passItem.id] || '').trim();
+    const description =
+      rawDesc ||
+      `Servicio de ${passItem.specialty || 'prestador verificado'} — Pase #${passItem.id}`;
+    const amountNum = Number(quoteAmounts[passItem.id]);
+
+    if (Number.isNaN(amountNum) || amountNum <= 0) {
+      setFeedback({
+        type: 'error',
+        text: 'Ingresá un monto acordado mayor a cero para generar el contrato.',
+      });
+      return;
+    }
+
+    setCreatingFromPassId(passItem.id);
+    setFeedback({ type: '', text: '' });
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contract`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          provider_id: passItem.provider_id,
+          pass_id: passItem.id,
+          description,
+          agreed_amount: amountNum,
+        }),
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({
+          type: 'success',
+          text:
+            data.message ||
+            `Contrato generado para el pase #${passItem.id}. Ya podés confirmar y pagar la orden.`,
+        });
+        setQuoteDescriptions((prev) => ({ ...prev, [passItem.id]: '' }));
+        setQuoteAmounts((prev) => ({ ...prev, [passItem.id]: '' }));
+        await refreshAllSections();
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo generar el contrato desde la visita.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al generar contrato desde pase QR:', error);
+      setFeedback({
+        type: 'error',
+        text: 'Error de conexión al generar el contrato.',
+      });
+    } finally {
+      setCreatingFromPassId(null);
+    }
+  };
 
   // Procesa el pago de un contrato con desglose de Take Rate (7% / 93%)
   const handlePayContract = async (contract) => {
@@ -119,7 +261,7 @@ export default function ContractPaymentView({ onViewChange }) {
           type: 'success',
           text: data.message || `Orden de pago procesada para el contrato #${contract.id}.`,
         });
-        await Promise.all([fetchContracts(), fetchReviewContracts()]);
+        await refreshAllSections();
       } else {
         setFeedback({
           type: 'error',
@@ -181,13 +323,20 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  // Evita duplicar pases que ya tienen un contrato en pending o en reviewContracts
+  const linkedPassIds = new Set([
+    ...contracts.map((c) => Number(c.pass_id)).filter(Boolean),
+    ...reviewContracts.map((c) => Number(c.pass_id)).filter(Boolean),
+  ]);
+  const visitsReadyForContract = eligiblePasses.filter((p) => !linkedPassIds.has(Number(p.id)));
+
   const pendingContractsCount = contracts.length;
   const reviewContractsCount = reviewContracts.length;
 
   return (
-    <div className="p-6 md:p-8">
+    <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Mensaje de retroalimentación de pago o reseña */}
+        {/* Mensaje de retroalimentación */}
         {feedback.text && (
           <div
             className={`p-4 rounded-xl text-xs border flex items-center gap-2 ${
@@ -228,15 +377,25 @@ export default function ContractPaymentView({ onViewChange }) {
               </div>
             </div>
 
-            {/* Badge unificado en español y estilo sobrio */}
-            <span
-              className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl self-start sm:self-auto"
-              style={innerStyle}
-            >
-              {pendingContractsCount === 0
-                ? '0 contratos'
-                : `${pendingContractsCount} ${pendingContractsCount === 1 ? 'contrato' : 'contratos'}`}
-            </span>
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              <span
+                className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl"
+                style={innerStyle}
+              >
+                {pendingContractsCount === 0
+                  ? '0 contratos'
+                  : `${pendingContractsCount} ${pendingContractsCount === 1 ? 'contrato' : 'contratos'}`}
+              </span>
+              <button
+                type="button"
+                onClick={refreshAllSections}
+                className="p-2 rounded-xl border border-white/15 cursor-pointer hover:opacity-90"
+                style={innerStyle}
+                title="Actualizar órdenes y visitas"
+              >
+                <RefreshCw size={14} />
+              </button>
+            </div>
           </div>
 
           {loading ? (
@@ -249,8 +408,9 @@ export default function ContractPaymentView({ onViewChange }) {
               style={innerStyle}
             >
               <p className="opacity-90">
-                No hay órdenes de pago pendientes en este momento. Podés calificar tus servicios
-                realizados en la sección inferior o explorar prestadores verificados.
+                No hay órdenes de pago pendientes en este momento. Podés iniciar una contratación
+                desde una visita/pase QR activo abajo, calificar tus servicios realizados o explorar
+                prestadores verificados.
               </p>
               {onViewChange && (
                 <button
@@ -317,7 +477,166 @@ export default function ContractPaymentView({ onViewChange }) {
           )}
         </section>
 
-        {/* Sección 2: Cierre de Servicio & Calificación Cruzada */}
+        {/* Sección 2: Visitas / Pases QR para Contratar */}
+        <section
+          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="p-2.5 rounded-xl border border-white/15 text-sky-400 shrink-0"
+                style={innerStyle}
+              >
+                <Ticket size={20} strokeWidth={1.8} />
+              </div>
+              <div>
+                <h3 className="text-base font-black tracking-tight">
+                  Visitas / Pases QR para Contratar
+                </h3>
+                <p className="text-xs opacity-80 mt-0.5">
+                  Pases vigentes o activos emitidos por vos sin contrato generado aún: cargá el
+                  trabajo y el monto acordado para abrir la orden de pago.
+                </p>
+              </div>
+            </div>
+
+            <span
+              className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl self-start sm:self-auto"
+              style={innerStyle}
+            >
+              {visitsReadyForContract.length}{' '}
+              {visitsReadyForContract.length === 1 ? 'visita disponible' : 'visitas disponibles'}
+            </span>
+          </div>
+
+          {loadingPasses ? (
+            <div className="text-center py-6 text-xs opacity-80">
+              Verificando pases QR activos...
+            </div>
+          ) : visitsReadyForContract.length === 0 ? (
+            <div
+              className="p-5 rounded-xl border border-black/20 text-xs opacity-80 text-center"
+              style={innerStyle}
+            >
+              No tenés pases QR vigentes pendientes de presupuestar en este momento.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {visitsReadyForContract.map((passItem) => {
+                const draftDesc = quoteDescriptions[passItem.id] || '';
+                const draftAmount = quoteAmounts[passItem.id] || '';
+                const numericAmount = Number(draftAmount);
+                const hasValidAmount = !Number.isNaN(numericAmount) && numericAmount > 0;
+                const previewFee = hasValidAmount ? Number((numericAmount * 0.07).toFixed(2)) : 0;
+                const previewNet = hasValidAmount
+                  ? Number((numericAmount - previewFee).toFixed(2))
+                  : 0;
+
+                return (
+                  <form
+                    key={passItem.id}
+                    onSubmit={(e) => handleCreateContractFromPass(passItem, e)}
+                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono font-bold text-emerald-400">
+                            Pase QR #{passItem.id}
+                          </span>
+                          <span className="font-bold">
+                            {passItem.provider_name || 'Prestador Verificado'}
+                          </span>
+                          {passItem.specialty && (
+                            <span className="text-[10px] font-bold uppercase text-emerald-300 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded">
+                              {passItem.specialty}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] opacity-80 mt-0.5">
+                          Destino:{' '}
+                          {[passItem.fraction_number, passItem.lot_number]
+                            .filter(Boolean)
+                            .join(' · ') || 'No especificado'}{' '}
+                          · Vigencia:{' '}
+                          <span className="font-mono">
+                            {formatDateTime(
+                              passItem.start_time,
+                              DEFAULT_TIMEZONE,
+                              passItem.start_utc_ms
+                            )}{' '}
+                            —{' '}
+                            {formatDateTime(
+                              passItem.end_time,
+                              DEFAULT_TIMEZONE,
+                              passItem.end_utc_ms
+                            )}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                      <input
+                        type="text"
+                        value={draftDesc}
+                        onChange={(e) =>
+                          setQuoteDescriptions((prev) => ({
+                            ...prev,
+                            [passItem.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Descripción del trabajo acordado"
+                        className="md:col-span-2 w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                      <input
+                        type="number"
+                        min="1"
+                        step="0.01"
+                        required
+                        value={draftAmount}
+                        onChange={(e) =>
+                          setQuoteAmounts((prev) => ({
+                            ...prev,
+                            [passItem.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Monto acordado ($)"
+                        className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                      <span className="text-[11px] font-mono opacity-80">
+                        {hasValidAmount
+                          ? `Comisión (7%): $${previewFee.toLocaleString('es-AR')} · Neto Prestador (93%): $${previewNet.toLocaleString('es-AR')}`
+                          : 'Ingresá el monto para previsualizar la comisión del 7% y el neto del 93%.'}
+                      </span>
+
+                      <button
+                        type="submit"
+                        disabled={creatingFromPassId === passItem.id || !hasValidAmount}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95 shrink-0"
+                        style={{ backgroundColor: primaryActionColor }}
+                      >
+                        <FilePlus2 size={14} />
+                        {creatingFromPassId === passItem.id
+                          ? 'Generando...'
+                          : 'Generar Contrato y Orden'}
+                      </button>
+                    </div>
+                  </form>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Sección 3: Cierre de Servicio & Calificación Cruzada */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
@@ -341,7 +660,6 @@ export default function ContractPaymentView({ onViewChange }) {
               </div>
             </div>
 
-            {/* Badge unificado con el mismo estilo de la sección superior */}
             <span
               className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl self-start sm:self-auto"
               style={innerStyle}
