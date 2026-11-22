@@ -1,12 +1,12 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado 100% a PostgreSQL. Gestiona credenciales de compliance,
- * flota vehicular habilitada (con validación de patente) y calificaciones cruzadas con residentes,
- * respetando de forma homogénea las Zonas 3, 4 y 5 de apariencia.
+ * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
+ * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
+ * 3. Reputación Cruzada) con contadores en vivo y aplicación homogénea de Zonas 4 y 5.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Wrench,
   ShieldCheck,
@@ -20,7 +20,8 @@ import {
   Loader2,
   Star,
   MessageSquare,
-  Send
+  Send,
+  RefreshCw
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -69,6 +70,9 @@ export default function ProviderDashboard() {
   // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Paso activo del portal prestador: 'credentials' | 'vehicles' | 'reviews'
+  const [activeStep, setActiveStep] = useState('credentials');
+
   const [providerProfiles, setProviderProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [fetching, setFetching] = useState(true);
@@ -113,7 +117,7 @@ export default function ProviderDashboard() {
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const fetchProviderData = async () => {
+  const fetchProviderData = useCallback(async () => {
     setFetching(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
@@ -129,9 +133,9 @@ export default function ProviderDashboard() {
     } finally {
       setFetching(false);
     }
-  };
+  }, []);
 
-  const fetchProviderContracts = async () => {
+  const fetchProviderContracts = useCallback(async () => {
     setLoadingContracts(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
@@ -146,12 +150,15 @@ export default function ProviderDashboard() {
     } finally {
       setLoadingContracts(false);
     }
-  };
+  }, []);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([fetchProviderData(), fetchProviderContracts()]);
+  }, [fetchProviderData, fetchProviderContracts]);
 
   useEffect(() => {
-    fetchProviderData();
-    fetchProviderContracts();
-  }, []);
+    refreshAll();
+  }, [refreshAll]);
 
   const handleAddCompliance = async (e) => {
     e.preventDefault();
@@ -347,65 +354,162 @@ export default function ProviderDashboard() {
 
   const primaryStatusInfo = formatComplianceStatus(providerProfiles[0]?.status);
 
+  const steps = [
+    {
+      id: 'credentials',
+      stepNumber: '1',
+      label: 'Credenciales',
+      count: providerProfiles.length,
+      icon: ShieldCheck,
+    },
+    {
+      id: 'vehicles',
+      stepNumber: '2',
+      label: 'Flota Vehicular',
+      count: vehicles.length,
+      icon: Car,
+    },
+    {
+      id: 'reviews',
+      stepNumber: '3',
+      label: 'Reputación Cruzada',
+      count: providerContracts.length,
+      icon: Star,
+    },
+  ];
+
+  const activeStepMeta = steps.find((s) => s.id === activeStep) || steps[0];
+
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Prestador */}
-        <div
-          className="border border-black/20 p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+        {/* Cabecera del Portal Prestador + Indicadores de Pasos Clicables */}
+        <section
+          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
         >
-          <div className="flex items-center gap-3.5">
-            <div
-              className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
-              style={innerStyle}
-            >
-              <Wrench size={20} strokeWidth={1.8} />
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div className="flex items-center gap-3.5">
+              <div
+                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
+                style={innerStyle}
+              >
+                <Wrench size={20} strokeWidth={1.8} />
+              </div>
+              <div>
+                <h2 className="text-xl font-black tracking-tight">
+                  Portal Prestador — {activeStepMeta.stepNumber}. {activeStepMeta.label}
+                </h2>
+                <p className="text-xs opacity-80 mt-0.5">
+                  {activeStep === 'credentials' &&
+                    'Especialidades, antecedentes y pólizas de compliance para operar en la red.'}
+                  {activeStep === 'vehicles' &&
+                    'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
+                  {activeStep === 'reviews' &&
+                    'Reseñas recibidas de residentes y calificación cruzada por servicio realizado.'}
+                </p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
-              <p className="text-xs opacity-80 mt-0.5">
-                Credenciales de compliance, flota vehicular y reputación cruzada.
-              </p>
+
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {providerProfiles.length > 0 && (
+                <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                  <Star size={14} className="fill-amber-400" />
+                  Scoring: {Number(providerProfiles[0].rating_avg || 0).toFixed(2)}
+                </span>
+              )}
+              <span
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border ${primaryStatusInfo.badgeClass}`}
+              >
+                Estado: {primaryStatusInfo.label}
+              </span>
+              <button
+                type="button"
+                onClick={refreshAll}
+                disabled={fetching || loadingContracts}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
+                style={innerStyle}
+              >
+                <RefreshCw
+                  size={13}
+                  className={fetching || loadingContracts ? 'animate-spin' : ''}
+                />
+                Actualizar
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2.5 flex-wrap">
-            {providerProfiles.length > 0 && (
-              <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                <Star size={14} className="fill-amber-400" />
-                Scoring: {Number(providerProfiles[0].rating_avg || 0).toFixed(2)}
-              </span>
-            )}
-            <span
-              className={`text-xs font-semibold px-3 py-1.5 rounded-xl border ${primaryStatusInfo.badgeClass}`}
-            >
-              Estado: {primaryStatusInfo.label}
-            </span>
+          {/* Barra de indicadores de pasos seleccionables mediante clic */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+            {steps.map((item) => {
+              const IconComp = item.icon;
+              const isSelected = activeStep === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setActiveStep(item.id)}
+                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                    isSelected
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'border-white/15 opacity-85 hover:opacity-100'
+                  }`}
+                  style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-black/25 text-white' : 'bg-white/10'
+                      }`}
+                    >
+                      {item.stepNumber}
+                    </span>
+                    <IconComp size={14} className="shrink-0" />
+                    <span className="text-xs font-bold truncate">{item.label}</span>
+                  </div>
+                  <span
+                    className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
+                      isSelected ? 'bg-black/25 text-white' : 'bg-black/20'
+                    }`}
+                  >
+                    {item.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </section>
 
         {/* Feedback global de acciones */}
         {feedback.text && (
           <div
-            className={`p-4 rounded-xl text-xs border flex items-center gap-2 ${
+            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
               feedback.type === 'success'
                 ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
                 : 'bg-rose-950/60 border-rose-800 text-rose-200'
             }`}
           >
-            {feedback.type === 'success' ? (
-              <CheckCircle2 size={16} />
-            ) : (
-              <AlertCircle size={16} />
-            )}
-            <span>{feedback.text}</span>
+            <div className="flex items-center gap-2">
+              {feedback.type === 'success' ? (
+                <CheckCircle2 size={16} />
+              ) : (
+                <AlertCircle size={16} />
+              )}
+              <span>{feedback.text}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFeedback({ type: '', text: '' })}
+              className="p-1 rounded-lg hover:bg-black/20 cursor-pointer"
+              aria-label="Cerrar aviso"
+            >
+              <X size={14} />
+            </button>
           </div>
         )}
 
-        {/* Bloques principales: Credenciales y Flota Vehicular */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Credenciales y Compliance */}
+        {/* PASO 1: Credenciales y Compliance */}
+        {activeStep === 'credentials' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
             style={cardStyle}
@@ -560,8 +664,10 @@ export default function ProviderDashboard() {
               </div>
             )}
           </div>
+        )}
 
-          {/* Flota Vehicular Habilitada */}
+        {/* PASO 2: Flota Vehicular Habilitada */}
+        {activeStep === 'vehicles' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
             style={cardStyle}
@@ -761,194 +867,198 @@ export default function ProviderDashboard() {
               </div>
             )}
           </div>
-        </div>
+        )}
 
-        {/* Servicios Realizados & Reputación Cruzada */}
-        <div
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex items-center justify-between border-b border-black/20 pb-4">
-            <div className="flex items-center gap-2.5">
-              <Star size={18} className="text-amber-400" />
-              <div>
-                <h3 className="text-sm font-bold">
-                  Servicios Realizados &amp; Reputación Cruzada
-                </h3>
-                <p className="text-xs opacity-80">
-                  Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
-                </p>
+        {/* PASO 3: Servicios Realizados & Reputación Cruzada */}
+        {activeStep === 'reviews' && (
+          <div
+            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between border-b border-black/20 pb-4">
+              <div className="flex items-center gap-2.5">
+                <Star size={18} className="text-amber-400" />
+                <div>
+                  <h3 className="text-sm font-bold">
+                    Servicios Realizados &amp; Reputación Cruzada
+                  </h3>
+                  <p className="text-xs opacity-80">
+                    Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                  </p>
+                </div>
               </div>
+              <span className="text-xs font-mono opacity-80">
+                {providerContracts.length} contrato(s)
+              </span>
             </div>
-            <span className="text-xs font-mono opacity-80">
-              {providerContracts.length} contrato(s)
-            </span>
-          </div>
 
-          {crossReviewFeedback && (
-            <div
-              className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
-                crossReviewFeedback.type === 'success'
-                  ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                  : 'bg-rose-950/60 border-rose-800 text-rose-200'
-              }`}
-            >
-              {crossReviewFeedback.type === 'success' ? (
-                <CheckCircle2 size={15} />
-              ) : (
-                <AlertCircle size={15} />
-              )}
-              <span>{crossReviewFeedback.message}</span>
-            </div>
-          )}
+            {crossReviewFeedback && (
+              <div
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
+                  crossReviewFeedback.type === 'success'
+                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                    : 'bg-rose-950/60 border-rose-800 text-rose-200'
+                }`}
+              >
+                {crossReviewFeedback.type === 'success' ? (
+                  <CheckCircle2 size={15} />
+                ) : (
+                  <AlertCircle size={15} />
+                )}
+                <span>{crossReviewFeedback.message}</span>
+              </div>
+            )}
 
-          {loadingContracts ? (
-            <div className="text-center py-6 text-xs opacity-80">
-              Cargando servicios y calificaciones cruzadas...
-            </div>
-          ) : providerContracts.length === 0 ? (
-            <div className="text-center py-6 text-xs opacity-75">
-              Aún no tenés contratos asignados en tu historial.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {providerContracts.map((item) => {
-                const draftRating = ownerRatingDrafts[item.contract_id] || 5;
-                const draftComment = ownerCommentDrafts[item.contract_id] || '';
-                const alreadyRatedOwner = Boolean(item.owner_review_id);
+            {loadingContracts ? (
+              <div className="text-center py-6 text-xs opacity-80">
+                Cargando servicios y calificaciones cruzadas...
+              </div>
+            ) : providerContracts.length === 0 ? (
+              <div className="text-center py-6 text-xs opacity-75">
+                Aún no tenés contratos asignados en tu historial.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {providerContracts.map((item) => {
+                  const draftRating = ownerRatingDrafts[item.contract_id] || 5;
+                  const draftComment = ownerCommentDrafts[item.contract_id] || '';
+                  const alreadyRatedOwner = Boolean(item.owner_review_id);
 
-                return (
-                  <div
-                    key={item.contract_id}
-                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                    style={innerStyle}
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <div>
-                        <span className="font-mono font-bold text-emerald-400">
-                          Contrato #{item.contract_id}
-                        </span>{' '}
-                        ·{' '}
-                        <span className="font-semibold">
-                          Residente:{' '}
-                          {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
-                            'Propietario'}
-                        </span>{' '}
-                        <span className="opacity-75">({item.country_name || 'Comunidad'})</span>
-                        <p className="opacity-80 mt-1">{item.description}</p>
-                      </div>
-                      <span
-                        className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
-                        style={cardStyle}
-                      >
-                        ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
-                      </span>
-                    </div>
-
-                    {item.provider_review_rating && (
-                      <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-semibold text-emerald-300">
-                          Reseña recibida del residente: {'★'.repeat(item.provider_review_rating)} (
-                          {item.provider_review_rating}/5)
+                  return (
+                    <div
+                      key={item.contract_id}
+                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      style={innerStyle}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                        <div>
+                          <span className="font-mono font-bold text-emerald-400">
+                            Contrato #{item.contract_id}
+                          </span>{' '}
+                          ·{' '}
+                          <span className="font-semibold">
+                            Residente:{' '}
+                            {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
+                              'Propietario'}
+                          </span>{' '}
+                          <span className="opacity-75">({item.country_name || 'Comunidad'})</span>
+                          <p className="opacity-80 mt-1">{item.description}</p>
+                        </div>
+                        <span
+                          className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
+                          style={cardStyle}
+                        >
+                          ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
                         </span>
-                        {item.provider_review_comment && (
-                          <span className="opacity-90 italic">
-                            "{item.provider_review_comment}"
-                          </span>
-                        )}
                       </div>
-                    )}
 
-                    {alreadyRatedOwner ? (
-                      <div
-                        className="border border-white/15 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2"
-                        style={cardStyle}
-                      >
-                        <span className="font-semibold text-indigo-300">
-                          Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
-                          {item.owner_review_rating}/5)
-                        </span>
-                        {item.owner_review_comment && (
-                          <span className="opacity-90 italic">"{item.owner_review_comment}"</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div
-                        className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
-                        style={cardStyle}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="opacity-90 font-semibold">
-                            Calificar experiencia con el residente / acceso:
+                      {item.provider_review_rating && (
+                        <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-emerald-300">
+                            Reseña recibida del residente: {'★'.repeat(item.provider_review_rating)} (
+                            {item.provider_review_rating}/5)
                           </span>
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((starVal) => (
-                              <button
-                                key={starVal}
-                                type="button"
-                                onClick={() =>
-                                  setOwnerRatingDrafts((prev) => ({
+                          {item.provider_review_comment && (
+                            <span className="opacity-90 italic">
+                              "{item.provider_review_comment}"
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {alreadyRatedOwner ? (
+                        <div
+                          className="border border-white/15 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2"
+                          style={cardStyle}
+                        >
+                          <span className="font-semibold text-indigo-300">
+                            Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
+                            {item.owner_review_rating}/5)
+                          </span>
+                          {item.owner_review_comment && (
+                            <span className="opacity-90 italic">
+                              "{item.owner_review_comment}"
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <div
+                          className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
+                          style={cardStyle}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="opacity-90 font-semibold">
+                              Calificar experiencia con el residente / acceso:
+                            </span>
+                            <div className="flex items-center gap-1">
+                              {[1, 2, 3, 4, 5].map((starVal) => (
+                                <button
+                                  key={starVal}
+                                  type="button"
+                                  onClick={() =>
+                                    setOwnerRatingDrafts((prev) => ({
+                                      ...prev,
+                                      [item.contract_id]: starVal,
+                                    }))
+                                  }
+                                  className={`p-1 rounded-lg border cursor-pointer ${
+                                    draftRating >= starVal
+                                      ? 'bg-amber-950/70 border-amber-700 text-amber-300'
+                                      : 'border-white/15 opacity-60'
+                                  }`}
+                                  style={draftRating >= starVal ? undefined : innerStyle}
+                                >
+                                  <Star
+                                    size={13}
+                                    className={draftRating >= starVal ? 'fill-amber-400' : ''}
+                                  />
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <div className="relative flex-1">
+                              <MessageSquare
+                                size={13}
+                                className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
+                              />
+                              <input
+                                type="text"
+                                value={draftComment}
+                                onChange={(e) =>
+                                  setOwnerCommentDrafts((prev) => ({
                                     ...prev,
-                                    [item.contract_id]: starVal,
+                                    [item.contract_id]: e.target.value,
                                   }))
                                 }
-                                className={`p-1 rounded-lg border cursor-pointer ${
-                                  draftRating >= starVal
-                                    ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                    : 'border-white/15 opacity-60'
-                                }`}
-                                style={draftRating >= starVal ? undefined : innerStyle}
-                              >
-                                <Star
-                                  size={13}
-                                  className={draftRating >= starVal ? 'fill-amber-400' : ''}
-                                />
-                              </button>
-                            ))}
+                                placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
+                                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                style={innerStyle}
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSubmitOwnerReview(item.contract_id)}
+                              disabled={submittingContractId === item.contract_id}
+                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                              style={{ backgroundColor: primaryActionColor }}
+                            >
+                              <Send size={12} />
+                              {submittingContractId === item.contract_id
+                                ? 'Enviando...'
+                                : 'Calificar Residente'}
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex flex-col sm:flex-row gap-2">
-                          <div className="relative flex-1">
-                            <MessageSquare
-                              size={13}
-                              className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
-                            />
-                            <input
-                              type="text"
-                              value={draftComment}
-                              onChange={(e) =>
-                                setOwnerCommentDrafts((prev) => ({
-                                  ...prev,
-                                  [item.contract_id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
-                              className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                              style={innerStyle}
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                            disabled={submittingReviewId === item.contract_id}
-                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
-                            style={{ backgroundColor: primaryActionColor }}
-                          >
-                            <Send size={12} />
-                            {submittingReviewId === item.contract_id
-                              ? 'Enviando...'
-                              : 'Calificar Residente'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </main>
     </div>
   );
