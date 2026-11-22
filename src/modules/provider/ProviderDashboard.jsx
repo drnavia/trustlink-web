@@ -1,12 +1,11 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Incluye:
- * - 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular, 3. Reputación Cruzada).
- * - En Credenciales: Documentación Personal con formulario y listado histórico con estado de vigencia
- *   (Vigente / Vencido / Sin fecha) y edición rápida; y Especialidades/Credenciales con estado claro
- *   (Aprobado / Pendiente / Rechazado) y edición.
- * - Aplica de forma homogénea las Zonas 4 y 5 de apariencia.
+ * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
+ * 3. Reputación Cruzada). En Credenciales presenta un formulario compacto de Documentación Personal
+ * (Antecedentes Penales y Póliza ART/Seguro con vigencia Desde/Hasta), un historial en filas por
+ * persona con vigencia por fecha, estado de validación de TrustLink y edición, y la columna de
+ * Especialidades y Credenciales. Aplica las Zonas 4 y 5 de apariencia.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -35,11 +34,36 @@ import { useBranding } from '../branding/BrandingContext';
 const API_BASE = 'http://localhost:4000';
 
 /**
- * Traduce el estado de compliance a una etiqueta limpia en español.
+ * Traduce el estado de validación de TrustLink a etiqueta y estilo en español.
  * @param {string} status
  * @returns {{ label: string, badgeClass: string }}
  */
-function formatComplianceStatus(status) {
+function formatTrustlinkValidationStatus(status) {
+  const normalized = (status || 'pending').toLowerCase();
+  if (normalized === 'approved') {
+    return {
+      label: 'Validado TrustLink: Aprobado',
+      badgeClass: 'bg-emerald-950/80 text-emerald-300 border-emerald-800',
+    };
+  }
+  if (normalized === 'rejected') {
+    return {
+      label: 'Validado TrustLink: Rechazado',
+      badgeClass: 'bg-rose-950/80 text-rose-300 border-rose-800',
+    };
+  }
+  return {
+    label: 'Validado TrustLink: Pendiente',
+    badgeClass: 'bg-amber-950/80 text-amber-300 border-amber-800',
+  };
+}
+
+/**
+ * Traduce el estado de especialidad de forma concisa.
+ * @param {string} status
+ * @returns {{ label: string, badgeClass: string }}
+ */
+function formatSpecialtyStatus(status) {
   const normalized = (status || 'pending').toLowerCase();
   if (normalized === 'approved') {
     return {
@@ -88,12 +112,12 @@ function formatDisplayDate(dateStr) {
 }
 
 /**
- * Evalúa el estado de vigencia de un documento según sus fechas Desde / Hasta.
+ * Evalúa la vigencia de un documento según las fechas Desde / Hasta.
  * @param {string|null|undefined} fromStr
  * @param {string|null|undefined} untilStr
  * @returns {{ label: string, badgeClass: string }}
  */
-function resolveValidityStatus(fromStr, untilStr) {
+function resolveDateValidity(fromStr, untilStr) {
   const todayIso = new Date().toISOString().slice(0, 10);
   const fromIso = toDateInputValue(fromStr);
   const untilIso = toDateInputValue(untilStr);
@@ -106,7 +130,7 @@ function resolveValidityStatus(fromStr, untilStr) {
   }
   if (fromIso && fromIso > todayIso) {
     return {
-      label: 'Programado',
+      label: 'Vigencia futura',
       badgeClass: 'bg-sky-950/80 text-sky-300 border-sky-800',
     };
   }
@@ -149,7 +173,7 @@ export default function ProviderDashboard() {
   const [savingDocs, setSavingDocs] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Bloque A (Izquierda): Documentación Personal Única (Antecedentes + ART/Seguro)
+  // Documentación Personal (Antecedentes + ART/Seguro con vigencias Desde/Hasta)
   const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
   const [criminalFromDate, setCriminalFromDate] = useState('');
   const [criminalUntilDate, setCriminalUntilDate] = useState('');
@@ -157,7 +181,7 @@ export default function ProviderDashboard() {
   const [insuranceFromDate, setInsuranceFromDate] = useState('');
   const [insuranceUntilDate, setInsuranceUntilDate] = useState('');
 
-  // Bloque B (Derecha): Nueva Especialidad minimalista
+  // Especialidades / Credenciales
   const [specialty, setSpecialty] = useState('');
   const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
@@ -247,17 +271,20 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  // Carga un registro histórico en el formulario para editarlo y actualizarlo
-  const handleLoadHistoryDocToForm = (prof) => {
-    setCriminalRecordUrl(prof.criminal_record_url || '');
-    setCriminalFromDate(toDateInputValue(prof.criminal_record_from || prof.created_at));
-    setCriminalUntilDate(toDateInputValue(prof.criminal_record_expiry));
-    setInsurancePolicyUrl(prof.insurance_policy_url || '');
-    setInsuranceFromDate(toDateInputValue(prof.insurance_from || prof.created_at));
-    setInsuranceUntilDate(toDateInputValue(prof.insurance_expiry));
+  // Carga los datos de un documento del historial en el formulario para editarlo
+  const handleEditPersonalDoc = (docRow) => {
+    if (docRow.docKey === 'criminal') {
+      setCriminalRecordUrl(docRow.url || '');
+      setCriminalFromDate(toDateInputValue(docRow.fromDate));
+      setCriminalUntilDate(toDateInputValue(docRow.untilDate));
+    } else if (docRow.docKey === 'insurance') {
+      setInsurancePolicyUrl(docRow.url || '');
+      setInsuranceFromDate(toDateInputValue(docRow.fromDate));
+      setInsuranceUntilDate(toDateInputValue(docRow.untilDate));
+    }
     setFeedback({
       type: 'success',
-      text: `Documentación del perfil "${prof.specialty}" cargada en el formulario para editar.`,
+      text: `Editá "${docRow.title}" en el formulario y guardá los cambios.`,
     });
   };
 
@@ -323,7 +350,7 @@ export default function ProviderDashboard() {
 
       setFeedback({
         type: 'success',
-        text: 'Documentación personal (Antecedentes y ART/Seguro) guardada. Queda sujeta a revisión de compliance para su aprobación.',
+        text: 'Documentación personal guardada. Queda sujeta a validación de TrustLink.',
       });
       await fetchProviderData();
     } catch (error) {
@@ -363,7 +390,7 @@ export default function ProviderDashboard() {
           type: 'success',
           text:
             data.message ||
-            'Especialidad agregada en estado Pendiente hasta su certificación en Ops TrustLink.',
+            'Especialidad agregada. Queda en revisión de compliance para su aprobación.',
         });
         setSpecialty('');
         await fetchProviderData();
@@ -403,9 +430,7 @@ export default function ProviderDashboard() {
       if (response.ok) {
         setFeedback({
           type: 'success',
-          text:
-            data.message ||
-            'Especialidad actualizada. Al modificarse, pasa a revisión de compliance.',
+          text: data.message || 'Especialidad actualizada.',
         });
         setEditingProfileId(null);
         await fetchProviderData();
@@ -543,7 +568,48 @@ export default function ProviderDashboard() {
     }
   };
 
-  const primaryStatusInfo = formatComplianceStatus(providerProfiles[0]?.status);
+  // Construye las filas de documentación personal (una por documento de la persona, no por especialidad)
+  const personalDocRows = (() => {
+    const baseSource =
+      providerProfiles.find((p) => p.criminal_record_url || p.insurance_policy_url) ||
+      providerProfiles[0];
+    if (!baseSource) return [];
+
+    const rows = [];
+    const trustStatus = baseSource.status || 'pending';
+
+    if (baseSource.criminal_record_url || baseSource.criminal_record_expiry) {
+      const fromVal = baseSource.criminal_record_from || baseSource.created_at;
+      const untilVal = baseSource.criminal_record_expiry;
+      rows.push({
+        docKey: 'criminal',
+        title: 'Antecedentes Penales',
+        url: baseSource.criminal_record_url || 'Sin URL',
+        fromDate: fromVal,
+        untilDate: untilVal,
+        validity: resolveDateValidity(fromVal, untilVal),
+        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
+      });
+    }
+
+    if (baseSource.insurance_policy_url || baseSource.insurance_expiry) {
+      const fromVal = baseSource.insurance_from || baseSource.created_at;
+      const untilVal = baseSource.insurance_expiry;
+      rows.push({
+        docKey: 'insurance',
+        title: 'Póliza ART / Seguro',
+        url: baseSource.insurance_policy_url || 'Sin URL',
+        fromDate: fromVal,
+        untilDate: untilVal,
+        validity: resolveDateValidity(fromVal, untilVal),
+        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
+      });
+    }
+
+    return rows;
+  })();
+
+  const primaryStatusInfo = formatSpecialtyStatus(providerProfiles[0]?.status);
 
   const steps = [
     {
@@ -593,7 +659,7 @@ export default function ProviderDashboard() {
                 </h2>
                 <p className="text-xs opacity-80 mt-0.5">
                   {activeStep === 'credentials' &&
-                    'Documentación personal con historial de vigencia y especialidades certificadas para residentes.'}
+                    'Documentación personal del prestador, vigencia por fechas y especialidades habilitadas.'}
                   {activeStep === 'vehicles' &&
                     'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
                   {activeStep === 'reviews' &&
@@ -699,10 +765,10 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Documentación Personal + Historial de Vigencia (Izquierda) / Especialidades (Derecha) */}
+        {/* PASO 1: Documentación Personal minimalista + filas por persona (Izquierda) / Especialidades (Derecha) */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Documentación Personal + Historial con estado de vigencia */}
+            {/* Columna Izquierda: Formulario minimalista + Historial en filas de documentación de la persona */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-5"
               style={cardStyle}
@@ -712,93 +778,75 @@ export default function ProviderDashboard() {
                   <FileText size={16} className="text-emerald-400" />
                   <h3 className="text-sm font-bold">Documentación Personal</h3>
                 </div>
-                <span className="text-[11px] opacity-75">Antecedentes y ART</span>
+                <span className="text-[11px] opacity-75">Por persona</span>
               </div>
 
-              <form onSubmit={handleSavePersonalDocs} className="space-y-3 text-xs">
-                {/* Certificado de Antecedentes */}
+              <form onSubmit={handleSavePersonalDocs} className="space-y-2.5 text-xs">
+                {/* Fila compacta 1: Antecedentes Penales */}
                 <div
-                  className="p-3 rounded-xl border border-black/20 space-y-2"
+                  className="p-2.5 rounded-xl border border-black/20 space-y-2"
                   style={innerStyle}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                      Antecedentes Penales
-                    </span>
-                    <span className="text-[10px] opacity-65">URL + Vigencia</span>
-                  </div>
+                  <div className="text-[11px] font-bold opacity-85">Antecedentes Penales</div>
                   <input
                     type="text"
                     value={criminalRecordUrl}
                     onChange={(e) => setCriminalRecordUrl(e.target.value)}
-                    placeholder="https://... (Certificado de antecedentes)"
+                    placeholder="URL de antecedentes"
                     className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                     style={cardStyle}
                   />
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
-                      <input
-                        type="date"
-                        value={criminalFromDate}
-                        onChange={(e) => setCriminalFromDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
-                      <input
-                        type="date"
-                        value={criminalUntilDate}
-                        onChange={(e) => setCriminalUntilDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
+                    <input
+                      type="date"
+                      value={criminalFromDate}
+                      onChange={(e) => setCriminalFromDate(e.target.value)}
+                      aria-label="Antecedentes Desde"
+                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
+                    <input
+                      type="date"
+                      value={criminalUntilDate}
+                      onChange={(e) => setCriminalUntilDate(e.target.value)}
+                      aria-label="Antecedentes Hasta"
+                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
                   </div>
                 </div>
 
-                {/* Póliza ART / Seguro */}
+                {/* Fila compacta 2: Póliza ART / Seguro */}
                 <div
-                  className="p-3 rounded-xl border border-black/20 space-y-2"
+                  className="p-2.5 rounded-xl border border-black/20 space-y-2"
                   style={innerStyle}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                      Póliza ART / Seguro
-                    </span>
-                    <span className="text-[10px] opacity-65">URL + Vigencia</span>
-                  </div>
+                  <div className="text-[11px] font-bold opacity-85">Póliza ART / Seguro</div>
                   <input
                     type="text"
                     value={insurancePolicyUrl}
                     onChange={(e) => setInsurancePolicyUrl(e.target.value)}
-                    placeholder="https://... (Póliza ART / Seguro)"
+                    placeholder="URL de póliza ART / Seguro"
                     className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                     style={cardStyle}
                   />
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
-                      <input
-                        type="date"
-                        value={insuranceFromDate}
-                        onChange={(e) => setInsuranceFromDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
-                      <input
-                        type="date"
-                        value={insuranceUntilDate}
-                        onChange={(e) => setInsuranceUntilDate(e.target.value)}
-                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
+                    <input
+                      type="date"
+                      value={insuranceFromDate}
+                      onChange={(e) => setInsuranceFromDate(e.target.value)}
+                      aria-label="ART Desde"
+                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
+                    <input
+                      type="date"
+                      value={insuranceUntilDate}
+                      onChange={(e) => setInsuranceUntilDate(e.target.value)}
+                      aria-label="ART Hasta"
+                      className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
                   </div>
                 </div>
 
@@ -809,100 +857,74 @@ export default function ProviderDashboard() {
                   style={{ backgroundColor: primaryActionColor }}
                 >
                   <Save size={13} />
-                  {savingDocs ? 'Guardando...' : 'Guardar Documentación Personal'}
+                  {savingDocs ? 'Guardando...' : 'Guardar Documentación'}
                 </button>
               </form>
 
-              {/* Historial de Documentación Cargada con estado de vigencia y edición */}
-              <div className="pt-3 border-t border-black/20 space-y-2.5 text-xs">
+              {/* Historial en filas de la documentación cargada por persona */}
+              <div className="pt-3 border-t border-black/20 space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
                     <History size={13} className="text-sky-400" />
-                    Historial de Documentación Cargada
+                    Historial Documental
                   </span>
                   <span className="text-[10px] font-mono opacity-75">
-                    {providerProfiles.length} registro(s)
+                    {personalDocRows.length} doc(s)
                   </span>
                 </div>
 
-                {providerProfiles.length === 0 ? (
+                {personalDocRows.length === 0 ? (
                   <div
-                    className="p-3.5 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
+                    className="p-3 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
                     style={innerStyle}
                   >
-                    Sin documentación histórica cargada todavía.
+                    Sin documentación cargada todavía.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {providerProfiles.map((prof) => {
-                      const crimValidity = resolveValidityStatus(
-                        prof.criminal_record_from || prof.created_at,
-                        prof.criminal_record_expiry
-                      );
-                      const insValidity = resolveValidityStatus(
-                        prof.insurance_from || prof.created_at,
-                        prof.insurance_expiry
-                      );
-
-                      return (
-                        <div
-                          key={`doc-${prof.id}`}
-                          className="p-3 rounded-xl border border-black/20 space-y-1.5 text-[11px]"
-                          style={innerStyle}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold text-xs">
-                              {prof.specialty} · Registro #{prof.id}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleLoadHistoryDocToForm(prof)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90"
-                              style={cardStyle}
+                    {personalDocRows.map((row) => (
+                      <div
+                        key={row.docKey}
+                        className="p-3 rounded-xl border border-black/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]"
+                        style={innerStyle}
+                      >
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-xs">{row.title}</span>
+                            <span
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.validity.badgeClass}`}
                             >
-                              <Edit3 size={11} /> Editar
-                            </button>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-2 pt-0.5">
-                            <span className="truncate opacity-85">
-                              Antecedentes: {prof.criminal_record_url || 'No cargado'}
+                              {row.validity.label}
                             </span>
                             <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${crimValidity.badgeClass}`}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${row.trustlinkValidation.badgeClass}`}
                             >
-                              {crimValidity.label}
+                              {row.trustlinkValidation.label}
                             </span>
                           </div>
+                          <div className="truncate opacity-80">{row.url}</div>
                           <div className="font-mono text-[10px] opacity-70">
-                            Vigencia:{' '}
-                            {formatDisplayDate(prof.criminal_record_from || prof.created_at)} —{' '}
-                            {formatDisplayDate(prof.criminal_record_expiry)}
-                          </div>
-
-                          <div className="flex items-center justify-between gap-2 pt-1 border-t border-white/10">
-                            <span className="truncate opacity-85">
-                              ART / Seguro: {prof.insurance_policy_url || 'No cargado'}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${insValidity.badgeClass}`}
-                            >
-                              {insValidity.label}
-                            </span>
-                          </div>
-                          <div className="font-mono text-[10px] opacity-70">
-                            Vigencia: {formatDisplayDate(prof.insurance_from || prof.created_at)} —{' '}
-                            {formatDisplayDate(prof.insurance_expiry)}
+                            Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
+                            {formatDisplayDate(row.untilDate)}
                           </div>
                         </div>
-                      );
-                    })}
+
+                        <button
+                          type="button"
+                          onClick={() => handleEditPersonalDoc(row)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold cursor-pointer hover:opacity-90 shrink-0 self-start sm:self-center"
+                          style={cardStyle}
+                        >
+                          <Edit3 size={11} /> Editar
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             </section>
 
-            {/* Columna Derecha: Especialidades y Credenciales (con ícono Award) */}
+            {/* Columna Derecha: Especialidades y Credenciales */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
@@ -917,13 +939,6 @@ export default function ProviderDashboard() {
                 </span>
               </div>
 
-              <p className="text-[11px] opacity-80 leading-relaxed">
-                Solo las especialidades con estado <strong>Aprobado</strong> (certificadas por Ops
-                TrustLink) son visibles para los residentes en el directorio. Si editás una
-                especialidad, vuelve a revisión de compliance.
-              </p>
-
-              {/* Alta minimalista en una sola fila */}
               <form onSubmit={handleAddSpecialty} className="flex gap-2 text-xs">
                 <input
                   type="text"
@@ -959,12 +974,12 @@ export default function ProviderDashboard() {
                 <div className="space-y-2.5">
                   {providerProfiles.map((prof) => {
                     const isEditing = editingProfileId === prof.id;
-                    const profStatus = formatComplianceStatus(prof.status);
+                    const profStatus = formatSpecialtyStatus(prof.status);
 
                     return (
                       <div
                         key={prof.id}
-                        className="p-3.5 rounded-xl border border-black/20 text-xs space-y-1.5"
+                        className="p-3.5 rounded-xl border border-black/20 text-xs space-y-1"
                         style={innerStyle}
                       >
                         {isEditing ? (
@@ -1020,7 +1035,7 @@ export default function ProviderDashboard() {
                             <p className="text-[11px] opacity-75">
                               {prof.status === 'approved'
                                 ? 'Visible para residentes en el directorio.'
-                                : 'En espera de certificación de Ops TrustLink para mostrarse a residentes.'}
+                                : 'Pendiente de aprobación de compliance para mostrarse a residentes.'}
                             </p>
                           </>
                         )}
