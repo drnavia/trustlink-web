@@ -1,9 +1,11 @@
 /**
  * @file ResidentDashboard.jsx
  * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
- * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos,
- * 4. Reseñas), corrige el envío de `start_time` y `end_time` en POST /api/v1/passes/create
- * e incorpora buscador, filtro por estado y paginación en el listado de pases emitidos.
+ * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas)
+ * con el formulario de Pases QR reordenado:
+ * - Fila 1: Prestador Verificado | Manzana / Fracción | Lote / Destino | Patente (opcional, seleccionable de su flota)
+ * - Fila 2: Válido Desde | Válido Hasta | Botón "Emitir Pase QR"
+ * Además incluye buscador, filtro por estado y paginación en el listado de pases emitidos.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -29,6 +31,7 @@ import {
   Car,
   ChevronLeft,
   ChevronRight,
+  MapPin,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -50,7 +53,7 @@ function toLocalDateTimeInput(dateObj) {
 }
 
 /**
- * Normaliza el estado de un pase QR para mostrar badge semántico en español/consistente.
+ * Normaliza el estado de un pase QR para mostrar badge semántico en español.
  */
 function formatPassBadge(status) {
   const normalized = String(status || 'pending').toLowerCase();
@@ -106,7 +109,8 @@ export default function ResidentDashboard({ onViewChange }) {
   const [passes, setPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [destinationLot, setDestinationLot] = useState('');
+  const [fractionNumber, setFractionNumber] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
   const [validFrom, setValidFrom] = useState(() =>
     toLocalDateTimeInput(new Date(Date.now() - 15 * 60 * 1000))
@@ -223,9 +227,22 @@ export default function ResidentDashboard({ onViewChange }) {
     refreshAll();
   }, [refreshAll]);
 
+  // Prestador actualmente seleccionado y flota vehicular disponible para elegir patente
+  const selectedProviderObj = useMemo(
+    () =>
+      providers.find((p) => String(p.provider_id) === String(selectedProviderId)) || null,
+    [providers, selectedProviderId]
+  );
+
+  const selectedProviderFleet = useMemo(() => {
+    const rawVehicles = selectedProviderObj?.vehicles;
+    if (!Array.isArray(rawVehicles)) return [];
+    return rawVehicles.filter((v) => v && String(v.plate || '').trim());
+  }, [selectedProviderObj]);
+
   /**
-   * Emite un pase QR enviando `provider_id`, `start_time` y `end_time` en formato ISO
-   * para cumplir con la validación obligatoria del backend.
+   * Emite un pase QR enviando `provider_id`, `fraction_number`, `lot_number`,
+   * `vehicle_plate`, `start_time` y `end_time` al backend.
    */
   const handleCreatePass = async (e) => {
     e.preventDefault();
@@ -253,6 +270,9 @@ export default function ResidentDashboard({ onViewChange }) {
       return;
     }
 
+    const cleanFraction = fractionNumber.trim() || 'S/N';
+    const cleanLot = lotNumber.trim() || 'Lote Residente';
+
     setCreatingPass(true);
     setFeedback(null);
     try {
@@ -264,7 +284,9 @@ export default function ResidentDashboard({ onViewChange }) {
         },
         body: JSON.stringify({
           provider_id: Number(selectedProviderId),
-          destination: destinationLot.trim() || 'Lote Residente',
+          fraction_number: cleanFraction,
+          lot_number: cleanLot,
+          destination: `${cleanFraction} — ${cleanLot}`,
           vehicle_plate: vehiclePlate.trim().toUpperCase() || null,
           start_time: startDateObj.toISOString(),
           end_time: endDateObj.toISOString(),
@@ -276,7 +298,8 @@ export default function ResidentDashboard({ onViewChange }) {
           type: 'success',
           text: data.message || 'Pase QR generado con éxito.',
         });
-        setDestinationLot('');
+        setFractionNumber('');
+        setLotNumber('');
         setVehiclePlate('');
         setPassPage(1);
         await fetchMyPasses();
@@ -385,10 +408,19 @@ export default function ResidentDashboard({ onViewChange }) {
       if (!q) return true;
 
       const idStr = String(pass.id || '').toLowerCase();
-      const provStr = String(pass.provider_name || `prestador #${pass.provider_id || ''}`).toLowerCase();
-      const destStr = String(pass.destination || 'domicilio').toLowerCase();
+      const provStr = String(
+        pass.provider_name || `prestador #${pass.provider_id || ''}`
+      ).toLowerCase();
+      const fracStr = String(pass.fraction_number || '').toLowerCase();
+      const lotStr = String(pass.lot_number || pass.destination || 'domicilio').toLowerCase();
       const plateStr = String(pass.vehicle_plate || '').toLowerCase();
-      return idStr.includes(q) || provStr.includes(q) || destStr.includes(q) || plateStr.includes(q);
+      return (
+        idStr.includes(q) ||
+        provStr.includes(q) ||
+        fracStr.includes(q) ||
+        lotStr.includes(q) ||
+        plateStr.includes(q)
+      );
     });
   }, [passes, passSearch, passStatusFilter]);
 
@@ -639,6 +671,7 @@ export default function ResidentDashboard({ onViewChange }) {
                         type="button"
                         onClick={() => {
                           setSelectedProviderId(String(p.provider_id));
+                          setVehiclePlate('');
                           setActiveStep('passes');
                         }}
                         className="text-white text-xs font-bold px-3 py-1.5 rounded-xl inline-flex items-center gap-1.5 cursor-pointer hover:opacity-95"
@@ -654,7 +687,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* PASO 2: Pases QR (Emisión + Buscador + Filtro + Paginación) */}
+        {/* PASO 2: Pases QR (Reubicado con Manzana/Fracción, Lote/Destino, Flota y Paginación) */}
         {activeStep === 'passes' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -668,84 +701,125 @@ export default function ResidentDashboard({ onViewChange }) {
               <span className="text-xs font-mono opacity-80">{passes.length} pase(s)</span>
             </div>
 
-            {/* Formulario de emisión de pase QR */}
+            {/* Formulario UX/UI reordenado en 2 filas equilibradas */}
             <form
               onSubmit={handleCreatePass}
-              className="p-4 rounded-xl border border-white/15 grid grid-cols-1 md:grid-cols-12 gap-3 items-end text-xs"
+              className="p-4 rounded-xl border border-white/15 space-y-3.5 text-xs"
               style={innerStyle}
             >
-              <div className="md:col-span-4">
-                <label className="block text-[10px] opacity-75 mb-1">Prestador Verificado</label>
-                <select
-                  value={selectedProviderId}
-                  onChange={(e) => setSelectedProviderId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                >
-                  {providers.map((p) => (
-                    <option key={p.provider_id} value={p.provider_id}>
-                      {p.first_name} {p.last_name} — {p.specialty}
-                    </option>
-                  ))}
-                </select>
+              {/* Fila 1: Prestador Verificado | Manzana / Fracción | Lote / Destino | Patente (de flota) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                <div className="lg:col-span-4">
+                  <label className="block text-[10px] opacity-75 mb-1">Prestador Verificado</label>
+                  <select
+                    value={selectedProviderId}
+                    onChange={(e) => {
+                      setSelectedProviderId(e.target.value);
+                      setVehiclePlate('');
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  >
+                    {providers.map((p) => (
+                      <option key={p.provider_id} value={p.provider_id}>
+                        {p.first_name} {p.last_name} — {p.specialty}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="lg:col-span-2">
+                  <label className="block text-[10px] opacity-75 mb-1">Manzana / Fracción</label>
+                  <input
+                    type="text"
+                    required
+                    value={fractionNumber}
+                    onChange={(e) => setFractionNumber(e.target.value)}
+                    placeholder="Ej: Mz 4 / Fracc 2"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
+
+                <div className="lg:col-span-3">
+                  <label className="block text-[10px] opacity-75 mb-1">Lote / Destino</label>
+                  <input
+                    type="text"
+                    required
+                    value={lotNumber}
+                    onChange={(e) => setLotNumber(e.target.value)}
+                    placeholder="Ej: Lote 42 - Sector Norte"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
+
+                <div className="lg:col-span-3">
+                  <label className="block text-[10px] opacity-75 mb-1">
+                    Patente (opcional · Flota)
+                  </label>
+                  {selectedProviderFleet.length > 0 ? (
+                    <select
+                      value={vehiclePlate}
+                      onChange={(e) => setVehiclePlate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                      style={cardStyle}
+                    >
+                      <option value="">Sin vehículo / Ingreso peatonal</option>
+                      {selectedProviderFleet.map((veh) => (
+                        <option key={veh.id || veh.plate} value={veh.plate}>
+                          {veh.plate} — {[veh.brand, veh.model].filter(Boolean).join(' ') || veh.vehicle_type || 'Vehículo'}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={vehiclePlate}
+                      onChange={(e) => setVehiclePlate(e.target.value)}
+                      placeholder="Sin flota cargada (o patente)"
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                      style={cardStyle}
+                    />
+                  )}
+                </div>
               </div>
 
-              <div className="md:col-span-3">
-                <label className="block text-[10px] opacity-75 mb-1">Lote / Destino</label>
-                <input
-                  type="text"
-                  value={destinationLot}
-                  onChange={(e) => setDestinationLot(e.target.value)}
-                  placeholder="Ej: Lote 42 - Sector Norte"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
+              {/* Fila 2: Válido Desde | Válido Hasta | Botón "Emitir Pase QR" */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
+                <div className="lg:col-span-4">
+                  <label className="block text-[10px] opacity-75 mb-1">Válido Desde</label>
+                  <input
+                    type="datetime-local"
+                    value={validFrom}
+                    onChange={(e) => setValidFrom(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
 
-              <div className="md:col-span-2">
-                <label className="block text-[10px] opacity-75 mb-1">Patente (opcional)</label>
-                <input
-                  type="text"
-                  value={vehiclePlate}
-                  onChange={(e) => setVehiclePlate(e.target.value)}
-                  placeholder="AF123CD"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
+                <div className="lg:col-span-4">
+                  <label className="block text-[10px] opacity-75 mb-1">Válido Hasta</label>
+                  <input
+                    type="datetime-local"
+                    value={validUntil}
+                    onChange={(e) => setValidUntil(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
 
-              <div className="md:col-span-3 flex justify-end">
-                <button
-                  type="submit"
-                  disabled={creatingPass || providers.length === 0}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50"
-                  style={{ backgroundColor: primaryActionColor }}
-                >
-                  <QrCode size={14} />
-                  {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
-                </button>
-              </div>
-
-              <div className="md:col-span-6">
-                <label className="block text-[10px] opacity-75 mb-1">Válido Desde</label>
-                <input
-                  type="datetime-local"
-                  value={validFrom}
-                  onChange={(e) => setValidFrom(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
-              </div>
-
-              <div className="md:col-span-6">
-                <label className="block text-[10px] opacity-75 mb-1">Válido Hasta</label>
-                <input
-                  type="datetime-local"
-                  value={validUntil}
-                  onChange={(e) => setValidUntil(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={cardStyle}
-                />
+                <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={creatingPass || providers.length === 0}
+                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50"
+                    style={{ backgroundColor: primaryActionColor }}
+                  >
+                    <QrCode size={14} />
+                    {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
+                  </button>
+                </div>
               </div>
             </form>
 
@@ -760,7 +834,7 @@ export default function ResidentDashboard({ onViewChange }) {
                     setPassSearch(e.target.value);
                     setPassPage(1);
                   }}
-                  placeholder="Buscar pase por #, prestador, destino o patente..."
+                  placeholder="Buscar pase por #, prestador, manzana/fracción, lote o patente..."
                   className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 />
@@ -803,6 +877,9 @@ export default function ResidentDashboard({ onViewChange }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {paginatedPasses.map((pass) => {
                     const badge = formatPassBadge(pass.status);
+                    const locationParts = [pass.fraction_number, pass.lot_number]
+                      .filter(Boolean)
+                      .join(' · ');
                     return (
                       <div
                         key={pass.id}
@@ -823,9 +900,10 @@ export default function ResidentDashboard({ onViewChange }) {
                           {pass.provider_name || `Prestador #${pass.provider_id}`}
                         </p>
                         <p className="opacity-80 flex items-center gap-1.5 flex-wrap">
-                          <Calendar size={12} /> Destino: {pass.destination || 'Domicilio'}
+                          <MapPin size={12} /> Destino:{' '}
+                          {locationParts || pass.destination || 'Domicilio'}
                           {pass.vehicle_plate && (
-                            <span className="inline-flex items-center gap-1 ml-2 font-mono">
+                            <span className="inline-flex items-center gap-1 ml-2 font-mono text-sky-300">
                               <Car size={12} /> {pass.vehicle_plate}
                             </span>
                           )}
