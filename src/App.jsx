@@ -253,7 +253,7 @@ function MainAppContent() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 px-3 py-1.5 rounded-xl font-bold transition-colors cursor-pointer shadow-sm"
+                className="inline-flex items-center gap-1.5 bg-rose-950/55 hover:bg-rose-900/75 text-rose-200 border border-rose-800/70 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer"
                 title="Cerrar sesión"
               >
                 <LogOut size={13} /> Salir
