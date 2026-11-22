@@ -1,8 +1,8 @@
 /**
  * @file SystemHealthDashboard.jsx
  * @description Consola integral exclusiva para el rol 'superadmin' con tres pestañas:
- * 1) Resumen: estado del Backend, PostgreSQL y API Externa, comunidades, claves por comunidad,
- *    pases QR recientes y sandbox externo.
+ * 1) Resumen: estado del Backend, PostgreSQL y API Externa, comunidades (con carga completa para el selector),
+ *    claves por comunidad, pases QR recientes con persistencia de 'expired' y sandbox externo.
  * 2) Endpoints: catálogo de endpoints del backend, requisitos de auth/roles, estado de configuración
  *    del entorno y prueba rápida en vivo.
  * 3) Auditoría: bitácora de intentos de validación de acceso y resumen/listado de transacciones.
@@ -43,7 +43,6 @@ import { useAuth } from '../auth/AuthContext';
 const API_BASE = 'http://localhost:4000';
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
-// Catálogo de referencia de endpoints críticos de TrustLink para inspección del superadmin
 const SYSTEM_ENDPOINTS_CATALOG = [
   {
     id: 'health-root',
@@ -127,9 +126,6 @@ const SYSTEM_ENDPOINTS_CATALOG = [
   }
 ];
 
-/**
- * Convierte un timestamp o epoch UTC a milisegundos epoch UTC sin sumar/restar horas manualmente.
- */
 function parseUtcTimestampMs(value, fallbackMs = null) {
   if (fallbackMs !== null && fallbackMs !== undefined && !Number.isNaN(Number(fallbackMs))) {
     return Number(fallbackMs);
@@ -144,9 +140,6 @@ function parseUtcTimestampMs(value, fallbackMs = null) {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/**
- * Formatea un instante UTC en la zona horaria del usuario logueado (por defecto UTC-3).
- */
 function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
   const ms = parseUtcTimestampMs(value, fallbackMs);
   if (ms === null) return 'No especificado';
@@ -173,19 +166,16 @@ export default function SystemHealthDashboard() {
   const { user } = useAuth();
   const activeTimeZone = user?.timezone || user?.time_zone || DEFAULT_TIMEZONE;
 
-  // Zona 4: Tarjetas principales
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
   };
 
-  // Zona 5: Cajas internas, inputs y contenedores secundarios
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
-  // Pestañas internas: 'health' (Resumen) | 'endpoints' (Endpoints) | 'audit' (Auditoría)
   const [activeTab, setActiveTab] = useState('health');
 
   // Salud y diagnóstico
@@ -205,7 +195,9 @@ export default function SystemHealthDashboard() {
 
   // Comunidades (countries)
   const [countries, setCountries] = useState([]);
+  const [allCountriesOptions, setAllCountriesOptions] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
+  const [countryLoadError, setCountryLoadError] = useState('');
   const [countrySearch, setCountrySearch] = useState('');
   const [countryStatusFilter, setCountryStatusFilter] = useState('all');
   const [countryPage, setCountryPage] = useState(1);
@@ -372,17 +364,38 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  const fetchAllCountriesForSelector = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/external/countries?page=1&limit=100`, {
+        headers: getAuthHeaders()
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const list = data.countries || [];
+        setAllCountriesOptions(list);
+        if (!selectedCountryForKey && list.length > 0) {
+          setSelectedCountryForKey(String(list[0].id));
+        }
+      }
+    } catch (err) {
+      console.error('Error al cargar opciones de comunidades:', err);
+    }
+  };
+
   const fetchCountries = async (
     pageToLoad = countryPage,
     searchToLoad = countrySearch,
-    limitToLoad = countryPageSize
+    limitToLoad = countryPageSize,
+    statusToLoad = countryStatusFilter
   ) => {
     setLoadingCountries(true);
+    setCountryLoadError('');
     try {
       const params = new URLSearchParams({
         page: String(pageToLoad),
         limit: String(limitToLoad),
-        search: searchToLoad
+        search: searchToLoad,
+        status: statusToLoad
       });
       const res = await fetch(`${API_BASE}/api/v1/external/countries?${params.toString()}`, {
         headers: getAuthHeaders()
@@ -398,9 +411,12 @@ export default function SystemHealthDashboard() {
         setCountryPage(pagination.page || pageToLoad);
         setCountryTotalPages(pagination.totalPages || 1);
         setCountryTotalCount(pagination.total ?? list.length);
+      } else {
+        setCountryLoadError(data.error || `Error HTTP ${res.status} al cargar comunidades.`);
       }
     } catch (error) {
       console.error('Error al cargar comunidades:', error);
+      setCountryLoadError('Error de conexión al consultar las comunidades.');
     } finally {
       setLoadingCountries(false);
     }
@@ -523,7 +539,8 @@ export default function SystemHealthDashboard() {
 
   useEffect(() => {
     fetchSystemHealth();
-    fetchCountries(1, '', countryPageSize);
+    fetchAllCountriesForSelector();
+    fetchCountries(1, '', countryPageSize, 'all');
     fetchIntegrations(1, integrationsPageSize);
     fetchRecentPasses(1, 'all', '', passPageSize);
   }, []);
@@ -537,7 +554,8 @@ export default function SystemHealthDashboard() {
   const handleRefreshAll = async () => {
     await Promise.all([
       fetchSystemHealth(),
-      fetchCountries(countryPage, countrySearch, countryPageSize),
+      fetchAllCountriesForSelector(),
+      fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
       fetchIntegrations(integrationsPage, integrationsPageSize),
       fetchRecentPasses(passPage, passStatusFilter, passSearch, passPageSize),
       ...(activeTab === 'audit'
@@ -550,7 +568,7 @@ export default function SystemHealthDashboard() {
     setCountrySearch('');
     setCountryStatusFilter('all');
     setCountryPage(1);
-    await fetchCountries(1, '', countryPageSize);
+    await fetchCountries(1, '', countryPageSize, 'all');
   };
 
   const handleCreateCountry = async (e) => {
@@ -581,7 +599,11 @@ export default function SystemHealthDashboard() {
         setNewCountryPostalCode('');
         setNewCountryCity('');
         setNewCountryProvince('');
-        await Promise.all([fetchCountries(1, countrySearch, countryPageSize), fetchSystemHealth()]);
+        await Promise.all([
+          fetchAllCountriesForSelector(),
+          fetchCountries(1, countrySearch, countryPageSize, countryStatusFilter),
+          fetchSystemHealth()
+        ]);
       } else {
         setCountryFeedback({
           type: 'error',
@@ -632,7 +654,10 @@ export default function SystemHealthDashboard() {
           message: data.message || 'Comunidad actualizada.'
         });
         setEditingCountryId(null);
-        await fetchCountries(countryPage, countrySearch, countryPageSize);
+        await Promise.all([
+          fetchAllCountriesForSelector(),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter)
+        ]);
       } else {
         setCountryFeedback({
           type: 'error',
@@ -662,7 +687,8 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         setCountryFeedback({ type: 'success', message: data.message || 'Estado actualizado.' });
         await Promise.all([
-          fetchCountries(countryPage, countrySearch, countryPageSize),
+          fetchAllCountriesForSelector(),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
           fetchSystemHealth()
         ]);
       } else {
@@ -711,7 +737,7 @@ export default function SystemHealthDashboard() {
         }
         await Promise.all([
           fetchIntegrations(1, integrationsPageSize),
-          fetchCountries(countryPage, countrySearch, countryPageSize),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
           fetchSystemHealth()
         ]);
       } else {
@@ -782,7 +808,7 @@ export default function SystemHealthDashboard() {
         });
         await Promise.all([
           fetchIntegrations(integrationsPage, integrationsPageSize),
-          fetchCountries(countryPage, countrySearch, countryPageSize),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
           fetchSystemHealth()
         ]);
       } else {
@@ -963,12 +989,6 @@ export default function SystemHealthDashboard() {
     return resolvePassDisplayStatus(pass).key === passStatusFilter;
   });
 
-  const filteredCountries = countries.filter((c) => {
-    if (countryStatusFilter === 'active') return Boolean(c.is_active);
-    if (countryStatusFilter === 'inactive') return !c.is_active;
-    return true;
-  });
-
   const filteredEndpoints = SYSTEM_ENDPOINTS_CATALOG.filter((ep) => {
     const q = endpointFilter.trim().toLowerCase();
     if (!q) return true;
@@ -1001,6 +1021,8 @@ export default function SystemHealthDashboard() {
   const activeCountriesCount = metrics.active_countries ?? 0;
   const totalCountriesCount = metrics.total_countries ?? 0;
   const envKeyConfigured = Boolean(diagnosticsData?.external_endpoint?.env_api_key_configured);
+  const selectorCountriesList =
+    allCountriesOptions.length > 0 ? allCountriesOptions : countries;
 
   return (
     <div className="p-6 md:p-8 flex-1">
@@ -1103,9 +1125,8 @@ export default function SystemHealthDashboard() {
               </div>
             )}
 
-            {/* Tarjetas de estado con diagnóstico y accionables */}
+            {/* Tarjetas de estado */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {/* 1. Backend */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1186,7 +1207,6 @@ export default function SystemHealthDashboard() {
                 )}
               </section>
 
-              {/* 2. PostgreSQL */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1229,7 +1249,6 @@ export default function SystemHealthDashboard() {
                 </div>
               </section>
 
-              {/* 3. API Externa */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1295,7 +1314,7 @@ export default function SystemHealthDashboard() {
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           setCountryPage(1);
-                          fetchCountries(1, countrySearch, countryPageSize);
+                          fetchCountries(1, countrySearch, countryPageSize, countryStatusFilter);
                         }
                       }}
                       placeholder="Buscar barrio..."
@@ -1305,7 +1324,12 @@ export default function SystemHealthDashboard() {
                   </div>
                   <select
                     value={countryStatusFilter}
-                    onChange={(e) => setCountryStatusFilter(e.target.value)}
+                    onChange={(e) => {
+                      const nextStatus = e.target.value;
+                      setCountryStatusFilter(nextStatus);
+                      setCountryPage(1);
+                      fetchCountries(1, countrySearch, countryPageSize, nextStatus);
+                    }}
                     className="px-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
                     style={innerStyle}
                   >
@@ -1317,7 +1341,7 @@ export default function SystemHealthDashboard() {
                     type="button"
                     onClick={() => {
                       setCountryPage(1);
-                      fetchCountries(1, countrySearch, countryPageSize);
+                      fetchCountries(1, countrySearch, countryPageSize, countryStatusFilter);
                     }}
                     className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
                     style={innerStyle}
@@ -1392,6 +1416,24 @@ export default function SystemHealthDashboard() {
                 </div>
               </form>
 
+              {countryLoadError && (
+                <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs border bg-rose-950/50 border-rose-800 text-rose-200">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={15} className="shrink-0" />
+                    <span>{countryLoadError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter)
+                    }
+                    className="px-2.5 py-1 rounded-lg bg-rose-900 text-white font-bold cursor-pointer shrink-0"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+
               {countryFeedback && (
                 <div
                   className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
@@ -1411,7 +1453,7 @@ export default function SystemHealthDashboard() {
 
               {loadingCountries ? (
                 <div className="text-center py-6 text-xs opacity-80">Cargando comunidades...</div>
-              ) : filteredCountries.length === 0 ? (
+              ) : countries.length === 0 ? (
                 <div
                   className="text-center py-6 rounded-xl border border-black/20 text-xs opacity-80 space-y-2"
                   style={innerStyle}
@@ -1442,7 +1484,7 @@ export default function SystemHealthDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-black/15">
-                      {filteredCountries.map((c) => {
+                      {countries.map((c) => {
                         const isEditing = editingCountryId === c.id;
                         const locationSummary =
                           [c.city, c.province, c.postal_code].filter(Boolean).join(', ') || '-';
@@ -1576,7 +1618,7 @@ export default function SystemHealthDashboard() {
                       const nextSize = Number(e.target.value);
                       setCountryPageSize(nextSize);
                       setCountryPage(1);
-                      fetchCountries(1, countrySearch, nextSize);
+                      fetchCountries(1, countrySearch, nextSize, countryStatusFilter);
                     }}
                     className="px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
                     style={innerStyle}
@@ -1593,7 +1635,7 @@ export default function SystemHealthDashboard() {
                     onClick={() => {
                       const prev = Math.max(countryPage - 1, 1);
                       setCountryPage(prev);
-                      fetchCountries(prev, countrySearch, countryPageSize);
+                      fetchCountries(prev, countrySearch, countryPageSize, countryStatusFilter);
                     }}
                     className="px-3 py-1 rounded-lg border border-white/15 font-semibold disabled:opacity-40 cursor-pointer"
                     style={innerStyle}
@@ -1606,7 +1648,7 @@ export default function SystemHealthDashboard() {
                     onClick={() => {
                       const next = Math.min(countryPage + 1, countryTotalPages);
                       setCountryPage(next);
-                      fetchCountries(next, countrySearch, countryPageSize);
+                      fetchCountries(next, countrySearch, countryPageSize, countryStatusFilter);
                     }}
                     className="px-3 py-1 rounded-lg border border-white/15 font-semibold disabled:opacity-40 cursor-pointer"
                     style={innerStyle}
@@ -1659,10 +1701,10 @@ export default function SystemHealthDashboard() {
                   className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                   style={innerStyle}
                 >
-                  {countries.length === 0 ? (
+                  {selectorCountriesList.length === 0 ? (
                     <option value="">Sin comunidades cargadas</option>
                   ) : (
-                    countries.map((c) => (
+                    selectorCountriesList.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name} (#{c.id})
                       </option>
@@ -2173,7 +2215,6 @@ export default function SystemHealthDashboard() {
 
         {activeTab === 'endpoints' && (
           <div className="space-y-6">
-            {/* Resumen de configuración de API / Seguridad para Superadmin */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-2"
@@ -2211,7 +2252,6 @@ export default function SystemHealthDashboard() {
               </section>
             </div>
 
-            {/* Catálogo y prueba rápida de Endpoints */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
