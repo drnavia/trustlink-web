@@ -1,9 +1,11 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Consola integral exclusiva para el rol 'superadmin' (Salud & APIs y Auditoría).
- * Incluye diagnóstico explícito del Backend y accionables operativos, estado de PostgreSQL y API Externa,
- * gestión de comunidades, claves API por comunidad con paginación, pases QR recientes con persistencia
- * de 'expired' y coherencia horaria, sandbox en vivo y auditoría de accesos y transacciones.
+ * @description Consola integral exclusiva para el rol 'superadmin' con tres pestañas:
+ * 1) Resumen: estado del Backend, PostgreSQL y API Externa, comunidades, claves por comunidad,
+ *    pases QR recientes y sandbox externo.
+ * 2) Endpoints: catálogo de endpoints del backend, requisitos de auth/roles, estado de configuración
+ *    del entorno y prueba rápida en vivo.
+ * 3) Auditoría: bitácora de intentos de validación de acceso y resumen/listado de transacciones.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -30,13 +32,100 @@ import {
   XCircle,
   AlertCircle,
   ClipboardList,
-  Receipt
+  Receipt,
+  Webhook,
+  Play,
+  Lock
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = 'http://localhost:4000';
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+// Catálogo de referencia de endpoints críticos de TrustLink para inspección del superadmin
+const SYSTEM_ENDPOINTS_CATALOG = [
+  {
+    id: 'health-root',
+    method: 'GET',
+    path: '/health',
+    module: 'Salud',
+    auth: 'Público',
+    roles: 'Todos',
+    summary: 'Verifica disponibilidad básica del servidor Express y devuelve timestamp.',
+    testable: true
+  },
+  {
+    id: 'external-status',
+    method: 'GET',
+    path: '/api/v1/external/status',
+    module: 'Diagnóstico',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Evalúa conexión y latencia de PostgreSQL, uptime y métricas generales de la red.',
+    testable: true
+  },
+  {
+    id: 'external-passes-verify',
+    method: 'POST',
+    path: '/api/v1/external/passes/verify',
+    module: 'Garita / API Externa',
+    auth: 'x-api-key o Bearer JWT',
+    roles: 'external_gate / admin / superadmin / security',
+    summary: 'Valida token QR, vigencia horaria, comunidad y compliance del prestador en tiempo real.',
+    testable: false
+  },
+  {
+    id: 'external-countries',
+    method: 'GET / POST',
+    path: '/api/v1/external/countries',
+    module: 'Comunidades',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Lista con paginación y da de alta barrios/comunidades habilitados en la red.',
+    testable: false
+  },
+  {
+    id: 'external-integrations',
+    method: 'GET / POST',
+    path: '/api/v1/external/integrations',
+    module: 'Claves API',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Administra claves de integración por comunidad (crear, rotar y activar/revocar).',
+    testable: false
+  },
+  {
+    id: 'external-audit',
+    method: 'GET',
+    path: '/api/v1/external/audit',
+    module: 'Auditoría',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Consulta bitácora paginada de accesos (autorizados/denegados) y transacciones.',
+    testable: false
+  },
+  {
+    id: 'providers-directory',
+    method: 'GET',
+    path: '/api/v1/providers/directory',
+    module: 'Prestadores',
+    auth: 'Bearer JWT',
+    roles: 'owner / family / admin / superadmin',
+    summary: 'Devuelve el directorio unificado de prestadores aprobados con especialidades y scoring.',
+    testable: false
+  },
+  {
+    id: 'providers-compliance',
+    method: 'PATCH',
+    path: '/api/v1/providers/compliance',
+    module: 'Compliance',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Aprueba, rechaza o deja pendiente el estado de compliance global de un prestador.',
+    testable: false
+  }
+];
 
 /**
  * Convierte un timestamp o epoch UTC a milisegundos epoch UTC sin sumar/restar horas manualmente.
@@ -79,7 +168,7 @@ function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
   }
 }
 
-export default function SystemHealthDashboard({ onNavigate }) {
+export default function SystemHealthDashboard() {
   const { brand } = useBranding();
   const { user } = useAuth();
   const activeTimeZone = user?.timezone || user?.time_zone || DEFAULT_TIMEZONE;
@@ -96,6 +185,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
+  // Pestañas internas: 'health' (Resumen) | 'endpoints' (Endpoints) | 'audit' (Auditoría)
   const [activeTab, setActiveTab] = useState('health');
 
   // Salud y diagnóstico
@@ -107,6 +197,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const [healthData, setHealthData] = useState(null);
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [showBackendDiagDetails, setShowBackendDiagDetails] = useState(false);
+
+  // Prueba rápida de endpoint desde la pestaña Endpoints
+  const [endpointFilter, setEndpointFilter] = useState('');
+  const [probingEndpointId, setProbingEndpointId] = useState(null);
+  const [endpointProbeResult, setEndpointProbeResult] = useState(null);
 
   // Comunidades (countries)
   const [countries, setCountries] = useState([]);
@@ -237,6 +332,43 @@ export default function SystemHealthDashboard({ onNavigate }) {
       setDiagnosticsData(null);
     } finally {
       setLoadingStatus(false);
+    }
+  };
+
+  const handleProbeEndpoint = async (ep) => {
+    setProbingEndpointId(ep.id);
+    setEndpointProbeResult(null);
+    const startedAt = performance.now();
+
+    try {
+      const needsAuth = ep.auth.includes('Bearer JWT');
+      const res = await fetch(`${API_BASE}${ep.path}`, {
+        method: 'GET',
+        headers: needsAuth ? getAuthHeaders() : {}
+      });
+      const elapsed = Math.round(performance.now() - startedAt);
+      const body = await res.json().catch(() => ({}));
+
+      setEndpointProbeResult({
+        endpointId: ep.id,
+        path: ep.path,
+        ok: res.ok,
+        status: res.status,
+        latencyMs: elapsed,
+        body
+      });
+    } catch (err) {
+      console.error('Error al probar endpoint:', err);
+      setEndpointProbeResult({
+        endpointId: ep.id,
+        path: ep.path,
+        ok: false,
+        status: 0,
+        latencyMs: Math.round(performance.now() - startedAt),
+        body: { error: 'No se pudo alcanzar el endpoint en el backend.' }
+      });
+    } finally {
+      setProbingEndpointId(null);
     }
   };
 
@@ -678,8 +810,11 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const handleLoadTokenInSandbox = (token) => {
     setTestQrToken(token);
     setSandboxResponse(null);
-    const el = document.getElementById('external-sandbox-section');
-    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setActiveTab('health');
+    setTimeout(() => {
+      const el = document.getElementById('external-sandbox-section');
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
   };
 
   const handleCancelPass = async (passId) => {
@@ -834,7 +969,17 @@ export default function SystemHealthDashboard({ onNavigate }) {
     return true;
   });
 
-  // Evaluación detallada del estado del Backend y motivo legible
+  const filteredEndpoints = SYSTEM_ENDPOINTS_CATALOG.filter((ep) => {
+    const q = endpointFilter.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      ep.path.toLowerCase().includes(q) ||
+      ep.module.toLowerCase().includes(q) ||
+      ep.method.toLowerCase().includes(q) ||
+      ep.summary.toLowerCase().includes(q)
+    );
+  });
+
   const hasNetworkOrHttpFailure =
     Boolean(statusError) ||
     (healthHttpStatus !== null && healthHttpStatus >= 400) ||
@@ -855,13 +1000,14 @@ export default function SystemHealthDashboard({ onNavigate }) {
   const activeKeysCount = metrics.active_integrations ?? 0;
   const activeCountriesCount = metrics.active_countries ?? 0;
   const totalCountriesCount = metrics.total_countries ?? 0;
+  const envKeyConfigured = Boolean(diagnosticsData?.external_endpoint?.env_api_key_configured);
 
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera */}
+        {/* Cabecera con selector de pestañas: Resumen, Endpoints y Auditoría */}
         <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+          className="border border-black/20 p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4"
           style={cardStyle}
         >
           <div className="flex items-center gap-3.5">
@@ -874,7 +1020,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
             <div>
               <h2 className="text-xl font-black tracking-tight">Salud &amp; APIs</h2>
               <p className="text-xs opacity-80 mt-0.5">
-                Estado del sistema, barrios, claves de garita, pases QR y auditoría.
+                Estado del sistema, endpoints, barrios, claves de garita, pases QR y auditoría.
               </p>
             </div>
           </div>
@@ -888,16 +1034,31 @@ export default function SystemHealthDashboard({ onNavigate }) {
                 type="button"
                 onClick={() => setActiveTab('health')}
                 className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'health' ? 'bg-emerald-600 text-white' : 'opacity-80 hover:opacity-100'
+                  activeTab === 'health'
+                    ? 'bg-emerald-600 text-white'
+                    : 'opacity-80 hover:opacity-100'
                 }`}
               >
-                Salud &amp; APIs
+                Resumen
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('endpoints')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'endpoints'
+                    ? 'bg-sky-600 text-white'
+                    : 'opacity-80 hover:opacity-100'
+                }`}
+              >
+                <Webhook size={13} /> Endpoints
               </button>
               <button
                 type="button"
                 onClick={() => setActiveTab('audit')}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'audit' ? 'bg-indigo-600 text-white' : 'opacity-80 hover:opacity-100'
+                  activeTab === 'audit'
+                    ? 'bg-indigo-600 text-white'
+                    : 'opacity-80 hover:opacity-100'
                 }`}
               >
                 <ClipboardList size={13} /> Auditoría
@@ -924,7 +1085,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
           </div>
         </section>
 
-        {activeTab === 'health' ? (
+        {activeTab === 'health' && (
           <div className="space-y-6">
             {statusError && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
@@ -944,7 +1105,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
 
             {/* Tarjetas de estado con diagnóstico y accionables */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {/* 1. Backend con diagnóstico y accionables */}
+              {/* 1. Backend */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1020,9 +1181,7 @@ export default function SystemHealthDashboard({ onNavigate }) {
                     <div>/health HTTP: {healthHttpStatus ?? 'N/A'}</div>
                     <div>/external/status HTTP: {diagHttpStatus ?? 'N/A'}</div>
                     <div>Entorno: {diagnosticsData?.environment || 'desarrollo'}</div>
-                    <div>
-                      BD Latencia: {diagnosticsData?.database?.latency_ms ?? '-'} ms
-                    </div>
+                    <div>BD Latencia: {diagnosticsData?.database?.latency_ms ?? '-'} ms</div>
                   </div>
                 )}
               </section>
@@ -1806,8 +1965,12 @@ export default function SystemHealthDashboard({ onNavigate }) {
                               </div>
                             </td>
                             <td className="py-2.5 px-3 text-[11px] font-mono">
-                              <div>In: {formatDateTime(pass.start_time, activeTimeZone, pass.start_utc_ms)}</div>
-                              <div>Out: {formatDateTime(pass.end_time, activeTimeZone, pass.end_utc_ms)}</div>
+                              <div>
+                                In: {formatDateTime(pass.start_time, activeTimeZone, pass.start_utc_ms)}
+                              </div>
+                              <div>
+                                Out: {formatDateTime(pass.end_time, activeTimeZone, pass.end_utc_ms)}
+                              </div>
                             </td>
                             <td className="py-2.5 px-3">
                               <div className="inline-flex flex-col items-start gap-1">
@@ -2006,7 +2169,170 @@ export default function SystemHealthDashboard({ onNavigate }) {
               )}
             </section>
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'endpoints' && (
+          <div className="space-y-6">
+            {/* Resumen de configuración de API / Seguridad para Superadmin */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              <section
+                className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-2"
+                style={cardStyle}
+              >
+                <div className="text-xs opacity-75">Clave global de entorno (ENV)</div>
+                <div className="text-sm font-black">
+                  {envKeyConfigured ? 'Configurada' : 'No definida (usa claves por barrio / JWT)'}
+                </div>
+                <p className="text-[11px] opacity-75">
+                  Las garitas también pueden autenticarse mediante clave API por comunidad.
+                </p>
+              </section>
+
+              <section
+                className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-2"
+                style={cardStyle}
+              >
+                <div className="text-xs opacity-75">Modos de autenticación soportados</div>
+                <div className="text-sm font-black font-mono">x-api-key · Bearer JWT</div>
+                <p className="text-[11px] opacity-75">
+                  Roles internos con acceso a verificación: admin, superadmin y security.
+                </p>
+              </section>
+
+              <section
+                className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-2"
+                style={cardStyle}
+              >
+                <div className="text-xs opacity-75">Base URL activa del backend</div>
+                <div className="text-sm font-black font-mono break-all">{API_BASE}</div>
+                <p className="text-[11px] opacity-75">
+                  Zona horaria de visualización activa: {activeTimeZone}.
+                </p>
+              </section>
+            </div>
+
+            {/* Catálogo y prueba rápida de Endpoints */}
+            <section
+              className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              style={cardStyle}
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-black/20 pb-4">
+                <div>
+                  <h3 className="text-sm font-bold">
+                    Mapa de Endpoints del Backend ({filteredEndpoints.length})
+                  </h3>
+                  <p className="text-xs opacity-80 mt-0.5">
+                    Consultá permisos, autenticación y ejecutá una prueba rápida sobre endpoints habilitados.
+                  </p>
+                </div>
+
+                <div className="relative w-full sm:w-72">
+                  <Search
+                    size={13}
+                    className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
+                  />
+                  <input
+                    type="text"
+                    value={endpointFilter}
+                    onChange={(e) => setEndpointFilter(e.target.value)}
+                    placeholder="Filtrar ruta, método o módulo..."
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={innerStyle}
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-black/20" style={innerStyle}>
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-black/20 opacity-75">
+                      <th className="py-2.5 px-3 font-semibold">Método</th>
+                      <th className="py-2.5 px-3 font-semibold">Ruta</th>
+                      <th className="py-2.5 px-3 font-semibold">Auth / Roles</th>
+                      <th className="py-2.5 px-3 font-semibold">Función</th>
+                      <th className="py-2.5 px-3 font-semibold text-right">Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-black/15">
+                    {filteredEndpoints.map((ep) => {
+                      const isProbing = probingEndpointId === ep.id;
+                      return (
+                        <tr key={ep.id}>
+                          <td className="py-2.5 px-3 font-mono font-bold text-sky-300 whitespace-nowrap">
+                            {ep.method}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[11px]">{ep.path}</td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-semibold flex items-center gap-1">
+                              <Lock size={11} className="opacity-70 shrink-0" />
+                              <span>{ep.auth}</span>
+                            </div>
+                            <div className="text-[11px] opacity-75 font-mono">{ep.roles}</div>
+                          </td>
+                          <td className="py-2.5 px-3 opacity-85">{ep.summary}</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            {ep.testable ? (
+                              <button
+                                type="button"
+                                disabled={isProbing}
+                                onClick={() => handleProbeEndpoint(ep)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-sky-600 hover:bg-sky-500 text-white disabled:opacity-50 cursor-pointer"
+                              >
+                                <Play size={11} />
+                                {isProbing ? 'Probando...' : 'Probar'}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleLoadTokenInSandbox(testQrToken)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <QrCode size={11} /> Sandbox
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {endpointProbeResult && (
+                <div
+                  className="border border-black/20 rounded-xl p-4 space-y-2.5"
+                  style={innerStyle}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 font-bold">
+                      {endpointProbeResult.ok ? (
+                        <CheckCircle2 size={15} className="text-emerald-400" />
+                      ) : (
+                        <XCircle size={15} className="text-rose-400" />
+                      )}
+                      <span className="font-mono">{endpointProbeResult.path}</span>
+                      <span
+                        className="font-mono text-[11px] px-2 py-0.5 rounded border border-white/15"
+                        style={cardStyle}
+                      >
+                        HTTP {endpointProbeResult.status}
+                      </span>
+                    </div>
+                    <span className="font-mono text-[11px] opacity-80">
+                      {endpointProbeResult.latencyMs} ms
+                    </span>
+                  </div>
+                  <pre className="text-[11px] font-mono overflow-x-auto max-h-56 opacity-90">
+                    {JSON.stringify(endpointProbeResult.body, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activeTab === 'audit' && (
           <div className="space-y-6">
             {auditError && (
               <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
