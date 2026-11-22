@@ -2,8 +2,7 @@
  * @file ContractPaymentView.jsx
  * @description Vista de Pagos y Reseñas para residentes/propietarios, con desglose
  * financiero (Take Rate 7% / Neto Prestador 93%), contratación desde pases QR vigentes
- * y sección unificada "Reseñas y Reputación Cruzada" mostrando tanto la calificación
- * emitida al prestador como la reseña cruzada recibida desde el prestador.
+ * y sección unificada "Reseñas y Reputación Cruzada" con cajas alineadas.
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
@@ -542,9 +541,7 @@ export default function ContractPaymentView({ onViewChange }) {
             </div>
 
             <span className={statusBadgeClass} style={innerStyle}>
-              {reviewContracts.length === 0
-                ? 'Sin contratos'
-                : `${reviewContracts.length} contrato(s)`}
+              {reviewContracts.length} contrato(s)
             </span>
           </div>
 
@@ -589,7 +586,7 @@ export default function ContractPaymentView({ onViewChange }) {
                 return (
                   <div
                     key={item.contract_id}
-                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -626,7 +623,7 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     ) : (
                       <div
-                        className="p-3.5 rounded-lg border border-black/20 space-y-2.5"
+                        className="p-3 rounded-lg border border-white/15 space-y-2.5"
                         style={cardStyle}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -696,7 +693,7 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     )}
 
-                    {/* Reseña recibida desde el prestador */}
+                    {/* Reseña recibida desde el prestador (estilo alineado) */}
                     {item.owner_review_rating ? (
                       <div className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/35 flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold text-indigo-300">
@@ -710,11 +707,8 @@ export default function ContractPaymentView({ onViewChange }) {
                         )}
                       </div>
                     ) : (
-                      <div
-                        className="border border-white/10 rounded-lg px-3 py-2 text-[11px] opacity-70"
-                        style={cardStyle}
-                      >
-                        Pendiente de reseña cruzada por parte del prestador.
+                      <div className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2 opacity-75">
+                        <span>Pendiente de reseña cruzada por parte del prestador.</span>
                       </div>
                     )}
                   </div>

@@ -1,11 +1,8 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
- * Incluye los 4 pasos clicables:
- * 1. Prestadores (Directorio verificado con tilde, scoring y trabajos realizados)
- * 2. Pases QR (Emisión y listado de pases de acceso rápido)
- * 3. Visitas y Pagos (Contratos pendientes con desglose Take Rate 7% / 93%)
- * 4. Reseñas (Reseñas y reputación cruzada: calificación al prestador + reseña recibida del prestador)
+ * @description Portal del Residente conectado a PostgreSQL mediante API REST.
+ * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos,
+ * 4. Reseñas) con estilos de reseñas cruzadas alineados y simétricos al Portal Prestador.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -31,22 +28,19 @@ import {
   Car,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
-import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = 'http://localhost:4000';
 const PLATFORM_FEE_RATE = 0.07;
 
 export default function ResidentDashboard({ onViewChange }) {
   const { brand } = useBranding();
-  const { user } = useAuth();
 
-  // Zona 4: Tarjetas principales
+  // Superficies de Zonas 4 y 5 configurables desde BrandingContext
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
   };
 
-  // Zona 5: Cajas internas, inputs y contenedores secundarios
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
     color: brand?.innerTextColor || '#F1F5F9',
@@ -360,7 +354,7 @@ export default function ResidentDashboard({ onViewChange }) {
                   {activeStep === 'payments' &&
                     'Aprobá presupuestos acordados y aboná con desglose transparente (7% comisión plataforma).'}
                   {activeStep === 'reviews' &&
-                    'Calificá el servicio al finalizar y consultá las reseñas cruzadas de tus contratos.'}
+                    'Reseñas enviadas a prestadores, calificaciones recibidas y reputación cruzada por contrato.'}
                 </p>
               </div>
             </div>
@@ -760,7 +754,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* PASO 4: Reseñas y Reputación Cruzada (muestra calificación enviada y recibida del prestador) */}
+        {/* PASO 4: Reseñas y Reputación Cruzada (estilos de bloques de reseñas alineados) */}
         {activeStep === 'reviews' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -768,14 +762,14 @@ export default function ResidentDashboard({ onViewChange }) {
           >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/20 pb-3">
               <div>
-                <h3 className="text-base font-bold">
-                  Reseñas y Reputación Cruzada ({reviewContracts.length})
-                </h3>
+                <h3 className="text-base font-bold">Reseñas y Reputación Cruzada</h3>
                 <p className="text-xs opacity-80">
-                  Calificá al prestador al concluir el trabajo y visualizá la reseña cruzada que el
-                  prestador envió sobre tu servicio.
+                  Calificá al prestador al concluir el trabajo y consultá las reseñas cruzadas de tus contratos.
                 </p>
               </div>
+              <span className="text-xs font-mono opacity-80">
+                {reviewContracts.length} contrato(s)
+              </span>
             </div>
 
             {loadingReviews ? (
@@ -802,7 +796,7 @@ export default function ResidentDashboard({ onViewChange }) {
                   return (
                     <div
                       key={item.contract_id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
                       {/* Cabecera del contrato */}
@@ -825,9 +819,9 @@ export default function ResidentDashboard({ onViewChange }) {
                         </span>
                       </div>
 
-                      {/* 1. Calificación del residente hacia el prestador */}
+                      {/* Bloque 1: Calificación del residente hacia el prestador */}
                       {alreadyRatedProvider ? (
-                        <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-emerald-300">
                             Tu calificación al prestador:{' '}
                             {'★'.repeat(item.provider_review_rating)} (
@@ -841,7 +835,7 @@ export default function ResidentDashboard({ onViewChange }) {
                         </div>
                       ) : (
                         <div
-                          className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
+                          className="p-3 rounded-lg border border-white/15 space-y-2.5"
                           style={cardStyle}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -913,9 +907,9 @@ export default function ResidentDashboard({ onViewChange }) {
                         </div>
                       )}
 
-                      {/* 2. Reseña cruzada recibida desde el prestador */}
+                      {/* Bloque 2: Reseña cruzada recibida desde el prestador (estilo alineado) */}
                       {item.owner_review_rating ? (
-                        <div className="bg-indigo-950/35 border border-indigo-800/70 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/35 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-indigo-300">
                             Reseña recibida del prestador:{' '}
                             {'★'.repeat(item.owner_review_rating)} ({item.owner_review_rating}/5)
@@ -927,11 +921,8 @@ export default function ResidentDashboard({ onViewChange }) {
                           )}
                         </div>
                       ) : (
-                        <div
-                          className="border border-white/10 rounded-lg px-3 py-2 text-[11px] opacity-70"
-                          style={cardStyle}
-                        >
-                          Pendiente de reseña cruzada por parte del prestador.
+                        <div className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2 opacity-75">
+                          <span>Pendiente de reseña cruzada por parte del prestador.</span>
                         </div>
                       )}
                     </div>
