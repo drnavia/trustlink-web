@@ -1,13 +1,16 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Muestra todas las versiones documentales en el historial (vigentes, por vencer,
- * vencidas y sin fecha) sin descartar registros pasados, alinea las tarjetas en 3 filas
- * simétricas y mantiene el switch interactivo "Visible / Oculta" en Especialidades.
+ * Unifica la estética y funcionalidad entre:
+ * - Paso 1 (Credenciales): Documentación Personal (deduplicada, con historial completo)
+ *   y Especialidades y Credenciales (formulario desplegable + switch Visible/Oculta).
+ * - Paso 2 (Flota Vehicular): Formulario desplegable desde cabecera ("+ Cargar Vehículo"),
+ *   seguro automotor con URL y fechas de vigencia, y tarjetas de 3 filas simétricas.
+ * - Paso 3 (Reputación Cruzada): Reseñas recibidas y calificación al residente.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Wrench,
   ShieldCheck,
@@ -112,7 +115,7 @@ function formatDisplayDate(dateStr) {
 }
 
 /**
- * Evalúa la vigencia de un documento según las fechas Desde / Hasta.
+ * Evalúa la vigencia de un documento o póliza según las fechas Desde / Hasta.
  */
 function resolveDateValidity(fromStr, untilStr) {
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -138,8 +141,8 @@ function resolveDateValidity(fromStr, untilStr) {
     };
   }
   return {
-    label: 'Sin fecha',
-    badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
+    label: 'Sin seguro / Sin fecha',
+    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
   };
 }
 
@@ -190,31 +193,34 @@ export default function ProviderDashboard() {
     insuranceUntilDate: '',
   });
 
-  // Formulario desplegable de nueva documentación personal
+  // 1A. Documentación Personal
   const [showNewDocForm, setShowNewDocForm] = useState(false);
   const [newDocType, setNewDocType] = useState('criminal');
   const [newDocUrl, setNewDocUrl] = useState('');
   const [newDocFrom, setNewDocFrom] = useState('');
   const [newDocUntil, setNewDocUntil] = useState('');
 
-  // Edición inline dentro de cada fila del historial documental
   const [editingDocKey, setEditingDocKey] = useState(null);
   const [editDocUrl, setEditDocUrl] = useState('');
   const [editDocFrom, setEditDocFrom] = useState('');
   const [editDocUntil, setEditDocUntil] = useState('');
 
-  // Formulario desplegable de nueva especialidad + edición inline
+  // 1B. Especialidades y Credenciales
   const [showNewSpecialtyForm, setShowNewSpecialtyForm] = useState(false);
   const [specialty, setSpecialty] = useState('');
   const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
 
-  // Flota vehicular
+  // 2. Flota Vehicular (formulario desplegable + seguro automotor)
+  const [showNewVehicleForm, setShowNewVehicleForm] = useState(false);
   const [vehicleType, setVehicleType] = useState('Utilitario');
   const [brandName, setBrandName] = useState('');
   const [modelName, setModelName] = useState('');
   const [colorName, setColorName] = useState('');
   const [plate, setPlate] = useState('');
+  const [vehInsuranceUrl, setVehInsuranceUrl] = useState('');
+  const [vehInsuranceFrom, setVehInsuranceFrom] = useState('');
+  const [vehInsuranceUntil, setVehInsuranceUntil] = useState('');
 
   const [editingVehicleId, setEditingVehicleId] = useState(null);
   const [editVehicleType, setEditVehicleType] = useState('Utilitario');
@@ -222,8 +228,11 @@ export default function ProviderDashboard() {
   const [editModel, setEditModel] = useState('');
   const [editColor, setEditColor] = useState('');
   const [editPlate, setEditPlate] = useState('');
+  const [editVehInsuranceUrl, setEditVehInsuranceUrl] = useState('');
+  const [editVehInsuranceFrom, setEditVehInsuranceFrom] = useState('');
+  const [editVehInsuranceUntil, setEditVehInsuranceUntil] = useState('');
 
-  // Reputación cruzada
+  // 3. Reputación Cruzada
   const [providerContracts, setProviderContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
@@ -315,9 +324,6 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  /**
-   * Persiste una nueva versión documental sin borrar versiones previas del historial.
-   */
   const persistPersonalDocs = async (
     docType,
     { url, fromDate, untilDate },
@@ -549,12 +555,23 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Registra un nuevo vehículo con su póliza de seguro automotor y fechas de vigencia.
+   */
   const handleAddVehicle = async (e) => {
     e.preventDefault();
     if (!plate.trim()) {
       setFeedback({ type: 'error', text: 'La patente del vehículo es obligatoria.' });
       return;
     }
+    if (vehInsuranceFrom && vehInsuranceUntil && vehInsuranceUntil < vehInsuranceFrom) {
+      setFeedback({
+        type: 'error',
+        text: 'La fecha "Hasta" del seguro vehicular no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -570,15 +587,25 @@ export default function ProviderDashboard() {
           model: modelName.trim(),
           color: colorName.trim(),
           plate: plate.trim().toUpperCase(),
+          vehicle_insurance_url: vehInsuranceUrl.trim() || null,
+          vehicle_insurance_from: vehInsuranceFrom || null,
+          vehicle_insurance_expiry: vehInsuranceUntil || null,
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Vehículo registrado.' });
+        setFeedback({
+          type: 'success',
+          text: data.message || 'Vehículo y seguro automotor registrados con éxito.',
+        });
         setBrandName('');
         setModelName('');
         setColorName('');
         setPlate('');
+        setVehInsuranceUrl('');
+        setVehInsuranceFrom('');
+        setVehInsuranceUntil('');
+        setShowNewVehicleForm(false);
         await fetchProviderData();
       } else {
         setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el vehículo.' });
@@ -591,11 +618,26 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Guarda edición de vehículo y su seguro automotor.
+   */
   const handleSaveEditVehicle = async (vehicleId) => {
     if (!editPlate.trim()) {
       setFeedback({ type: 'error', text: 'La patente del vehículo no puede quedar vacía.' });
       return;
     }
+    if (
+      editVehInsuranceFrom &&
+      editVehInsuranceUntil &&
+      editVehInsuranceUntil < editVehInsuranceFrom
+    ) {
+      setFeedback({
+        type: 'error',
+        text: 'La fecha "Hasta" del seguro vehicular no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -611,11 +653,17 @@ export default function ProviderDashboard() {
           model: editModel.trim(),
           color: editColor.trim(),
           plate: editPlate.trim().toUpperCase(),
+          vehicle_insurance_url: editVehInsuranceUrl.trim() || null,
+          vehicle_insurance_from: editVehInsuranceFrom || null,
+          vehicle_insurance_expiry: editVehInsuranceUntil || null,
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Vehículo actualizado.' });
+        setFeedback({
+          type: 'success',
+          text: data.message || 'Vehículo y seguro automotor actualizados.',
+        });
         setEditingVehicleId(null);
         await fetchProviderData();
       } else {
@@ -672,82 +720,91 @@ export default function ProviderDashboard() {
     }
   };
 
-  /**
-   * Construye el historial documental completo (incluyendo versiones vencidas)
-   * desde `documentHistory` con respaldo a `providerProfiles`.
-   */
-  const personalDocRows = (() => {
+  const personalDocRows = useMemo(() => {
+    const rawRows = [];
+
     if (documentHistory.length > 0) {
-      return documentHistory.map((ver, idx) => {
+      documentHistory.forEach((ver, idx) => {
         const isInsurance = ver.doc_type === 'insurance';
         const fromVal = ver.valid_from || ver.created_at;
         const untilVal = ver.valid_to;
-        return {
+        rawRows.push({
           docKey: `ver-${ver.id || idx}`,
           docType: isInsurance ? 'insurance' : 'criminal',
           title: isInsurance ? 'Póliza ART / Seguro' : 'Antecedentes Penales',
-          url: ver.document_url || 'Sin URL',
+          url: (ver.document_url || 'Sin URL').trim(),
           fromDate: fromVal,
           untilDate: untilVal,
           validity: resolveDateValidity(fromVal, untilVal),
           trustlinkValidation: formatTrustlinkValidationStatus(ver.status),
-        };
+        });
       });
+    } else {
+      const baseSource =
+        providerProfiles.find(
+          (p) =>
+            p.criminal_record_url ||
+            p.criminal_record_expiry ||
+            p.insurance_policy_url ||
+            p.insurance_expiry
+        ) || providerProfiles[0];
+
+      if (baseSource) {
+        const trustStatus = baseSource.status || 'pending';
+
+        if (
+          baseSource.criminal_record_url ||
+          baseSource.criminal_record_from ||
+          baseSource.criminal_record_expiry
+        ) {
+          const fromVal = baseSource.criminal_record_from || baseSource.created_at;
+          const untilVal = baseSource.criminal_record_expiry;
+          rawRows.push({
+            docKey: 'criminal',
+            docType: 'criminal',
+            title: 'Antecedentes Penales',
+            url: (baseSource.criminal_record_url || 'Sin URL').trim(),
+            fromDate: fromVal,
+            untilDate: untilVal,
+            validity: resolveDateValidity(fromVal, untilVal),
+            trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
+          });
+        }
+
+        if (
+          baseSource.insurance_policy_url ||
+          baseSource.insurance_from ||
+          baseSource.insurance_expiry
+        ) {
+          const fromVal = baseSource.insurance_from || baseSource.created_at;
+          const untilVal = baseSource.insurance_expiry;
+          rawRows.push({
+            docKey: 'insurance',
+            docType: 'insurance',
+            title: 'Póliza ART / Seguro',
+            url: (baseSource.insurance_policy_url || 'Sin URL').trim(),
+            fromDate: fromVal,
+            untilDate: untilVal,
+            validity: resolveDateValidity(fromVal, untilVal),
+            trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
+          });
+        }
+      }
     }
 
-    const baseSource =
-      providerProfiles.find(
-        (p) =>
-          p.criminal_record_url ||
-          p.criminal_record_expiry ||
-          p.insurance_policy_url ||
-          p.insurance_expiry
-      ) || providerProfiles[0];
-    if (!baseSource) return [];
-
-    const rows = [];
-    const trustStatus = baseSource.status || 'pending';
-
-    if (
-      baseSource.criminal_record_url ||
-      baseSource.criminal_record_from ||
-      baseSource.criminal_record_expiry
-    ) {
-      const fromVal = baseSource.criminal_record_from || baseSource.created_at;
-      const untilVal = baseSource.criminal_record_expiry;
-      rows.push({
-        docKey: 'criminal',
-        docType: 'criminal',
-        title: 'Antecedentes Penales',
-        url: baseSource.criminal_record_url || 'Sin URL',
-        fromDate: fromVal,
-        untilDate: untilVal,
-        validity: resolveDateValidity(fromVal, untilVal),
-        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-      });
-    }
-
-    if (
-      baseSource.insurance_policy_url ||
-      baseSource.insurance_from ||
-      baseSource.insurance_expiry
-    ) {
-      const fromVal = baseSource.insurance_from || baseSource.created_at;
-      const untilVal = baseSource.insurance_expiry;
-      rows.push({
-        docKey: 'insurance',
-        docType: 'insurance',
-        title: 'Póliza ART / Seguro',
-        url: baseSource.insurance_policy_url || 'Sin URL',
-        fromDate: fromVal,
-        untilDate: untilVal,
-        validity: resolveDateValidity(fromVal, untilVal),
-        trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-      });
-    }
-
-    return rows;
-  })();
+    const seenSignatures = new Set();
+    return rawRows.filter((row) => {
+      const signature = [
+        row.docType,
+        row.url.toLowerCase(),
+        toDateInputValue(row.fromDate),
+        toDateInputValue(row.untilDate),
+      ].join('|');
+      if (seenSignatures.has(signature)) return false;
+      seenSignatures.add(signature);
+      return true;
+    });
+  }, [documentHistory, providerProfiles]);
 
   const primaryStatusInfo = formatSpecialtyStatus(providerProfiles[0]?.status);
 
@@ -780,6 +837,7 @@ export default function ProviderDashboard() {
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
+        {/* Cabecera del Portal Prestador + Navegación de Pasos */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
@@ -798,9 +856,9 @@ export default function ProviderDashboard() {
                 </h2>
                 <p className="text-xs opacity-80 mt-0.5">
                   {activeStep === 'credentials' &&
-                    'Historial documental completo (incluyendo vencidos), vigencia por fechas y especialidades verificadas en TrustLink.'}
+                    'Historial documental deduplicado (incluyendo vencidos), vigencia por fechas y especialidades verificadas en TrustLink.'}
                   {activeStep === 'vehicles' &&
-                    'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
+                    'Vehículos habilitados, patentes y vigencia de seguro automotor asociado a tu perfil.'}
                   {activeStep === 'reviews' &&
                     'Reseñas recibidas de residentes y calificación cruzada por servicio realizado.'}
                 </p>
@@ -903,8 +961,9 @@ export default function ProviderDashboard() {
           </div>
         )}
 
+        {/* PASO 1: Credenciales (Documentación Personal + Especialidades y Credenciales) */}
         {activeStep === 'credentials' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Columna Izquierda: Documentación Personal */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
@@ -1042,7 +1101,7 @@ export default function ProviderDashboard() {
                     registrar tus antecedentes o seguro.
                   </div>
                 ) : (
-                  <div className="space-y-2.5 flex-1 flex flex-col">
+                  <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
                     {personalDocRows.map((row) => {
                       const isRowEditing = editingDocKey === row.docKey;
                       return (
@@ -1256,7 +1315,7 @@ export default function ProviderDashboard() {
                     para sumar tu oficio.
                   </div>
                 ) : (
-                  <div className="space-y-2.5 flex-1 flex flex-col">
+                  <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
                     {providerProfiles.map((prof) => {
                       const isEditing = editingProfileId === prof.id;
                       const profStatus = formatSpecialtyStatus(prof.status);
@@ -1380,208 +1439,398 @@ export default function ProviderDashboard() {
           </div>
         )}
 
+        {/* PASO 2: Flota Vehicular Habilitada (Misma estética y funcionalidad que Credenciales + Seguro Automotor) */}
         {activeStep === 'vehicles' && (
-          <div
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          <section
+            className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between">
+            {/* Cabecera simétrica con botón "+ Cargar Vehículo" */}
+            <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
               <div className="flex items-center gap-2">
-                <Car size={18} className="text-sky-400" />
+                <Car size={16} className="text-sky-400" />
                 <h3 className="text-sm font-bold">Flota Vehicular Habilitada</h3>
-              </div>
-              <span className="text-[11px] font-mono opacity-80">
-                {vehicles.length} vehículo(s)
-              </span>
-            </div>
-
-            <form onSubmit={handleAddVehicle} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <select
-                  value={vehicleType}
-                  onChange={(e) => setVehicleType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                >
-                  <option value="Utilitario">Utilitario</option>
-                  <option value="Automóvil">Automóvil</option>
-                  <option value="Camioneta">Camioneta</option>
-                  <option value="Moto">Moto</option>
-                </select>
-                <input
-                  type="text"
-                  value={brandName}
-                  onChange={(e) => setBrandName(e.target.value)}
-                  placeholder="Marca (ej: Ford)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <input
-                  type="text"
-                  value={modelName}
-                  onChange={(e) => setModelName(e.target.value)}
-                  placeholder="Modelo (ej: Fiorino)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <input
-                  type="text"
-                  value={colorName}
-                  onChange={(e) => setColorName(e.target.value)}
-                  placeholder="Color (ej: Blanco)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <input
-                  type="text"
-                  value={plate}
-                  onChange={(e) => setPlate(e.target.value)}
-                  placeholder="Patente (ej: AF123CD)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
-                  style={innerStyle}
-                />
               </div>
 
               <button
-                type="submit"
-                disabled={loadingAction || !plate.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                type="button"
+                onClick={() => {
+                  setShowNewVehicleForm((prev) => !prev);
+                  setVehicleType('Utilitario');
+                  setBrandName('');
+                  setModelName('');
+                  setColorName('');
+                  setPlate('');
+                  setVehInsuranceUrl('');
+                  setVehInsuranceFrom('');
+                  setVehInsuranceUntil('');
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 shrink-0"
                 style={{ backgroundColor: primaryActionColor }}
               >
-                <Plus size={14} /> Registrar Vehículo
+                {showNewVehicleForm ? (
+                  <>
+                    <X size={13} /> Cerrar
+                  </>
+                ) : (
+                  <>
+                    <Plus size={13} /> Cargar Vehículo
+                  </>
+                )}
               </button>
-            </form>
+            </div>
 
-            {vehicles.length === 0 ? (
-              <div className="text-center py-4 text-xs opacity-75">Sin vehículos registrados.</div>
-            ) : (
-              <div className="space-y-3">
-                {vehicles.map((veh) => {
-                  const isEditingVeh = editingVehicleId === veh.id;
-                  const cleanPlate = (veh.plate || '').trim();
-                  return (
-                    <div
-                      key={veh.id}
-                      className="p-4 rounded-xl border border-black/20 flex justify-between items-start gap-3 text-xs"
-                      style={innerStyle}
-                    >
-                      {isEditingVeh ? (
-                        <div className="space-y-2.5 w-full">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <select
-                              value={editVehicleType}
-                              onChange={(e) => setEditVehicleType(e.target.value)}
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            >
-                              <option value="Utilitario">Utilitario</option>
-                              <option value="Automóvil">Automóvil</option>
-                              <option value="Camioneta">Camioneta</option>
-                              <option value="Moto">Moto</option>
-                            </select>
+            {/* Formulario desplegable de Alta de Vehículo + Seguro Automotor */}
+            {showNewVehicleForm && (
+              <form
+                onSubmit={handleAddVehicle}
+                className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
+                style={innerStyle}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                    Nuevo Vehículo y Seguro Automotor
+                  </span>
+                  <select
+                    value={vehicleType}
+                    onChange={(e) => setVehicleType(e.target.value)}
+                    className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                    style={cardStyle}
+                  >
+                    <option value="Utilitario">Utilitario</option>
+                    <option value="Automóvil">Automóvil</option>
+                    <option value="Camioneta">Camioneta</option>
+                    <option value="Moto">Moto</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="Marca (ej: Ford)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="text"
+                    required
+                    value={modelName}
+                    onChange={(e) => setModelName(e.target.value)}
+                    placeholder="Modelo (ej: Fiorino)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="text"
+                    value={colorName}
+                    onChange={(e) => setColorName(e.target.value)}
+                    placeholder="Color (ej: Blanco)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="text"
+                    required
+                    value={plate}
+                    onChange={(e) => setPlate(e.target.value)}
+                    placeholder="Patente (ej: AF123CD)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
+                  <div className="sm:col-span-6">
+                    <label className="block text-[10px] opacity-70 mb-0.5">
+                      URL Póliza de Seguro Vehicular (PDF / Enlace)
+                    </label>
+                    <input
+                      type="text"
+                      value={vehInsuranceUrl}
+                      onChange={(e) => setVehInsuranceUrl(e.target.value)}
+                      placeholder="https://storage.trustlink.com/seguro-auto.pdf"
+                      className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                      style={cardStyle}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] opacity-70 mb-0.5">Seguro Desde</label>
+                    <input
+                      type="date"
+                      value={vehInsuranceFrom}
+                      onChange={(e) => setVehInsuranceFrom(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] opacity-70 mb-0.5">Seguro Hasta</label>
+                    <input
+                      type="date"
+                      value={vehInsuranceUntil}
+                      onChange={(e) => setVehInsuranceUntil(e.target.value)}
+                      className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      style={cardStyle}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewVehicleForm(false)}
+                    className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
+                    style={cardStyle}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loadingAction || !plate.trim()}
+                    className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
+                    style={{ backgroundColor: primaryActionColor }}
+                  >
+                    <Save size={12} /> {loadingAction ? 'Guardando...' : 'Guardar Vehículo'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Sub-encabezado + contador monoespaciado idéntico a Credenciales */}
+            <div className="space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
+                  <Car size={13} className="text-sky-400" />
+                  Vehículos Registrados
+                </span>
+                <span
+                  className="text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15"
+                  style={innerStyle}
+                >
+                  {vehicles.length} vehículo(s)
+                </span>
+              </div>
+
+              {fetching ? (
+                <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
+                  <Loader2 className="animate-spin" size={14} /> Cargando flota vehicular...
+                </div>
+              ) : vehicles.length === 0 ? (
+                <div
+                  className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
+                  style={innerStyle}
+                >
+                  Sin vehículos registrados. Usá el botón <strong>Cargar Vehículo</strong> para
+                  asociar un vehículo y su póliza de seguro.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {vehicles.map((veh) => {
+                    const isEditingVeh = editingVehicleId === veh.id;
+                    const cleanPlate = (veh.plate || '').trim();
+                    const insFrom = veh.vehicle_insurance_from;
+                    const insUntil = veh.vehicle_insurance_expiry;
+                    const insValidity = resolveDateValidity(insFrom, insUntil);
+
+                    return (
+                      <div
+                        key={veh.id}
+                        className="p-3.5 rounded-xl border border-black/20 space-y-2 text-[11px] min-h-[116px] flex flex-col justify-between"
+                        style={innerStyle}
+                      >
+                        {isEditingVeh ? (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-xs">Editando Vehículo</span>
+                              <select
+                                value={editVehicleType}
+                                onChange={(e) => setEditVehicleType(e.target.value)}
+                                className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
+                                style={cardStyle}
+                              >
+                                <option value="Utilitario">Utilitario</option>
+                                <option value="Automóvil">Automóvil</option>
+                                <option value="Camioneta">Camioneta</option>
+                                <option value="Moto">Moto</option>
+                              </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <input
+                                type="text"
+                                value={editBrand}
+                                onChange={(e) => setEditBrand(e.target.value)}
+                                placeholder="Marca"
+                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                              <input
+                                type="text"
+                                value={editModel}
+                                onChange={(e) => setEditModel(e.target.value)}
+                                placeholder="Modelo"
+                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                              <input
+                                type="text"
+                                value={editColor}
+                                onChange={(e) => setEditColor(e.target.value)}
+                                placeholder="Color"
+                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                              <input
+                                type="text"
+                                value={editPlate}
+                                onChange={(e) => setEditPlate(e.target.value)}
+                                placeholder="Patente"
+                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs font-mono uppercase"
+                                style={cardStyle}
+                              />
+                            </div>
+
                             <input
                               type="text"
-                              value={editBrand}
-                              onChange={(e) => setEditBrand(e.target.value)}
-                              placeholder="Marca"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
+                              value={editVehInsuranceUrl}
+                              onChange={(e) => setEditVehInsuranceUrl(e.target.value)}
+                              placeholder="URL Póliza de Seguro Vehicular"
+                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs"
                               style={cardStyle}
                             />
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] opacity-70 mb-0.5">
+                                  Seguro Desde
+                                </label>
+                                <input
+                                  type="date"
+                                  value={editVehInsuranceFrom}
+                                  onChange={(e) => setEditVehInsuranceFrom(e.target.value)}
+                                  className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] opacity-70 mb-0.5">
+                                  Seguro Hasta
+                                </label>
+                                <input
+                                  type="date"
+                                  value={editVehInsuranceUntil}
+                                  onChange={(e) => setEditVehInsuranceUntil(e.target.value)}
+                                  className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
+                                  style={cardStyle}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-1.5 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditVehicle(veh.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer"
+                                style={{ backgroundColor: primaryActionColor }}
+                              >
+                                <Save size={11} /> Guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingVehicleId(null)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <X size={11} /> Cancelar
+                              </button>
+                            </div>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                            <input
-                              type="text"
-                              value={editModel}
-                              onChange={(e) => setEditModel(e.target.value)}
-                              placeholder="Modelo"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            />
-                            <input
-                              type="text"
-                              value={editColor}
-                              onChange={(e) => setEditColor(e.target.value)}
-                              placeholder="Color"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15"
-                              style={cardStyle}
-                            />
-                            <input
-                              type="text"
-                              value={editPlate}
-                              onChange={(e) => setEditPlate(e.target.value)}
-                              placeholder="Patente"
-                              className="px-2.5 py-1.5 rounded-lg border border-white/15 font-mono uppercase"
-                              style={cardStyle}
-                            />
-                          </div>
-                          <div className="flex justify-end gap-1.5 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditVehicle(veh.id)}
-                              className="px-2.5 py-1 rounded-lg text-white font-bold cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
-                            >
-                              Guardar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingVehicleId(null)}
-                              className="px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                              style={cardStyle}
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <>
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold">
-                                {veh.brand} {veh.model}
+                        ) : (
+                          <>
+                            {/* Fila 1: Marca/Modelo + Badge de tipo + Patente + Acción Editar */}
+                            <div className="flex items-center justify-between gap-2 h-6">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-bold text-xs truncate">
+                                  {veh.brand} {veh.model}
+                                </span>
+                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-sky-500/15 text-sky-300 border-sky-500/35 uppercase shrink-0">
+                                  {veh.vehicle_type || 'Vehículo'}
+                                </span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingVehicleId(veh.id);
+                                  setEditVehicleType(veh.vehicle_type || 'Utilitario');
+                                  setEditBrand(veh.brand || '');
+                                  setEditModel(veh.model || '');
+                                  setEditColor(veh.color || '');
+                                  setEditPlate(veh.plate || '');
+                                  setEditVehInsuranceUrl(veh.vehicle_insurance_url || '');
+                                  setEditVehInsuranceFrom(
+                                    toDateInputValue(veh.vehicle_insurance_from)
+                                  );
+                                  setEditVehInsuranceUntil(
+                                    toDateInputValue(veh.vehicle_insurance_expiry)
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90 shrink-0"
+                                style={cardStyle}
+                              >
+                                <Edit3 size={11} /> Editar
+                              </button>
+                            </div>
+
+                            {/* Fila 2: Datos del vehículo + enlace a póliza si existe */}
+                            <div className="flex items-center justify-between gap-2 opacity-80 h-4 leading-4">
+                              <span className="truncate">
+                                Color: {veh.color || 'No especificado'} · Patente:{' '}
+                                {cleanPlate ? (
+                                  <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
+                                ) : (
+                                  <strong className="text-amber-400">Sin patente</strong>
+                                )}
                               </span>
-                              <span className="text-[10px] font-bold uppercase text-sky-300 bg-sky-950/70 border border-sky-800 px-2 py-0.5 rounded">
-                                {veh.vehicle_type || 'Vehículo'}
+                              {veh.vehicle_insurance_url && (
+                                <a
+                                  href={veh.vehicle_insurance_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-emerald-300 hover:underline font-semibold shrink-0"
+                                >
+                                  Ver póliza
+                                </a>
+                              )}
+                            </div>
+
+                            {/* Fila 3: Pie simétrico (Vigencia de Seguro Vehicular + Badge semántico) */}
+                            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
+                              <span className="font-mono text-[10px] opacity-75 truncate">
+                                Seguro: {formatDisplayDate(insFrom)} —{' '}
+                                {formatDisplayDate(insUntil)}
+                              </span>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${insValidity.badgeClass}`}
+                              >
+                                {insValidity.label}
                               </span>
                             </div>
-                            <p className="opacity-80 mt-1">
-                              Color: {veh.color || 'No especificado'} · Patente:{' '}
-                              {cleanPlate ? (
-                                <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
-                              ) : (
-                                <strong className="text-amber-400">Sin patente</strong>
-                              )}
-                            </p>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingVehicleId(veh.id);
-                              setEditVehicleType(veh.vehicle_type || 'Utilitario');
-                              setEditBrand(veh.brand || '');
-                              setEditModel(veh.model || '');
-                              setEditColor(veh.color || '');
-                              setEditPlate(veh.plate || '');
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
-                            style={cardStyle}
-                          >
-                            <Edit3 size={12} /> Editar
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </section>
         )}
 
+        {/* PASO 3: Servicios Realizados & Reputación Cruzada */}
         {activeStep === 'reviews' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
