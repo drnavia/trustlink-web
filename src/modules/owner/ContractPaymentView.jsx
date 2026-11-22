@@ -1,293 +1,198 @@
 /**
  * @file ContractPaymentView.jsx
- * @description Vista de Pagos y Reseñas para el residente conectada a PostgreSQL.
- * Conecta las visitas/pases QR emitidos sin contrato previo con la creación de contratos
- * (POST /api/v1/reviews/contract), muestra presupuestos/órdenes de pago con desglose de
- * Take Rate (7% / 93%), procesa pagos y habilita la calificación cruzada al prestador.
+ * @description Vista de Pagos y Reseñas para residentes/propietarios, con desglose
+ * financiero (Take Rate 7% / Neto Prestador 93%), contratación desde pases QR vigentes
+ * y sección unificada "Reseñas y reputación cruzada".
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
+  CreditCard,
+  CheckCircle2,
+  AlertCircle,
+  Sparkles,
   FileCheck2,
   Star,
-  CreditCard,
-  AlertCircle,
-  CheckCircle2,
   MessageSquare,
   Send,
-  ArrowRight,
+  RefreshCw,
   Compass,
+  PlusCircle,
   Ticket,
-  FilePlus2,
-  RefreshCw
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = 'http://localhost:4000';
-const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
-
-function parseUtcTimestampMs(value, fallbackMs = null) {
-  if (fallbackMs !== null && fallbackMs !== undefined && !Number.isNaN(Number(fallbackMs))) {
-    return Number(fallbackMs);
-  }
-  if (!value) return null;
-  if (typeof value === 'number') return Number.isNaN(value) ? null : value;
-
-  const raw = String(value).trim();
-  const hasOffsetOrZ = /([zZ]|[+-]\d{2}:?\d{2})$/.test(raw);
-  const normalized = hasOffsetOrZ ? raw : `${raw.replace(' ', 'T')}Z`;
-  const ms = Date.parse(normalized);
-  return Number.isNaN(ms) ? null : ms;
-}
-
-function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
-  const ms = parseUtcTimestampMs(value, fallbackMs);
-  if (ms === null) return 'No especificado';
-  try {
-    return new Date(ms).toLocaleString('es-AR', {
-      timeZone,
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
-    return new Date(ms).toLocaleString('es-AR', {
-      day: '2-digit',
-      month: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-}
+const PLATFORM_FEE_RATE = 0.07;
 
 export default function ContractPaymentView({ onViewChange }) {
   const { brand } = useBranding();
+  const { user } = useAuth();
 
-  // Zona 4: Tarjetas principales de la vista
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
   };
 
-  // Zona 5: Cajas internas, badges neutros y contenedores de ítems
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
-  // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [contracts, setContracts] = useState([]);
-  const [reviewContracts, setReviewContracts] = useState([]);
-  const [eligiblePasses, setEligiblePasses] = useState([]);
-
+  const [passes, setPasses] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [loadingReviews, setLoadingReviews] = useState(true);
-  const [loadingPasses, setLoadingPasses] = useState(true);
-
   const [payingId, setPayingId] = useState(null);
-  const [creatingFromPassId, setCreatingFromPassId] = useState(null);
-  const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const [feedback, setFeedback] = useState(null);
 
-  // Borradores de contratación / presupuesto por pass_id
-  const [quoteDescriptions, setQuoteDescriptions] = useState({});
-  const [quoteAmounts, setQuoteAmounts] = useState({});
+  // Creación de contrato desde visita/pase QR
+  const [selectedPassId, setSelectedPassId] = useState('');
+  const [workDescription, setWorkDescription] = useState('');
+  const [agreedAmount, setAgreedAmount] = useState('');
+  const [creatingContract, setCreatingContract] = useState(false);
 
-  // Borradores de calificación cruzada hacia el prestador por contract_id
+  // Reseñas cruzadas (Residente -> Prestador)
+  const [reviewContracts, setReviewContracts] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
   const [ratingDrafts, setRatingDrafts] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
   const [submittingContractId, setSubmittingContractId] = useState(null);
+  const [reviewFeedback, setReviewFeedback] = useState(null);
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  // Consulta contratos pendientes/activos del residente
-  const fetchContracts = useCallback(async () => {
+  const fetchPendingContracts = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/contracts`, {
+      const res = await fetch(`${API_BASE}/api/v1/payments/pending`, {
         headers: getAuthHeaders(),
       });
-      const data = await response.json();
-      if (response.ok) {
+      const data = await res.json();
+      if (res.ok) {
         setContracts(data.contracts || []);
       }
     } catch (error) {
-      console.error('Error al obtener contratos:', error);
+      console.error('Error al cargar contratos pendientes:', error);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // Consulta contratos habilitados para calificación cruzada
+  const fetchMyPasses = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/passes/my`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        const list = data.passes || [];
+        setPasses(list);
+        const firstActive = list.find(
+          (p) => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'used'
+        );
+        if (firstActive) {
+          setSelectedPassId((prev) => prev || String(firstActive.id));
+        }
+      }
+    } catch (error) {
+      console.error('Error al cargar pases del residente:', error);
+    }
+  }, []);
+
   const fetchReviewContracts = useCallback(async () => {
     setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+      const res = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
         headers: getAuthHeaders(),
       });
-      const data = await response.json();
-      if (response.ok) {
+      const data = await res.json();
+      if (res.ok) {
         setReviewContracts(data.contracts || []);
       }
     } catch (error) {
-      console.error('Error al obtener contratos para reseñas:', error);
+      console.error('Error al cargar contratos para reseñas:', error);
     } finally {
       setLoadingReviews(false);
     }
   }, []);
 
-  // Consulta pases QR del residente para detectar visitas sin contrato asociado
-  const fetchEligiblePasses = useCallback(async () => {
-    setLoadingPasses(true);
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/passes/my`, {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        const list = data.passes || [];
-        const nowMs = Date.now();
-        const filtered = list.filter((p) => {
-          const st = String(p.status || 'pending').toLowerCase();
-          const endMs = parseUtcTimestampMs(p.end_time, p.end_utc_ms);
-          const isExpired = st === 'expired' || (st === 'pending' && endMs !== null && nowMs > endMs);
-          if (st === 'cancelled' || isExpired) return false;
-          return true;
-        });
-        setEligiblePasses(filtered);
-      }
-    } catch (error) {
-      console.error('Error al cargar pases para contratación:', error);
-    } finally {
-      setLoadingPasses(false);
-    }
-  }, []);
-
-  const refreshAllSections = useCallback(async () => {
-    await Promise.all([fetchContracts(), fetchReviewContracts(), fetchEligiblePasses()]);
-  }, [fetchContracts, fetchReviewContracts, fetchEligiblePasses]);
+  const refreshAll = useCallback(async () => {
+    await Promise.all([fetchPendingContracts(), fetchMyPasses(), fetchReviewContracts()]);
+  }, [fetchPendingContracts, fetchMyPasses, fetchReviewContracts]);
 
   useEffect(() => {
-    refreshAllSections();
-  }, [refreshAllSections]);
+    refreshAll();
+  }, [refreshAll]);
 
-  // Crea un contrato de servicio a partir de una visita/pase QR y lo deja listo para pago
-  const handleCreateContractFromPass = async (passItem, e) => {
-    if (e) e.preventDefault();
-    const rawDesc = (quoteDescriptions[passItem.id] || '').trim();
-    const description =
-      rawDesc ||
-      `Servicio de ${passItem.specialty || 'prestador verificado'} — Pase #${passItem.id}`;
-    const amountNum = Number(quoteAmounts[passItem.id]);
+  const activePass = passes.find((p) => String(p.id) === String(selectedPassId)) || null;
 
-    if (Number.isNaN(amountNum) || amountNum <= 0) {
+  const handleCreateContractFromVisit = async (e) => {
+    e.preventDefault();
+    const numericAmount = Number(agreedAmount);
+    if (!activePass) {
+      setFeedback({ type: 'error', text: 'Seleccioná un pase QR de visita válido.' });
+      return;
+    }
+    if (!workDescription.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
       setFeedback({
         type: 'error',
-        text: 'Ingresá un monto acordado mayor a cero para generar el contrato.',
+        text: 'Indicá la descripción del trabajo y un monto acordado mayor a cero.',
       });
       return;
     }
 
-    setCreatingFromPassId(passItem.id);
-    setFeedback({ type: '', text: '' });
-
+    setCreatingContract(true);
+    setFeedback(null);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contract`, {
+      const res = await fetch(`${API_BASE}/api/v1/contracts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
         },
         body: JSON.stringify({
-          provider_id: passItem.provider_id,
-          pass_id: passItem.id,
-          description,
-          agreed_amount: amountNum,
+          provider_id: activePass.provider_id,
+          pass_id: activePass.id,
+          description: workDescription.trim(),
+          agreed_amount: numericAmount,
         }),
       });
-
-      const data = await response.json();
-      if (response.ok) {
+      const data = await res.json();
+      if (res.ok) {
         setFeedback({
           type: 'success',
           text:
             data.message ||
-            `Contrato generado para el pase #${passItem.id}. Ya podés confirmar y pagar la orden.`,
+            'Orden de contratación generada a partir de la visita. Ya podés aprobar y pagar.',
         });
-        setQuoteDescriptions((prev) => ({ ...prev, [passItem.id]: '' }));
-        setQuoteAmounts((prev) => ({ ...prev, [passItem.id]: '' }));
-        await refreshAllSections();
+        setWorkDescription('');
+        setAgreedAmount('');
+        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
       } else {
         setFeedback({
           type: 'error',
-          text: data.error || 'No se pudo generar el contrato desde la visita.',
+          text: data.error || 'No se pudo registrar la contratación de la visita.',
         });
       }
     } catch (error) {
-      console.error('Error al generar contrato desde pase QR:', error);
-      setFeedback({
-        type: 'error',
-        text: 'Error de conexión al generar el contrato.',
-      });
+      console.error('Error al crear contrato desde pase QR:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al crear el contrato.' });
     } finally {
-      setCreatingFromPassId(null);
+      setCreatingContract(false);
     }
   };
 
-  // Procesa el pago de un contrato con desglose de Take Rate (7% / 93%)
-  const handlePayContract = async (contract) => {
-    setPayingId(contract.id);
-    setFeedback({ type: '', text: '' });
+  const handlePayContract = async (contractId, amount) => {
+    setPayingId(contractId);
+    setFeedback(null);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/payments/checkout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          contract_id: contract.id,
-          agreed_amount: contract.agreed_amount,
-        }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text: data.message || `Orden de pago procesada para el contrato #${contract.id}.`,
-        });
-        await refreshAllSections();
-      } else {
-        setFeedback({
-          type: 'error',
-          text: data.error || 'No se pudo procesar la orden de pago.',
-        });
-      }
-    } catch (error) {
-      console.error('Error al procesar pago:', error);
-      setFeedback({
-        type: 'error',
-        text: 'Error de conexión al procesar el pago.',
-      });
-    } finally {
-      setPayingId(null);
-    }
-  };
-
-  // Envía calificación cruzada del residente hacia el prestador
-  const handleSubmitProviderReview = async (contractId) => {
-    const rating = ratingDrafts[contractId] || 5;
-    const comment = (commentDrafts[contractId] || '').trim();
-    setSubmittingContractId(contractId);
-    setFeedback({ type: '', text: '' });
-
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/provider`, {
+      const res = await fetch(`${API_BASE}/api/v1/payments/checkout`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -295,398 +200,388 @@ export default function ContractPaymentView({ onViewChange }) {
         },
         body: JSON.stringify({
           contract_id: contractId,
-          rating,
-          comment: comment || null,
+          amount,
+          payment_method: 'mercado_pago_mock',
         }),
       });
-      const data = await response.json();
-      if (response.ok) {
+      const data = await res.json();
+      if (res.ok) {
         setFeedback({
           type: 'success',
-          text: data.message || 'Calificación al prestador registrada con éxito.',
+          text:
+            data.message ||
+            'Pago acreditado correctamente. Comisión de plataforma (7%) y liquidación calculadas.',
         });
-        await fetchReviewContracts();
+        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
       } else {
         setFeedback({
           type: 'error',
-          text: data.error || 'No se pudo registrar la calificación.',
+          text: data.error || 'No se pudo procesar el pago.',
         });
       }
     } catch (error) {
-      console.error('Error al enviar reseña al prestador:', error);
-      setFeedback({
+      console.error('Error en checkout:', error);
+      setFeedback({ type: 'error', text: 'Error de red al procesar el pago.' });
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  const handleSubmitProviderReview = async (contractId) => {
+    const selectedRating = ratingDrafts[contractId] || 5;
+    const commentText = (commentDrafts[contractId] || '').trim();
+    setSubmittingContractId(contractId);
+    setReviewFeedback(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/reviews/provider`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          contract_id: contractId,
+          rating: selectedRating,
+          comment: commentText || null,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setReviewFeedback({
+          type: 'success',
+          message:
+            data.message ||
+            'Calificación al prestador registrada y reputación actualizada en TrustLink.',
+        });
+        await fetchReviewContracts();
+      } else {
+        setReviewFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo registrar la calificación.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al calificar prestador:', error);
+      setReviewFeedback({
         type: 'error',
-        text: 'Error de conexión al guardar la calificación.',
+        message: 'Error de conexión al enviar la calificación.',
       });
     } finally {
       setSubmittingContractId(null);
     }
   };
 
-  // Evita duplicar pases que ya tienen un contrato en pending o en reviewContracts
-  const linkedPassIds = new Set([
-    ...contracts.map((c) => Number(c.pass_id)).filter(Boolean),
-    ...reviewContracts.map((c) => Number(c.pass_id)).filter(Boolean),
-  ]);
-  const visitsReadyForContract = eligiblePasses.filter((p) => !linkedPassIds.has(Number(p.id)));
-
-  const pendingContractsCount = contracts.length;
-  const reviewContractsCount = reviewContracts.length;
+  const statusBadgeClass =
+    'text-[11px] font-semibold px-3 py-1 rounded-full border border-white/15 shrink-0';
 
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Mensaje de retroalimentación */}
-        {feedback.text && (
-          <div
-            className={`p-4 rounded-xl text-xs border flex items-center gap-2 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
-          >
-            {feedback.type === 'success' ? (
-              <CheckCircle2 size={16} className="shrink-0" />
-            ) : (
-              <AlertCircle size={16} className="shrink-0" />
-            )}
-            <span>{feedback.text}</span>
-          </div>
-        )}
-
-        {/* Sección 1: Presupuesto y Orden de Pago */}
+        {/* Bloque 1: Presupuesto y Orden de Pago */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
-            <div className="flex items-center gap-3.5">
+            <div className="flex items-center gap-3">
               <div
                 className="p-2.5 rounded-xl border border-white/15 text-emerald-400 shrink-0"
                 style={innerStyle}
               >
-                <FileCheck2 size={20} strokeWidth={1.8} />
+                <FileCheck2 size={18} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="text-xl font-black tracking-tight">
-                  Presupuesto y Orden de Pago
-                </h2>
-                <p className="text-xs opacity-80 mt-0.5">
-                  Transacción segura respaldada por TrustLink con desglose transparente de comisión.
+                <h2 className="text-xl font-black tracking-tight">Presupuesto y Orden de Pago</h2>
+                <p className="text-xs opacity-80">
+                  Aprobá cotizaciones de trabajos realizados y aboná con desglose transparente (7% comisión plataforma).
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-auto">
-              <span
-                className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl"
-                style={innerStyle}
-              >
-                {pendingContractsCount === 0
-                  ? '0 contratos'
-                  : `${pendingContractsCount} ${pendingContractsCount === 1 ? 'contrato' : 'contratos'}`}
+            <div className="flex items-center gap-2 self-start sm:self-center">
+              <span className={statusBadgeClass} style={innerStyle}>
+                {contracts.length === 0
+                  ? 'Sin contratos pendientes'
+                  : `${contracts.length} contrato(s) pendiente(s)`}
               </span>
               <button
                 type="button"
-                onClick={refreshAllSections}
-                className="p-2 rounded-xl border border-white/15 cursor-pointer hover:opacity-90"
+                onClick={refreshAll}
+                disabled={loading || loadingReviews}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
                 style={innerStyle}
-                title="Actualizar órdenes y visitas"
               >
-                <RefreshCw size={14} />
+                <RefreshCw
+                  size={13}
+                  className={loading || loadingReviews ? 'animate-spin' : ''}
+                />
+                Actualizar
               </button>
             </div>
           </div>
 
-          {loading ? (
-            <div className="text-center py-8 text-xs opacity-80">
-              Consultando órdenes de pago en PostgreSQL...
-            </div>
-          ) : pendingContractsCount === 0 ? (
+          {feedback && (
             <div
-              className="p-6 rounded-xl border border-black/20 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-xs"
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
+                feedback.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                  : 'bg-rose-950/60 border-rose-800 text-rose-200'
+              }`}
+            >
+              {feedback.type === 'success' ? (
+                <CheckCircle2 size={16} />
+              ) : (
+                <AlertCircle size={16} />
+              )}
+              <span>{feedback.text}</span>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-6 text-xs opacity-80">
+              Consultando presupuestos y órdenes pendientes en PostgreSQL...
+            </div>
+          ) : contracts.length === 0 ? (
+            <div
+              className="p-4 rounded-xl border border-black/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs"
               style={innerStyle}
             >
-              <p className="opacity-90">
-                No hay órdenes de pago pendientes en este momento. Podés iniciar una contratación
-                desde una visita/pase QR activo abajo, calificar tus servicios realizados o explorar
-                prestadores verificados.
-              </p>
-              {onViewChange && (
+              <span className="opacity-85">
+                No hay órdenes de pago pendientes en este momento. Podés generar una orden desde una visita/pase QR o calificar tus servicios en la sección de reseñas.
+              </span>
+              {typeof onViewChange === 'function' && (
                 <button
                   type="button"
                   onClick={() => onViewChange('resident')}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 shrink-0"
-                  style={cardStyle}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 shrink-0"
+                  style={{ backgroundColor: primaryActionColor }}
                 >
-                  <Compass size={14} className="text-emerald-400" />
-                  Ir al Portal Residente
-                  <ArrowRight size={13} />
+                  <Compass size={13} /> Explorar prestadores
                 </button>
               )}
             </div>
           ) : (
             <div className="space-y-4">
               {contracts.map((contract) => {
-                const amount = Number(contract.agreed_amount || 0);
-                const fee = Number((amount * 0.07).toFixed(2));
-                const providerNet = Number((amount - fee).toFixed(2));
+                const agreed = Number(contract.agreed_amount || 0);
+                const platformFee = Number((agreed * PLATFORM_FEE_RATE).toFixed(2));
+                const providerPayout = Number((agreed - platformFee).toFixed(2));
+                const providerName =
+                  `${contract.first_name || ''} ${contract.last_name || ''}`.trim() ||
+                  'Prestador Verificado';
 
                 return (
                   <div
                     key={contract.id}
-                    className="p-4 rounded-xl border border-black/20 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 text-xs"
+                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                     style={innerStyle}
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+                      <div>
                         <span className="font-mono font-bold text-emerald-400">
                           Contrato #{contract.id}
-                        </span>
-                        <span className="font-bold">
-                          {contract.provider_name || 'Prestador Verificado'}
-                        </span>
-                        {contract.specialty && (
-                          <span className="text-[10px] font-bold uppercase text-emerald-300 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded">
-                            {contract.specialty}
-                          </span>
-                        )}
+                        </span>{' '}
+                        · <span className="font-bold">{providerName}</span>{' '}
+                        <span className="opacity-75">({contract.specialty || 'Servicio'})</span>
+                        <p className="opacity-80 mt-1">{contract.description}</p>
                       </div>
-                      <p className="opacity-80">{contract.description}</p>
-                      <p className="text-[11px] opacity-75 font-mono pt-1">
-                        Total: ${amount.toLocaleString('es-AR')} · Comisión (7%): $
-                        {fee.toLocaleString('es-AR')} · Neto Prestador (93%): $
-                        {providerNet.toLocaleString('es-AR')}
-                      </p>
+                      <span
+                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-white/15 self-start"
+                        style={cardStyle}
+                      >
+                        Estado: {contract.status}
+                      </span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handlePayContract(contract)}
-                      disabled={payingId === contract.id}
-                      className="inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer shrink-0 transition-opacity hover:opacity-95"
-                      style={{ backgroundColor: primaryActionColor }}
-                    >
-                      <CreditCard size={14} />
-                      {payingId === contract.id ? 'Procesando...' : 'Confirmar y Pagar'}
-                    </button>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                      <div
+                        className="p-3 rounded-lg border border-white/10"
+                        style={cardStyle}
+                      >
+                        <div className="text-[10px] opacity-75">Monto Acordado (100%)</div>
+                        <div className="font-mono font-bold text-sm mt-0.5">
+                          ${agreed.toLocaleString('es-AR')}
+                        </div>
+                      </div>
+                      <div
+                        className="p-3 rounded-lg border border-white/10"
+                        style={cardStyle}
+                      >
+                        <div className="text-[10px] opacity-75">Comisión TrustLink (7%)</div>
+                        <div className="font-mono font-bold text-sm text-amber-300 mt-0.5">
+                          ${platformFee.toLocaleString('es-AR')}
+                        </div>
+                      </div>
+                      <div
+                        className="p-3 rounded-lg border border-white/10"
+                        style={cardStyle}
+                      >
+                        <div className="text-[10px] opacity-75">Neto Prestador (93%)</div>
+                        <div className="font-mono font-bold text-sm text-emerald-300 mt-0.5">
+                          ${providerPayout.toLocaleString('es-AR')}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        disabled={payingId === contract.id}
+                        onClick={() => handlePayContract(contract.id, agreed)}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50"
+                        style={{ backgroundColor: primaryActionColor }}
+                      >
+                        <CreditCard size={14} />
+                        {payingId === contract.id
+                          ? 'Procesando pago...'
+                          : `Pagar $${agreed.toLocaleString('es-AR')}`}
+                      </button>
+                    </div>
                   </div>
                 );
               })}
             </div>
           )}
-        </section>
 
-        {/* Sección 2: Visitas / Pases QR para Contratar */}
-        <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="p-2.5 rounded-xl border border-white/15 text-sky-400 shrink-0"
-                style={innerStyle}
-              >
-                <Ticket size={20} strokeWidth={1.8} />
-              </div>
-              <div>
-                <h3 className="text-base font-black tracking-tight">
-                  Visitas / Pases QR para Contratar
-                </h3>
-                <p className="text-xs opacity-80 mt-0.5">
-                  Pases vigentes o activos emitidos por vos sin contrato generado aún: cargá el
-                  trabajo y el monto acordado para abrir la orden de pago.
-                </p>
-              </div>
-            </div>
-
-            <span
-              className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl self-start sm:self-auto"
+          {/* Generar orden de pago a partir de un pase QR / visita */}
+          {passes.length > 0 && (
+            <form
+              onSubmit={handleCreateContractFromVisit}
+              className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
               style={innerStyle}
             >
-              {visitsReadyForContract.length}{' '}
-              {visitsReadyForContract.length === 1 ? 'visita disponible' : 'visitas disponibles'}
-            </span>
-          </div>
+              <div className="flex items-center gap-2 font-bold">
+                <Ticket size={15} className="text-sky-400" />
+                <span>Generar Orden desde Visita / Pase QR</span>
+              </div>
 
-          {loadingPasses ? (
-            <div className="text-center py-6 text-xs opacity-80">
-              Verificando pases QR activos...
-            </div>
-          ) : visitsReadyForContract.length === 0 ? (
-            <div
-              className="p-5 rounded-xl border border-black/20 text-xs opacity-80 text-center"
-              style={innerStyle}
-            >
-              No tenés pases QR vigentes pendientes de presupuestar en este momento.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {visitsReadyForContract.map((passItem) => {
-                const draftDesc = quoteDescriptions[passItem.id] || '';
-                const draftAmount = quoteAmounts[passItem.id] || '';
-                const numericAmount = Number(draftAmount);
-                const hasValidAmount = !Number.isNaN(numericAmount) && numericAmount > 0;
-                const previewFee = hasValidAmount ? Number((numericAmount * 0.07).toFixed(2)) : 0;
-                const previewNet = hasValidAmount
-                  ? Number((numericAmount - previewFee).toFixed(2))
-                  : 0;
-
-                return (
-                  <form
-                    key={passItem.id}
-                    onSubmit={(e) => handleCreateContractFromPass(passItem, e)}
-                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                    style={innerStyle}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <div>
+                  <label className="block text-[10px] opacity-75 mb-1">Pase QR / Prestador</label>
+                  <select
+                    value={selectedPassId}
+                    onChange={(e) => setSelectedPassId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono font-bold text-emerald-400">
-                            Pase QR #{passItem.id}
-                          </span>
-                          <span className="font-bold">
-                            {passItem.provider_name || 'Prestador Verificado'}
-                          </span>
-                          {passItem.specialty && (
-                            <span className="text-[10px] font-bold uppercase text-emerald-300 bg-emerald-950/70 border border-emerald-800 px-2 py-0.5 rounded">
-                              {passItem.specialty}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] opacity-80 mt-0.5">
-                          Destino:{' '}
-                          {[passItem.fraction_number, passItem.lot_number]
-                            .filter(Boolean)
-                            .join(' · ') || 'No especificado'}{' '}
-                          · Vigencia:{' '}
-                          <span className="font-mono">
-                            {formatDateTime(
-                              passItem.start_time,
-                              DEFAULT_TIMEZONE,
-                              passItem.start_utc_ms
-                            )}{' '}
-                            —{' '}
-                            {formatDateTime(
-                              passItem.end_time,
-                              DEFAULT_TIMEZONE,
-                              passItem.end_utc_ms
-                            )}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
+                    {passes.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        Pase #{p.id} — {p.provider_name || `Prestador #${p.provider_id}`} ({p.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                      <input
-                        type="text"
-                        value={draftDesc}
-                        onChange={(e) =>
-                          setQuoteDescriptions((prev) => ({
-                            ...prev,
-                            [passItem.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Descripción del trabajo acordado"
-                        className="md:col-span-2 w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                        style={cardStyle}
-                      />
-                      <input
-                        type="number"
-                        min="1"
-                        step="0.01"
-                        required
-                        value={draftAmount}
-                        onChange={(e) =>
-                          setQuoteAmounts((prev) => ({
-                            ...prev,
-                            [passItem.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Monto acordado ($)"
-                        className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
+                <div>
+                  <label className="block text-[10px] opacity-75 mb-1">Trabajo realizado</label>
+                  <input
+                    type="text"
+                    required
+                    value={workDescription}
+                    onChange={(e) => setWorkDescription(e.target.value)}
+                    placeholder="Ej: Reparación de pérdida y revisión"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
 
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
-                      <span className="text-[11px] font-mono opacity-80">
-                        {hasValidAmount
-                          ? `Comisión (7%): $${previewFee.toLocaleString('es-AR')} · Neto Prestador (93%): $${previewNet.toLocaleString('es-AR')}`
-                          : 'Ingresá el monto para previsualizar la comisión del 7% y el neto del 93%.'}
-                      </span>
+                <div>
+                  <label className="block text-[10px] opacity-75 mb-1">Monto acordado ($)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="0.01"
+                    required
+                    value={agreedAmount}
+                    onChange={(e) => setAgreedAmount(e.target.value)}
+                    placeholder="Ej: 45000"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
+                    style={cardStyle}
+                  />
+                </div>
+              </div>
 
-                      <button
-                        type="submit"
-                        disabled={creatingFromPassId === passItem.id || !hasValidAmount}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95 shrink-0"
-                        style={{ backgroundColor: primaryActionColor }}
-                      >
-                        <FilePlus2 size={14} />
-                        {creatingFromPassId === passItem.id
-                          ? 'Generando...'
-                          : 'Generar Contrato y Orden'}
-                      </button>
-                    </div>
-                  </form>
-                );
-              })}
-            </div>
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  disabled={creatingContract}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50"
+                  style={{ backgroundColor: primaryActionColor }}
+                >
+                  <PlusCircle size={13} />
+                  {creatingContract ? 'Generando orden...' : 'Crear Orden de Pago'}
+                </button>
+              </div>
+            </form>
           )}
         </section>
 
-        {/* Sección 3: Cierre de Servicio & Calificación Cruzada */}
+        {/* Bloque 2: Reseñas y Reputación Cruzada (unificado con el Portal Prestador) */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
-            <div className="flex items-center gap-3.5">
+            <div className="flex items-center gap-3">
               <div
                 className="p-2.5 rounded-xl border border-white/15 text-amber-400 shrink-0"
                 style={innerStyle}
               >
-                <Star size={20} strokeWidth={1.8} />
+                <Star size={18} strokeWidth={1.8} />
               </div>
               <div>
-                <h2 className="text-xl font-black tracking-tight">
-                  Cierre de Servicio &amp; Calificación Cruzada
-                </h2>
-                <p className="text-xs opacity-80 mt-0.5">
-                  Calificá al prestador al concluir el trabajo; tu reseña actualiza su reputación en
-                  TrustLink.
+                <h3 className="text-lg font-bold">Reseñas y Reputación Cruzada</h3>
+                <p className="text-xs opacity-80">
+                  Calificá al prestador al concluir el trabajo y consultá las reseñas cruzadas de tus contratos.
                 </p>
               </div>
             </div>
 
-            <span
-              className="text-xs font-semibold border border-white/15 px-3 py-1.5 rounded-xl self-start sm:self-auto"
-              style={innerStyle}
-            >
-              {reviewContractsCount === 0
-                ? '0 contratos'
-                : `${reviewContractsCount} ${reviewContractsCount === 1 ? 'contrato' : 'contratos'}`}
+            <span className={statusBadgeClass} style={innerStyle}>
+              {reviewContracts.length === 0
+                ? 'Sin contratos'
+                : `${reviewContracts.length} contrato(s)`}
             </span>
           </div>
 
-          {loadingReviews ? (
-            <div className="text-center py-8 text-xs opacity-80">
-              Cargando servicios para calificación cruzada...
-            </div>
-          ) : reviewContractsCount === 0 ? (
+          {reviewFeedback && (
             <div
-              className="p-6 rounded-xl border border-black/20 text-center text-xs opacity-80"
+              className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
+                reviewFeedback.type === 'success'
+                  ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                  : 'bg-rose-950/60 border-rose-800 text-rose-200'
+              }`}
+            >
+              {reviewFeedback.type === 'success' ? (
+                <CheckCircle2 size={15} />
+              ) : (
+                <AlertCircle size={15} />
+              )}
+              <span>{reviewFeedback.message}</span>
+            </div>
+          )}
+
+          {loadingReviews ? (
+            <div className="text-center py-6 text-xs opacity-80">
+              Cargando historial de contratos para reseñas cruzadas...
+            </div>
+          ) : reviewContracts.length === 0 ? (
+            <div
+              className="p-4 rounded-xl border border-black/20 text-xs opacity-80 text-center"
               style={innerStyle}
             >
-              Aún no tenés contratos registrados para calificar.
+              Aún no tenés contratos registrados para emitir o consultar reseñas.
             </div>
           ) : (
             <div className="space-y-4">
               {reviewContracts.map((item) => {
-                const draftRating = ratingDrafts[item.contract_id] || 5;
-                const draftComment = commentDrafts[item.contract_id] || '';
-                const alreadyRatedProvider = Boolean(item.provider_review_rating);
+                const currentDraftRating = ratingDrafts[item.contract_id] || 5;
+                const currentDraftComment = commentDrafts[item.contract_id] || '';
+                const alreadyRated = Boolean(item.provider_review_rating);
+                const providerFullName =
+                  `${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
+                  'Prestador Verificado';
 
                 return (
                   <div
@@ -694,17 +589,17 @@ export default function ContractPaymentView({ onViewChange }) {
                     className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                     style={innerStyle}
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <span className="font-mono font-bold text-emerald-400">
                           Contrato #{item.contract_id}
                         </span>{' '}
-                        ·{' '}
-                        <span className="font-bold">
-                          {`${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
-                            'Prestador'}
+                        · <span className="font-bold">{providerFullName}</span>{' '}
+                        <span className="opacity-75">
+                          ({item.specialty || 'Servicio'} · ★{' '}
+                          {Number(item.provider_rating_avg || 0).toFixed(2)})
                         </span>
-                        <p className="opacity-80 mt-0.5">{item.description}</p>
+                        <p className="opacity-80 mt-1">{item.description}</p>
                       </div>
                       <span
                         className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
@@ -714,8 +609,10 @@ export default function ContractPaymentView({ onViewChange }) {
                       </span>
                     </div>
 
-                    {alreadyRatedProvider ? (
-                      <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
+                    {alreadyRated ? (
+                      <div
+                        className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2"
+                      >
                         <span className="font-semibold text-emerald-300">
                           Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
                           {item.provider_review_rating}/5)
@@ -728,12 +625,12 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     ) : (
                       <div
-                        className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
+                        className="p-3.5 rounded-lg border border-black/20 space-y-2.5"
                         style={cardStyle}
                       >
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="opacity-90 font-semibold">
-                            Calificar desempeño del prestador:
+                          <span className="font-semibold opacity-90">
+                            Calificar al prestador:
                           </span>
                           <div className="flex items-center gap-1">
                             {[1, 2, 3, 4, 5].map((starVal) => (
@@ -747,15 +644,15 @@ export default function ContractPaymentView({ onViewChange }) {
                                   }))
                                 }
                                 className={`p-1 rounded-lg border cursor-pointer ${
-                                  draftRating >= starVal
+                                  currentDraftRating >= starVal
                                     ? 'bg-amber-950/70 border-amber-700 text-amber-300'
                                     : 'border-white/15 opacity-60'
                                 }`}
-                                style={draftRating >= starVal ? undefined : innerStyle}
+                                style={currentDraftRating >= starVal ? undefined : innerStyle}
                               >
                                 <Star
                                   size={13}
-                                  className={draftRating >= starVal ? 'fill-amber-400' : ''}
+                                  className={currentDraftRating >= starVal ? 'fill-amber-400' : ''}
                                 />
                               </button>
                             ))}
@@ -770,14 +667,14 @@ export default function ContractPaymentView({ onViewChange }) {
                             />
                             <input
                               type="text"
-                              value={draftComment}
+                              value={currentDraftComment}
                               onChange={(e) =>
                                 setCommentDrafts((prev) => ({
                                   ...prev,
                                   [item.contract_id]: e.target.value,
                                 }))
                               }
-                              placeholder="Dejá un comentario sobre puntualidad, prolijidad y resolución..."
+                              placeholder="Comentario sobre puntualidad, prolijidad y cumplimiento..."
                               className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                               style={innerStyle}
                             />
@@ -792,9 +689,25 @@ export default function ContractPaymentView({ onViewChange }) {
                             <Send size={12} />
                             {submittingContractId === item.contract_id
                               ? 'Enviando...'
-                              : 'Enviar Reseña'}
+                              : 'Cerrar y Calificar'}
                           </button>
                         </div>
+                      </div>
+                    )}
+
+                    {item.owner_review_rating && (
+                      <div
+                        className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/30 flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <span className="font-semibold text-indigo-300">
+                          Calificación cruzada recibida del prestador:{' '}
+                          {'★'.repeat(item.owner_review_rating)} ({item.owner_review_rating}/5)
+                        </span>
+                        {item.owner_review_comment && (
+                          <span className="opacity-90 italic">
+                            "{item.owner_review_comment}"
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
@@ -803,6 +716,14 @@ export default function ContractPaymentView({ onViewChange }) {
             </div>
           )}
         </section>
+
+        {/* Nota de respaldo de pasarela */}
+        <div className="text-[11px] opacity-70 flex items-center gap-1.5">
+          <Sparkles size={12} className="text-emerald-400" />
+          <span>
+            La comisión de plataforma del 7% se calcula automáticamente sobre cada orden abonada ({user?.email || 'residente'}).
+          </span>
+        </div>
       </main>
     </div>
   );

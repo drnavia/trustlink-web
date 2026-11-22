@@ -1,12 +1,9 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Unifica la estética y funcionalidad entre:
- * - Paso 1 (Credenciales): Documentación Personal (deduplicada, con historial completo)
- *   y Especialidades y Credenciales (formulario desplegable + switch Visible/Oculta).
- * - Paso 2 (Flota Vehicular): Formulario desplegable desde cabecera ("+ Cargar Vehículo"),
- *   seguro automotor con URL y fechas de vigencia, y tarjetas de 3 filas simétricas.
- * - Paso 3 (Reputación Cruzada): Reseñas recibidas y calificación al residente.
+ * Unifica la pestaña "3. Reseñas" y el encabezado "Reseñas y reputación cruzada"
+ * con el Portal Residente, manteniendo la estética y funcionalidad de Credenciales
+ * y Flota Vehicular.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -164,6 +161,7 @@ export default function ProviderDashboard() {
 
   const hiddenStorageKey = `trustlink_hidden_specialties_${user?.id || user?.email || 'default'}`;
 
+  // Paso activo: 'credentials' | 'vehicles' | 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
   const [providerProfiles, setProviderProfiles] = useState([]);
@@ -211,7 +209,7 @@ export default function ProviderDashboard() {
   const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
 
-  // 2. Flota Vehicular (formulario desplegable + seguro automotor)
+  // 2. Flota Vehicular
   const [showNewVehicleForm, setShowNewVehicleForm] = useState(false);
   const [vehicleType, setVehicleType] = useState('Utilitario');
   const [brandName, setBrandName] = useState('');
@@ -232,7 +230,7 @@ export default function ProviderDashboard() {
   const [editVehInsuranceFrom, setEditVehInsuranceFrom] = useState('');
   const [editVehInsuranceUntil, setEditVehInsuranceUntil] = useState('');
 
-  // 3. Reputación Cruzada
+  // 3. Reseñas y Reputación Cruzada
   const [providerContracts, setProviderContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
@@ -555,9 +553,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  /**
-   * Registra un nuevo vehículo con su póliza de seguro automotor y fechas de vigencia.
-   */
   const handleAddVehicle = async (e) => {
     e.preventDefault();
     if (!plate.trim()) {
@@ -618,9 +613,6 @@ export default function ProviderDashboard() {
     }
   };
 
-  /**
-   * Guarda edición de vehículo y su seguro automotor.
-   */
   const handleSaveEditVehicle = async (vehicleId) => {
     if (!editPlate.trim()) {
       setFeedback({ type: 'error', text: 'La patente del vehículo no puede quedar vacía.' });
@@ -808,6 +800,7 @@ export default function ProviderDashboard() {
 
   const primaryStatusInfo = formatSpecialtyStatus(providerProfiles[0]?.status);
 
+  // Pestañas cortas unificadas: 1. Credenciales, 2. Flota Vehicular, 3. Reseñas
   const steps = [
     {
       id: 'credentials',
@@ -826,7 +819,7 @@ export default function ProviderDashboard() {
     {
       id: 'reviews',
       stepNumber: '3',
-      label: 'Reputación Cruzada',
+      label: 'Reseñas',
       count: providerContracts.length,
       icon: Star,
     },
@@ -961,10 +954,9 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Credenciales (Documentación Personal + Especialidades y Credenciales) */}
+        {/* PASO 1: Credenciales */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Documentación Personal */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
               style={cardStyle}
@@ -1217,7 +1209,6 @@ export default function ProviderDashboard() {
               </div>
             </section>
 
-            {/* Columna Derecha: Especialidades y Credenciales */}
             <section
               className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
               style={cardStyle}
@@ -1439,13 +1430,12 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 2: Flota Vehicular Habilitada (Misma estética y funcionalidad que Credenciales + Seguro Automotor) */}
+        {/* PASO 2: Flota Vehicular Habilitada */}
         {activeStep === 'vehicles' && (
           <section
             className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
             style={cardStyle}
           >
-            {/* Cabecera simétrica con botón "+ Cargar Vehículo" */}
             <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
               <div className="flex items-center gap-2">
                 <Car size={16} className="text-sky-400" />
@@ -1480,7 +1470,6 @@ export default function ProviderDashboard() {
               </button>
             </div>
 
-            {/* Formulario desplegable de Alta de Vehículo + Seguro Automotor */}
             {showNewVehicleForm && (
               <form
                 onSubmit={handleAddVehicle}
@@ -1599,7 +1588,6 @@ export default function ProviderDashboard() {
               </form>
             )}
 
-            {/* Sub-encabezado + contador monoespaciado idéntico a Credenciales */}
             <div className="space-y-2.5 text-xs">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
@@ -1750,7 +1738,6 @@ export default function ProviderDashboard() {
                           </div>
                         ) : (
                           <>
-                            {/* Fila 1: Marca/Modelo + Badge de tipo + Patente + Acción Editar */}
                             <div className="flex items-center justify-between gap-2 h-6">
                               <div className="flex items-center gap-2 min-w-0">
                                 <span className="font-bold text-xs truncate">
@@ -1785,7 +1772,6 @@ export default function ProviderDashboard() {
                               </button>
                             </div>
 
-                            {/* Fila 2: Datos del vehículo + enlace a póliza si existe */}
                             <div className="flex items-center justify-between gap-2 opacity-80 h-4 leading-4">
                               <span className="truncate">
                                 Color: {veh.color || 'No especificado'} · Patente:{' '}
@@ -1807,7 +1793,6 @@ export default function ProviderDashboard() {
                               )}
                             </div>
 
-                            {/* Fila 3: Pie simétrico (Vigencia de Seguro Vehicular + Badge semántico) */}
                             <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
                               <span className="font-mono text-[10px] opacity-75 truncate">
                                 Seguro: {formatDisplayDate(insFrom)} —{' '}
@@ -1830,7 +1815,7 @@ export default function ProviderDashboard() {
           </section>
         )}
 
-        {/* PASO 3: Servicios Realizados & Reputación Cruzada */}
+        {/* PASO 3: Reseñas y Reputación Cruzada */}
         {activeStep === 'reviews' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -1840,11 +1825,9 @@ export default function ProviderDashboard() {
               <div className="flex items-center gap-2.5">
                 <Star size={18} className="text-amber-400" />
                 <div>
-                  <h3 className="text-sm font-bold">
-                    Servicios Realizados &amp; Reputación Cruzada
-                  </h3>
+                  <h3 className="text-sm font-bold">Reseñas y Reputación Cruzada</h3>
                   <p className="text-xs opacity-80">
-                    Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                    Reseñas recibidas de residentes y calificación cruzada por servicio realizado.
                   </p>
                 </div>
               </div>
