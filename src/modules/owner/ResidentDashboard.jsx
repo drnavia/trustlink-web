@@ -1,12 +1,13 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente conectado a PostgreSQL mediante API REST.
+ * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
  * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos,
- * 4. Reseñas) con estilos de reseñas cruzadas alineados y simétricos al Portal Prestador.
+ * 4. Reseñas), corrige el envío de `start_time` y `end_time` en POST /api/v1/passes/create
+ * e incorpora buscador, filtro por estado y paginación en el listado de pases emitidos.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Home,
   Compass,
@@ -26,16 +27,61 @@ import {
   Send,
   Calendar,
   Car,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
 const PLATFORM_FEE_RATE = 0.07;
+const PASSES_PER_PAGE = 6;
+
+/**
+ * Formatea un objeto Date o timestamp a valor compatible con input `datetime-local`
+ * en zona horaria local.
+ */
+function toLocalDateTimeInput(dateObj) {
+  const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+    d.getHours()
+  )}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * Normaliza el estado de un pase QR para mostrar badge semántico en español/consistente.
+ */
+function formatPassBadge(status) {
+  const normalized = String(status || 'pending').toLowerCase();
+  if (normalized === 'pending' || normalized === 'active') {
+    return {
+      label: 'VIGENTE',
+      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
+    };
+  }
+  if (normalized === 'used') {
+    return {
+      label: 'USADO',
+      badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
+    };
+  }
+  if (normalized === 'cancelled') {
+    return {
+      label: 'CANCELADO',
+      badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
+    };
+  }
+  return {
+    label: 'VENCIDO',
+    badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
+  };
+}
 
 export default function ResidentDashboard({ onViewChange }) {
   const { brand } = useBranding();
 
-  // Superficies de Zonas 4 y 5 configurables desde BrandingContext
+  // Zonas 4 y 5 configurables desde BrandingContext
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
@@ -56,15 +102,23 @@ export default function ResidentDashboard({ onViewChange }) {
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // 2. Pases QR
+  // 2. Pases QR + Buscador, Filtro y Paginación
   const [passes, setPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [selectedProviderId, setSelectedProviderId] = useState('');
   const [destinationLot, setDestinationLot] = useState('');
   const [vehiclePlate, setVehiclePlate] = useState('');
-  const [validFrom, setValidFrom] = useState('');
-  const [validUntil, setValidUntil] = useState('');
+  const [validFrom, setValidFrom] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() - 15 * 60 * 1000))
+  );
+  const [validUntil, setValidUntil] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() + 8 * 3600 * 1000))
+  );
   const [creatingPass, setCreatingPass] = useState(false);
+
+  const [passSearch, setPassSearch] = useState('');
+  const [passStatusFilter, setPassStatusFilter] = useState('all');
+  const [passPage, setPassPage] = useState(1);
 
   // 3. Visitas y Pagos
   const [pendingContracts, setPendingContracts] = useState([]);
@@ -169,10 +223,33 @@ export default function ResidentDashboard({ onViewChange }) {
     refreshAll();
   }, [refreshAll]);
 
+  /**
+   * Emite un pase QR enviando `provider_id`, `start_time` y `end_time` en formato ISO
+   * para cumplir con la validación obligatoria del backend.
+   */
   const handleCreatePass = async (e) => {
     e.preventDefault();
     if (!selectedProviderId) {
       setFeedback({ type: 'error', text: 'Seleccioná un prestador verificado.' });
+      return;
+    }
+
+    const startDateObj = validFrom
+      ? new Date(validFrom)
+      : new Date(Date.now() - 15 * 60 * 1000);
+    const endDateObj = validUntil
+      ? new Date(validUntil)
+      : new Date(startDateObj.getTime() + 8 * 3600 * 1000);
+
+    if (
+      Number.isNaN(startDateObj.getTime()) ||
+      Number.isNaN(endDateObj.getTime()) ||
+      endDateObj <= startDateObj
+    ) {
+      setFeedback({
+        type: 'error',
+        text: 'Verificá que la fecha/hora de fin sea posterior a la de inicio.',
+      });
       return;
     }
 
@@ -189,8 +266,8 @@ export default function ResidentDashboard({ onViewChange }) {
           provider_id: Number(selectedProviderId),
           destination: destinationLot.trim() || 'Lote Residente',
           vehicle_plate: vehiclePlate.trim().toUpperCase() || null,
-          valid_from: validFrom || new Date().toISOString(),
-          valid_until: validUntil || new Date(Date.now() + 8 * 3600 * 1000).toISOString(),
+          start_time: startDateObj.toISOString(),
+          end_time: endDateObj.toISOString(),
         }),
       });
       const data = await response.json();
@@ -201,6 +278,7 @@ export default function ResidentDashboard({ onViewChange }) {
         });
         setDestinationLot('');
         setVehiclePlate('');
+        setPassPage(1);
         await fetchMyPasses();
       } else {
         setFeedback({ type: 'error', text: data.error || 'No se pudo generar el pase QR.' });
@@ -292,6 +370,34 @@ export default function ResidentDashboard({ onViewChange }) {
     const q = searchTerm.toLowerCase();
     return fullName.includes(q) || spec.includes(q);
   });
+
+  // Filtrado por texto y estado + paginación para "Mis Pases QR"
+  const filteredPasses = useMemo(() => {
+    const q = passSearch.trim().toLowerCase();
+    return passes.filter((pass) => {
+      const rawStatus = String(pass.status || 'pending').toLowerCase();
+      const matchesStatus =
+        passStatusFilter === 'all' ||
+        (passStatusFilter === 'pending' && (rawStatus === 'pending' || rawStatus === 'active')) ||
+        rawStatus === passStatusFilter;
+
+      if (!matchesStatus) return false;
+      if (!q) return true;
+
+      const idStr = String(pass.id || '').toLowerCase();
+      const provStr = String(pass.provider_name || `prestador #${pass.provider_id || ''}`).toLowerCase();
+      const destStr = String(pass.destination || 'domicilio').toLowerCase();
+      const plateStr = String(pass.vehicle_plate || '').toLowerCase();
+      return idStr.includes(q) || provStr.includes(q) || destStr.includes(q) || plateStr.includes(q);
+    });
+  }, [passes, passSearch, passStatusFilter]);
+
+  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
+  const safePassPage = Math.min(passPage, totalPassPages);
+  const paginatedPasses = useMemo(() => {
+    const startIdx = (safePassPage - 1) * PASSES_PER_PAGE;
+    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
+  }, [filteredPasses, safePassPage]);
 
   const steps = [
     {
@@ -548,7 +654,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* PASO 2: Pases QR */}
+        {/* PASO 2: Pases QR (Emisión + Buscador + Filtro + Paginación) */}
         {activeStep === 'passes' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -562,6 +668,7 @@ export default function ResidentDashboard({ onViewChange }) {
               <span className="text-xs font-mono opacity-80">{passes.length} pase(s)</span>
             </div>
 
+            {/* Formulario de emisión de pase QR */}
             <form
               onSubmit={handleCreatePass}
               className="p-4 rounded-xl border border-white/15 grid grid-cols-1 md:grid-cols-12 gap-3 items-end text-xs"
@@ -618,50 +725,143 @@ export default function ResidentDashboard({ onViewChange }) {
                   {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
                 </button>
               </div>
+
+              <div className="md:col-span-6">
+                <label className="block text-[10px] opacity-75 mb-1">Válido Desde</label>
+                <input
+                  type="datetime-local"
+                  value={validFrom}
+                  onChange={(e) => setValidFrom(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                  style={cardStyle}
+                />
+              </div>
+
+              <div className="md:col-span-6">
+                <label className="block text-[10px] opacity-75 mb-1">Válido Hasta</label>
+                <input
+                  type="datetime-local"
+                  value={validUntil}
+                  onChange={(e) => setValidUntil(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                  style={cardStyle}
+                />
+              </div>
             </form>
+
+            {/* Buscador y filtro por estado para reducir ruido visual */}
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-2.5 opacity-60" size={14} />
+                <input
+                  type="text"
+                  value={passSearch}
+                  onChange={(e) => {
+                    setPassSearch(e.target.value);
+                    setPassPage(1);
+                  }}
+                  placeholder="Buscar pase por #, prestador, destino o patente..."
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={passStatusFilter}
+                  onChange={(e) => {
+                    setPassStatusFilter(e.target.value);
+                    setPassPage(1);
+                  }}
+                  aria-label="Filtrar pases por estado"
+                  className="px-3 py-2 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
+                  style={innerStyle}
+                >
+                  <option value="all">Todos los estados</option>
+                  <option value="pending">Vigentes</option>
+                  <option value="expired">Vencidos</option>
+                  <option value="cancelled">Cancelados</option>
+                  <option value="used">Usados</option>
+                </select>
+                <span className="text-[11px] font-mono opacity-75">
+                  {filteredPasses.length} resultado(s)
+                </span>
+              </div>
+            </div>
 
             {loadingPasses ? (
               <div className="text-center py-6 text-xs opacity-80">Cargando pases QR...</div>
-            ) : passes.length === 0 ? (
+            ) : paginatedPasses.length === 0 ? (
               <div
                 className="p-4 rounded-xl border border-black/20 text-center text-xs opacity-80"
                 style={innerStyle}
               >
-                No tenés pases QR generados aún.
+                No hay pases QR que coincidan con el filtro seleccionado.
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {passes.map((pass) => (
-                  <div
-                    key={pass.id}
-                    className="p-4 rounded-xl border border-black/20 space-y-1.5 text-xs"
-                    style={innerStyle}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono font-bold text-emerald-400">
-                        Pase #{pass.id}
-                      </span>
-                      <span
-                        className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border border-white/15 uppercase"
-                        style={cardStyle}
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {paginatedPasses.map((pass) => {
+                    const badge = formatPassBadge(pass.status);
+                    return (
+                      <div
+                        key={pass.id}
+                        className="p-4 rounded-xl border border-black/20 space-y-1.5 text-xs"
+                        style={innerStyle}
                       >
-                        {pass.status}
-                      </span>
-                    </div>
-                    <p className="font-bold">
-                      {pass.provider_name || `Prestador #${pass.provider_id}`}
-                    </p>
-                    <p className="opacity-80 flex items-center gap-1.5">
-                      <Calendar size={12} /> Destino: {pass.destination || 'Domicilio'}
-                      {pass.vehicle_plate && (
-                        <span className="inline-flex items-center gap-1 ml-2 font-mono">
-                          <Car size={12} /> {pass.vehicle_plate}
-                        </span>
-                      )}
-                    </p>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-mono font-bold text-emerald-400">
+                            Pase #{pass.id}
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${badge.badgeClass}`}
+                          >
+                            {badge.label}
+                          </span>
+                        </div>
+                        <p className="font-bold">
+                          {pass.provider_name || `Prestador #${pass.provider_id}`}
+                        </p>
+                        <p className="opacity-80 flex items-center gap-1.5 flex-wrap">
+                          <Calendar size={12} /> Destino: {pass.destination || 'Domicilio'}
+                          {pass.vehicle_plate && (
+                            <span className="inline-flex items-center gap-1 ml-2 font-mono">
+                              <Car size={12} /> {pass.vehicle_plate}
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Controles de paginación */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-black/20 text-xs">
+                  <span className="opacity-75 font-mono">
+                    Página {safePassPage} de {totalPassPages}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={safePassPage <= 1}
+                      onClick={() => setPassPage((p) => Math.max(1, p - 1))}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/15 font-semibold cursor-pointer disabled:opacity-40 hover:opacity-90"
+                      style={innerStyle}
+                    >
+                      <ChevronLeft size={13} /> Anterior
+                    </button>
+                    <button
+                      type="button"
+                      disabled={safePassPage >= totalPassPages}
+                      onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/15 font-semibold cursor-pointer disabled:opacity-40 hover:opacity-90"
+                      style={innerStyle}
+                    >
+                      Siguiente <ChevronRight size={13} />
+                    </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              </>
             )}
           </section>
         )}
@@ -754,7 +954,7 @@ export default function ResidentDashboard({ onViewChange }) {
           </section>
         )}
 
-        {/* PASO 4: Reseñas y Reputación Cruzada (estilos de bloques de reseñas alineados) */}
+        {/* PASO 4: Reseñas y Reputación Cruzada */}
         {activeStep === 'reviews' && (
           <section
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -799,7 +999,6 @@ export default function ResidentDashboard({ onViewChange }) {
                       className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
-                      {/* Cabecera del contrato */}
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <span className="font-mono font-bold text-emerald-400">
@@ -819,7 +1018,6 @@ export default function ResidentDashboard({ onViewChange }) {
                         </span>
                       </div>
 
-                      {/* Bloque 1: Calificación del residente hacia el prestador */}
                       {alreadyRatedProvider ? (
                         <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-emerald-300">
@@ -907,7 +1105,6 @@ export default function ResidentDashboard({ onViewChange }) {
                         </div>
                       )}
 
-                      {/* Bloque 2: Reseña cruzada recibida desde el prestador (estilo alineado) */}
                       {item.owner_review_rating ? (
                         <div className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/35 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-semibold text-indigo-300">
