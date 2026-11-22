@@ -1,10 +1,10 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
- * 3. Reputación Cruzada). En Credenciales aplica un layout de dos columnas (formulario con
- * vigencias Desde/Hasta para antecedentes y ART/Seguro a la izquierda; listado a la derecha)
- * y respeta de forma homogénea las Zonas 4 y 5 de apariencia.
+ * Reestructura el Paso 1 (Credenciales) separando:
+ * - Izquierda: Documentación Personal Única (Antecedentes Penales y Póliza ART/Seguro con vigencias Desde/Hasta).
+ * - Derecha: Especialidades / Matrículas Habilitadas con alta minimalista y listado limpio.
+ * Mantiene los 3 pasos clicables superiores y las Zonas 4 y 5 de apariencia.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -24,17 +24,13 @@ import {
   MessageSquare,
   Send,
   RefreshCw,
-  Calendar
+  Award,
+  FileText
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
 const API_BASE = 'http://localhost:4000';
 
-/**
- * Traduce el estado de compliance a una etiqueta limpia en español.
- * @param {string} status
- * @returns {{ label: string, badgeClass: string }}
- */
 function formatComplianceStatus(status) {
   const normalized = (status || 'pending').toLowerCase();
   if (normalized === 'approved') {
@@ -55,29 +51,6 @@ function formatComplianceStatus(status) {
   };
 }
 
-/**
- * Formatea una fecha ISO/YYYY-MM-DD de forma legible en español.
- * @param {string|null|undefined} dateStr
- * @returns {string}
- */
-function formatDisplayDate(dateStr) {
-  if (!dateStr) return 'N/D';
-  const raw = String(dateStr).trim();
-  const datePart = raw.includes('T') ? raw.split('T')[0] : raw;
-  const parts = datePart.split('-');
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return raw;
-  return parsed.toLocaleDateString('es-AR');
-}
-
-/**
- * Normaliza un valor de fecha a formato YYYY-MM-DD para inputs tipo date.
- * @param {string|null|undefined} dateStr
- * @returns {string}
- */
 function toDateInputValue(dateStr) {
   if (!dateStr) return '';
   const raw = String(dateStr).trim();
@@ -104,20 +77,19 @@ export default function ProviderDashboard() {
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
-  // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
-  // Paso activo del portal prestador: 'credentials' | 'vehicles' | 'reviews'
+  // Paso activo: 'credentials' | 'vehicles' | 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
   const [providerProfiles, setProviderProfiles] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [fetching, setFetching] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
+  const [savingDocs, setSavingDocs] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Campos para nuevo perfil / credencial de compliance + vigencias Desde / Hasta
-  const [specialty, setSpecialty] = useState('');
+  // Bloque A (Izquierda): Documentación Personal Única (Antecedentes + ART/Seguro)
   const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
   const [criminalFromDate, setCriminalFromDate] = useState('');
   const [criminalUntilDate, setCriminalUntilDate] = useState('');
@@ -125,24 +97,18 @@ export default function ProviderDashboard() {
   const [insuranceFromDate, setInsuranceFromDate] = useState('');
   const [insuranceUntilDate, setInsuranceUntilDate] = useState('');
 
-  // Campos para edición completa de credencial
+  // Bloque B (Derecha): Nueva Especialidad minimalista
+  const [specialty, setSpecialty] = useState('');
   const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
-  const [editCriminalUrl, setEditCriminalUrl] = useState('');
-  const [editCriminalFrom, setEditCriminalFrom] = useState('');
-  const [editCriminalUntil, setEditCriminalUntil] = useState('');
-  const [editInsuranceUrl, setEditInsuranceUrl] = useState('');
-  const [editInsuranceFrom, setEditInsuranceFrom] = useState('');
-  const [editInsuranceUntil, setEditInsuranceUntil] = useState('');
 
-  // Campos para nuevo vehículo
+  // Flota vehicular
   const [vehicleType, setVehicleType] = useState('Utilitario');
   const [brandName, setBrandName] = useState('');
   const [modelName, setModelName] = useState('');
   const [colorName, setColorName] = useState('');
   const [plate, setPlate] = useState('');
 
-  // Campos para edición completa de vehículo
   const [editingVehicleId, setEditingVehicleId] = useState(null);
   const [editVehicleType, setEditVehicleType] = useState('Utilitario');
   const [editBrand, setEditBrand] = useState('');
@@ -150,7 +116,7 @@ export default function ProviderDashboard() {
   const [editColor, setEditColor] = useState('');
   const [editPlate, setEditPlate] = useState('');
 
-  // Reputación cruzada en contratos realizados
+  // Reputación cruzada
   const [providerContracts, setProviderContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
@@ -170,8 +136,25 @@ export default function ProviderDashboard() {
       });
       const data = await response.json();
       if (response.ok) {
-        setProviderProfiles(data.providers || []);
+        const list = data.providers || [];
+        setProviderProfiles(list);
         setVehicles(data.vehicles || []);
+
+        // Toma los datos personales vigentes del primer perfil que tenga documentación cargada
+        const withDocs =
+          list.find((p) => p.criminal_record_url || p.insurance_policy_url) || list[0];
+        if (withDocs) {
+          setCriminalRecordUrl(withDocs.criminal_record_url || '');
+          setCriminalFromDate(
+            toDateInputValue(withDocs.criminal_record_from || withDocs.created_at)
+          );
+          setCriminalUntilDate(toDateInputValue(withDocs.criminal_record_expiry));
+          setInsurancePolicyUrl(withDocs.insurance_policy_url || '');
+          setInsuranceFromDate(
+            toDateInputValue(withDocs.insurance_from || withDocs.created_at)
+          );
+          setInsuranceUntilDate(toDateInputValue(withDocs.insurance_expiry));
+        }
       }
     } catch (error) {
       console.error('Error al cargar datos del prestador:', error);
@@ -205,18 +188,16 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  const handleAddCompliance = async (e) => {
+  // Guarda/actualiza la documentación personal (Antecedentes + ART/Seguro) en todos los perfiles del prestador
+  const handleSavePersonalDocs = async (e) => {
     e.preventDefault();
-    if (!specialty.trim()) return;
-
     if (criminalFromDate && criminalUntilDate && criminalUntilDate < criminalFromDate) {
       setFeedback({
         type: 'error',
-        text: 'En Certificado de Antecedentes, la fecha "Hasta" no puede ser anterior a "Desde".',
+        text: 'En Antecedentes Penales, la fecha "Hasta" no puede ser anterior a "Desde".',
       });
       return;
     }
-
     if (insuranceFromDate && insuranceUntilDate && insuranceUntilDate < insuranceFromDate) {
       setFeedback({
         type: 'error',
@@ -225,6 +206,65 @@ export default function ProviderDashboard() {
       return;
     }
 
+    setSavingDocs(true);
+    setFeedback({ type: '', text: '' });
+
+    const docPayload = {
+      criminal_record_url: criminalRecordUrl.trim() || null,
+      criminal_record_from: criminalFromDate || null,
+      criminal_record_expiry: criminalUntilDate || null,
+      insurance_policy_url: insurancePolicyUrl.trim() || null,
+      insurance_from: insuranceFromDate || null,
+      insurance_expiry: insuranceUntilDate || null,
+    };
+
+    try {
+      if (providerProfiles.length === 0) {
+        const res = await fetch(`${API_BASE}/api/v1/providers/profile`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+          body: JSON.stringify({
+            specialty: 'Servicios Generales',
+            ...docPayload,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
+          return;
+        }
+      } else {
+        await Promise.all(
+          providerProfiles.map((prof) =>
+            fetch(`${API_BASE}/api/v1/providers/profile/${prof.id}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+              body: JSON.stringify({
+                specialty: prof.specialty,
+                ...docPayload,
+              }),
+            })
+          )
+        );
+      }
+
+      setFeedback({
+        type: 'success',
+        text: 'Documentación personal (Antecedentes y ART/Seguro) actualizada correctamente.',
+      });
+      await fetchProviderData();
+    } catch (error) {
+      console.error('Error al guardar documentación personal:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
+    } finally {
+      setSavingDocs(false);
+    }
+  };
+
+  // Agrega una nueva especialidad heredando automáticamente la documentación personal vigente
+  const handleAddSpecialty = async (e) => {
+    e.preventDefault();
+    if (!specialty.trim()) return;
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -246,45 +286,22 @@ export default function ProviderDashboard() {
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Credencial agregada.' });
+        setFeedback({ type: 'success', text: data.message || 'Especialidad agregada.' });
         setSpecialty('');
-        setCriminalRecordUrl('');
-        setCriminalFromDate('');
-        setCriminalUntilDate('');
-        setInsurancePolicyUrl('');
-        setInsuranceFromDate('');
-        setInsuranceUntilDate('');
         await fetchProviderData();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la credencial.' });
+        setFeedback({ type: 'error', text: data.error || 'No se pudo agregar la especialidad.' });
       }
     } catch (error) {
-      console.error('Error al guardar credencial:', error);
+      console.error('Error al agregar especialidad:', error);
       setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
     } finally {
       setLoadingAction(false);
     }
   };
 
-  const handleSaveEditProfile = async (profileId) => {
+  const handleSaveEditSpecialty = async (profileId) => {
     if (!editSpecialty.trim()) return;
-
-    if (editCriminalFrom && editCriminalUntil && editCriminalUntil < editCriminalFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'En Certificado de Antecedentes, la fecha "Hasta" no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-
-    if (editInsuranceFrom && editInsuranceUntil && editInsuranceUntil < editInsuranceFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'En Póliza ART / Seguro, la fecha "Hasta" no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -296,24 +313,24 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           specialty: editSpecialty.trim(),
-          criminal_record_url: editCriminalUrl.trim() || null,
-          criminal_record_from: editCriminalFrom || null,
-          criminal_record_expiry: editCriminalUntil || null,
-          insurance_policy_url: editInsuranceUrl.trim() || null,
-          insurance_from: editInsuranceFrom || null,
-          insurance_expiry: editInsuranceUntil || null,
+          criminal_record_url: criminalRecordUrl.trim() || null,
+          criminal_record_from: criminalFromDate || null,
+          criminal_record_expiry: criminalUntilDate || null,
+          insurance_policy_url: insurancePolicyUrl.trim() || null,
+          insurance_from: insuranceFromDate || null,
+          insurance_expiry: insuranceUntilDate || null,
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: data.message || 'Credencial actualizada.' });
+        setFeedback({ type: 'success', text: data.message || 'Especialidad actualizada.' });
         setEditingProfileId(null);
         await fetchProviderData();
       } else {
         setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
       }
     } catch (error) {
-      console.error('Error al editar credencial:', error);
+      console.error('Error al editar especialidad:', error);
       setFeedback({ type: 'error', text: 'Error de conexión.' });
     } finally {
       setLoadingAction(false);
@@ -493,7 +510,7 @@ export default function ProviderDashboard() {
                 </h2>
                 <p className="text-xs opacity-80 mt-0.5">
                   {activeStep === 'credentials' &&
-                    'Especialidades, antecedentes y pólizas de compliance con vigencia Desde / Hasta.'}
+                    'Documentación personal única (antecedentes y ART/Seguro) y especialidades habilitadas.'}
                   {activeStep === 'vehicles' &&
                     'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
                   {activeStep === 'reviews' &&
@@ -571,7 +588,7 @@ export default function ProviderDashboard() {
           </div>
         </section>
 
-        {/* Feedback global de acciones */}
+        {/* Feedback global */}
         {feedback.text && (
           <div
             className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
@@ -599,120 +616,103 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Credenciales y Compliance en 2 columnas (Formulario izquierda / Listado derecha) */}
+        {/* PASO 1: Reestructurado según dominio real (Izquierda: Doc. Personal / Derecha: Especialidades) */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna izquierda: Formulario de carga de credencial con vigencias Desde / Hasta */}
+            {/* Izquierda: Documentación Personal Única (Antecedentes + ART/Seguro) minimalista */}
             <section
-              className="lg:col-span-6 border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
               <div className="flex items-center justify-between border-b border-black/20 pb-3">
                 <div className="flex items-center gap-2">
-                  <ShieldCheck size={18} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold">Nueva Credencial de Compliance</h3>
+                  <FileText size={16} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold">Documentación Personal</h3>
                 </div>
-                <span className="text-[11px] opacity-75">Alta / Postulación</span>
+                <span className="text-[11px] opacity-75">Aplica a toda tu cuenta</span>
               </div>
 
-              <form onSubmit={handleAddCompliance} className="space-y-4 text-xs">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
-                    Especialidad
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={specialty}
-                    onChange={(e) => setSpecialty(e.target.value)}
-                    placeholder="Ej: Electricista Matriculado"
-                    className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={innerStyle}
-                  />
-                </div>
-
-                {/* Sub-bloque Certificado de Antecedentes con vigencia Desde / Hasta */}
+              <form onSubmit={handleSavePersonalDocs} className="space-y-3 text-xs">
+                {/* Fila compacta: Certificado de Antecedentes */}
                 <div
-                  className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
+                  className="p-3 rounded-xl border border-black/20 space-y-2"
                   style={innerStyle}
                 >
-                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                    Certificado de Antecedentes
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                      Antecedentes Penales
+                    </span>
+                    <span className="text-[10px] opacity-65">URL + Vigencia</span>
                   </div>
                   <input
                     type="text"
                     value={criminalRecordUrl}
                     onChange={(e) => setCriminalRecordUrl(e.target.value)}
-                    placeholder="URL Certificado Antecedentes"
-                    className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    placeholder="https://... (Certificado de antecedentes)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                     style={cardStyle}
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
-                        <Calendar size={11} /> Vigencia Desde
-                      </label>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
                       <input
                         type="date"
                         value={criminalFromDate}
                         onChange={(e) => setCriminalFromDate(e.target.value)}
-                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                         style={cardStyle}
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
-                        <Calendar size={11} /> Vigencia Hasta
-                      </label>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
                       <input
                         type="date"
                         value={criminalUntilDate}
                         onChange={(e) => setCriminalUntilDate(e.target.value)}
-                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                         style={cardStyle}
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Sub-bloque Póliza ART / Seguro con vigencia Desde / Hasta */}
+                {/* Fila compacta: Póliza ART / Seguro */}
                 <div
-                  className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
+                  className="p-3 rounded-xl border border-black/20 space-y-2"
                   style={innerStyle}
                 >
-                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                    Póliza ART / Seguro
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                      Póliza ART / Seguro
+                    </span>
+                    <span className="text-[10px] opacity-65">URL + Vigencia</span>
                   </div>
                   <input
                     type="text"
                     value={insurancePolicyUrl}
                     onChange={(e) => setInsurancePolicyUrl(e.target.value)}
-                    placeholder="URL Póliza ART / Seguro"
-                    className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    placeholder="https://... (Póliza ART / Accidentes Personales)"
+                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                     style={cardStyle}
                   />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
-                        <Calendar size={11} /> Vigencia Desde
-                      </label>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
                       <input
                         type="date"
                         value={insuranceFromDate}
                         onChange={(e) => setInsuranceFromDate(e.target.value)}
-                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                         style={cardStyle}
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
-                        <Calendar size={11} /> Vigencia Hasta
-                      </label>
+                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
                       <input
                         type="date"
                         value={insuranceUntilDate}
                         onChange={(e) => setInsuranceUntilDate(e.target.value)}
-                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                         style={cardStyle}
                       />
                     </div>
@@ -721,208 +721,123 @@ export default function ProviderDashboard() {
 
                 <button
                   type="submit"
-                  disabled={loadingAction || !specialty.trim()}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                  disabled={savingDocs}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
                   style={{ backgroundColor: primaryActionColor }}
                 >
-                  <Plus size={14} /> Agregar Credencial
+                  <Save size={13} />
+                  {savingDocs ? 'Guardando...' : 'Guardar Documentación Personal'}
                 </button>
               </form>
             </section>
 
-            {/* Columna derecha: Listado de credenciales ya cargadas */}
+            {/* Derecha: Especialidades y Credenciales Cargadas (con ícono Award) */}
             <section
-              className="lg:col-span-6 border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
               <div className="flex items-center justify-between border-b border-black/20 pb-3">
-                <h3 className="text-sm font-bold">Credenciales Cargadas</h3>
+                <div className="flex items-center gap-2">
+                  <Award size={16} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold">Especialidades y Credenciales</h3>
+                </div>
                 <span className="text-[11px] font-mono opacity-80">
-                  {providerProfiles.length} registro(s)
+                  {providerProfiles.length} activa(s)
                 </span>
               </div>
 
+              {/* Alta minimalista en una sola fila */}
+              <form onSubmit={handleAddSpecialty} className="flex gap-2 text-xs">
+                <input
+                  type="text"
+                  required
+                  value={specialty}
+                  onChange={(e) => setSpecialty(e.target.value)}
+                  placeholder="Nueva especialidad (ej: Plomero Matriculado)"
+                  className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                  style={innerStyle}
+                />
+                <button
+                  type="submit"
+                  disabled={loadingAction || !specialty.trim()}
+                  className="inline-flex items-center gap-1 px-3.5 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer shrink-0 hover:opacity-95"
+                  style={{ backgroundColor: primaryActionColor }}
+                >
+                  <Plus size={14} /> Agregar
+                </button>
+              </form>
+
               {fetching ? (
-                <div className="text-center py-10 text-xs opacity-80 flex items-center justify-center gap-2">
-                  <Loader2 className="animate-spin" size={15} /> Cargando credenciales...
+                <div className="text-center py-8 text-xs opacity-80 flex items-center justify-center gap-2">
+                  <Loader2 className="animate-spin" size={15} /> Cargando especialidades...
                 </div>
               ) : providerProfiles.length === 0 ? (
                 <div
-                  className="text-center py-10 rounded-xl border border-black/20 text-xs opacity-75"
+                  className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-75"
                   style={innerStyle}
                 >
-                  No tenés credenciales cargadas aún. Completá el formulario de la izquierda.
+                  Aún no agregaste especialidades. Ingresá tu oficio arriba.
                 </div>
               ) : (
-                <div className="space-y-3">
+                <div className="space-y-2.5">
                   {providerProfiles.map((prof) => {
                     const isEditing = editingProfileId === prof.id;
                     const profStatus = formatComplianceStatus(prof.status);
-                    const crimFrom = formatDisplayDate(
-                      prof.criminal_record_from || prof.created_at
-                    );
-                    const crimUntil = formatDisplayDate(prof.criminal_record_expiry);
-                    const insFrom = formatDisplayDate(prof.insurance_from || prof.created_at);
-                    const insUntil = formatDisplayDate(prof.insurance_expiry);
 
                     return (
                       <div
                         key={prof.id}
-                        className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                        className="p-3.5 rounded-xl border border-black/20 text-xs"
                         style={innerStyle}
                       >
                         {isEditing ? (
-                          <div className="space-y-2.5">
+                          <div className="flex items-center gap-2">
                             <input
                               type="text"
                               value={editSpecialty}
                               onChange={(e) => setEditSpecialty(e.target.value)}
-                              placeholder="Especialidad"
-                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                              className="flex-1 px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
                               style={cardStyle}
                             />
-
-                            <div className="space-y-2 pt-1">
-                              <input
-                                type="text"
-                                value={editCriminalUrl}
-                                onChange={(e) => setEditCriminalUrl(e.target.value)}
-                                placeholder="URL Certificado Antecedentes"
-                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] opacity-75 mb-0.5">
-                                    Antecedentes Desde
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editCriminalFrom}
-                                    onChange={(e) => setEditCriminalFrom(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] opacity-75 mb-0.5">
-                                    Antecedentes Hasta
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editCriminalUntil}
-                                    onChange={(e) => setEditCriminalUntil(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-2 pt-1">
-                              <input
-                                type="text"
-                                value={editInsuranceUrl}
-                                onChange={(e) => setEditInsuranceUrl(e.target.value)}
-                                placeholder="URL Póliza ART / Seguro"
-                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] opacity-75 mb-0.5">
-                                    ART / Seguro Desde
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editInsuranceFrom}
-                                    onChange={(e) => setEditInsuranceFrom(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] opacity-75 mb-0.5">
-                                    ART / Seguro Hasta
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editInsuranceUntil}
-                                    onChange={(e) => setEditInsuranceUntil(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-1.5 pt-1">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEditProfile(prof.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white font-bold cursor-pointer"
-                                style={{ backgroundColor: primaryActionColor }}
-                              >
-                                <Save size={12} /> Guardar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingProfileId(null)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                                style={cardStyle}
-                              >
-                                <X size={12} /> Cancelar
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveEditSpecialty(prof.id)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white font-bold cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
+                            >
+                              <Save size={12} /> Guardar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProfileId(null)}
+                              className="p-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                              style={cardStyle}
+                              aria-label="Cancelar"
+                            >
+                              <X size={13} />
+                            </button>
                           </div>
                         ) : (
-                          <div className="space-y-2">
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-sm">{prof.specialty}</span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
-                                >
-                                  {profStatus.label}
-                                </span>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingProfileId(prof.id);
-                                  setEditSpecialty(prof.specialty || '');
-                                  setEditCriminalUrl(prof.criminal_record_url || '');
-                                  setEditCriminalFrom(toDateInputValue(prof.criminal_record_from));
-                                  setEditCriminalUntil(
-                                    toDateInputValue(prof.criminal_record_expiry)
-                                  );
-                                  setEditInsuranceUrl(prof.insurance_policy_url || '');
-                                  setEditInsuranceFrom(toDateInputValue(prof.insurance_from));
-                                  setEditInsuranceUntil(toDateInputValue(prof.insurance_expiry));
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
-                                style={cardStyle}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <span className="font-bold truncate">{prof.specialty}</span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
                               >
-                                <Edit3 size={12} /> Editar
-                              </button>
+                                {profStatus.label}
+                              </span>
                             </div>
-
-                            <div className="text-[11px] opacity-85 space-y-1 pt-1 border-t border-white/10">
-                              <p className="break-all">
-                                <strong>Antecedentes:</strong>{' '}
-                                {prof.criminal_record_url || 'No cargado'}
-                              </p>
-                              <p className="font-mono opacity-75">
-                                Vigencia Antecedentes: Desde {crimFrom} · Hasta {crimUntil}
-                              </p>
-                              <p className="break-all pt-0.5">
-                                <strong>ART / Seguro:</strong>{' '}
-                                {prof.insurance_policy_url || 'No cargado'}
-                              </p>
-                              <p className="font-mono opacity-75">
-                                Vigencia ART / Seguro: Desde {insFrom} · Hasta {insUntil}
-                              </p>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingProfileId(prof.id);
+                                setEditSpecialty(prof.specialty || '');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
+                              style={cardStyle}
+                            >
+                              <Edit3 size={11} /> Editar
+                            </button>
                           </div>
                         )}
                       </div>
