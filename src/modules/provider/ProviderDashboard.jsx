@@ -1,10 +1,10 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Estructura simétrica entre "Documentación Personal" y "Especialidades y Credenciales":
- * - Fila 1 (Cabecera): Título + Badge de verificación ("Verificado"/"Verificada") + botón "Editar" a la derecha.
- * - Fila 2 (Cuerpo): URL del documento o descripción de habilitación.
- * - Fila 3 (Pie / Meta-bar): Vigencia + estado temporal a la izquierda / Switch interactivo "Visible / Oculta" a la derecha.
+ * @description Portal del Prestador conectado a PostgreSQL mediante API REST.
+ * Alinea las tarjetas de "Documentación Personal" y "Especialidades y Credenciales"
+ * en 3 filas idénticas con altura uniforme, mantiene el switch "Visible / Oculta"
+ * en el pie de Especialidades y muestra todos los documentos en el historial
+ * (incluidos los vencidos).
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -89,7 +89,7 @@ function formatSpecialtyStatus(status) {
 }
 
 /**
- * Normaliza un valor de fecha a formato YYYY-MM-DD para inputs tipo date.
+ * Normaliza un valor de fecha a YYYY-MM-DD para inputs de tipo date.
  */
 function toDateInputValue(dateStr) {
   if (!dateStr) return '';
@@ -114,6 +114,7 @@ function formatDisplayDate(dateStr) {
 
 /**
  * Evalúa la vigencia de un documento según las fechas Desde / Hasta.
+ * Incluye explícitamente el estado 'Vencido' cuando la fecha límite ya pasó.
  */
 function resolveDateValidity(fromStr, untilStr) {
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -240,7 +241,7 @@ export default function ProviderDashboard() {
   });
 
   /**
-   * Alterna entre Visible y Oculta al interactuar con el switch de visibilidad.
+   * Alterna entre Visible y Oculta desde el switch del pie de la especialidad.
    */
   const handleToggleSpecialtyVisibility = (prof) => {
     const idNum = Number(prof.id);
@@ -660,16 +661,29 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Construye el historial documental completo del prestador (vigentes, por vencer,
+   * sin fecha y vencidos), sin descartar registros por fecha pasada.
+   */
   const personalDocRows = (() => {
     const baseSource =
-      providerProfiles.find((p) => p.criminal_record_url || p.insurance_policy_url) ||
-      providerProfiles[0];
+      providerProfiles.find(
+        (p) =>
+          p.criminal_record_url ||
+          p.criminal_record_expiry ||
+          p.insurance_policy_url ||
+          p.insurance_expiry
+      ) || providerProfiles[0];
     if (!baseSource) return [];
 
     const rows = [];
     const trustStatus = baseSource.status || 'pending';
 
-    if (baseSource.criminal_record_url || baseSource.criminal_record_expiry) {
+    if (
+      baseSource.criminal_record_url ||
+      baseSource.criminal_record_from ||
+      baseSource.criminal_record_expiry
+    ) {
       const fromVal = baseSource.criminal_record_from || baseSource.created_at;
       const untilVal = baseSource.criminal_record_expiry;
       rows.push({
@@ -683,7 +697,11 @@ export default function ProviderDashboard() {
       });
     }
 
-    if (baseSource.insurance_policy_url || baseSource.insurance_expiry) {
+    if (
+      baseSource.insurance_policy_url ||
+      baseSource.insurance_from ||
+      baseSource.insurance_expiry
+    ) {
       const fromVal = baseSource.insurance_from || baseSource.created_at;
       const untilVal = baseSource.insurance_expiry;
       rows.push({
@@ -857,12 +875,12 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Columnas simétricas con switch interactivo de visibilidad en el pie */}
+        {/* PASO 1: Columnas alineadas en altura y ritmo visual */}
         {activeStep === 'credentials' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Columna Izquierda: Documentación Personal */}
             <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
+              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
               style={cardStyle}
             >
               <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
@@ -970,7 +988,7 @@ export default function ProviderDashboard() {
                 </form>
               )}
 
-              <div className="space-y-2.5 text-xs">
+              <div className="space-y-2.5 text-xs flex-1 flex flex-col">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
                     <History size={13} className="text-sky-400" />
@@ -997,13 +1015,13 @@ export default function ProviderDashboard() {
                     registrar tus antecedentes o seguro.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5 flex-1 flex flex-col">
                     {personalDocRows.map((row) => {
                       const isRowEditing = editingDocKey === row.docKey;
                       return (
                         <div
                           key={row.docKey}
-                          className="p-3 rounded-xl border border-black/20 space-y-2 text-[11px]"
+                          className="p-3.5 rounded-xl border border-black/20 space-y-2 text-[11px] min-h-[116px] flex flex-col justify-between"
                           style={innerStyle}
                         >
                           {isRowEditing ? (
@@ -1069,7 +1087,7 @@ export default function ProviderDashboard() {
                           ) : (
                             <>
                               {/* Fila 1: Título + Badge de verificación + Acción Editar */}
-                              <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center justify-between gap-2 h-6">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="font-bold text-xs truncate">{row.title}</span>
                                   <span
@@ -1092,11 +1110,11 @@ export default function ProviderDashboard() {
                               </div>
 
                               {/* Fila 2: Enlace / URL */}
-                              <div className="truncate opacity-80">{row.url}</div>
+                              <div className="truncate opacity-80 h-4 leading-4">{row.url}</div>
 
-                              {/* Fila 3: Pie simétrico (Vigencia + badge de vigencia) */}
-                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10">
-                                <span className="font-mono text-[10px] opacity-75">
+                              {/* Fila 3: Pie simétrico (Vigencia + estado de vigencia) */}
+                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
+                                <span className="font-mono text-[10px] opacity-75 truncate">
                                   Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
                                   {formatDisplayDate(row.untilDate)}
                                 </span>
@@ -1116,9 +1134,9 @@ export default function ProviderDashboard() {
               </div>
             </section>
 
-            {/* Columna Derecha: Especialidades y Credenciales con switch en el pie */}
+            {/* Columna Derecha: Especialidades y Credenciales */}
             <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
+              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
               style={cardStyle}
             >
               <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
@@ -1187,7 +1205,7 @@ export default function ProviderDashboard() {
                 </form>
               )}
 
-              <div className="space-y-2.5 text-xs">
+              <div className="space-y-2.5 text-xs flex-1 flex flex-col">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
                     <Award size={13} className="text-emerald-400" />
@@ -1214,7 +1232,7 @@ export default function ProviderDashboard() {
                     para sumar tu oficio.
                   </div>
                 ) : (
-                  <div className="space-y-2">
+                  <div className="space-y-2.5 flex-1 flex flex-col">
                     {providerProfiles.map((prof) => {
                       const isEditing = editingProfileId === prof.id;
                       const profStatus = formatSpecialtyStatus(prof.status);
@@ -1224,7 +1242,7 @@ export default function ProviderDashboard() {
                       return (
                         <div
                           key={prof.id}
-                          className="p-3 rounded-xl border border-black/20 text-[11px] space-y-2"
+                          className="p-3.5 rounded-xl border border-black/20 text-[11px] space-y-2 min-h-[116px] flex flex-col justify-between"
                           style={innerStyle}
                         >
                           {isEditing ? (
@@ -1256,8 +1274,8 @@ export default function ProviderDashboard() {
                             </div>
                           ) : (
                             <>
-                              {/* Fila 1: Título + Badge de verificación + solo botón Editar a la derecha */}
-                              <div className="flex items-center justify-between gap-2">
+                              {/* Fila 1: Título + Badge de verificación + solo botón Editar */}
+                              <div className="flex items-center justify-between gap-2 h-6">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="font-bold text-xs truncate">
                                     {prof.specialty}
@@ -1283,25 +1301,27 @@ export default function ProviderDashboard() {
                                 </button>
                               </div>
 
-                              {/* Fila 2: Descripción de habilitación */}
-                              <p className="opacity-80">
+                              {/* Fila 2: Descripción en una línea */}
+                              <p className="opacity-80 truncate h-4 leading-4">
                                 {isHiddenByProvider
-                                  ? 'Oculta por tu configuración actual (no se mostrará a residentes aunque esté verificada).'
+                                  ? 'Oculta por tu configuración actual para residentes.'
                                   : profStatus.isVerified
-                                  ? 'Verificada y habilitada para mostrarse a residentes en la red.'
-                                  : 'Pendiente de verificación de TrustLink para habilitarse a residentes.'}
+                                  ? 'Verificada y habilitada para mostrarse a residentes.'
+                                  : 'Pendiente de verificación de TrustLink para residentes.'}
                               </p>
 
-                              {/* Fila 3: Pie simétrico con Switch interactivo Visible / Oculta */}
-                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10">
-                                <span className="opacity-75">Visibilidad en directorio:</span>
+                              {/* Fila 3: Pie simétrico con Switch Visible / Oculta */}
+                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
+                                <span className="opacity-75 truncate">
+                                  Visibilidad en directorio:
+                                </span>
 
                                 <button
                                   type="button"
                                   role="switch"
                                   aria-checked={isVisible}
                                   onClick={() => handleToggleSpecialtyVisibility(prof)}
-                                  className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full border text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
+                                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
                                     isVisible
                                       ? 'bg-sky-500/15 text-sky-300 border-sky-500/35'
                                       : 'bg-slate-800/80 text-slate-400 border-slate-700'
@@ -1315,13 +1335,13 @@ export default function ProviderDashboard() {
                                   )}
                                   <span>{isVisible ? 'Visible' : 'Oculta'}</span>
                                   <span
-                                    className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                                    className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${
                                       isVisible ? 'bg-sky-400/80' : 'bg-slate-600'
                                     }`}
                                   >
                                     <span
-                                      className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
-                                        isVisible ? 'translate-x-3.5' : 'translate-x-0.5'
+                                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
+                                        isVisible ? 'translate-x-3' : 'translate-x-0.5'
                                       }`}
                                     />
                                   </span>
