@@ -2,7 +2,9 @@
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
  * Organiza la operación en 3 pasos clicables superiores (1. Credenciales, 2. Flota Vehicular,
- * 3. Reputación Cruzada) con contadores en vivo y aplicación homogénea de Zonas 4 y 5.
+ * 3. Reputación Cruzada). En Credenciales aplica un layout de dos columnas (formulario con
+ * vigencias Desde/Hasta para antecedentes y ART/Seguro a la izquierda; listado a la derecha)
+ * y respeta de forma homogénea las Zonas 4 y 5 de apariencia.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -21,7 +23,8 @@ import {
   Star,
   MessageSquare,
   Send,
-  RefreshCw
+  RefreshCw,
+  Calendar
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -52,6 +55,40 @@ function formatComplianceStatus(status) {
   };
 }
 
+/**
+ * Formatea una fecha ISO/YYYY-MM-DD de forma legible en español.
+ * @param {string|null|undefined} dateStr
+ * @returns {string}
+ */
+function formatDisplayDate(dateStr) {
+  if (!dateStr) return 'N/D';
+  const raw = String(dateStr).trim();
+  const datePart = raw.includes('T') ? raw.split('T')[0] : raw;
+  const parts = datePart.split('-');
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return raw;
+  return parsed.toLocaleDateString('es-AR');
+}
+
+/**
+ * Normaliza un valor de fecha a formato YYYY-MM-DD para inputs tipo date.
+ * @param {string|null|undefined} dateStr
+ * @returns {string}
+ */
+function toDateInputValue(dateStr) {
+  if (!dateStr) return '';
+  const raw = String(dateStr).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
+    return raw.slice(0, 10);
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
@@ -79,16 +116,24 @@ export default function ProviderDashboard() {
   const [loadingAction, setLoadingAction] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Campos para nuevo perfil / credencial de compliance
+  // Campos para nuevo perfil / credencial de compliance + vigencias Desde / Hasta
   const [specialty, setSpecialty] = useState('');
   const [criminalRecordUrl, setCriminalRecordUrl] = useState('');
+  const [criminalFromDate, setCriminalFromDate] = useState('');
+  const [criminalUntilDate, setCriminalUntilDate] = useState('');
   const [insurancePolicyUrl, setInsurancePolicyUrl] = useState('');
+  const [insuranceFromDate, setInsuranceFromDate] = useState('');
+  const [insuranceUntilDate, setInsuranceUntilDate] = useState('');
 
   // Campos para edición completa de credencial
   const [editingProfileId, setEditingProfileId] = useState(null);
   const [editSpecialty, setEditSpecialty] = useState('');
   const [editCriminalUrl, setEditCriminalUrl] = useState('');
+  const [editCriminalFrom, setEditCriminalFrom] = useState('');
+  const [editCriminalUntil, setEditCriminalUntil] = useState('');
   const [editInsuranceUrl, setEditInsuranceUrl] = useState('');
+  const [editInsuranceFrom, setEditInsuranceFrom] = useState('');
+  const [editInsuranceUntil, setEditInsuranceUntil] = useState('');
 
   // Campos para nuevo vehículo
   const [vehicleType, setVehicleType] = useState('Utilitario');
@@ -163,6 +208,23 @@ export default function ProviderDashboard() {
   const handleAddCompliance = async (e) => {
     e.preventDefault();
     if (!specialty.trim()) return;
+
+    if (criminalFromDate && criminalUntilDate && criminalUntilDate < criminalFromDate) {
+      setFeedback({
+        type: 'error',
+        text: 'En Certificado de Antecedentes, la fecha "Hasta" no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
+    if (insuranceFromDate && insuranceUntilDate && insuranceUntilDate < insuranceFromDate) {
+      setFeedback({
+        type: 'error',
+        text: 'En Póliza ART / Seguro, la fecha "Hasta" no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -175,7 +237,11 @@ export default function ProviderDashboard() {
         body: JSON.stringify({
           specialty: specialty.trim(),
           criminal_record_url: criminalRecordUrl.trim() || null,
+          criminal_record_from: criminalFromDate || null,
+          criminal_record_expiry: criminalUntilDate || null,
           insurance_policy_url: insurancePolicyUrl.trim() || null,
+          insurance_from: insuranceFromDate || null,
+          insurance_expiry: insuranceUntilDate || null,
         }),
       });
       const data = await response.json();
@@ -183,7 +249,11 @@ export default function ProviderDashboard() {
         setFeedback({ type: 'success', text: data.message || 'Credencial agregada.' });
         setSpecialty('');
         setCriminalRecordUrl('');
+        setCriminalFromDate('');
+        setCriminalUntilDate('');
         setInsurancePolicyUrl('');
+        setInsuranceFromDate('');
+        setInsuranceUntilDate('');
         await fetchProviderData();
       } else {
         setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la credencial.' });
@@ -198,6 +268,23 @@ export default function ProviderDashboard() {
 
   const handleSaveEditProfile = async (profileId) => {
     if (!editSpecialty.trim()) return;
+
+    if (editCriminalFrom && editCriminalUntil && editCriminalUntil < editCriminalFrom) {
+      setFeedback({
+        type: 'error',
+        text: 'En Certificado de Antecedentes, la fecha "Hasta" no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
+    if (editInsuranceFrom && editInsuranceUntil && editInsuranceUntil < editInsuranceFrom) {
+      setFeedback({
+        type: 'error',
+        text: 'En Póliza ART / Seguro, la fecha "Hasta" no puede ser anterior a "Desde".',
+      });
+      return;
+    }
+
     setLoadingAction(true);
     setFeedback({ type: '', text: '' });
     try {
@@ -210,7 +297,11 @@ export default function ProviderDashboard() {
         body: JSON.stringify({
           specialty: editSpecialty.trim(),
           criminal_record_url: editCriminalUrl.trim() || null,
+          criminal_record_from: editCriminalFrom || null,
+          criminal_record_expiry: editCriminalUntil || null,
           insurance_policy_url: editInsuranceUrl.trim() || null,
+          insurance_from: editInsuranceFrom || null,
+          insurance_expiry: editInsuranceUntil || null,
         }),
       });
       const data = await response.json();
@@ -402,7 +493,7 @@ export default function ProviderDashboard() {
                 </h2>
                 <p className="text-xs opacity-80 mt-0.5">
                   {activeStep === 'credentials' &&
-                    'Especialidades, antecedentes y pólizas de compliance para operar en la red.'}
+                    'Especialidades, antecedentes y pólizas de compliance con vigencia Desde / Hasta.'}
                   {activeStep === 'vehicles' &&
                     'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
                   {activeStep === 'reviews' &&
@@ -508,161 +599,338 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Credenciales y Compliance */}
+        {/* PASO 1: Credenciales y Compliance en 2 columnas (Formulario izquierda / Listado derecha) */}
         {activeStep === 'credentials' && (
-          <div
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-            style={cardStyle}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldCheck size={18} className="text-emerald-400" />
-                <h3 className="text-sm font-bold">Credenciales y Compliance</h3>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Columna izquierda: Formulario de carga de credencial con vigencias Desde / Hasta */}
+            <section
+              className="lg:col-span-6 border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              style={cardStyle}
+            >
+              <div className="flex items-center justify-between border-b border-black/20 pb-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={18} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold">Nueva Credencial de Compliance</h3>
+                </div>
+                <span className="text-[11px] opacity-75">Alta / Postulación</span>
               </div>
-              <span className="text-[11px] font-mono opacity-80">
-                {providerProfiles.length} registro(s)
-              </span>
-            </div>
 
-            <form onSubmit={handleAddCompliance} className="space-y-3">
-              <input
-                type="text"
-                value={specialty}
-                onChange={(e) => setSpecialty(e.target.value)}
-                placeholder="Especialidad (ej: Electricista Matriculado)"
-                className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                style={innerStyle}
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <input
-                  type="text"
-                  value={criminalRecordUrl}
-                  onChange={(e) => setCriminalRecordUrl(e.target.value)}
-                  placeholder="URL Certificado Antecedentes"
-                  className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-                <input
-                  type="text"
-                  value={insurancePolicyUrl}
-                  onChange={(e) => setInsurancePolicyUrl(e.target.value)}
-                  placeholder="URL Póliza ART / Seguro"
-                  className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                  style={innerStyle}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loadingAction || !specialty.trim()}
-                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
-                style={{ backgroundColor: primaryActionColor }}
-              >
-                <Plus size={14} /> Agregar Credencial
-              </button>
-            </form>
+              <form onSubmit={handleAddCompliance} className="space-y-4 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
+                    Especialidad
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={specialty}
+                    onChange={(e) => setSpecialty(e.target.value)}
+                    placeholder="Ej: Electricista Matriculado"
+                    className="w-full px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={innerStyle}
+                  />
+                </div>
 
-            {fetching ? (
-              <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
-                <Loader2 className="animate-spin" size={15} /> Cargando credenciales...
-              </div>
-            ) : providerProfiles.length === 0 ? (
-              <div className="text-center py-6 text-xs opacity-75">
-                No tenés credenciales cargadas aún.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {providerProfiles.map((prof) => {
-                  const isEditing = editingProfileId === prof.id;
-                  const profStatus = formatComplianceStatus(prof.status);
-                  return (
-                    <div
-                      key={prof.id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                      style={innerStyle}
-                    >
-                      {isEditing ? (
-                        <div className="space-y-2.5">
-                          <input
-                            type="text"
-                            value={editSpecialty}
-                            onChange={(e) => setEditSpecialty(e.target.value)}
-                            placeholder="Especialidad"
-                            className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
-                            style={cardStyle}
-                          />
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <input
-                              type="text"
-                              value={editCriminalUrl}
-                              onChange={(e) => setEditCriminalUrl(e.target.value)}
-                              placeholder="URL Certificado Antecedentes"
-                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
-                              style={cardStyle}
-                            />
-                            <input
-                              type="text"
-                              value={editInsuranceUrl}
-                              onChange={(e) => setEditInsuranceUrl(e.target.value)}
-                              placeholder="URL Póliza ART / Seguro"
-                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
-                              style={cardStyle}
-                            />
-                          </div>
-                          <div className="flex justify-end gap-1.5 pt-1">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEditProfile(prof.id)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white font-bold cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
-                            >
-                              <Save size={12} /> Guardar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditingProfileId(null)}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                              style={cardStyle}
-                            >
-                              <X size={12} /> Cancelar
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex justify-between items-start gap-3">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold">{prof.specialty}</span>
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
-                              >
-                                {profStatus.label}
-                              </span>
-                            </div>
-                            <p className="opacity-80 mt-1 break-all">
-                              Antecedentes: {prof.criminal_record_url || 'No cargado'} · ART:{' '}
-                              {prof.insurance_policy_url || 'No cargado'}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingProfileId(prof.id);
-                              setEditSpecialty(prof.specialty || '');
-                              setEditCriminalUrl(prof.criminal_record_url || '');
-                              setEditInsuranceUrl(prof.insurance_policy_url || '');
-                            }}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
-                            style={cardStyle}
-                          >
-                            <Edit3 size={12} /> Editar
-                          </button>
-                        </div>
-                      )}
+                {/* Sub-bloque Certificado de Antecedentes con vigencia Desde / Hasta */}
+                <div
+                  className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
+                  style={innerStyle}
+                >
+                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                    Certificado de Antecedentes
+                  </div>
+                  <input
+                    type="text"
+                    value={criminalRecordUrl}
+                    onChange={(e) => setCriminalRecordUrl(e.target.value)}
+                    placeholder="URL Certificado Antecedentes"
+                    className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
+                        <Calendar size={11} /> Vigencia Desde
+                      </label>
+                      <input
+                        type="date"
+                        value={criminalFromDate}
+                        onChange={(e) => setCriminalFromDate(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
                     </div>
-                  );
-                })}
+                    <div>
+                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
+                        <Calendar size={11} /> Vigencia Hasta
+                      </label>
+                      <input
+                        type="date"
+                        value={criminalUntilDate}
+                        onChange={(e) => setCriminalUntilDate(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Sub-bloque Póliza ART / Seguro con vigencia Desde / Hasta */}
+                <div
+                  className="p-3.5 rounded-xl border border-black/20 space-y-2.5"
+                  style={innerStyle}
+                >
+                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-85">
+                    Póliza ART / Seguro
+                  </div>
+                  <input
+                    type="text"
+                    value={insurancePolicyUrl}
+                    onChange={(e) => setInsurancePolicyUrl(e.target.value)}
+                    placeholder="URL Póliza ART / Seguro"
+                    className="w-full px-3 py-2 rounded-lg border border-white/15 text-xs focus:outline-none"
+                    style={cardStyle}
+                  />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
+                        <Calendar size={11} /> Vigencia Desde
+                      </label>
+                      <input
+                        type="date"
+                        value={insuranceFromDate}
+                        onChange={(e) => setInsuranceFromDate(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] opacity-75 mb-1 flex items-center gap-1">
+                        <Calendar size={11} /> Vigencia Hasta
+                      </label>
+                      <input
+                        type="date"
+                        value={insuranceUntilDate}
+                        onChange={(e) => setInsuranceUntilDate(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loadingAction || !specialty.trim()}
+                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
+                  style={{ backgroundColor: primaryActionColor }}
+                >
+                  <Plus size={14} /> Agregar Credencial
+                </button>
+              </form>
+            </section>
+
+            {/* Columna derecha: Listado de credenciales ya cargadas */}
+            <section
+              className="lg:col-span-6 border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
+              style={cardStyle}
+            >
+              <div className="flex items-center justify-between border-b border-black/20 pb-3">
+                <h3 className="text-sm font-bold">Credenciales Cargadas</h3>
+                <span className="text-[11px] font-mono opacity-80">
+                  {providerProfiles.length} registro(s)
+                </span>
               </div>
-            )}
+
+              {fetching ? (
+                <div className="text-center py-10 text-xs opacity-80 flex items-center justify-center gap-2">
+                  <Loader2 className="animate-spin" size={15} /> Cargando credenciales...
+                </div>
+              ) : providerProfiles.length === 0 ? (
+                <div
+                  className="text-center py-10 rounded-xl border border-black/20 text-xs opacity-75"
+                  style={innerStyle}
+                >
+                  No tenés credenciales cargadas aún. Completá el formulario de la izquierda.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {providerProfiles.map((prof) => {
+                    const isEditing = editingProfileId === prof.id;
+                    const profStatus = formatComplianceStatus(prof.status);
+                    const crimFrom = formatDisplayDate(
+                      prof.criminal_record_from || prof.created_at
+                    );
+                    const crimUntil = formatDisplayDate(prof.criminal_record_expiry);
+                    const insFrom = formatDisplayDate(prof.insurance_from || prof.created_at);
+                    const insUntil = formatDisplayDate(prof.insurance_expiry);
+
+                    return (
+                      <div
+                        key={prof.id}
+                        className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                        style={innerStyle}
+                      >
+                        {isEditing ? (
+                          <div className="space-y-2.5">
+                            <input
+                              type="text"
+                              value={editSpecialty}
+                              onChange={(e) => setEditSpecialty(e.target.value)}
+                              placeholder="Especialidad"
+                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                              style={cardStyle}
+                            />
+
+                            <div className="space-y-2 pt-1">
+                              <input
+                                type="text"
+                                value={editCriminalUrl}
+                                onChange={(e) => setEditCriminalUrl(e.target.value)}
+                                placeholder="URL Certificado Antecedentes"
+                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                                style={cardStyle}
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] opacity-75 mb-0.5">
+                                    Antecedentes Desde
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editCriminalFrom}
+                                    onChange={(e) => setEditCriminalFrom(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] opacity-75 mb-0.5">
+                                    Antecedentes Hasta
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editCriminalUntil}
+                                    onChange={(e) => setEditCriminalUntil(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2 pt-1">
+                              <input
+                                type="text"
+                                value={editInsuranceUrl}
+                                onChange={(e) => setEditInsuranceUrl(e.target.value)}
+                                placeholder="URL Póliza ART / Seguro"
+                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 focus:outline-none"
+                                style={cardStyle}
+                              />
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] opacity-75 mb-0.5">
+                                    ART / Seguro Desde
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editInsuranceFrom}
+                                    onChange={(e) => setEditInsuranceFrom(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] opacity-75 mb-0.5">
+                                    ART / Seguro Hasta
+                                  </label>
+                                  <input
+                                    type="date"
+                                    value={editInsuranceUntil}
+                                    onChange={(e) => setEditInsuranceUntil(e.target.value)}
+                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end gap-1.5 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditProfile(prof.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-white font-bold cursor-pointer"
+                                style={{ backgroundColor: primaryActionColor }}
+                              >
+                                <Save size={12} /> Guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingProfileId(null)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <X size={12} /> Cancelar
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-sm">{prof.specialty}</span>
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${profStatus.badgeClass}`}
+                                >
+                                  {profStatus.label}
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingProfileId(prof.id);
+                                  setEditSpecialty(prof.specialty || '');
+                                  setEditCriminalUrl(prof.criminal_record_url || '');
+                                  setEditCriminalFrom(toDateInputValue(prof.criminal_record_from));
+                                  setEditCriminalUntil(
+                                    toDateInputValue(prof.criminal_record_expiry)
+                                  );
+                                  setEditInsuranceUrl(prof.insurance_policy_url || '');
+                                  setEditInsuranceFrom(toDateInputValue(prof.insurance_from));
+                                  setEditInsuranceUntil(toDateInputValue(prof.insurance_expiry));
+                                }}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 cursor-pointer shrink-0 hover:opacity-90"
+                                style={cardStyle}
+                              >
+                                <Edit3 size={12} /> Editar
+                              </button>
+                            </div>
+
+                            <div className="text-[11px] opacity-85 space-y-1 pt-1 border-t border-white/10">
+                              <p className="break-all">
+                                <strong>Antecedentes:</strong>{' '}
+                                {prof.criminal_record_url || 'No cargado'}
+                              </p>
+                              <p className="font-mono opacity-75">
+                                Vigencia Antecedentes: Desde {crimFrom} · Hasta {crimUntil}
+                              </p>
+                              <p className="break-all pt-0.5">
+                                <strong>ART / Seguro:</strong>{' '}
+                                {prof.insurance_policy_url || 'No cargado'}
+                              </p>
+                              <p className="font-mono opacity-75">
+                                Vigencia ART / Seguro: Desde {insFrom} · Hasta {insUntil}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         )}
 
