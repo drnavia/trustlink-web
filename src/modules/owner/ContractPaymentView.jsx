@@ -2,7 +2,8 @@
  * @file ContractPaymentView.jsx
  * @description Vista de Pagos y Reseñas para residentes/propietarios, con desglose
  * financiero (Take Rate 7% / Neto Prestador 93%), contratación desde pases QR vigentes
- * y sección unificada "Reseñas y reputación cruzada".
+ * y sección unificada "Reseñas y Reputación Cruzada" mostrando tanto la calificación
+ * emitida al prestador como la reseña cruzada recibida desde el prestador.
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
@@ -55,7 +56,7 @@ export default function ContractPaymentView({ onViewChange }) {
   const [agreedAmount, setAgreedAmount] = useState('');
   const [creatingContract, setCreatingContract] = useState(false);
 
-  // Reseñas cruzadas (Residente -> Prestador)
+  // Reseñas cruzadas (Residente <-> Prestador)
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ratingDrafts, setRatingDrafts] = useState({});
@@ -94,7 +95,9 @@ export default function ContractPaymentView({ onViewChange }) {
         const list = data.passes || [];
         setPasses(list);
         const firstActive = list.find(
-          (p) => (p.status || '').toLowerCase() === 'pending' || (p.status || '').toLowerCase() === 'used'
+          (p) =>
+            (p.status || '').toLowerCase() === 'pending' ||
+            (p.status || '').toLowerCase() === 'used'
         );
         if (firstActive) {
           setSelectedPassId((prev) => prev || String(firstActive.id));
@@ -517,7 +520,7 @@ export default function ContractPaymentView({ onViewChange }) {
           )}
         </section>
 
-        {/* Bloque 2: Reseñas y Reputación Cruzada (unificado con el Portal Prestador) */}
+        {/* Bloque 2: Reseñas y Reputación Cruzada */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
@@ -610,9 +613,7 @@ export default function ContractPaymentView({ onViewChange }) {
                     </div>
 
                     {alreadyRated ? (
-                      <div
-                        className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2"
-                      >
+                      <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold text-emerald-300">
                           Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
                           {item.provider_review_rating}/5)
@@ -695,19 +696,25 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     )}
 
-                    {item.owner_review_rating && (
-                      <div
-                        className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/30 flex flex-wrap items-center justify-between gap-2"
-                      >
+                    {/* Reseña recibida desde el prestador */}
+                    {item.owner_review_rating ? (
+                      <div className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/35 flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold text-indigo-300">
-                          Calificación cruzada recibida del prestador:{' '}
-                          {'★'.repeat(item.owner_review_rating)} ({item.owner_review_rating}/5)
+                          Reseña recibida del prestador: {'★'.repeat(item.owner_review_rating)} (
+                          {item.owner_review_rating}/5)
                         </span>
                         {item.owner_review_comment && (
                           <span className="opacity-90 italic">
                             "{item.owner_review_comment}"
                           </span>
                         )}
+                      </div>
+                    ) : (
+                      <div
+                        className="border border-white/10 rounded-lg px-3 py-2 text-[11px] opacity-70"
+                        style={cardStyle}
+                      >
+                        Pendiente de reseña cruzada por parte del prestador.
                       </div>
                     )}
                   </div>
