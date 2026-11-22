@@ -1,10 +1,9 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado a PostgreSQL mediante API REST.
- * Alinea las tarjetas de "Documentación Personal" y "Especialidades y Credenciales"
- * en 3 filas idénticas con altura uniforme, mantiene el switch "Visible / Oculta"
- * en el pie de Especialidades y muestra todos los documentos en el historial
- * (incluidos los vencidos).
+ * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
+ * Muestra todas las versiones documentales en el historial (vigentes, por vencer,
+ * vencidas y sin fecha) sin descartar registros pasados, alinea las tarjetas en 3 filas
+ * simétricas y mantiene el switch interactivo "Visible / Oculta" en Especialidades.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -114,7 +113,6 @@ function formatDisplayDate(dateStr) {
 
 /**
  * Evalúa la vigencia de un documento según las fechas Desde / Hasta.
- * Incluye explícitamente el estado 'Vencido' cuando la fecha límite ya pasó.
  */
 function resolveDateValidity(fromStr, untilStr) {
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -149,13 +147,11 @@ export default function ProviderDashboard() {
   const { brand } = useBranding();
   const { user } = useAuth();
 
-  // Zona 4: Tarjetas principales
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
   };
 
-  // Zona 5: Cajas internas, inputs y contenedores secundarios
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
     color: brand?.innerTextColor || '#F1F5F9',
@@ -165,17 +161,16 @@ export default function ProviderDashboard() {
 
   const hiddenStorageKey = `trustlink_hidden_specialties_${user?.id || user?.email || 'default'}`;
 
-  // Paso activo: 'credentials' | 'vehicles' | 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
   const [providerProfiles, setProviderProfiles] = useState([]);
+  const [documentHistory, setDocumentHistory] = useState([]);
   const [vehicles, setVehicles] = useState([]);
   const [fetching, setFetching] = useState(true);
   const [loadingAction, setLoadingAction] = useState(false);
   const [savingDocs, setSavingDocs] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // IDs de especialidades ocultadas por el prestador (false = Visible, true = Oculta)
   const [hiddenProfileIds, setHiddenProfileIds] = useState(() => {
     try {
       const raw = localStorage.getItem(hiddenStorageKey);
@@ -240,9 +235,6 @@ export default function ProviderDashboard() {
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  /**
-   * Alterna entre Visible y Oculta desde el switch del pie de la especialidad.
-   */
   const handleToggleSpecialtyVisibility = (prof) => {
     const idNum = Number(prof.id);
     setHiddenProfileIds((prev) => {
@@ -273,6 +265,7 @@ export default function ProviderDashboard() {
       if (response.ok) {
         const list = data.providers || [];
         setProviderProfiles(list);
+        setDocumentHistory(data.document_history || []);
         setVehicles(data.vehicles || []);
 
         const withDocs =
@@ -322,16 +315,25 @@ export default function ProviderDashboard() {
     refreshAll();
   }, [refreshAll]);
 
-  const persistPersonalDocs = async (nextDocs, successText) => {
+  /**
+   * Persiste una nueva versión documental sin borrar versiones previas del historial.
+   */
+  const persistPersonalDocs = async (
+    docType,
+    { url, fromDate, untilDate },
+    nextDocs,
+    successText
+  ) => {
     setSavingDocs(true);
     setFeedback({ type: '', text: '' });
 
+    const isCriminal = docType === 'criminal';
     const docPayload = {
       criminal_record_url: nextDocs.criminalRecordUrl.trim() || null,
-      criminal_record_from: nextDocs.criminalFromDate || null,
+      criminal_record_from: isCriminal ? fromDate || null : nextDocs.criminalFromDate || null,
       criminal_record_expiry: nextDocs.criminalUntilDate || null,
       insurance_policy_url: nextDocs.insurancePolicyUrl.trim() || null,
-      insurance_from: nextDocs.insuranceFromDate || null,
+      insurance_from: !isCriminal ? fromDate || null : nextDocs.insuranceFromDate || null,
       insurance_expiry: nextDocs.insuranceUntilDate || null,
     };
 
@@ -358,7 +360,12 @@ export default function ProviderDashboard() {
               headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
               body: JSON.stringify({
                 specialty: prof.specialty,
-                ...docPayload,
+                criminal_record_url: isCriminal ? url.trim() || null : prof.criminal_record_url,
+                criminal_record_from: isCriminal ? fromDate || null : prof.criminal_record_from,
+                criminal_record_expiry: isCriminal ? untilDate || null : prof.criminal_record_expiry,
+                insurance_policy_url: !isCriminal ? url.trim() || null : prof.insurance_policy_url,
+                insurance_from: !isCriminal ? fromDate || null : prof.insurance_from,
+                insurance_expiry: !isCriminal ? untilDate || null : prof.insurance_expiry,
               }),
             })
           )
@@ -403,8 +410,10 @@ export default function ProviderDashboard() {
           };
 
     const ok = await persistPersonalDocs(
+      newDocType,
+      { url: newDocUrl, fromDate: newDocFrom, untilDate: newDocUntil },
       nextDocs,
-      'Documentación registrada. Queda sujeta a validación de TrustLink.'
+      'Nueva versión documental registrada en el historial.'
     );
     if (ok) {
       setNewDocUrl('');
@@ -421,7 +430,7 @@ export default function ProviderDashboard() {
     setEditDocUntil(toDateInputValue(row.untilDate));
   };
 
-  const handleSaveInlineDocEdit = async (docKey) => {
+  const handleSaveInlineDocEdit = async (row) => {
     if (editDocFrom && editDocUntil && editDocUntil < editDocFrom) {
       setFeedback({
         type: 'error',
@@ -431,7 +440,7 @@ export default function ProviderDashboard() {
     }
 
     const nextDocs =
-      docKey === 'criminal'
+      row.docType === 'criminal'
         ? {
             ...baseDocs,
             criminalRecordUrl: editDocUrl,
@@ -446,8 +455,10 @@ export default function ProviderDashboard() {
           };
 
     const ok = await persistPersonalDocs(
+      row.docType,
+      { url: editDocUrl, fromDate: editDocFrom, untilDate: editDocUntil },
       nextDocs,
-      'Documento actualizado en el historial. Queda sujeto a validación de TrustLink.'
+      'Versión documental guardada en el historial.'
     );
     if (ok) {
       setEditingDocKey(null);
@@ -662,10 +673,28 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Construye el historial documental completo del prestador (vigentes, por vencer,
-   * sin fecha y vencidos), sin descartar registros por fecha pasada.
+   * Construye el historial documental completo (incluyendo versiones vencidas)
+   * desde `documentHistory` con respaldo a `providerProfiles`.
    */
   const personalDocRows = (() => {
+    if (documentHistory.length > 0) {
+      return documentHistory.map((ver, idx) => {
+        const isInsurance = ver.doc_type === 'insurance';
+        const fromVal = ver.valid_from || ver.created_at;
+        const untilVal = ver.valid_to;
+        return {
+          docKey: `ver-${ver.id || idx}`,
+          docType: isInsurance ? 'insurance' : 'criminal',
+          title: isInsurance ? 'Póliza ART / Seguro' : 'Antecedentes Penales',
+          url: ver.document_url || 'Sin URL',
+          fromDate: fromVal,
+          untilDate: untilVal,
+          validity: resolveDateValidity(fromVal, untilVal),
+          trustlinkValidation: formatTrustlinkValidationStatus(ver.status),
+        };
+      });
+    }
+
     const baseSource =
       providerProfiles.find(
         (p) =>
@@ -688,6 +717,7 @@ export default function ProviderDashboard() {
       const untilVal = baseSource.criminal_record_expiry;
       rows.push({
         docKey: 'criminal',
+        docType: 'criminal',
         title: 'Antecedentes Penales',
         url: baseSource.criminal_record_url || 'Sin URL',
         fromDate: fromVal,
@@ -706,6 +736,7 @@ export default function ProviderDashboard() {
       const untilVal = baseSource.insurance_expiry;
       rows.push({
         docKey: 'insurance',
+        docType: 'insurance',
         title: 'Póliza ART / Seguro',
         url: baseSource.insurance_policy_url || 'Sin URL',
         fromDate: fromVal,
@@ -749,7 +780,6 @@ export default function ProviderDashboard() {
   return (
     <div className="p-6 md:p-8 flex-1">
       <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Prestador + Indicadores de Pasos Clicables */}
         <section
           className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
           style={cardStyle}
@@ -768,7 +798,7 @@ export default function ProviderDashboard() {
                 </h2>
                 <p className="text-xs opacity-80 mt-0.5">
                   {activeStep === 'credentials' &&
-                    'Documentación personal del prestador, vigencia por fechas y especialidades verificadas en TrustLink.'}
+                    'Historial documental completo (incluyendo vencidos), vigencia por fechas y especialidades verificadas en TrustLink.'}
                   {activeStep === 'vehicles' &&
                     'Vehículos habilitados y patentes asociadas a tu perfil de prestador.'}
                   {activeStep === 'reviews' &&
@@ -806,7 +836,6 @@ export default function ProviderDashboard() {
             </div>
           </div>
 
-          {/* Barra de indicadores de pasos seleccionables mediante clic */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
             {steps.map((item) => {
               const IconComp = item.icon;
@@ -847,7 +876,6 @@ export default function ProviderDashboard() {
           </div>
         </section>
 
-        {/* Feedback global */}
         {feedback.text && (
           <div
             className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
@@ -875,7 +903,6 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 1: Columnas alineadas en altura y ritmo visual */}
         {activeStep === 'credentials' && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
             {/* Columna Izquierda: Documentación Personal */}
@@ -921,7 +948,7 @@ export default function ProviderDashboard() {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                      Nueva Documentación
+                      Nueva Versión Documental
                     </span>
                     <select
                       value={newDocType}
@@ -1028,7 +1055,7 @@ export default function ProviderDashboard() {
                             <div className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="font-bold text-xs">{row.title}</span>
-                                <span className="text-[10px] opacity-70">Editando en fila</span>
+                                <span className="text-[10px] opacity-70">Nueva versión</span>
                               </div>
                               <input
                                 type="text"
@@ -1068,7 +1095,7 @@ export default function ProviderDashboard() {
                                 <button
                                   type="button"
                                   disabled={savingDocs}
-                                  onClick={() => handleSaveInlineDocEdit(row.docKey)}
+                                  onClick={() => handleSaveInlineDocEdit(row)}
                                   className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50"
                                   style={{ backgroundColor: primaryActionColor }}
                                 >
@@ -1086,7 +1113,6 @@ export default function ProviderDashboard() {
                             </div>
                           ) : (
                             <>
-                              {/* Fila 1: Título + Badge de verificación + Acción Editar */}
                               <div className="flex items-center justify-between gap-2 h-6">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="font-bold text-xs truncate">{row.title}</span>
@@ -1109,10 +1135,8 @@ export default function ProviderDashboard() {
                                 </button>
                               </div>
 
-                              {/* Fila 2: Enlace / URL */}
                               <div className="truncate opacity-80 h-4 leading-4">{row.url}</div>
 
-                              {/* Fila 3: Pie simétrico (Vigencia + estado de vigencia) */}
                               <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
                                 <span className="font-mono text-[10px] opacity-75 truncate">
                                   Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
@@ -1274,7 +1298,6 @@ export default function ProviderDashboard() {
                             </div>
                           ) : (
                             <>
-                              {/* Fila 1: Título + Badge de verificación + solo botón Editar */}
                               <div className="flex items-center justify-between gap-2 h-6">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <span className="font-bold text-xs truncate">
@@ -1301,7 +1324,6 @@ export default function ProviderDashboard() {
                                 </button>
                               </div>
 
-                              {/* Fila 2: Descripción en una línea */}
                               <p className="opacity-80 truncate h-4 leading-4">
                                 {isHiddenByProvider
                                   ? 'Oculta por tu configuración actual para residentes.'
@@ -1310,7 +1332,6 @@ export default function ProviderDashboard() {
                                   : 'Pendiente de verificación de TrustLink para residentes.'}
                               </p>
 
-                              {/* Fila 3: Pie simétrico con Switch Visible / Oculta */}
                               <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
                                 <span className="opacity-75 truncate">
                                   Visibilidad en directorio:
@@ -1359,7 +1380,6 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 2: Flota Vehicular Habilitada */}
         {activeStep === 'vehicles' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
@@ -1562,7 +1582,6 @@ export default function ProviderDashboard() {
           </div>
         )}
 
-        {/* PASO 3: Servicios Realizados & Reputación Cruzada */}
         {activeStep === 'reviews' && (
           <div
             className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
