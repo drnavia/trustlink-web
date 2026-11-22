@@ -1,10 +1,10 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador conectado a la API REST de TrustLink (PostgreSQL).
- * Incluye el paso 1. Credenciales con diseño minimalista y visual: badges en español
- * con color semántico, ícono de tilde ("Verificado") para validación, diferenciación
- * clara entre estado de verificación y visibilidad de especialidades, formulario
- * desplegable desde cabecera y simetría entre columnas.
+ * Estructura simétrica entre "Documentación Personal" y "Especialidades y Credenciales":
+ * - Fila 1 (Cabecera): Título + Badge principal de verificación ("Verificado"/"Verificada") + Acciones alineadas.
+ * - Fila 2 (Cuerpo): URL del documento o descripción de habilitación.
+ * - Fila 3 (Pie / Metadatos): Vigencia + estado temporal (izquierda) / Visibilidad pública (derecha).
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -41,7 +41,12 @@ const API_BASE = 'http://localhost:4000';
  */
 function normalizeAuditStatus(rawStatus) {
   const normalized = String(rawStatus || 'pending').toLowerCase().trim();
-  if (normalized === 'approved' || normalized === 'aprobado' || normalized === 'verificado' || normalized === 'verified') {
+  if (
+    normalized === 'approved' ||
+    normalized === 'aprobado' ||
+    normalized === 'verificado' ||
+    normalized === 'verified'
+  ) {
     return { label: 'Verificado', tone: 'verified', isVerified: true };
   }
   if (normalized === 'rejected' || normalized === 'rechazado') {
@@ -52,7 +57,6 @@ function normalizeAuditStatus(rawStatus) {
 
 /**
  * Calcula el estado de vigencia de un documento a partir de su fecha de vencimiento.
- * Asigna un color distintivo también a 'Sin fecha' para que no pase desapercibido.
  */
 function getValidityStatus(expiryDateStr) {
   if (!expiryDateStr) {
@@ -788,6 +792,10 @@ export default function ProviderDashboard() {
       ) : activeStep === 'credentials' ? (
         /* =====================================================================
            PASO 1: DOCUMENTACIÓN PERSONAL + ESPECIALIDADES Y CREDENCIALES
+           Estructura de 3 filas idénticas por tarjeta en ambas columnas:
+           1) Cabecera: Título + Badge de Verificación + Acciones a la derecha
+           2) Cuerpo: URL del documento o texto descriptivo
+           3) Pie (Meta-bar): Vigencia / Visibilidad alineados abajo
            ===================================================================== */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* COLUMNA IZQUIERDA: Documentación Personal */}
@@ -906,7 +914,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={docItem.key}
-                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                      className="p-4 rounded-xl border border-black/20 space-y-2 text-xs"
                       style={innerStyle}
                     >
                       {isEditingDoc ? (
@@ -963,19 +971,13 @@ export default function ProviderDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm">{docItem.docType}</span>
+                        <>
+                          {/* Fila 1: Título + Badge principal de verificación + Acción */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-bold text-sm truncate">{docItem.docType}</span>
                               <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
-                                  validity.tone
-                                )}`}
-                              >
-                                {validity.label}
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 shrink-0 ${getSemanticBadgeClass(
                                   audit.tone
                                 )}`}
                                 title="Estado de verificación en TrustLink"
@@ -984,23 +986,37 @@ export default function ProviderDashboard() {
                                 {audit.label}
                               </span>
                             </div>
-                            {docItem.url && (
-                              <p className="opacity-80 truncate">{docItem.url}</p>
-                            )}
-                            <p className="opacity-80">
-                              Vigencia: {formatDateShort(docItem.validFrom)} — {formatDateShort(docItem.validTo)}
-                            </p>
+
+                            <button
+                              type="button"
+                              onClick={() => startEditingDocument(docItem)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <Edit3 size={12} /> Editar
+                            </button>
                           </div>
 
-                          <button
-                            type="button"
-                            onClick={() => startEditingDocument(docItem)}
-                            className={rowActionBtnClass}
-                            style={cardStyle}
-                          >
-                            <Edit3 size={12} /> Editar
-                          </button>
-                        </div>
+                          {/* Fila 2: Enlace / descripción breve */}
+                          <p className="opacity-80 truncate">
+                            {docItem.url || 'Sin enlace cargado'}
+                          </p>
+
+                          {/* Fila 3: Pie de metadatos (Vigencia + estado temporal) */}
+                          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10">
+                            <span className="opacity-80">
+                              Vigencia: {formatDateShort(docItem.validFrom)} —{' '}
+                              {formatDateShort(docItem.validTo)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 shrink-0 ${getSemanticBadgeClass(
+                                validity.tone
+                              )}`}
+                            >
+                              {validity.label}
+                            </span>
+                          </div>
+                        </>
                       )}
                     </div>
                   );
@@ -1084,7 +1100,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={p.id}
-                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                      className="p-4 rounded-xl border border-black/20 space-y-2 text-xs"
                       style={innerStyle}
                     >
                       {isEditing ? (
@@ -1117,63 +1133,69 @@ export default function ProviderDashboard() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1.5 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm">{p.specialty}</span>
-                              {/* Estado de verificación con tilde + color semántico */}
+                        <>
+                          {/* Fila 1: Título + Badge principal de verificación + Acciones en una sola línea */}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-bold text-sm truncate">{p.specialty}</span>
                               <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${getSemanticBadgeClass(
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 shrink-0 ${getSemanticBadgeClass(
                                   specAudit.tone
                                 )}`}
                               >
                                 {specAudit.isVerified && <BadgeCheck size={12} />}
                                 {specAudit.isVerified ? 'Verificada' : specAudit.label}
                               </span>
-                              {/* Visibilidad para residentes diferenciada */}
-                              <span
-                                className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 ${
-                                  isHidden
-                                    ? 'bg-slate-500/15 text-slate-400 border-slate-500/30'
-                                    : 'bg-sky-500/15 text-sky-300 border-sky-500/35'
-                                }`}
-                              >
-                                {isHidden ? <EyeOff size={11} /> : <Eye size={11} />}
-                                {isHidden ? 'Oculta' : 'Visible'}
-                              </span>
                             </div>
-                            <p className="opacity-80">
-                              {specAudit.isVerified
-                                ? isHidden
-                                  ? 'Verificada por TrustLink, pero oculta para residentes por tu configuración.'
-                                  : 'Verificada y habilitada para mostrarse a residentes en la red.'
-                                : 'Pendiente de verificación de TrustLink para habilitarse a residentes.'}
-                            </p>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => toggleSpecialtyVisibility(p.id)}
+                                className={rowActionBtnClass}
+                                style={cardStyle}
+                              >
+                                {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                                {isHidden ? 'Mostrar' : 'Ocultar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingSpecialtyId(p.id);
+                                  setEditSpecialtyName(p.specialty || '');
+                                }}
+                                className={rowActionBtnClass}
+                                style={cardStyle}
+                              >
+                                <Edit3 size={12} /> Editar
+                              </button>
+                            </div>
                           </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => toggleSpecialtyVisibility(p.id)}
-                              className={rowActionBtnClass}
-                              style={cardStyle}
+                          {/* Fila 2: Descripción de habilitación */}
+                          <p className="opacity-80">
+                            {specAudit.isVerified
+                              ? isHidden
+                                ? 'Verificada por TrustLink, pero oculta para residentes por tu configuración.'
+                                : 'Verificada y habilitada para mostrarse a residentes en la red.'
+                              : 'Pendiente de verificación de TrustLink para habilitarse a residentes.'}
+                          </p>
+
+                          {/* Fila 3: Pie de metadatos (Visibilidad pública simétrica al pie de Documentación) */}
+                          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10">
+                            <span className="opacity-80">Visibilidad en directorio:</span>
+                            <span
+                              className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border inline-flex items-center gap-1 shrink-0 ${
+                                isHidden
+                                  ? 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+                                  : 'bg-sky-500/15 text-sky-300 border-sky-500/35'
+                              }`}
                             >
-                              {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
-                              {isHidden ? 'Mostrar' : 'Ocultar'}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingSpecialtyId(p.id);
-                                setEditSpecialtyName(p.specialty || '');
-                              }}
-                              className={rowActionBtnClass}
-                              style={cardStyle}
-                            >
-                              <Edit3 size={12} /> Editar
-                            </button>
+                              {isHidden ? <EyeOff size={11} /> : <Eye size={11} />}
+                              {isHidden ? 'Oculta' : 'Visible'}
+                            </span>
                           </div>
-                        </div>
+                        </>
                       )}
                     </div>
                   );
