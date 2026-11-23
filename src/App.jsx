@@ -1,8 +1,8 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca por zonas (1 a 6), vista pública Landing, protección de rutas por rol
- * y barra de navegación + submenú de Modo Maestro compactos en dispositivos móviles.
+ * marca blanca por zonas (1 a 6), vista pública Landing, protección de rutas por rol,
+ * submenú de Modo Maestro colapsado por defecto en celular y barra superior compacta en móvil.
  * @location /trustlink-web/src/App.jsx
  */
 
@@ -50,6 +50,15 @@ function getDefaultViewForRole(role) {
 }
 
 /**
+ * Indica si el dispositivo actual corresponde a vista móvil (< 768px).
+ * @returns {boolean}
+ */
+function isMobileViewport() {
+  if (typeof window === 'undefined') return false;
+  return window.innerWidth < 768;
+}
+
+/**
  * Contenido principal de la aplicación con acceso a contextos de sesión y apariencia.
  */
 function MainAppContent() {
@@ -58,8 +67,8 @@ function MainAppContent() {
 
   // Vista activa actual (por defecto 'landing' cuando no hay sesión iniciada)
   const [currentView, setCurrentView] = useState('landing');
-  // Estado del submenú de Modo Maestro para el rol superadmin
-  const [masterModeOpen, setMasterModeOpen] = useState(false);
+  // Submenú de Modo Maestro: colapsado por defecto en celular, abierto por defecto en escritorio para superadmin
+  const [masterModeOpen, setMasterModeOpen] = useState(() => !isMobileViewport());
 
   const normalizedRole = String(user?.role || '').toLowerCase();
   const isSuperadmin = isAuthenticated && normalizedRole === 'superadmin';
@@ -68,7 +77,7 @@ function MainAppContent() {
   const isSecurity = isAuthenticated && normalizedRole === 'security';
   const isResident = isAuthenticated && (normalizedRole === 'owner' || normalizedRole === 'family');
 
-  // Sincroniza vista y submenú al cambiar el estado de autenticación o rol
+  // Sincroniza vista y estado inicial del submenú al cambiar sesión o rol
   useEffect(() => {
     if (!isAuthenticated) {
       setCurrentView('landing');
@@ -84,7 +93,8 @@ function MainAppContent() {
     });
 
     if (normalizedRole === 'superadmin') {
-      setMasterModeOpen(true);
+      // En celular inicia colapsado para ahorrar espacio vertical; en escritorio inicia desplegado
+      setMasterModeOpen(!isMobileViewport());
     } else {
       setMasterModeOpen(false);
     }
@@ -228,12 +238,13 @@ function MainAppContent() {
                     <button
                       type="button"
                       onClick={() => setMasterModeOpen((prev) => !prev)}
+                      aria-expanded={masterModeOpen}
                       className={`inline-flex items-center gap-1 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold border transition-all cursor-pointer ${
                         masterModeOpen
                           ? 'bg-purple-600 border-purple-400 text-white'
                           : 'bg-purple-950/60 border-purple-800/80 text-purple-200 hover:bg-purple-900/70'
                       }`}
-                      title="Alternar submenú de Modo Maestro"
+                      title="Abrir o cerrar submenú de Modo Maestro"
                     >
                       <Layers size={13} />
                       <span className="hidden sm:inline">Modo Maestro</span>
@@ -340,7 +351,7 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* ZONA 2: Submenú de Modo Maestro Compacto en Móvil (solo superadmin) */}
+      {/* ZONA 2: Submenú de Modo Maestro (colapsado por defecto en celular, desplegable con un toque) */}
       {isSuperadmin && masterModeOpen && (
         <div
           className="border-b border-slate-800/80 px-3 py-2 md:px-8 md:py-2.5"
