@@ -1,34 +1,41 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador con navegación por pasos superiores
- * (1. Credenciales, 2. Flota Vehicular, 3. Reseñas, 4. Pases QR),
- * gestión de documentación/especialidades, flota vehicular con seguro y
- * consulta de Pases QR asignados por residentes para el ingreso al barrio.
+ * @description Portal del Prestador con flujo E2E ordenado en 4 pasos:
+ * 1. Credenciales, 2. Flota Vehicular, 3. Pases QR y 4. Reseñas.
+ * Soporta ejecución en entorno LOCAL y EXTERNO (VITE_API_BASE_URL) y respeta
+ * los colores de marca por zona (BrandingContext).
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
+  Wrench,
   ShieldCheck,
   Car,
+  Plus,
+  Edit3,
+  Save,
+  X,
+  AlertCircle,
+  CheckCircle2,
+  Loader2,
   Star,
+  MessageSquare,
+  Send,
+  FileText,
+  Award,
+  Eye,
+  EyeOff,
+  History,
+  RefreshCw,
   QrCode,
   Search,
   Copy,
   Check,
-  RefreshCw,
-  FileText,
-  Award,
-  Plus,
-  Edit3,
-  Eye,
-  EyeOff,
-  X,
   Calendar,
   MapPin,
 } from 'lucide-react';
-import { useBranding } from '../branding/BrandingContext';
-import { useAuth } from '../auth/AuthContext';
+import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 
 export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
@@ -36,7 +43,48 @@ export const API_BASE =
 
 const PASSES_PER_PAGE = 6;
 
-const formatDateTime = (value) => {
+/**
+ * Calcula el estado de vigencia de un documento a partir de su fecha de vencimiento.
+ */
+function getValidityStatus(expiryDateStr) {
+  if (!expiryDateStr) {
+    return { label: 'Sin fecha', tone: 'neutral' };
+  }
+
+  const parsed = new Date(expiryDateStr);
+  if (Number.isNaN(parsed.getTime())) {
+    return { label: 'Sin fecha', tone: 'neutral' };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays < 0) {
+    return { label: 'Vencido', tone: 'danger' };
+  }
+  if (diffDays <= 30) {
+    return { label: 'Por vencer', tone: 'warning' };
+  }
+  return { label: 'Vigente', tone: 'success' };
+}
+
+/**
+ * Formatea una fecha corta (dd/mm/aaaa).
+ */
+function formatDateShort(dateStr) {
+  if (!dateStr) return 'Sin fecha';
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return 'Sin fecha';
+  return parsed.toLocaleDateString('es-AR');
+}
+
+/**
+ * Formatea fecha y hora local para vigencias de pases QR.
+ */
+function formatDateTime(value) {
   if (!value) return '—';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value);
@@ -47,9 +95,25 @@ const formatDateTime = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
-};
+}
 
-const getPassStatusBadge = (status) => {
+/**
+ * Convierte cualquier valor de fecha a 'YYYY-MM-DD' para inputs type="date".
+ */
+function toDateInputValue(dateStr) {
+  if (!dateStr) return '';
+  if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+    return dateStr.slice(0, 10);
+  }
+  const parsed = new Date(dateStr);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toISOString().slice(0, 10);
+}
+
+/**
+ * Devuelve clases de badge según estado del pase QR.
+ */
+function getPassStatusBadge(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') {
     return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
@@ -64,68 +128,80 @@ const getPassStatusBadge = (status) => {
     return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
   }
   return 'bg-slate-800 text-slate-300 border-slate-700';
-};
+}
 
-const getPassStatusLabel = (status) => {
+function getPassStatusLabel(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') return 'Vigente / Pendiente';
   if (normalized === 'used') return 'Utilizado';
   if (normalized === 'expired') return 'Vencido';
   if (normalized === 'cancelled') return 'Cancelado';
   return status || 'Sin estado';
-};
+}
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
-  const { user } = useAuth();
 
-  // Paso activo en el Portal Prestador: 'credentials' | 'vehicles' | 'reviews' | 'passes'
-  const [activeTab, setActiveTab] = useState('credentials');
+  // Estilos de superficie configurables desde BrandingContext
+  const cardStyle = {
+    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
+    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+  };
 
-  // Datos generales del perfil del prestador
-  const [profiles, setProfiles] = useState([]);
-  const [documents, setDocuments] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [contracts, setContracts] = useState([]);
-  const [loadingProfile, setLoadingProfile] = useState(true);
-  const [feedback, setFeedback] = useState({ type: '', text: '' });
+  const innerStyle = {
+    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
+    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+  };
 
-  // Formularios colapsables en Credenciales y Flota Vehicular
+  const primaryActionColor = brand.primaryColor || brand.accentColor || '#10b981';
+
+  // Paso activo en orden operativo: 'credentials' -> 'vehicles' -> 'passes' -> 'reviews'
+  const [activeStep, setActiveStep] = useState('credentials');
+
+  // Datos del perfil del prestador
+  const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+
+  // ---------------------------------------------------------------------------
+  // PASO 1: DOCUMENTACIÓN PERSONAL + ESPECIALIDADES Y CREDENCIALES
+  // ---------------------------------------------------------------------------
   const [showDocForm, setShowDocForm] = useState(false);
-  const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
-  const [showVehicleForm, setShowVehicleForm] = useState(false);
-
-  const [docForm, setDocForm] = useState({
-    doc_type: 'Antecedentes Penales',
-    doc_url: '',
-    issued_at: '',
-    expires_at: '',
-  });
+  const [docType, setDocType] = useState('Antecedentes Penales');
+  const [docUrl, setDocUrl] = useState('');
+  const [docValidFrom, setDocValidFrom] = useState('');
+  const [docValidTo, setDocValidTo] = useState('');
   const [savingDoc, setSavingDoc] = useState(false);
 
-  const [specialtyForm, setSpecialtyForm] = useState({
-    specialty: '',
-    license_url: '',
-  });
-  const [savingSpecialty, setSavingSpecialty] = useState(false);
+  const [editingDocKey, setEditingDocKey] = useState(null);
+  const [editDocUrl, setEditDocUrl] = useState('');
+  const [editDocValidFrom, setEditDocValidFrom] = useState('');
+  const [editDocValidTo, setEditDocValidTo] = useState('');
+  const [updatingDoc, setUpdatingDoc] = useState(false);
 
-  const [vehicleForm, setVehicleForm] = useState({
-    vehicle_type: 'Automóvil',
-    brand: '',
-    model: '',
-    color: '',
-    plate: '',
-    vehicle_insurance_url: '',
-    vehicle_insurance_expiry: '',
-  });
+  const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
+  const [newSpecialty, setNewSpecialty] = useState('');
+  const [savingSpecialty, setSavingSpecialty] = useState(false);
+  const [hiddenSpecialtyIds, setHiddenSpecialtyIds] = useState({});
+  const [editingSpecialtyId, setEditingSpecialtyId] = useState(null);
+  const [editSpecialtyName, setEditSpecialtyName] = useState('');
+  const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // PASO 2: FLOTA VEHICULAR
+  // ---------------------------------------------------------------------------
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+  const [vehType, setVehType] = useState('utilitario');
+  const [vehBrand, setVehBrand] = useState('');
+  const [vehModel, setVehModel] = useState('');
+  const [vehColor, setVehColor] = useState('');
+  const [vehPlate, setVehPlate] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
 
-  // Reseñas cruzadas hacia residentes
-  const [residentRating, setResidentRating] = useState({});
-  const [residentComment, setResidentComment] = useState({});
-  const [sendingReviewId, setSendingReviewId] = useState(null);
-
-  // Pases QR asignados por residentes para el prestador
+  // ---------------------------------------------------------------------------
+  // PASO 3: PASES QR ASIGNADOS PARA INGRESO
+  // ---------------------------------------------------------------------------
   const [assignedPasses, setAssignedPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passesError, setPassesError] = useState('');
@@ -135,224 +211,410 @@ export default function ProviderDashboard() {
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  const primaryColor = brand?.primaryActionColor || '#059669';
+  // ---------------------------------------------------------------------------
+  // PASO 4: RESEÑAS / REPUTACIÓN CRUZADA
+  // ---------------------------------------------------------------------------
+  const [reviewContracts, setReviewContracts] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(true);
+  const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
+  const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
+  const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
 
-  const cardStyle = {
-    backgroundColor: brand?.cardBgColor || '#020617',
-    color: brand?.cardTextColor || '#F1F5F9',
-  };
-
-  const innerStyle = {
-    backgroundColor: brand?.innerBgColor || '#0F172A',
-    color: brand?.innerTextColor || '#E2E8F0',
-  };
-
-  const authHeaders = () => ({
-    'Content-Type': 'application/json',
+  const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const fetchProviderData = async () => {
-    setLoadingProfile(true);
-    setFeedback({ type: '', text: '' });
+  const fetchProviderProfile = async () => {
+    setLoading(true);
+    setErrorMsg('');
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
         method: 'GET',
-        headers: authHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        setProfiles(data.profiles || data.providers || []);
-        setDocuments(data.documents || []);
-        setVehicles(data.vehicles || []);
-        setContracts(data.contracts || []);
-      } else {
-        setFeedback({
-          type: 'error',
-          text: data.error || 'No se pudo cargar la información del prestador.',
+        setProfileData({
+          providers: data.providers || [],
+          vehicles: data.vehicles || [],
         });
+      } else {
+        setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
       }
     } catch (error) {
-      console.error('Error al cargar datos del prestador:', error);
-      setFeedback({
-        type: 'error',
-        text: 'Error de conexión con el servidor backend de TrustLink.',
-      });
+      console.error('Error al cargar perfil de prestador:', error);
+      setErrorMsg('Error de conexión con el servidor backend.');
     } finally {
-      setLoadingProfile(false);
+      setLoading(false);
     }
   };
 
-  // Consulta los Pases QR generados por residentes para este prestador
   const fetchAssignedPasses = async () => {
     setLoadingPasses(true);
     setPassesError('');
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/provider`, {
         method: 'GET',
-        headers: authHeaders(),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
         setAssignedPasses(data.passes || data.items || []);
       } else {
         setPassesError(
-          data.error ||
-            'No se pudieron obtener los pases QR asignados. Verificá el endpoint GET /api/v1/passes/provider.'
+          data.error || 'No se pudieron cargar los pases QR asignados al prestador.'
         );
       }
     } catch (error) {
       console.error('Error al cargar pases QR del prestador:', error);
-      setPassesError('Error de conexión al consultar los pases QR asignados.');
+      setPassesError('Error de conexión al consultar los pases QR.');
     } finally {
       setLoadingPasses(false);
     }
   };
 
-  useEffect(() => {
-    fetchProviderData();
-    fetchAssignedPasses();
-  }, []);
-
-  const handleSaveDocument = async (e) => {
-    e.preventDefault();
-    if (!docForm.doc_type.trim()) return;
-    setSavingDoc(true);
-    setFeedback({ type: '', text: '' });
+  const fetchProviderReviewContracts = async () => {
+    setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/documents`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(docForm),
+      const response = await fetch(`${API_BASE}/api/v1/reviews/provider-contracts`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: 'Documentación guardada correctamente.' });
-        setDocForm({
-          doc_type: 'Antecedentes Penales',
-          doc_url: '',
-          issued_at: '',
-          expires_at: '',
-        });
-        setShowDocForm(false);
-        await fetchProviderData();
-      } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
+        setReviewContracts(data.contracts || []);
       }
     } catch (error) {
-      console.error('Error al guardar documento:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
+      console.error('Error al cargar historial de contratos del prestador:', error);
+    } finally {
+      setLoadingReviews(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProviderProfile();
+    fetchAssignedPasses();
+    fetchProviderReviewContracts();
+  }, []);
+
+  const documentHistory = useMemo(() => {
+    const items = [];
+    const profiles = profileData.providers || [];
+
+    profiles.forEach((prof) => {
+      if (Array.isArray(prof.documents) && prof.documents.length > 0) {
+        prof.documents.forEach((doc, idx) => {
+          items.push({
+            key: `doc-${prof.id}-${doc.id || idx}`,
+            profileId: prof.id,
+            docType: doc.doc_type || doc.type || 'Documento',
+            url: doc.url || '',
+            validFrom: doc.valid_from || null,
+            validTo: doc.valid_to || doc.expires_at || null,
+            auditStatus: doc.status || prof.status || 'pending',
+            specialty: prof.specialty || '',
+          });
+        });
+      } else {
+        const crimUrl = prof.criminal_record_url || '';
+        const crimTo = prof.criminal_record_expiry || prof.criminal_record_valid_to || null;
+        const crimFrom = prof.criminal_record_valid_from || prof.created_at || null;
+        if (crimUrl || crimTo) {
+          items.push({
+            key: `crim-${prof.id}`,
+            profileId: prof.id,
+            field: 'criminal',
+            docType: 'Antecedentes Penales',
+            url: crimUrl,
+            validFrom: crimFrom,
+            validTo: crimTo,
+            auditStatus: prof.status || 'pending',
+            specialty: prof.specialty || '',
+          });
+        }
+
+        const artUrl = prof.art_insurance_url || prof.insurance_policy_url || '';
+        const artTo = prof.art_insurance_expiry || prof.insurance_expiry || null;
+        const artFrom = prof.art_insurance_valid_from || prof.created_at || null;
+        if (artUrl || artTo) {
+          items.push({
+            key: `art-${prof.id}`,
+            profileId: prof.id,
+            field: 'art',
+            docType: 'Póliza ART / Seguro',
+            url: artUrl,
+            validFrom: artFrom,
+            validTo: artTo,
+            auditStatus: prof.status || 'pending',
+            specialty: prof.specialty || '',
+          });
+        }
+      }
+    });
+
+    return items;
+  }, [profileData.providers]);
+
+  const activeSpecialtiesCount = useMemo(() => {
+    return (profileData.providers || []).filter((p) => !hiddenSpecialtyIds[p.id]).length;
+  }, [profileData.providers, hiddenSpecialtyIds]);
+
+  const handleCreateDocument = async (e) => {
+    e.preventDefault();
+    setSavingDoc(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const baseProfile = profileData.providers[0] || {};
+    const isArt = docType.toLowerCase().includes('art') || docType.toLowerCase().includes('seguro');
+
+    const payload = {
+      specialty: baseProfile.specialty || 'Servicios Verificados',
+      criminal_record_url: !isArt ? docUrl.trim() : baseProfile.criminal_record_url || '',
+      criminal_record_expiry: !isArt
+        ? docValidTo || null
+        : baseProfile.criminal_record_expiry || null,
+      art_insurance_url: isArt
+        ? docUrl.trim()
+        : baseProfile.art_insurance_url || baseProfile.insurance_policy_url || '',
+      insurance_policy_url: isArt
+        ? docUrl.trim()
+        : baseProfile.insurance_policy_url || baseProfile.art_insurance_url || '',
+      art_insurance_expiry: isArt
+        ? docValidTo || null
+        : baseProfile.art_insurance_expiry || baseProfile.insurance_expiry || null,
+      insurance_expiry: isArt
+        ? docValidTo || null
+        : baseProfile.insurance_expiry || baseProfile.art_insurance_expiry || null,
+      valid_from: docValidFrom || null,
+      valid_to: docValidTo || null,
+      document_type: docType,
+    };
+
+    try {
+      const endpoint = baseProfile.id
+        ? `${API_BASE}/api/v1/providers/profile/${baseProfile.id}`
+        : `${API_BASE}/api/v1/providers/profile`;
+      const method = baseProfile.id ? 'PUT' : 'POST';
+
+      const response = await fetch(endpoint, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccessMsg('Documentación cargada y registrada en el historial.');
+        setDocUrl('');
+        setDocValidFrom('');
+        setDocValidTo('');
+        setShowDocForm(false);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo guardar la documentación.');
+      }
+    } catch (error) {
+      console.error('Error al cargar documentación:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
       setSavingDoc(false);
     }
   };
 
-  const handleAddSpecialty = async (e) => {
-    e.preventDefault();
-    if (!specialtyForm.specialty.trim()) return;
-    setSavingSpecialty(true);
-    setFeedback({ type: '', text: '' });
+  const startEditingDocument = (docItem) => {
+    setEditingDocKey(docItem.key);
+    setEditDocUrl(docItem.url || '');
+    setEditDocValidFrom(toDateInputValue(docItem.validFrom));
+    setEditDocValidTo(toDateInputValue(docItem.validTo));
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  const handleSaveDocumentEdit = async (docItem) => {
+    setUpdatingDoc(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const targetProfile =
+      profileData.providers.find((p) => p.id === docItem.profileId) || profileData.providers[0] || {};
+    const isArt = docItem.field === 'art' || docItem.docType.toLowerCase().includes('art');
+
+    const payload = {
+      specialty: targetProfile.specialty || 'Servicios Verificados',
+      criminal_record_url: !isArt ? editDocUrl.trim() : targetProfile.criminal_record_url || '',
+      criminal_record_expiry: !isArt
+        ? editDocValidTo || null
+        : targetProfile.criminal_record_expiry || null,
+      art_insurance_url: isArt
+        ? editDocUrl.trim()
+        : targetProfile.art_insurance_url || targetProfile.insurance_policy_url || '',
+      insurance_policy_url: isArt
+        ? editDocUrl.trim()
+        : targetProfile.insurance_policy_url || targetProfile.art_insurance_url || '',
+      art_insurance_expiry: isArt
+        ? editDocValidTo || null
+        : targetProfile.art_insurance_expiry || targetProfile.insurance_expiry || null,
+      insurance_expiry: isArt
+        ? editDocValidTo || null
+        : targetProfile.insurance_expiry || targetProfile.art_insurance_expiry || null,
+      valid_from: editDocValidFrom || null,
+      valid_to: editDocValidTo || null,
+    };
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/specialties`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(specialtyForm),
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${targetProfile.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
+
       if (response.ok) {
-        setFeedback({ type: 'success', text: 'Especialidad cargada correctamente.' });
-        setSpecialtyForm({ specialty: '', license_url: '' });
-        setShowSpecialtyForm(false);
-        await fetchProviderData();
+        setSuccessMsg('Documento actualizado en el historial.');
+        setEditingDocKey(null);
+        await fetchProviderProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo cargar la especialidad.' });
+        setErrorMsg(data.error || 'No se pudo actualizar el documento.');
       }
     } catch (error) {
-      console.error('Error al cargar especialidad:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al cargar especialidad.' });
+      console.error('Error al actualizar documento:', error);
+      setErrorMsg('Error de conexión al actualizar el documento.');
+    } finally {
+      setUpdatingDoc(false);
+    }
+  };
+
+  const handleCreateSpecialty = async (e) => {
+    e.preventDefault();
+    if (!newSpecialty.trim()) return;
+
+    setSavingSpecialty(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    const currentDoc = profileData.providers[0] || {};
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          specialty: newSpecialty.trim(),
+          criminal_record_url: currentDoc.criminal_record_url || '',
+          art_insurance_url: currentDoc.art_insurance_url || currentDoc.insurance_policy_url || '',
+        }),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccessMsg('Especialidad agregada correctamente.');
+        setNewSpecialty('');
+        setShowSpecialtyForm(false);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo agregar la especialidad.');
+      }
+    } catch (error) {
+      console.error('Error al agregar especialidad:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
       setSavingSpecialty(false);
     }
   };
 
-  const handleToggleSpecialtyVisibility = async (profileItem) => {
-    const profileId = profileItem.id;
-    const nextVisible = !(profileItem.is_visible_in_directory ?? true);
+  const handleSaveSpecialtyEdit = async (specialtyItem) => {
+    if (!editSpecialtyName.trim()) return;
+
+    setUpdatingSpecialty(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/${profileId}/visibility`, {
-        method: 'PATCH',
-        headers: authHeaders(),
-        body: JSON.stringify({ is_visible_in_directory: nextVisible }),
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${specialtyItem.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          specialty: editSpecialtyName.trim(),
+          criminal_record_url: specialtyItem.criminal_record_url || '',
+          art_insurance_url:
+            specialtyItem.art_insurance_url || specialtyItem.insurance_policy_url || '',
+        }),
       });
+      const data = await response.json();
+
       if (response.ok) {
-        await fetchProviderData();
+        setSuccessMsg('Especialidad actualizada correctamente.');
+        setEditingSpecialtyId(null);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la especialidad.');
       }
     } catch (error) {
-      console.error('Error al cambiar visibilidad de especialidad:', error);
+      console.error('Error al actualizar especialidad:', error);
+      setErrorMsg('Error de conexión al actualizar la especialidad.');
+    } finally {
+      setUpdatingSpecialty(false);
     }
+  };
+
+  const toggleSpecialtyVisibility = (specialtyId) => {
+    setHiddenSpecialtyIds((prev) => ({
+      ...prev,
+      [specialtyId]: !prev[specialtyId],
+    }));
   };
 
   const handleAddVehicle = async (e) => {
     e.preventDefault();
-    if (!vehicleForm.brand.trim() || !vehicleForm.plate.trim()) return;
     setSavingVehicle(true);
-    setFeedback({ type: '', text: '' });
+    setErrorMsg('');
+    setSuccessMsg('');
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/vehicles`, {
         method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(vehicleForm),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setFeedback({ type: 'success', text: 'Vehículo registrado correctamente.' });
-        setVehicleForm({
-          vehicle_type: 'Automóvil',
-          brand: '',
-          model: '',
-          color: '',
-          plate: '',
-          vehicle_insurance_url: '',
-          vehicle_insurance_expiry: '',
-        });
-        setShowVehicleForm(false);
-        await fetchProviderData();
-      } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el vehículo.' });
-      }
-    } catch (error) {
-      console.error('Error al registrar vehículo:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al registrar vehículo.' });
-    } finally {
-      setSavingVehicle(false);
-    }
-  };
-
-  const handleSendOwnerReview = async (contractId) => {
-    setSendingReviewId(contractId);
-    setFeedback({ type: '', text: '' });
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/owner`, {
-        method: 'POST',
-        headers: authHeaders(),
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
         body: JSON.stringify({
-          contract_id: contractId,
-          rating: Number(residentRating[contractId] || 5),
-          comment: String(residentComment[contractId] || '').trim(),
+          vehicle_type: vehType,
+          brand: vehBrand.trim(),
+          model: vehModel.trim(),
+          color: vehColor.trim(),
+          license_plate: vehPlate.trim().toUpperCase(),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({ type: 'success', text: 'Calificación al residente enviada.' });
-        await fetchProviderData();
+        setSuccessMsg('Vehículo asociado a tu flota correctamente.');
+        setVehBrand('');
+        setVehModel('');
+        setVehColor('');
+        setVehPlate('');
+        setShowVehicleForm(false);
+        await fetchProviderProfile();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo enviar la reseña.' });
+        setErrorMsg(data.error || 'No se pudo registrar el vehículo.');
       }
     } catch (error) {
-      console.error('Error al enviar reseña al residente:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al enviar reseña.' });
+      console.error('Error al registrar vehículo:', error);
+      setErrorMsg('Error de conexión con el servidor.');
     } finally {
-      setSendingReviewId(null);
+      setSavingVehicle(false);
     }
   };
 
@@ -364,6 +626,42 @@ export default function ProviderDashboard() {
       setTimeout(() => setCopiedPassId(null), 1800);
     } catch (err) {
       console.error('No se pudo copiar el token:', err);
+    }
+  };
+
+  const handleSubmitOwnerReview = async (contractId) => {
+    const ratingVal = ownerRatingDrafts[contractId] || 5;
+    const commentVal = (ownerCommentDrafts[contractId] || '').trim();
+    setSubmittingOwnerReviewId(contractId);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          contract_id: contractId,
+          rating: ratingVal,
+          comment: commentVal,
+          target_role: 'owner',
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg('Calificación al residente registrada correctamente.');
+        await fetchProviderReviewContracts();
+      } else {
+        setErrorMsg(data.error || 'No se pudo enviar la calificación.');
+      }
+    } catch (error) {
+      console.error('Error al calificar residente:', error);
+      setErrorMsg('Error de conexión al enviar la calificación.');
+    } finally {
+      setSubmittingOwnerReviewId(null);
     }
   };
 
@@ -402,366 +700,520 @@ export default function ProviderDashboard() {
     (p) => String(p.status || '').toLowerCase() === 'pending'
   ).length;
 
-  const avgRating = useMemo(() => {
-    if (!profiles.length) return '0.00';
-    const sum = profiles.reduce((acc, p) => acc + Number(p.rating_avg || 0), 0);
-    return (sum / profiles.length).toFixed(2);
-  }, [profiles]);
+  const primaryProfile = profileData.providers[0] || null;
+  const profileStatus = primaryProfile?.status || 'Pendiente';
 
-  const primaryStatus = profiles[0]?.compliance_status || 'pending';
+  const listHeaderTitleClass =
+    'text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5';
+  const listCounterBadgeClass =
+    'text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15 shrink-0';
+  const rowActionBtnClass =
+    'px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-85 shrink-0';
 
-  const tabs = [
+  const steps = [
     {
       id: 'credentials',
       label: '1. Credenciales',
-      count: profiles.length + documents.length,
-      icon: FileText,
+      count: profileData.providers.length,
+      icon: ShieldCheck,
     },
     {
       id: 'vehicles',
       label: '2. Flota Vehicular',
-      count: vehicles.length,
+      count: profileData.vehicles.length,
       icon: Car,
     },
     {
-      id: 'reviews',
-      label: '3. Reseñas',
-      count: contracts.length,
-      icon: Star,
-    },
-    {
       id: 'passes',
-      label: '4. Pases QR',
+      label: '3. Pases QR',
       count: activePassesCount || assignedPasses.length,
       icon: QrCode,
+    },
+    {
+      id: 'reviews',
+      label: '4. Reseñas',
+      count: reviewContracts.length,
+      icon: Star,
     },
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
-      {/* Cabecera del Portal Prestador */}
-      <div
-        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
+      {/* Cabecera principal y selectores de pasos en orden operativo (1 -> 2 -> 3 -> 4) */}
+      <section
+        className="p-6 rounded-2xl border border-black/20 space-y-5"
         style={cardStyle}
       >
-        <div className="space-y-1">
-          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-            <ShieldCheck size={14} />
-            <span>Portal Prestador</span>
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div className="flex items-center space-x-3.5">
+            <div className="p-3 rounded-xl border border-white/15" style={innerStyle}>
+              <Wrench size={22} className="text-emerald-400" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
+              <p className="text-xs opacity-80">
+                Credenciales, flota vehicular, pases QR de ingreso y reseñas cruzadas.
+              </p>
+            </div>
           </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-            {user?.full_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || 'Gestión del Prestador'}
-          </h1>
-          <p className="text-xs sm:text-sm opacity-80">
-            Administrá tus credenciales, vehículos, reseñas y pases QR habilitados para ingresar al barrio.
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
-          <span
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300"
-          >
-            <Star size={13} className="fill-amber-400 text-amber-400" />
-            Scoring: {avgRating}
-          </span>
-
-          <span
-            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-700/80"
-            style={innerStyle}
-          >
-            Estado: {primaryStatus === 'approved' ? 'Aprobado' : 'Pendiente'}
-          </span>
-
-          <button
-            type="button"
-            onClick={() => {
-              fetchProviderData();
-              fetchAssignedPasses();
-            }}
-            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
-            style={innerStyle}
-            title="Actualizar información"
-          >
-            <RefreshCw size={15} className={loadingProfile || loadingPasses ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </div>
-
-      {/* Selector de pasos clicables superiores */}
-      <div
-        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2"
-        style={cardStyle}
-      >
-        {tabs.map((tab) => {
-          const IconComponent = tab.icon;
-          const isSelected = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                isSelected
-                  ? 'text-white border-transparent shadow-sm'
-                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
-              }`}
-              style={isSelected ? { backgroundColor: primaryColor } : innerStyle}
+          <div className="flex items-center gap-2 flex-wrap">
+            <span
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5"
+              style={innerStyle}
             >
-              <span className="flex items-center gap-1.5 truncate">
-                <IconComponent size={14} className="shrink-0" />
-                <span className="truncate">{tab.label}</span>
-              </span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
-                {tab.count}
-              </span>
+              <Star size={13} className="text-amber-400 fill-amber-400" />
+              Scoring: {Number(primaryProfile?.rating_avg || 0).toFixed(2)}
+            </span>
+            <span
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15"
+              style={innerStyle}
+            >
+              Estado: {profileStatus}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                fetchProviderProfile();
+                fetchAssignedPasses();
+                fetchProviderReviewContracts();
+              }}
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5 cursor-pointer hover:opacity-85"
+              style={innerStyle}
+            >
+              <RefreshCw size={13} /> Actualizar
             </button>
-          );
-        })}
-      </div>
+          </div>
+        </div>
 
-      {feedback.text && (
-        <div
-          className={`rounded-2xl p-4 text-xs border ${
-            feedback.type === 'success'
-              ? 'bg-emerald-950/50 border-emerald-700/70 text-emerald-200'
-              : 'bg-rose-950/50 border-rose-800/70 text-rose-200'
-          }`}
-        >
-          {feedback.text}
+        {/* Selector de los 4 pasos clicables */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+          {steps.map((step) => {
+            const IconComponent = step.icon;
+            const isSelected = activeStep === step.id;
+            return (
+              <button
+                key={step.id}
+                type="button"
+                onClick={() => setActiveStep(step.id)}
+                className={`px-3.5 py-3 rounded-xl text-xs font-bold flex items-center justify-between gap-2 border transition-all cursor-pointer ${
+                  isSelected
+                    ? 'text-white border-emerald-400/50 shadow-sm'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
+              >
+                <span className="flex items-center gap-1.5 truncate">
+                  <IconComponent size={14} className="shrink-0" />
+                  <span className="truncate">{step.label}</span>
+                </span>
+                <span className="font-mono px-2 py-0.5 rounded bg-black/20 shrink-0">
+                  {step.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {errorMsg && (
+        <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <AlertCircle size={16} className="text-rose-400 shrink-0" />
+          <span>{errorMsg}</span>
         </div>
       )}
 
-      {/* PASO 1: Credenciales y Especialidades */}
-      {activeTab === 'credentials' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Documentación Personal */}
+      {successMsg && (
+        <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+          <span>{successMsg}</span>
+        </div>
+      )}
+
+      {loading ? (
+        <div
+          className="text-center py-12 rounded-2xl border border-black/20 text-xs flex items-center justify-center gap-2"
+          style={cardStyle}
+        >
+          <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
+        </div>
+      ) : activeStep === 'credentials' ? (
+        /* =====================================================================
+           1. CREDENCIALES
+           ===================================================================== */
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <section
-            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+            className="p-6 rounded-2xl border border-black/20 space-y-5"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold">Documentación Personal</h2>
-                <p className="text-xs opacity-75">
-                  Antecedentes y ART / seguro personal del prestador.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <FileText size={18} className="text-emerald-400 shrink-0" /> Documentación Personal
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowDocForm((prev) => !prev)}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: primaryColor }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryActionColor }}
               >
-                <Plus size={14} /> {showDocForm ? 'Cerrar' : 'Cargar Doc.'}
+                {showDocForm ? <X size={14} /> : <Plus size={14} />}
+                {showDocForm ? 'Cerrar' : 'Cargar Documentación'}
               </button>
             </div>
 
             {showDocForm && (
               <form
-                onSubmit={handleSaveDocument}
-                className="rounded-xl p-4 border border-slate-700/80 space-y-3 text-xs"
+                onSubmit={handleCreateDocument}
+                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                 style={innerStyle}
               >
-                <div>
-                  <label className="block font-semibold mb-1">Tipo de documento</label>
+                <p className="font-bold">Nuevo Documento de Compliance</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <select
-                    value={docForm.doc_type}
-                    onChange={(e) => setDocForm((prev) => ({ ...prev, doc_type: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                    value={docType}
+                    onChange={(e) => setDocType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                     style={cardStyle}
                   >
                     <option value="Antecedentes Penales">Antecedentes Penales</option>
                     <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
                   </select>
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">URL del comprobante</label>
                   <input
                     type="text"
-                    value={docForm.doc_url}
-                    onChange={(e) => setDocForm((prev) => ({ ...prev, doc_url: e.target.value }))}
-                    placeholder="https://..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                    required
+                    value={docUrl}
+                    onChange={(e) => setDocUrl(e.target.value)}
+                    placeholder="URL o enlace del documento"
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                     style={cardStyle}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <div>
-                    <label className="block font-semibold mb-1">Vigencia desde</label>
+                    <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
                     <input
                       type="date"
-                      value={docForm.issued_at}
-                      onChange={(e) =>
-                        setDocForm((prev) => ({ ...prev, issued_at: e.target.value }))
-                      }
-                      className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                      value={docValidFrom}
+                      onChange={(e) => setDocValidFrom(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                       style={cardStyle}
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold mb-1">Vigencia hasta</label>
+                    <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
                     <input
                       type="date"
-                      value={docForm.expires_at}
-                      onChange={(e) =>
-                        setDocForm((prev) => ({ ...prev, expires_at: e.target.value }))
-                      }
-                      className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                      value={docValidTo}
+                      onChange={(e) => setDocValidTo(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                       style={cardStyle}
                     />
                   </div>
                 </div>
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDocForm(false)}
+                    className={rowActionBtnClass}
+                    style={cardStyle}
+                  >
+                    Cancelar
+                  </button>
                   <button
                     type="submit"
                     disabled={savingDoc}
-                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: primaryColor }}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryActionColor }}
                   >
-                    {savingDoc ? 'Guardando...' : 'Guardar Documento'}
+                    <Save size={13} /> {savingDoc ? 'Guardando...' : 'Guardar Documento'}
                   </button>
                 </div>
               </form>
             )}
 
-            <div className="space-y-2.5">
-              {documents.length === 0 ? (
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className={listHeaderTitleClass}>
+                <History size={13} className="opacity-80" /> HISTORIAL DOCUMENTAL
+              </span>
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {documentHistory.length} doc(s)
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {documentHistory.length === 0 ? (
                 <div
-                  className="rounded-xl p-6 text-center text-xs opacity-75 border border-slate-800/60"
+                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
                   style={innerStyle}
                 >
-                  Sin documentación personal cargada todavía.
+                  No hay documentación cargada aún. Usá &ldquo;+ Cargar Documentación&rdquo; para agregarla.
                 </div>
               ) : (
-                documents.map((doc) => (
-                  <div
-                    key={doc.id}
-                    className="rounded-xl p-3.5 border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
-                    style={innerStyle}
-                  >
-                    <div className="min-w-0">
-                      <p className="font-bold truncate">{doc.doc_type}</p>
-                      <p className="opacity-75 truncate">{doc.doc_url || 'Sin enlace'}</p>
-                      <p className="text-[11px] opacity-70 mt-0.5">
-                        Vigencia: {doc.issued_at || '—'} → {doc.expires_at || 'Sin fecha'}
-                      </p>
+                documentHistory.map((docItem) => {
+                  const isEditingDoc = editingDocKey === docItem.key;
+                  const validity = getValidityStatus(docItem.validTo);
+
+                  return (
+                    <div
+                      key={docItem.key}
+                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                      style={innerStyle}
+                    >
+                      {isEditingDoc ? (
+                        <div className="space-y-2.5">
+                          <div className="font-bold">{docItem.docType}</div>
+                          <input
+                            type="text"
+                            value={editDocUrl}
+                            onChange={(e) => setEditDocUrl(e.target.value)}
+                            placeholder="URL del documento"
+                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            style={cardStyle}
+                          />
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                              <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                              <input
+                                type="date"
+                                value={editDocValidFrom}
+                                onChange={(e) => setEditDocValidFrom(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
+                              <input
+                                type="date"
+                                value={editDocValidTo}
+                                onChange={(e) => setEditDocValidTo(e.target.value)}
+                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                style={cardStyle}
+                              />
+                            </div>
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingDocKey(null)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <X size={12} /> Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveDocumentEdit(docItem)}
+                              disabled={updatingDoc}
+                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
+                            >
+                              <Save size={12} /> {updatingDoc ? 'Guardando...' : 'Guardar'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm">{docItem.docType}</span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded border border-white/15 ${
+                                  validity.tone === 'success'
+                                    ? 'bg-emerald-600/25 text-emerald-300'
+                                    : validity.tone === 'warning'
+                                    ? 'bg-amber-600/25 text-amber-300'
+                                    : validity.tone === 'danger'
+                                    ? 'bg-rose-600/25 text-rose-300'
+                                    : ''
+                                }`}
+                                style={validity.tone === 'neutral' ? cardStyle : undefined}
+                              >
+                                {validity.label}
+                              </span>
+                              <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
+                                style={cardStyle}
+                              >
+                                Validado TrustLink: {docItem.auditStatus}
+                              </span>
+                            </div>
+                            {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
+                            <p className="opacity-80">
+                              Vigencia: {formatDateShort(docItem.validFrom)} —{' '}
+                              {formatDateShort(docItem.validTo)}
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => startEditingDocument(docItem)}
+                            className={rowActionBtnClass}
+                            style={cardStyle}
+                          >
+                            <Edit3 size={12} /> Editar
+                          </button>
+                        </div>
+                      )}
                     </div>
-                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 shrink-0">
-                      {doc.status || 'Registrado'}
-                    </span>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </section>
 
-          {/* Especialidades y Matrículas */}
           <section
-            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+            className="p-6 rounded-2xl border border-black/20 space-y-5"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between gap-2">
-              <div>
-                <h2 className="text-base font-bold flex items-center gap-1.5">
-                  <Award size={16} className="text-emerald-400" />
-                  <span>Especialidades y Credenciales</span>
-                </h2>
-                <p className="text-xs opacity-75">
-                  Rubros habilitados y visibilidad en el directorio de residentes.
-                </p>
-              </div>
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Award size={18} className="text-emerald-400 shrink-0" /> Especialidades y Credenciales
+              </h3>
               <button
                 type="button"
                 onClick={() => setShowSpecialtyForm((prev) => !prev)}
-                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: primaryColor }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryActionColor }}
               >
-                <Plus size={14} /> {showSpecialtyForm ? 'Cerrar' : 'Cargar Especialidad'}
+                {showSpecialtyForm ? <X size={14} /> : <Plus size={14} />}
+                {showSpecialtyForm ? 'Cerrar' : 'Cargar Especialidad'}
               </button>
             </div>
 
             {showSpecialtyForm && (
               <form
-                onSubmit={handleAddSpecialty}
-                className="rounded-xl p-4 border border-slate-700/80 space-y-3 text-xs"
+                onSubmit={handleCreateSpecialty}
+                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
                 style={innerStyle}
               >
-                <div>
-                  <label className="block font-semibold mb-1">Especialidad</label>
+                <p className="font-bold">Nueva Especialidad</p>
+                <div className="flex flex-col sm:flex-row gap-2.5">
                   <input
                     type="text"
-                    value={specialtyForm.specialty}
-                    onChange={(e) =>
-                      setSpecialtyForm((prev) => ({ ...prev, specialty: e.target.value }))
-                    }
-                    placeholder="Ej: Electricista Matriculado, Gasista..."
                     required
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                    value={newSpecialty}
+                    onChange={(e) => setNewSpecialty(e.target.value)}
+                    placeholder="Nueva especialidad (ej: Plomero Matriculado)"
+                    className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
                     style={cardStyle}
                   />
-                </div>
-                <div>
-                  <label className="block font-semibold mb-1">URL Matrícula / Habilitación</label>
-                  <input
-                    type="text"
-                    value={specialtyForm.license_url}
-                    onChange={(e) =>
-                      setSpecialtyForm((prev) => ({ ...prev, license_url: e.target.value }))
-                    }
-                    placeholder="https://..."
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
-                    style={cardStyle}
-                  />
-                </div>
-                <div className="flex justify-end">
                   <button
                     type="submit"
                     disabled={savingSpecialty}
-                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: primaryColor }}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer disabled:opacity-50 shrink-0"
+                    style={{ backgroundColor: primaryActionColor }}
                   >
-                    {savingSpecialty ? 'Guardando...' : 'Guardar Especialidad'}
+                    <Plus size={14} /> {savingSpecialty ? 'Agregando...' : 'Agregar'}
                   </button>
                 </div>
               </form>
             )}
 
-            <div className="space-y-2.5">
-              {profiles.length === 0 ? (
+            <div className="flex items-center justify-between gap-2 pt-1">
+              <span className={listHeaderTitleClass}>
+                <ShieldCheck size={13} className="opacity-80" /> ESPECIALIDADES CARGADAS
+              </span>
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {activeSpecialtiesCount} activa(s)
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {profileData.providers.length === 0 ? (
                 <div
-                  className="rounded-xl p-6 text-center text-xs opacity-75 border border-slate-800/60"
+                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
                   style={innerStyle}
                 >
-                  Todavía no cargaste especialidades.
+                  No tenés especialidades registradas aún. Usá &ldquo;+ Cargar Especialidad&rdquo; para agregar una.
                 </div>
               ) : (
-                profiles.map((prof) => {
-                  const isVisible = prof.is_visible_in_directory ?? true;
+                profileData.providers.map((p) => {
+                  const isEditing = editingSpecialtyId === p.id;
+                  const isHidden = Boolean(hiddenSpecialtyIds[p.id]);
+
                   return (
                     <div
-                      key={prof.id}
-                      className="rounded-xl p-3.5 border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
+                      key={p.id}
+                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
-                      <div className="min-w-0">
-                        <p className="font-bold truncate">{prof.specialty}</p>
-                        <p className="text-[11px] opacity-75 mt-0.5">
-                          Estado: {prof.compliance_status === 'approved' ? 'Aprobada' : 'Pendiente'}
-                        </p>
-                      </div>
+                      {isEditing ? (
+                        <div className="space-y-2.5">
+                          <input
+                            type="text"
+                            value={editSpecialtyName}
+                            onChange={(e) => setEditSpecialtyName(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            style={cardStyle}
+                          />
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingSpecialtyId(null)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <X size={12} /> Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSaveSpecialtyEdit(p)}
+                              disabled={updatingSpecialty}
+                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
+                              style={{ backgroundColor: primaryActionColor }}
+                            >
+                              <Save size={12} /> {updatingSpecialty ? 'Guardando...' : 'Guardar'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm">{p.specialty}</span>
+                              <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
+                                style={cardStyle}
+                              >
+                                {p.status === 'approved' ? 'Aprobada' : 'Pendiente'}
+                              </span>
+                              <span
+                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
+                                style={cardStyle}
+                              >
+                                {isHidden ? 'Oculta' : 'Visible'}
+                              </span>
+                            </div>
+                            <p className="opacity-80">
+                              Pendiente de validación de TrustLink para habilitarse a residentes.
+                            </p>
+                          </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleToggleSpecialtyVisibility(prof)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer shrink-0 ${
-                          isVisible
-                            ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
-                            : 'bg-slate-800 text-slate-400 border-slate-700'
-                        }`}
-                      >
-                        {isVisible ? <Eye size={13} /> : <EyeOff size={13} />}
-                        {isVisible ? 'Visible' : 'Oculta'}
-                      </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => toggleSpecialtyVisibility(p.id)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              {isHidden ? <Eye size={12} /> : <EyeOff size={12} />}
+                              {isHidden ? 'Mostrar' : 'Ocultar'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSpecialtyId(p.id);
+                                setEditSpecialtyName(p.specialty || '');
+                              }}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <Edit3 size={12} /> Editar
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })
@@ -769,266 +1221,156 @@ export default function ProviderDashboard() {
             </div>
           </section>
         </div>
-      )}
-
-      {/* PASO 2: Flota Vehicular */}
-      {activeTab === 'vehicles' && (
+      ) : activeStep === 'vehicles' ? (
+        /* =====================================================================
+           2. FLOTA VEHICULAR
+           ===================================================================== */
         <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
           style={cardStyle}
         >
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <h2 className="text-base sm:text-lg font-bold">Flota Vehicular</h2>
-              <p className="text-xs opacity-75">
-                Vehículos asociados a tu perfil para agilizar el control en el acceso.
-              </p>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-base font-bold flex items-center gap-2">
+              <Car size={18} className="text-sky-400" /> Flota Vehicular Habilitada
+            </h3>
+            <div className="flex items-center gap-2.5">
+              <span className={listCounterBadgeClass} style={innerStyle}>
+                {profileData.vehicles.length} vehículo(s)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowVehicleForm((prev) => !prev)}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                {showVehicleForm ? <X size={14} /> : <Plus size={14} />}
+                {showVehicleForm ? 'Cerrar' : 'Cargar Vehículo'}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowVehicleForm((prev) => !prev)}
-              className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <Plus size={14} /> {showVehicleForm ? 'Cerrar' : 'Cargar Vehículo'}
-            </button>
           </div>
 
           {showVehicleForm && (
             <form
               onSubmit={handleAddVehicle}
-              className="rounded-xl p-4 border border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs"
+              className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
               style={innerStyle}
             >
-              <div>
-                <label className="block font-semibold mb-1">Tipo de vehículo</label>
-                <input
-                  type="text"
-                  value={vehicleForm.vehicle_type}
-                  onChange={(e) =>
-                    setVehicleForm((prev) => ({ ...prev, vehicle_type: e.target.value }))
-                  }
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+              <p className="font-bold">Asociar Vehículo</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <select
+                  value={vehType}
+                  onChange={(e) => setVehType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                   style={cardStyle}
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Marca</label>
+                >
+                  <option value="utilitario">Utilitario</option>
+                  <option value="auto">Automóvil</option>
+                  <option value="moto">Motocicleta</option>
+                  <option value="camioneta">Camioneta</option>
+                </select>
                 <input
                   type="text"
-                  value={vehicleForm.brand}
-                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, brand: e.target.value }))}
                   required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  value={vehBrand}
+                  onChange={(e) => setVehBrand(e.target.value)}
+                  placeholder="Marca (ej: Ford)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                   style={cardStyle}
                 />
               </div>
-              <div>
-                <label className="block font-semibold mb-1">Modelo</label>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                 <input
                   type="text"
-                  value={vehicleForm.model}
-                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, model: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
-                  style={cardStyle}
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Color</label>
-                <input
-                  type="text"
-                  value={vehicleForm.color}
-                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, color: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
-                  style={cardStyle}
-                />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Patente</label>
-                <input
-                  type="text"
-                  value={vehicleForm.plate}
-                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, plate: e.target.value }))}
                   required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  value={vehModel}
+                  onChange={(e) => setVehModel(e.target.value)}
+                  placeholder="Modelo (ej: Fiorino)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
                   style={cardStyle}
                 />
-              </div>
-              <div>
-                <label className="block font-semibold mb-1">Vencimiento seguro</label>
                 <input
-                  type="date"
-                  value={vehicleForm.vehicle_insurance_expiry}
-                  onChange={(e) =>
-                    setVehicleForm((prev) => ({
-                      ...prev,
-                      vehicle_insurance_expiry: e.target.value,
-                    }))
-                  }
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  type="text"
+                  required
+                  value={vehColor}
+                  onChange={(e) => setVehColor(e.target.value)}
+                  placeholder="Color (ej: Blanco)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+                <input
+                  type="text"
+                  required
+                  value={vehPlate}
+                  onChange={(e) => setVehPlate(e.target.value)}
+                  placeholder="Patente (ej: AF123CD)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs uppercase"
                   style={cardStyle}
                 />
               </div>
-              <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+              <div className="flex justify-end">
                 <button
                   type="submit"
                   disabled={savingVehicle}
-                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: primaryColor }}
+                  className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryActionColor }}
                 >
-                  {savingVehicle ? 'Guardando...' : 'Guardar Vehículo'}
+                  <Plus size={14} /> {savingVehicle ? 'Registrando...' : 'Registrar Vehículo'}
                 </button>
               </div>
             </form>
           )}
 
-          {vehicles.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
-              style={innerStyle}
-            >
-              No hay vehículos registrados en tu flota.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {vehicles.map((v) => (
+          <div className="space-y-3">
+            {profileData.vehicles.length === 0 ? (
+              <div
+                className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
+                style={innerStyle}
+              >
+                Sin vehículos registrados en tu flota.
+              </div>
+            ) : (
+              profileData.vehicles.map((v) => (
                 <div
                   key={v.id}
-                  className="rounded-xl p-4 border border-slate-800/70 space-y-1.5 text-xs"
+                  className="p-4 rounded-xl border border-black/20 flex items-center justify-between gap-3 text-xs"
                   style={innerStyle}
                 >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold text-sm">
-                      {v.brand} {v.model || ''}
-                    </span>
-                    <span className="font-mono font-bold px-2.5 py-0.5 rounded bg-black/30 border border-slate-700">
-                      {v.plate}
-                    </span>
-                  </div>
-                  <p className="opacity-80">
-                    Tipo: {v.vehicle_type || 'Vehículo'} · Color: {v.color || 'No informado'}
-                  </p>
-                  {v.vehicle_insurance_expiry && (
-                    <p className="opacity-75">Seguro vigente hasta: {v.vehicle_insurance_expiry}</p>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* PASO 3: Reseñas y Reputación Cruzada */}
-      {activeTab === 'reviews' && (
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
-          <div>
-            <h2 className="text-base sm:text-lg font-bold">Reseñas y Calificación Cruzada</h2>
-            <p className="text-xs opacity-75">
-              Consultá las calificaciones recibidas de residentes y calificá a quienes te contrataron.
-            </p>
-          </div>
-
-          {contracts.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
-              style={innerStyle}
-            >
-              Todavía no tenés contratos registrados para calificar.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {contracts.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
-                  style={innerStyle}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-bold">
-                      Servicio #{item.id} ·{' '}
-                      {item.owner_name ||
-                        `${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
-                        'Residente'}
-                    </span>
-                    <span className="opacity-75">Estado: {item.status}</span>
-                  </div>
-
-                  {item.provider_review_rating && (
-                    <div className="rounded-lg p-2.5 bg-amber-950/25 border border-amber-700/40">
-                      <span className="font-bold text-amber-300">
-                        Calificación del residente: ★ {item.provider_review_rating}/5
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">
+                        {v.brand} {v.model}
                       </span>
-                      {item.provider_review_comment && (
-                        <p className="opacity-85 mt-0.5">“{item.provider_review_comment}”</p>
-                      )}
+                      <span
+                        className="text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-white/15"
+                        style={cardStyle}
+                      >
+                        {v.vehicle_type}
+                      </span>
                     </div>
-                  )}
-
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-                    <select
-                      value={residentRating[item.id] ?? 5}
-                      onChange={(e) =>
-                        setResidentRating((prev) => ({
-                          ...prev,
-                          [item.id]: Number(e.target.value),
-                        }))
-                      }
-                      className="sm:col-span-3 px-3 py-2 rounded-xl border border-slate-700"
-                      style={cardStyle}
-                    >
-                      <option value={5}>★★★★★ (5/5)</option>
-                      <option value={4}>★★★★☆ (4/5)</option>
-                      <option value={3}>★★★☆☆ (3/5)</option>
-                      <option value={2}>★★☆☆☆ (2/5)</option>
-                      <option value={1}>★☆☆☆☆ (1/5)</option>
-                    </select>
-
-                    <input
-                      type="text"
-                      value={residentComment[item.id] ?? ''}
-                      onChange={(e) =>
-                        setResidentComment((prev) => ({
-                          ...prev,
-                          [item.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Comentario sobre la atención o acceso..."
-                      className="sm:col-span-6 px-3 py-2 rounded-xl border border-slate-700"
-                      style={cardStyle}
-                    />
-
-                    <button
-                      type="button"
-                      disabled={sendingReviewId === item.id}
-                      onClick={() => handleSendOwnerReview(item.id)}
-                      className="sm:col-span-3 py-2 px-3 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      {sendingReviewId === item.id ? 'Enviando...' : 'Calificar Residente'}
-                    </button>
+                    <p className="opacity-80 mt-1">
+                      Color: {v.color || '-'} · Patente:{' '}
+                      <strong className="font-mono">{v.license_plate}</strong>
+                    </p>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
+              ))
+            )}
+          </div>
         </section>
-      )}
-
-      {/* PASO 4: Pases QR Generados por Residentes para el Prestador */}
-      {activeTab === 'passes' && (
+      ) : activeStep === 'passes' ? (
+        /* =====================================================================
+           3. PASES QR
+           ===================================================================== */
         <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
           style={cardStyle}
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold">
-                Pases QR Generados para tu Ingreso
-              </h2>
-              <p className="text-xs opacity-75">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <QrCode size={18} className="text-emerald-400" /> Pases QR Asignados para tu Ingreso
+              </h3>
+              <p className="text-xs opacity-80 mt-0.5">
                 Consultá las autorizaciones emitidas por residentes con destino, vigencia y token QR.
               </p>
             </div>
@@ -1047,7 +1389,7 @@ export default function ProviderDashboard() {
                     setPassPage(1);
                   }}
                   placeholder="Buscar residente, lote o patente..."
-                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-white/15 focus:outline-none"
                   style={innerStyle}
                 />
               </div>
@@ -1058,7 +1400,7 @@ export default function ProviderDashboard() {
                   setPassStatusFilter(e.target.value);
                   setPassPage(1);
                 }}
-                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                className="px-3 py-2 rounded-xl text-xs border border-white/15 focus:outline-none"
                 style={innerStyle}
               >
                 <option value="all">Todos los estados</option>
@@ -1071,7 +1413,7 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={fetchAssignedPasses}
-                className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer self-end sm:self-auto"
+                className="p-2 rounded-xl border border-white/15 hover:opacity-85 cursor-pointer self-end sm:self-auto"
                 style={innerStyle}
                 title="Actualizar pases QR"
               >
@@ -1090,7 +1432,7 @@ export default function ProviderDashboard() {
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
           ) : paginatedPasses.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20"
               style={innerStyle}
             >
               No hay pases QR registrados para tu perfil con los filtros actuales.
@@ -1107,7 +1449,7 @@ export default function ProviderDashboard() {
                 return (
                   <article
                     key={passItem.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5 text-xs"
+                    className="rounded-xl p-4 border border-black/20 space-y-2.5 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1146,7 +1488,7 @@ export default function ProviderDashboard() {
                     </div>
 
                     {passItem.qr_token && (
-                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
+                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10">
                         <code className="text-[11px] truncate">{passItem.qr_token}</code>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
@@ -1193,7 +1535,7 @@ export default function ProviderDashboard() {
                   type="button"
                   disabled={passPage <= 1}
                   onClick={() => setPassPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-white/15 font-bold disabled:opacity-40 cursor-pointer"
                   style={innerStyle}
                 >
                   Anterior
@@ -1202,7 +1544,7 @@ export default function ProviderDashboard() {
                   type="button"
                   disabled={passPage >= totalPassPages}
                   onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-white/15 font-bold disabled:opacity-40 cursor-pointer"
                   style={innerStyle}
                 >
                   Siguiente
@@ -1211,9 +1553,174 @@ export default function ProviderDashboard() {
             </div>
           )}
         </section>
+      ) : (
+        /* =====================================================================
+           4. RESEÑAS / REPUTACIÓN CRUZADA
+           ===================================================================== */
+        <section
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between border-b border-black/20 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-xl border border-white/15" style={innerStyle}>
+                <Star size={18} className="text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold">Servicios Realizados &amp; Reputación Cruzada</h3>
+                <p className="text-xs opacity-80">
+                  Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                </p>
+              </div>
+            </div>
+            <span className={listCounterBadgeClass} style={innerStyle}>
+              {reviewContracts.length} contrato(s)
+            </span>
+          </div>
+
+          {loadingReviews ? (
+            <div
+              className="text-center py-8 rounded-xl border border-black/20 text-xs"
+              style={innerStyle}
+            >
+              Cargando historial de servicios...
+            </div>
+          ) : reviewContracts.length === 0 ? (
+            <div
+              className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85"
+              style={innerStyle}
+            >
+              Aún no tenés contratos asignados en tu historial.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {reviewContracts.map((item) => {
+                const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
+                const commentDraft = ownerCommentDrafts[item.contract_id] || '';
+                const alreadyRatedOwner = Boolean(item.owner_review_id);
+
+                return (
+                  <div
+                    key={item.contract_id}
+                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono font-bold px-2 py-0.5 rounded border border-white/15">
+                          Contrato #{item.contract_id}
+                        </span>
+                        <span className="opacity-80">
+                          {item.country_name || 'TrustLink Community'}
+                        </span>
+                      </div>
+                      <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
+                        {item.status}
+                      </span>
+                    </div>
+
+                    <p className="font-bold">
+                      Residente: {item.owner_name || 'Residente Verificado'}
+                    </p>
+                    <p className="opacity-85">{item.description}</p>
+
+                    {item.provider_review_rating && (
+                      <div
+                        className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2"
+                        style={cardStyle}
+                      >
+                        <span className="font-semibold text-emerald-400">
+                          Reseña recibida del residente:{' '}
+                          {'★'.repeat(item.provider_review_rating)} ({item.provider_review_rating}/5)
+                        </span>
+                        {item.provider_review_comment && (
+                          <span className="opacity-85 italic">
+                            &ldquo;{item.provider_review_comment}&rdquo;
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {alreadyRatedOwner ? (
+                      <div
+                        className="p-3 rounded-lg border border-white/15 text-xs"
+                        style={cardStyle}
+                      >
+                        Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
+                        {item.owner_review_rating}/5)
+                        {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 pt-2 border-t border-black/20">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold">Calificar al residente:</span>
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((starVal) => (
+                              <button
+                                key={starVal}
+                                type="button"
+                                onClick={() =>
+                                  setOwnerRatingDrafts((prev) => ({
+                                    ...prev,
+                                    [item.contract_id]: starVal,
+                                  }))
+                                }
+                                className={`p-1.5 rounded-lg border cursor-pointer ${
+                                  ratingDraft >= starVal
+                                    ? 'bg-amber-600/30 border-amber-500 text-amber-300'
+                                    : 'border-white/15 opacity-70'
+                                }`}
+                              >
+                                <Star size={14} className="fill-current" />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="relative">
+                          <MessageSquare
+                            size={14}
+                            className="absolute left-3 top-2.5 opacity-70"
+                          />
+                          <input
+                            type="text"
+                            value={commentDraft}
+                            onChange={(e) =>
+                              setOwnerCommentDrafts((prev) => ({
+                                ...prev,
+                                [item.contract_id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Comentario sobre el trato y acceso en el domicilio..."
+                            className="w-full pl-8 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                            style={cardStyle}
+                          />
+                        </div>
+
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleSubmitOwnerReview(item.contract_id)}
+                            disabled={submittingOwnerReviewId === item.contract_id}
+                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            <Send size={13} />
+                            {submittingOwnerReviewId === item.contract_id
+                              ? 'Enviando...'
+                              : 'Calificar Residente'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
-      {/* Modal limpio para visualizar el token QR completo en el celular */}
+      {/* Modal para visualizar el token QR completo */}
       {selectedPassModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
@@ -1230,14 +1737,14 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={() => setSelectedPassModal(null)}
-                className="p-1.5 rounded-lg border border-slate-700/80 cursor-pointer"
+                className="p-1.5 rounded-lg border border-white/15 cursor-pointer"
                 style={innerStyle}
               >
                 <X size={15} />
               </button>
             </div>
 
-            <div className="rounded-xl p-3.5 border border-slate-800/70 space-y-1.5" style={innerStyle}>
+            <div className="rounded-xl p-3.5 border border-white/15 space-y-1.5" style={innerStyle}>
               <p>
                 <strong>Destino:</strong> {selectedPassModal.fraction_number || '—'} /{' '}
                 {selectedPassModal.lot_number || '—'}
@@ -1254,7 +1761,7 @@ export default function ProviderDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl p-3 bg-black/35 border border-slate-700/70 space-y-2">
+            <div className="rounded-xl p-3 bg-black/35 border border-white/15 space-y-2">
               <span className="block text-[10px] font-bold uppercase opacity-75">
                 Token QR para validación en garita
               </span>
@@ -1265,7 +1772,7 @@ export default function ProviderDashboard() {
                 type="button"
                 onClick={() => handleCopyToken(selectedPassModal.qr_token, 'modal-pass')}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: primaryColor }}
+                style={{ backgroundColor: primaryActionColor }}
               >
                 {copiedPassId === 'modal-pass' ? (
                   <>
@@ -1283,7 +1790,7 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={() => setSelectedPassModal(null)}
-                className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
                 style={innerStyle}
               >
                 Cerrar
