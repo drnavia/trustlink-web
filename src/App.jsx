@@ -1,104 +1,95 @@
 /**
  * @file App.jsx
  * @description Enrutador y orquestador principal de TrustLink Web con control de sesión global (AuthContext),
- * marca blanca por zonas (1 a 6), vista pública Landing, protección de rutas por rol,
- * submenú de Modo Maestro colapsado por defecto en celular y barra superior compacta en móvil.
+ * marca blanca por zonas (BrandingContext), navegación adaptable a web y celular,
+ * e identidad de usuario logueado visible y clara en la barra superior.
  * @location /trustlink-web/src/App.jsx
  */
 
 import React, { useState, useEffect } from 'react';
+import {
+  Home,
+  Wrench,
+  CreditCard,
+  QrCode,
+  LogOut,
+  LogIn,
+  UserPlus,
+  User,
+  Layers,
+  UserCheck,
+  ShieldAlert,
+  Users,
+  Palette,
+  Activity,
+} from 'lucide-react';
+
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
-import BrandingSettingsView from './modules/branding/BrandingSettingsView';
 import { AuthProvider, useAuth } from './modules/auth/AuthContext';
-import SecurityScanner from './modules/security/SecurityScanner';
+
+import LandingHome from './modules/landing/LandingHome';
 import LoginView from './modules/auth/LoginView';
 import RegisterView from './modules/auth/RegisterView';
 import ResidentDashboard from './modules/owner/ResidentDashboard';
 import ProviderDashboard from './modules/provider/ProviderDashboard';
 import ContractPaymentView from './modules/owner/ContractPaymentView';
+import SecurityScanner from './modules/security/SecurityScanner';
 import AdminComplianceView from './modules/admin/AdminComplianceView';
-import SystemHealthDashboard from './modules/admin/SystemHealthDashboard';
-import UserManagementView from './modules/admin/UserManagementView';
 import LocalAdminView from './modules/admin/LocalAdminView';
-import LandingHome from './modules/landing/LandingHome';
-import {
-  ShieldCheck,
-  QrCode,
-  LogIn,
-  UserPlus,
-  LogOut,
-  User,
-  Wrench,
-  CreditCard,
-  UserCheck,
-  Activity,
-  Lock,
-  Layers,
-  MapPin,
-} from 'lucide-react';
+import UserManagementView from './modules/admin/UserManagementView';
+import BrandingSettingsView from './modules/branding/BrandingSettingsView';
+import SystemHealthDashboard from './modules/admin/SystemHealthDashboard';
 
 /**
- * Determina la vista inicial permitida según el rol autenticado.
- * @param {string|null} role
- * @returns {string}
- */
-function getDefaultViewForRole(role) {
-  if (role === 'provider') return 'provider';
-  if (role === 'security') return 'security';
-  if (role === 'admin') return 'local_admin';
-  return 'resident';
-}
-
-/**
- * Indica si el dispositivo actual corresponde a vista móvil (< 768px).
- * @returns {boolean}
- */
-function isMobileViewport() {
-  if (typeof window === 'undefined') return false;
-  return window.innerWidth < 768;
-}
-
-/**
- * Contenido principal de la aplicación con acceso a contextos de sesión y apariencia.
+ * Contenido principal de la aplicación con acceso a BrandingContext y AuthContext.
  */
 function MainAppContent() {
-  const { isAuthenticated, user, logout, loading } = useAuth();
   const { brand } = useBranding();
+  const { user, isAuthenticated, logout } = useAuth();
 
-  // Vista activa actual (por defecto 'landing' cuando no hay sesión iniciada)
-  const [currentView, setCurrentView] = useState('landing');
-  // Submenú de Modo Maestro: colapsado por defecto en celular, abierto por defecto en escritorio para superadmin
-  const [masterModeOpen, setMasterModeOpen] = useState(() => !isMobileViewport());
+  const userRole = user?.role ? String(user.role).toLowerCase() : 'guest';
+  const isSuperadmin = userRole === 'superadmin';
+  const isLocalAdmin = userRole === 'admin';
 
-  const normalizedRole = String(user?.role || '').toLowerCase();
-  const isSuperadmin = isAuthenticated && normalizedRole === 'superadmin';
-  const isAdmin = isAuthenticated && normalizedRole === 'admin';
-  const isProvider = isAuthenticated && normalizedRole === 'provider';
-  const isSecurity = isAuthenticated && normalizedRole === 'security';
-  const isResident = isAuthenticated && (normalizedRole === 'owner' || normalizedRole === 'family');
+  // Permisos de módulos según el rol autenticado
+  const canSeeResident =
+    isSuperadmin || userRole === 'owner' || userRole === 'family' || userRole === 'resident';
+  const canSeeProvider = isSuperadmin || userRole === 'provider';
+  const canSeePayments =
+    isSuperadmin ||
+    userRole === 'owner' ||
+    userRole === 'family' ||
+    userRole === 'resident' ||
+    userRole === 'provider';
+  const canSeeSecurity = isSuperadmin || userRole === 'security';
 
-  // Sincroniza vista y estado inicial del submenú al cambiar sesión o rol
+  // Vista activa inicial según estado de sesión
+  const getDefaultAuthenticatedView = (role) => {
+    const normalized = String(role || '').toLowerCase();
+    if (normalized === 'provider') return 'provider';
+    if (normalized === 'security') return 'security';
+    if (normalized === 'admin') return 'local_admin';
+    return 'resident';
+  };
+
+  const [currentView, setCurrentView] = useState(
+    isAuthenticated ? getDefaultAuthenticatedView(userRole) : 'landing'
+  );
+  const [masterModeOpen, setMasterModeOpen] = useState(false);
+
+  // Sincroniza la vista cuando cambia la sesión (login / logout)
   useEffect(() => {
     if (!isAuthenticated) {
       setCurrentView('landing');
       setMasterModeOpen(false);
-      return;
-    }
-
-    setCurrentView((prevView) => {
-      if (prevView === 'landing' || prevView === 'login' || prevView === 'register') {
-        return getDefaultViewForRole(normalizedRole);
-      }
-      return prevView;
-    });
-
-    if (normalizedRole === 'superadmin') {
-      // En celular inicia colapsado para ahorrar espacio vertical; en escritorio inicia desplegado
-      setMasterModeOpen(!isMobileViewport());
     } else {
-      setMasterModeOpen(false);
+      setCurrentView((prev) =>
+        prev === 'landing' || prev === 'login' || prev === 'register'
+          ? getDefaultAuthenticatedView(userRole)
+          : prev
+      );
     }
-  }, [isAuthenticated, normalizedRole]);
+  }, [isAuthenticated, userRole]);
 
   // Cierra sesión y vuelve a la vista pública
   const handleLogout = () => {
@@ -107,269 +98,293 @@ function MainAppContent() {
     setCurrentView('landing');
   };
 
-  // Resuelve el logo institucional (imagen cargada por el usuario o emblema por defecto)
-  const renderBrandLogo = () => {
-    if (brand?.logoUrl && String(brand.logoUrl).trim() !== '') {
-      return (
-        <img
-          src={brand.logoUrl}
-          alt={brand.brandName || 'TrustLink'}
-          className="h-7 w-7 md:h-8 md:w-8 rounded-lg object-contain shrink-0"
-        />
-      );
-    }
+  // Nombre legible del usuario logueado para web y celular
+  const displayUserName =
+    user?.first_name ||
+    user?.name ||
+    (user?.email ? user.email.split('@')[0] : '') ||
+    'Usuario';
 
-    return (
-      <div
-        className="w-7 h-7 md:w-8 md:h-8 rounded-lg flex items-center justify-center text-white font-bold shadow-sm shrink-0"
-        style={{ backgroundColor: brand?.primaryActionColor || '#059669' }}
-      >
-        <ShieldCheck className="w-4 h-4 md:w-[18px] md:h-[18px]" />
-      </div>
-    );
-  };
+  // Identidad de marca en la barra superior
+  const displayBrandName = (brand?.brandName || brand?.name || 'TrustLink').trim() || 'TrustLink';
+  const displayBrandBadge = (brand?.brandBadge || 'Community').trim() || 'Community';
+  const displayBrandSubtitle =
+    (brand?.brandSubtitle || 'Red de Confianza Residencial').trim() ||
+    'Red de Confianza Residencial';
 
-  // Estilos por zona (Zonas 1 a 6)
-  const platformStyle = {
-    backgroundColor: brand?.platformBgColor || '#0F172A',
-    color: brand?.platformTextColor || '#F1F5F9',
-  };
+  // Helper de estilo para botón de módulo activo/inactivo
+  const navBtnClass = (isActive) =>
+    `inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
+      isActive
+        ? 'text-white shadow-md'
+        : 'bg-black/25 hover:bg-black/35 border border-white/15 opacity-90 hover:opacity-100'
+    }`;
 
-  const menuStyle = {
-    backgroundColor: brand?.menuBgColor || '#020617',
-    color: brand?.menuTextColor || '#E2E8F0',
-  };
-
-  const submenuStyle = {
-    backgroundColor: brand?.submenuBgColor || '#090D16',
-    color: brand?.submenuTextColor || '#CBD5E1',
-  };
-
-  const footerStyle = {
-    backgroundColor: brand?.footerBgColor || '#020617',
-    color: brand?.footerTextColor || '#94A3B8',
-  };
-
-  const activePrimaryStyle = {
-    backgroundColor: brand?.primaryActionColor || '#059669',
-    color: '#FFFFFF',
-  };
-
-  const inactiveNavClass =
-    'bg-slate-900/75 text-slate-300 hover:bg-slate-800/90 border border-slate-700/60';
-
-  // Pantalla de carga inicial de sesión
-  if (loading) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center font-sans"
-        style={platformStyle}
-      >
-        <div className="text-center space-y-2">
-          <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-xs opacity-80">Cargando sesión de TrustLink...</p>
-        </div>
-      </div>
-    );
-  }
+  const navBtnStyle = (isActive) =>
+    isActive ? { backgroundColor: brand?.accentColor || '#10B981' } : undefined;
 
   return (
-    <div className="min-h-screen flex flex-col font-sans" style={platformStyle}>
-      {/* ZONA 1: Barra de Navegación Superior Compacta en Móvil */}
+    <div
+      className="min-h-screen flex flex-col font-sans selection:bg-emerald-500 selection:text-white"
+      style={{
+        backgroundColor: brand?.platformBgColor || '#0F172A',
+        color: brand?.platformTextColor || '#F1F5F9',
+      }}
+    >
+      {/* ZONA 1: Barra de Navegación Superior (Adaptable Web y Celular) */}
       <header
-        className="border-b border-slate-800/80 px-3 py-2 md:px-8 md:py-3.5 sticky top-0 z-40 shadow-md"
-        style={menuStyle}
+        className="border-b border-black/20 px-3 py-2.5 md:px-6 md:py-3 sticky top-0 z-40 shadow-lg"
+        style={{
+          backgroundColor: brand?.menuBgColor || '#020617',
+          color: brand?.menuTextColor || '#E2E8F0',
+        }}
       >
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
-          {/* Fila 1 en móvil: Marca + Acciones de sesión */}
+          {/* Fila superior en móvil / Izquierda en web: Marca + Identidad del Usuario Logueado */}
           <div className="flex items-center justify-between gap-2 min-w-0">
-            <div
-              className="flex items-center gap-2 md:gap-3 cursor-pointer min-w-0"
+            {/* Marca / Logo */}
+            <button
+              type="button"
               onClick={() =>
-                setCurrentView(isAuthenticated ? getDefaultViewForRole(normalizedRole) : 'landing')
+                setCurrentView(isAuthenticated ? getDefaultAuthenticatedView(userRole) : 'landing')
               }
+              className="flex items-center gap-2.5 cursor-pointer text-left shrink-0"
             >
-              {renderBrandLogo()}
-              <div className="min-w-0 leading-tight">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm md:text-base font-bold tracking-tight truncate">
-                    {brand?.brandName || 'TrustLink'}
-                  </span>
-                  {brand?.brandBadge && (
-                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-800/80 text-slate-200 border border-slate-700/70 shrink-0">
-                      {brand.brandBadge}
-                    </span>
-                  )}
+              {brand?.logoUrl ? (
+                <img
+                  src={brand.logoUrl}
+                  alt={displayBrandName}
+                  className="h-8 w-auto max-w-[110px] object-contain rounded-lg shrink-0"
+                />
+              ) : (
+                <div
+                  className="w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center text-white font-black text-sm md:text-base shadow shrink-0"
+                  style={{ backgroundColor: brand?.primaryColor || '#0A2540' }}
+                >
+                  {displayBrandName.charAt(0).toUpperCase()}
                 </div>
-                <p className="hidden sm:block text-[11px] opacity-75 truncate">
-                  {brand?.brandSubtitle || 'Red de Confianza Residencial'}
+              )}
+
+              <div className="leading-tight min-w-0">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-black text-sm md:text-base tracking-tight truncate max-w-[115px] sm:max-w-none">
+                    {displayBrandName}
+                  </span>
+                  <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-black/25 font-semibold border border-white/15">
+                    {displayBrandBadge}
+                  </span>
+                </div>
+                <p className="hidden sm:block text-[10px] opacity-75 truncate">
+                  {displayBrandSubtitle}
                 </p>
               </div>
-            </div>
+            </button>
 
-            {/* Bloque derecho en móvil y escritorio */}
-            <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
-              {!isAuthenticated ? (
+            {/* En móvil (< md): Quién está logueado + Salir en una línea compacta */}
+            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+              {isAuthenticated && user ? (
                 <>
+                  <div
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-900/90 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold max-w-[145px]"
+                    title={`${displayUserName} (${userRole})`}
+                  >
+                    <User size={12} className="text-emerald-400 shrink-0" />
+                    <span className="truncate">{displayUserName}</span>
+                    <span className="text-slate-400 font-medium text-[10px] shrink-0">
+                      · {userRole}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer shrink-0"
+                    title="Cerrar sesión"
+                  >
+                    <LogOut size={12} />
+                    <span>Salir</span>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => setCurrentView('login')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 md:px-3.5 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer ${
-                      currentView === 'login' ? 'shadow-md' : inactiveNavClass
-                    }`}
-                    style={currentView === 'login' ? activePrimaryStyle : undefined}
+                    className={navBtnClass(currentView === 'login')}
+                    style={navBtnStyle(currentView === 'login')}
                   >
-                    <LogIn size={13} /> Ingresar
+                    <LogIn size={12} /> Ingresar
                   </button>
                   <button
                     type="button"
                     onClick={() => setCurrentView('register')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 md:px-3.5 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer ${
-                      currentView === 'register' ? 'shadow-md' : inactiveNavClass
-                    }`}
-                    style={currentView === 'register' ? activePrimaryStyle : undefined}
+                    className={navBtnClass(currentView === 'register')}
+                    style={navBtnStyle(currentView === 'register')}
                   >
-                    <UserPlus size={13} /> Registrarse
+                    <UserPlus size={12} /> Registro
                   </button>
-                </>
-              ) : (
-                <>
-                  {isSuperadmin && (
-                    <button
-                      type="button"
-                      onClick={() => setMasterModeOpen((prev) => !prev)}
-                      aria-expanded={masterModeOpen}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold border transition-all cursor-pointer ${
-                        masterModeOpen
-                          ? 'bg-purple-600 border-purple-400 text-white'
-                          : 'bg-purple-950/60 border-purple-800/80 text-purple-200 hover:bg-purple-900/70'
-                      }`}
-                      title="Abrir o cerrar submenú de Modo Maestro"
-                    >
-                      <Layers size={13} />
-                      <span className="hidden sm:inline">Modo Maestro</span>
-                      <span className="sm:hidden">Maestro</span>
-                    </button>
-                  )}
-
-                  <div className="hidden md:flex items-center gap-1.5 bg-slate-900/85 border border-slate-700/70 px-3 py-1.5 rounded-xl text-xs">
-                    <User size={13} className="text-emerald-400 shrink-0" />
-                    <span className="font-semibold truncate max-w-[140px]">
-                      {user?.full_name || user?.email}
-                    </span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 uppercase">
-                      {user?.role}
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className="inline-flex items-center gap-1 bg-rose-950/55 hover:bg-rose-900/75 text-rose-200 border border-rose-800/70 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-colors cursor-pointer"
-                    title="Cerrar sesión"
-                  >
-                    <LogOut size={13} />
-                    <span className="hidden sm:inline">Salir</span>
-                  </button>
-                </>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Fila 2 en móvil / centro en escritorio: Módulos operativos compactos */}
+          {/* Módulos: scroll horizontal en celular, wrap limpio en escritorio */}
           {isAuthenticated && (
             <nav
-              aria-label="Módulos principales"
-              className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-0.5 md:pb-0 no-scrollbar"
+              aria-label="Navegación principal"
+              className="flex items-center gap-1.5 overflow-x-auto md:flex-wrap py-0.5 md:py-0"
             >
-              {(isResident || isSuperadmin) && (
+              {canSeeResident && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('resident')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                    currentView === 'resident' ? 'shadow-md' : inactiveNavClass
-                  }`}
-                  style={currentView === 'resident' ? activePrimaryStyle : undefined}
+                  className={navBtnClass(currentView === 'resident')}
+                  style={navBtnStyle(currentView === 'resident')}
                 >
-                  <QrCode size={13} /> Portal Residente
+                  <Home size={13} /> Portal Residente
                 </button>
               )}
 
-              {(isResident || isSuperadmin) && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('payments')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                    currentView === 'payments' ? 'shadow-md' : inactiveNavClass
-                  }`}
-                  style={currentView === 'payments' ? activePrimaryStyle : undefined}
-                >
-                  <CreditCard size={13} /> Pagos y Reseñas
-                </button>
-              )}
-
-              {(isProvider || isSuperadmin) && (
+              {canSeeProvider && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('provider')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                    currentView === 'provider' ? 'shadow-md' : inactiveNavClass
-                  }`}
-                  style={currentView === 'provider' ? activePrimaryStyle : undefined}
+                  className={navBtnClass(currentView === 'provider')}
+                  style={navBtnStyle(currentView === 'provider')}
                 >
                   <Wrench size={13} /> Portal Prestador
                 </button>
               )}
 
-              {(isSecurity || isAdmin || isSuperadmin) && (
+              {canSeePayments && (
                 <button
                   type="button"
-                  onClick={() => setCurrentView('security')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                    currentView === 'security' ? 'shadow-md' : inactiveNavClass
-                  }`}
-                  style={currentView === 'security' ? activePrimaryStyle : undefined}
+                  onClick={() => setCurrentView('payments')}
+                  className={navBtnClass(currentView === 'payments')}
+                  style={navBtnStyle(currentView === 'payments')}
                 >
-                  <ShieldCheck size={13} /> Consola Garita
+                  <CreditCard size={13} /> Pagos y Reseñas
                 </button>
               )}
 
-              {isAdmin && (
+              {canSeeSecurity && (
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('security')}
+                  className={navBtnClass(currentView === 'security')}
+                  style={navBtnStyle(currentView === 'security')}
+                >
+                  <QrCode size={13} /> Consola Garita
+                </button>
+              )}
+
+              {isLocalAdmin && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('local_admin')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
-                    currentView === 'local_admin' ? 'shadow-md' : inactiveNavClass
-                  }`}
-                  style={currentView === 'local_admin' ? activePrimaryStyle : undefined}
+                  className={navBtnClass(currentView === 'local_admin')}
+                  style={
+                    currentView === 'local_admin' ? { backgroundColor: '#D97706' } : undefined
+                  }
                 >
-                  <MapPin size={13} /> Vista Admin Barrio
+                  <ShieldAlert size={13} /> Vista Admin Barrio
+                </button>
+              )}
+
+              {isSuperadmin && (
+                <button
+                  type="button"
+                  onClick={() => setMasterModeOpen((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
+                    masterModeOpen ||
+                    [
+                      'admin',
+                      'local_admin',
+                      'users_master',
+                      'branding_master',
+                      'health',
+                    ].includes(currentView)
+                      ? 'bg-purple-700 text-white border-purple-400 shadow-md'
+                      : 'bg-purple-950/80 text-purple-200 border-purple-700/70 hover:bg-purple-900'
+                  }`}
+                >
+                  <Layers size={13} /> Modo Maestro
                 </button>
               )}
             </nav>
           )}
+
+          {/* En escritorio (>= md): Quién está logueado + Salir */}
+          <div className="hidden md:flex items-center gap-2.5 shrink-0">
+            {isAuthenticated && user ? (
+              <>
+                <div
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs shadow-sm"
+                  title={`Sesión iniciada como ${displayUserName} con rol ${userRole}`}
+                >
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <User size={12} />
+                  </span>
+                  <span className="font-bold text-emerald-300">{displayUserName}</span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold border border-slate-700">
+                    {userRole}
+                  </span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
+                  title="Cerrar sesión"
+                >
+                  <LogOut size={13} /> Salir
+                </button>
+              </>
+            ) : (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('login')}
+                  className={navBtnClass(currentView === 'login')}
+                  style={navBtnStyle(currentView === 'login')}
+                >
+                  <LogIn size={13} /> Iniciar Sesión
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('register')}
+                  className={navBtnClass(currentView === 'register')}
+                  style={navBtnStyle(currentView === 'register')}
+                >
+                  <UserPlus size={13} /> Registrarse
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      {/* ZONA 2: Submenú de Modo Maestro (colapsado por defecto en celular, desplegable con un toque) */}
-      {isSuperadmin && masterModeOpen && (
+      {/* ZONA 2: Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
+      {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
-          className="border-b border-slate-800/80 px-3 py-2 md:px-8 md:py-2.5"
-          style={submenuStyle}
+          className="border-b border-black/20 px-3 py-2 md:px-6"
+          style={{
+            backgroundColor: brand?.submenuBgColor || '#090D16',
+            color: brand?.submenuTextColor || '#CBD5E1',
+          }}
         >
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-1.5 md:gap-3">
-            <span className="text-[10px] md:text-[11px] font-bold uppercase tracking-wider opacity-80 shrink-0">
-              Gobernanza Central Superadmin
+          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto md:flex-wrap text-xs">
+            <span className="font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
+              <Layers size={13} /> Gobernanza Central Superadmin
             </span>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-0.5 md:pb-0">
+            <div className="flex items-center gap-1.5 md:flex-wrap shrink-0">
               <button
                 type="button"
                 onClick={() => setCurrentView('admin')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   currentView === 'admin'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-slate-900/75 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+                    ? 'bg-emerald-600 text-white ring-2 ring-emerald-400/50'
+                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
                 <UserCheck size={12} /> Compliance Prestadores
@@ -378,49 +393,49 @@ function MainAppContent() {
               <button
                 type="button"
                 onClick={() => setCurrentView('local_admin')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   currentView === 'local_admin'
-                    ? 'bg-amber-600 text-white shadow-sm'
-                    : 'bg-slate-900/75 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+                    ? 'bg-amber-600 text-white ring-2 ring-amber-400/50'
+                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
-                <MapPin size={12} /> Vista Admin Barrio
+                <ShieldAlert size={12} /> Vista Admin Barrio
               </button>
 
               <button
                 type="button"
                 onClick={() => setCurrentView('users_master')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   currentView === 'users_master'
-                    ? 'bg-purple-600 text-white shadow-sm'
-                    : 'bg-slate-900/75 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+                    ? 'bg-indigo-600 text-white ring-2 ring-indigo-400/50'
+                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
-                <UserCheck size={12} /> Cuentas Privilegiadas
+                <Users size={12} /> Cuentas Privilegiadas
               </button>
 
               <button
                 type="button"
                 onClick={() => setCurrentView('branding_master')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   currentView === 'branding_master'
-                    ? 'bg-pink-600 text-white shadow-sm'
-                    : 'bg-slate-900/75 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+                    ? 'bg-pink-600 text-white ring-2 ring-pink-400/50'
+                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
-                <Layers size={12} /> Colores / Marca
+                <Palette size={12} /> Colores / Marca
               </button>
 
               <button
                 type="button"
                 onClick={() => setCurrentView('health')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer shrink-0 whitespace-nowrap ${
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
                   currentView === 'health'
-                    ? 'bg-sky-600 text-white shadow-sm'
-                    : 'bg-slate-900/75 text-slate-300 hover:bg-slate-800 border border-slate-700/60'
+                    ? 'bg-sky-600 text-white ring-2 ring-sky-400/50'
+                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
-                <Activity size={12} /> Salud & APIs
+                <Activity size={12} /> Salud &amp; APIs
               </button>
             </div>
           </div>
@@ -428,107 +443,50 @@ function MainAppContent() {
       )}
 
       {/* ZONA 3: Contenedor Principal de Vistas */}
-      <main className="flex-1 w-full">
-        {!isAuthenticated && currentView === 'landing' && (
-          <LandingHome
-            onGoLogin={() => setCurrentView('login')}
-            onGoRegister={() => setCurrentView('register')}
-          />
-        )}
+      <main className="flex-1 flex flex-col">
+        {currentView === 'landing' && <LandingHome onViewChange={setCurrentView} />}
 
-        {!isAuthenticated && currentView === 'login' && (
+        {currentView === 'login' && (
           <LoginView
-            onLoginSuccess={(loggedUser) => {
-              setCurrentView(getDefaultViewForRole(loggedUser?.role));
+            onLoginSuccess={(loggedInUser) => {
+              setCurrentView(getDefaultAuthenticatedView(loggedInUser?.role));
             }}
-            onGoRegister={() => setCurrentView('register')}
+            onNavigateRegister={() => setCurrentView('register')}
           />
         )}
 
-        {!isAuthenticated && currentView === 'register' && (
+        {currentView === 'register' && (
           <RegisterView onRegisterSuccess={() => setCurrentView('login')} />
         )}
 
-        {isAuthenticated && currentView === 'resident' && (
-          <ResidentDashboard onNavigate={(view) => setCurrentView(view)} />
-        )}
+        {currentView === 'resident' && <ResidentDashboard onViewChange={setCurrentView} />}
 
-        {isAuthenticated && currentView === 'payments' && <ContractPaymentView />}
+        {currentView === 'provider' && <ProviderDashboard onViewChange={setCurrentView} />}
 
-        {isAuthenticated && currentView === 'provider' && <ProviderDashboard />}
+        {currentView === 'payments' && <ContractPaymentView onViewChange={setCurrentView} />}
 
-        {isAuthenticated && currentView === 'security' && <SecurityScanner />}
+        {currentView === 'security' && <SecurityScanner />}
 
-        {isAuthenticated && currentView === 'local_admin' && (
-          isAdmin || isSuperadmin ? (
-            <LocalAdminView />
-          ) : (
-            <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
-              <Lock size={32} className="mx-auto text-rose-400 mb-3" />
-              <p className="text-xs text-rose-200">
-                Esta sección está reservada para administración de barrio o superadmin.
-              </p>
-            </div>
-          )
-        )}
+        {isSuperadmin && currentView === 'admin' && <AdminComplianceView />}
 
-        {isAuthenticated && currentView === 'admin' && (
-          isSuperadmin ? (
-            <AdminComplianceView />
-          ) : (
-            <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
-              <Lock size={32} className="mx-auto text-rose-400 mb-3" />
-              <p className="text-xs text-rose-200">
-                Esta sección es exclusiva para el rol superadmin global de TrustLink.
-              </p>
-            </div>
-          )
-        )}
+        {(isSuperadmin || isLocalAdmin) && currentView === 'local_admin' && <LocalAdminView />}
 
-        {isAuthenticated && currentView === 'users_master' && (
-          isSuperadmin ? (
-            <UserManagementView />
-          ) : (
-            <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
-              <Lock size={32} className="mx-auto text-rose-400 mb-3" />
-              <p className="text-xs text-rose-200">
-                Esta sección es exclusiva para el rol superadmin global de TrustLink.
-              </p>
-            </div>
-          )
-        )}
+        {isSuperadmin && currentView === 'users_master' && <UserManagementView />}
 
-        {isAuthenticated && currentView === 'branding_master' && (
-          isSuperadmin ? (
-            <BrandingSettingsView />
-          ) : (
-            <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
-              <Lock size={32} className="mx-auto text-rose-400 mb-3" />
-              <p className="text-xs text-rose-200">
-                Esta sección es exclusiva para el rol superadmin global de TrustLink.
-              </p>
-            </div>
-          )
-        )}
+        {isSuperadmin && currentView === 'branding_master' && <BrandingSettingsView />}
 
-        {isAuthenticated && currentView === 'health' && (
-          isSuperadmin ? (
-            <SystemHealthDashboard onNavigate={(view) => setCurrentView(view)} />
-          ) : (
-            <div className="max-w-md mx-auto my-20 bg-rose-950/40 border border-rose-800 p-8 rounded-2xl text-center">
-              <Lock size={32} className="mx-auto text-rose-400 mb-3" />
-              <p className="text-xs text-rose-200">
-                Esta sección es exclusiva para el rol superadmin global de TrustLink.
-              </p>
-            </div>
-          )
+        {isSuperadmin && currentView === 'health' && (
+          <SystemHealthDashboard onNavigate={setCurrentView} />
         )}
       </main>
 
       {/* ZONA 6: Footer Institucional Único */}
       <footer
-        className="border-t border-slate-800/80 py-3.5 px-4 text-center text-[11px] md:text-xs"
-        style={footerStyle}
+        className="border-t border-black/20 py-3 px-4 md:px-6 text-center text-xs w-full mt-auto"
+        style={{
+          backgroundColor: brand?.footerBgColor || brand?.menuBgColor || '#020617',
+          color: brand?.footerTextColor || brand?.menuTextColor || '#94A3B8',
+        }}
       >
         TrustLink Community Network — Nodo Central de Validación Perimetral y Compliance © 2026
       </footer>
@@ -536,6 +494,9 @@ function MainAppContent() {
   );
 }
 
+/**
+ * Componente raíz que envuelve la aplicación con BrandingProvider y AuthProvider.
+ */
 export default function App() {
   return (
     <BrandingProvider>
