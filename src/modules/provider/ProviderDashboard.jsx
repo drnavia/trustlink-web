@@ -1,9 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador con flujo E2E ordenado:
- * 1. Credenciales, 2. Flota Vehicular, 3. Pases QR, 4. Reseñas y 5. Visitas (confirmación bidireccional).
- * Soporta ejecución en entorno LOCAL y EXTERNO (VITE_API_BASE_URL) y respeta
- * los colores de marca por zona (BrandingContext).
+ * @description Portal del Prestador con secuencia operativa rigurosa de 6 pasos:
+ * 1. Credenciales, 2. Flota Vehicular, 3. Agenda, 4. Visitas, 5. Pases QR y 6. Reseñas.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -34,6 +32,8 @@ import {
   Check,
   Calendar,
   MapPin,
+  Trash2,
+  Clock,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 
@@ -42,6 +42,16 @@ export const API_BASE =
   'http://localhost:4000';
 
 const PASSES_PER_PAGE = 6;
+
+const toLocalDateTimeInput = (dateObj) => {
+  const pad = (n) => String(n).padStart(2, '0');
+  const y = dateObj.getFullYear();
+  const m = pad(dateObj.getMonth() + 1);
+  const d = pad(dateObj.getDate());
+  const hh = pad(dateObj.getHours());
+  const mm = pad(dateObj.getMinutes());
+  return `${y}-${m}-${d}T${hh}:${mm}`;
+};
 
 function getValidityStatus(expiryDateStr) {
   if (!expiryDateStr) {
@@ -124,6 +134,14 @@ function getPassStatusLabel(status) {
   return status || 'Sin estado';
 }
 
+function getBlockTypeLabel(blockType) {
+  const t = String(blockType || '').toLowerCase();
+  if (t === 'external_visit') return 'Visita Externa';
+  if (t === 'trustlink_visit') return 'Visita TrustLink';
+  if (t === 'trustlink_pass') return 'Pase QR Bloqueado';
+  return 'Horario No Laborable';
+}
+
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
@@ -139,7 +157,7 @@ export default function ProviderDashboard() {
 
   const primaryActionColor = brand.primaryColor || brand.accentColor || '#10b981';
 
-  // Paso activo: 'credentials' | 'vehicles' | 'passes' | 'reviews' | 'visits'
+  // Orden riguroso: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
   const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
@@ -178,7 +196,26 @@ export default function ProviderDashboard() {
   const [vehPlate, setVehPlate] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
 
-  // 3. Pases QR
+  // 3. Agenda
+  const [scheduleBlocks, setScheduleBlocks] = useState([]);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [blockType, setBlockType] = useState('unavailable');
+  const [blockTitle, setBlockTitle] = useState('');
+  const [blockStart, setBlockStart] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000))
+  );
+  const [blockEnd, setBlockEnd] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() + 3 * 60 * 60 * 1000))
+  );
+  const [savingBlock, setSavingBlock] = useState(false);
+
+  // 4. Visitas
+  const [incomingVisits, setIncomingVisits] = useState([]);
+  const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
+  const [respondingVisitId, setRespondingVisitId] = useState(null);
+
+  // 5. Pases QR
   const [assignedPasses, setAssignedPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passesError, setPassesError] = useState('');
@@ -188,18 +225,12 @@ export default function ProviderDashboard() {
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  // 4. Reseñas
+  // 6. Reseñas
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
   const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
-
-  // 5. Visitas / Confirmación bidireccional
-  const [incomingVisits, setIncomingVisits] = useState([]);
-  const [loadingVisits, setLoadingVisits] = useState(false);
-  const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
-  const [respondingVisitId, setRespondingVisitId] = useState(null);
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
@@ -227,6 +258,42 @@ export default function ProviderDashboard() {
       setErrorMsg('Error de conexión con el servidor backend.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchProviderSchedule = async () => {
+    setLoadingSchedule(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/schedule/provider`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setScheduleBlocks(data.blocks || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar agenda del prestador:', error);
+    } finally {
+      setLoadingSchedule(false);
+    }
+  };
+
+  const fetchIncomingVisits = async () => {
+    setLoadingVisits(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/provider`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setIncomingVisits(data.visits || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar solicitudes de visita:', error);
+    } finally {
+      setLoadingVisits(false);
     }
   };
 
@@ -272,29 +339,12 @@ export default function ProviderDashboard() {
     }
   };
 
-  const fetchIncomingVisits = async () => {
-    setLoadingVisits(true);
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/provider`, {
-        method: 'GET',
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setIncomingVisits(data.visits || []);
-      }
-    } catch (error) {
-      console.error('Error al cargar solicitudes de visita:', error);
-    } finally {
-      setLoadingVisits(false);
-    }
-  };
-
   useEffect(() => {
     fetchProviderProfile();
+    fetchProviderSchedule();
+    fetchIncomingVisits();
     fetchAssignedPasses();
     fetchProviderReviewContracts();
-    fetchIncomingVisits();
   }, []);
 
   const documentHistory = useMemo(() => {
@@ -618,14 +668,54 @@ export default function ProviderDashboard() {
     }
   };
 
-  const handleCopyToken = async (tokenValue, passId) => {
-    if (!tokenValue) return;
+  const handleCreateScheduleBlock = async (e) => {
+    e.preventDefault();
+    setSavingBlock(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
     try {
-      await navigator.clipboard.writeText(tokenValue);
-      setCopiedPassId(passId);
-      setTimeout(() => setCopiedPassId(null), 1800);
-    } catch (err) {
-      console.error('No se pudo copiar el token:', err);
+      const response = await fetch(`${API_BASE}/api/v1/passes/schedule/blocks`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          block_type: blockType,
+          title: blockTitle.trim(),
+          start_at: new Date(blockStart).toISOString(),
+          end_at: new Date(blockEnd).toISOString(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Bloque agregado a tu agenda.');
+        setBlockTitle('');
+        await fetchProviderSchedule();
+      } else {
+        setErrorMsg(data.error || 'No se pudo guardar el bloque en la agenda.');
+      }
+    } catch (error) {
+      console.error('Error al guardar bloque de agenda:', error);
+      setErrorMsg('Error de conexión al guardar en la agenda.');
+    } finally {
+      setSavingBlock(false);
+    }
+  };
+
+  const handleDeleteScheduleBlock = async (blockId) => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/schedule/blocks/${blockId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (response.ok) {
+        setSuccessMsg('Bloque eliminado de la agenda.');
+        await fetchProviderSchedule();
+      }
+    } catch (error) {
+      console.error('Error al eliminar bloque:', error);
     }
   };
 
@@ -651,7 +741,7 @@ export default function ProviderDashboard() {
       if (response.ok) {
         setSuccessMsg(data.message || 'Respuesta registrada en la visita.');
         setVisitReplyDrafts((prev) => ({ ...prev, [visitId]: '' }));
-        await fetchIncomingVisits();
+        await Promise.all([fetchIncomingVisits(), fetchProviderSchedule()]);
       } else {
         setErrorMsg(data.error || 'No se pudo actualizar la visita.');
       }
@@ -660,6 +750,17 @@ export default function ProviderDashboard() {
       setErrorMsg('Error de conexión al responder la visita.');
     } finally {
       setRespondingVisitId(null);
+    }
+  };
+
+  const handleCopyToken = async (tokenValue, passId) => {
+    if (!tokenValue) return;
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopiedPassId(passId);
+      setTimeout(() => setCopiedPassId(null), 1800);
+    } catch (err) {
+      console.error('No se pudo copiar el token:', err);
     }
   };
 
@@ -748,6 +849,7 @@ export default function ProviderDashboard() {
   const rowActionBtnClass =
     'px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-85 shrink-0';
 
+  // Secuencia rigurosa de 6 pasos
   const steps = [
     {
       id: 'credentials',
@@ -762,22 +864,28 @@ export default function ProviderDashboard() {
       icon: Car,
     },
     {
+      id: 'schedule',
+      label: '3. Agenda',
+      count: scheduleBlocks.length,
+      icon: Calendar,
+    },
+    {
+      id: 'visits',
+      label: '4. Visitas',
+      count: pendingVisitsCount || incomingVisits.length,
+      icon: MessageSquare,
+    },
+    {
       id: 'passes',
-      label: '3. Pases QR',
+      label: '5. Pases QR',
       count: activePassesCount || assignedPasses.length,
       icon: QrCode,
     },
     {
       id: 'reviews',
-      label: '4. Reseñas',
+      label: '6. Reseñas',
       count: reviewContracts.length,
       icon: Star,
-    },
-    {
-      id: 'visits',
-      label: '5. Visitas',
-      count: pendingVisitsCount || incomingVisits.length,
-      icon: MessageSquare,
     },
   ];
 
@@ -795,7 +903,7 @@ export default function ProviderDashboard() {
             <div>
               <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
               <p className="text-xs opacity-80">
-                Credenciales, flota vehicular, pases QR de ingreso, reseñas y confirmación de visitas.
+                Credenciales, flota vehicular, agenda online, visitas, pases QR y reseñas cruzadas.
               </p>
             </div>
           </div>
@@ -818,9 +926,10 @@ export default function ProviderDashboard() {
               type="button"
               onClick={() => {
                 fetchProviderProfile();
+                fetchProviderSchedule();
+                fetchIncomingVisits();
                 fetchAssignedPasses();
                 fetchProviderReviewContracts();
-                fetchIncomingVisits();
               }}
               className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5 cursor-pointer hover:opacity-85"
               style={innerStyle}
@@ -830,7 +939,7 @@ export default function ProviderDashboard() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
           {steps.map((step) => {
             const IconComponent = step.icon;
             const isSelected = activeStep === step.id;
@@ -839,7 +948,7 @@ export default function ProviderDashboard() {
                 key={step.id}
                 type="button"
                 onClick={() => setActiveStep(step.id)}
-                className={`px-3.5 py-3 rounded-xl text-xs font-bold flex items-center justify-between gap-2 border transition-all cursor-pointer ${
+                className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-1.5 border transition-all cursor-pointer ${
                   isSelected
                     ? 'text-white border-emerald-400/50 shadow-sm'
                     : 'border-white/15 opacity-80 hover:opacity-100'
@@ -847,10 +956,10 @@ export default function ProviderDashboard() {
                 style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
               >
                 <span className="flex items-center gap-1.5 truncate">
-                  <IconComponent size={14} className="shrink-0" />
+                  <IconComponent size={13} className="shrink-0" />
                   <span className="truncate">{step.label}</span>
                 </span>
-                <span className="font-mono px-2 py-0.5 rounded bg-black/20 shrink-0">
+                <span className="font-mono px-1.5 py-0.5 rounded bg-black/20 text-[11px] shrink-0">
                   {step.count}
                 </span>
               </button>
@@ -881,11 +990,9 @@ export default function ProviderDashboard() {
           <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
         </div>
       ) : activeStep === 'credentials' ? (
+        /* 1. CREDENCIALES */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <section
-            className="p-6 rounded-2xl border border-black/20 space-y-5"
-            style={cardStyle}
-          >
+          <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-bold flex items-center gap-2">
                 <FileText size={18} className="text-emerald-400 shrink-0" /> Documentación Personal
@@ -982,10 +1089,7 @@ export default function ProviderDashboard() {
 
             <div className="space-y-3">
               {documentHistory.length === 0 ? (
-                <div
-                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
-                  style={innerStyle}
-                >
+                <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
                   No hay documentación cargada aún. Usá &ldquo;+ Cargar Documentación&rdquo; para agregarla.
                 </div>
               ) : (
@@ -1102,10 +1206,7 @@ export default function ProviderDashboard() {
             </div>
           </section>
 
-          <section
-            className="p-6 rounded-2xl border border-black/20 space-y-5"
-            style={cardStyle}
-          >
+          <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-base font-bold flex items-center gap-2">
                 <Award size={18} className="text-emerald-400 shrink-0" /> Especialidades y Credenciales
@@ -1161,10 +1262,7 @@ export default function ProviderDashboard() {
 
             <div className="space-y-3">
               {profileData.providers.length === 0 ? (
-                <div
-                  className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
-                  style={innerStyle}
-                >
+                <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
                   No tenés especialidades registradas aún. Usá &ldquo;+ Cargar Especialidad&rdquo; para agregar una.
                 </div>
               ) : (
@@ -1262,10 +1360,8 @@ export default function ProviderDashboard() {
           </section>
         </div>
       ) : activeStep === 'vehicles' ? (
-        <section
-          className="p-6 rounded-2xl border border-black/20 space-y-5"
-          style={cardStyle}
-        >
+        /* 2. FLOTA VEHICULAR */
+        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-base font-bold flex items-center gap-2">
               <Car size={18} className="text-sky-400" /> Flota Vehicular Habilitada
@@ -1359,10 +1455,7 @@ export default function ProviderDashboard() {
 
           <div className="space-y-3">
             {profileData.vehicles.length === 0 ? (
-              <div
-                className="p-4 rounded-xl border border-black/20 text-xs opacity-80"
-                style={innerStyle}
-              >
+              <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
                 Sin vehículos registrados en tu flota.
               </div>
             ) : (
@@ -1394,11 +1487,267 @@ export default function ProviderDashboard() {
             )}
           </div>
         </section>
+      ) : activeStep === 'schedule' ? (
+        /* 3. AGENDA — DISPONIBILIDAD, BLOQUEOS, VISITAS EXTERNAS Y BLOQUEO AUTOMÁTICO */
+        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Calendar size={18} className="text-emerald-400" /> Agenda Online y Disponibilidad
+              </h3>
+              <p className="text-xs opacity-80 mt-0.5">
+                Bloqueá horarios no laborables, registrá visitas externas y revisá franjas ocupadas por TrustLink.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchProviderSchedule}
+              className={rowActionBtnClass}
+              style={innerStyle}
+            >
+              <RefreshCw size={13} className={loadingSchedule ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
+
+          <form
+            onSubmit={handleCreateScheduleBlock}
+            className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+            style={innerStyle}
+          >
+            <p className="font-bold flex items-center gap-1.5">
+              <Clock size={14} className="text-emerald-400" /> Agregar Bloqueo o Visita Externa
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <select
+                value={blockType}
+                onChange={(e) => setBlockType(e.target.value)}
+                className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                style={cardStyle}
+              >
+                <option value="unavailable">Horario no laborable</option>
+                <option value="external_visit">Visita externa (fuera de TrustLink)</option>
+              </select>
+              <input
+                type="text"
+                value={blockTitle}
+                onChange={(e) => setBlockTitle(e.target.value)}
+                placeholder="Detalle (ej: Descanso mediodía / Obra barrio norte)"
+                className="sm:col-span-2 px-3 py-2 rounded-xl border border-white/15 text-xs"
+                style={cardStyle}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className="block text-[11px] opacity-80 mb-1">Desde</label>
+                <input
+                  type="datetime-local"
+                  value={blockStart}
+                  onChange={(e) => setBlockStart(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] opacity-80 mb-1">Hasta</label>
+                <input
+                  type="datetime-local"
+                  value={blockEnd}
+                  onChange={(e) => setBlockEnd(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={savingBlock}
+                className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                <Plus size={14} /> {savingBlock ? 'Guardando...' : 'Bloquear Franja'}
+              </button>
+            </div>
+          </form>
+
+          {loadingSchedule ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando agenda del prestador...</p>
+          ) : scheduleBlocks.length === 0 ? (
+            <div className="p-6 rounded-xl border border-black/20 text-xs opacity-80 text-center" style={innerStyle}>
+              Sin bloques registrados todavía. Las visitas confirmadas o pases QR emitidos también se reflejarán aquí automáticamente.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {scheduleBlocks.map((blk) => {
+                const isManualBlock = !blk.source_ref;
+                return (
+                  <div
+                    key={blk.id}
+                    className="p-4 rounded-xl border border-black/20 space-y-2 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">{blk.title || 'Bloque de agenda'}</span>
+                        <p className="opacity-80 mt-0.5">
+                          {formatDateTime(blk.start_at)} → {formatDateTime(blk.end_at)}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15 shrink-0">
+                        {getBlockTypeLabel(blk.block_type)}
+                      </span>
+                    </div>
+
+                    {isManualBlock && (
+                      <div className="flex justify-end pt-1">
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteScheduleBlock(blk.id)}
+                          className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 font-semibold cursor-pointer"
+                        >
+                          <Trash2 size={12} /> Quitar bloque
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : activeStep === 'visits' ? (
+        /* 4. VISITAS — CONFIRMACIÓN BIDIRECCIONAL CON RESIDENTES */
+        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <MessageSquare size={18} className="text-emerald-400" /> Solicitudes y Confirmación de Visitas
+              </h3>
+              <p className="text-xs opacity-80 mt-0.5">
+                Respondé a los residentes y confirmá tu disponibilidad para bloquear el horario y habilitar el Pase QR.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchIncomingVisits}
+              className={rowActionBtnClass}
+              style={innerStyle}
+            >
+              <RefreshCw size={13} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
+
+          {loadingVisits ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
+          ) : incomingVisits.length === 0 ? (
+            <div className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20" style={innerStyle}>
+              Todavía no tenés solicitudes de visita pendientes de coordinación.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {incomingVisits.map((visit) => {
+                const statusLower = String(visit.status || '').toLowerCase();
+                const isConfirmed = statusLower === 'confirmed';
+                const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+
+                return (
+                  <article
+                    key={visit.id}
+                    className="rounded-xl p-4 border border-black/20 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">
+                          Visita #{visit.id} · {visit.owner_name || 'Residente'}
+                        </span>
+                        <p className="opacity-80 mt-0.5">
+                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
+                          Horario propuesto: {visit.preferred_date || 'A convenir'}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
+                          isConfirmed
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : statusLower === 'declined'
+                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                        }`}
+                      >
+                        {isConfirmed
+                          ? 'Disponibilidad Confirmada'
+                          : statusLower === 'declined'
+                          ? 'Sin Disponibilidad'
+                          : 'Pendiente de Confirmación'}
+                      </span>
+                    </div>
+
+                    {msgs.length > 0 && (
+                      <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5">
+                        {msgs.map((m, idx) => (
+                          <p key={m.id || idx} className="text-xs">
+                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
+                              {m.sender_role === 'provider' ? 'Prestador:' : 'Residente:'}
+                            </strong>
+                            <span>{m.text}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={visitReplyDrafts[visit.id] || ''}
+                        onChange={(e) =>
+                          setVisitReplyDrafts((prev) => ({
+                            ...prev,
+                            [visit.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Escribí un mensaje o aclaración para el residente..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs"
+                        style={cardStyle}
+                      />
+
+                      <button
+                        type="button"
+                        disabled={respondingVisitId === visit.id}
+                        onClick={() => handleRespondVisit(visit.id, 'confirm')}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
+                        style={{ backgroundColor: primaryActionColor }}
+                      >
+                        {respondingVisitId === visit.id
+                          ? 'Guardando...'
+                          : isConfirmed
+                          ? 'Confirmada'
+                          : 'Confirmar Disponibilidad'}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={respondingVisitId === visit.id}
+                        onClick={() => handleRespondVisit(visit.id, 'decline')}
+                        className={rowActionBtnClass}
+                        style={cardStyle}
+                      >
+                        Sin disponibilidad
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
       ) : activeStep === 'passes' ? (
-        <section
-          className="p-6 rounded-2xl border border-black/20 space-y-5"
-          style={cardStyle}
-        >
+        /* 5. PASES QR */
+        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h3 className="text-base font-bold flex items-center gap-2">
@@ -1465,10 +1814,7 @@ export default function ProviderDashboard() {
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
           ) : paginatedPasses.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20"
-              style={innerStyle}
-            >
+            <div className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20" style={innerStyle}>
               No hay pases QR registrados para tu perfil con los filtros actuales.
             </div>
           ) : (
@@ -1587,11 +1933,9 @@ export default function ProviderDashboard() {
             </div>
           )}
         </section>
-      ) : activeStep === 'reviews' ? (
-        <section
-          className="p-6 rounded-2xl border border-black/20 space-y-5"
-          style={cardStyle}
-        >
+      ) : (
+        /* 6. RESEÑAS */
+        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
           <div className="flex items-center justify-between border-b border-black/20 pb-4">
             <div className="flex items-center gap-2.5">
               <div className="p-2.5 rounded-xl border border-white/15" style={innerStyle}>
@@ -1610,17 +1954,11 @@ export default function ProviderDashboard() {
           </div>
 
           {loadingReviews ? (
-            <div
-              className="text-center py-8 rounded-xl border border-black/20 text-xs"
-              style={innerStyle}
-            >
+            <div className="text-center py-8 rounded-xl border border-black/20 text-xs" style={innerStyle}>
               Cargando historial de servicios...
             </div>
           ) : reviewContracts.length === 0 ? (
-            <div
-              className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85"
-              style={innerStyle}
-            >
+            <div className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85" style={innerStyle}>
               Aún no tenés contratos asignados en tu historial.
             </div>
           ) : (
@@ -1673,10 +2011,7 @@ export default function ProviderDashboard() {
                     )}
 
                     {alreadyRatedOwner ? (
-                      <div
-                        className="p-3 rounded-lg border border-white/15 text-xs"
-                        style={cardStyle}
-                      >
+                      <div className="p-3 rounded-lg border border-white/15 text-xs" style={cardStyle}>
                         Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
                         {item.owner_review_rating}/5)
                         {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
@@ -1749,143 +2084,8 @@ export default function ProviderDashboard() {
             </div>
           )}
         </section>
-      ) : (
-        /* =====================================================================
-           5. VISITAS — CONFIRMACIÓN BIDIRECCIONAL CON RESIDENTES
-           ===================================================================== */
-        <section
-          className="p-6 rounded-2xl border border-black/20 space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <MessageSquare size={18} className="text-emerald-400" /> Solicitudes y Confirmación de Visitas
-              </h3>
-              <p className="text-xs opacity-80 mt-0.5">
-                Respondé a los residentes y confirmá tu disponibilidad para que emitan el Pase QR.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={fetchIncomingVisits}
-              className={rowActionBtnClass}
-              style={innerStyle}
-            >
-              <RefreshCw size={13} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
-            </button>
-          </div>
-
-          {loadingVisits ? (
-            <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
-          ) : incomingVisits.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20"
-              style={innerStyle}
-            >
-              Todavía no tenés solicitudes de visita pendientes de coordinación.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {incomingVisits.map((visit) => {
-                const statusLower = String(visit.status || '').toLowerCase();
-                const isConfirmed = statusLower === 'confirmed';
-                const msgs = Array.isArray(visit.messages) ? visit.messages : [];
-
-                return (
-                  <article
-                    key={visit.id}
-                    className="rounded-xl p-4 border border-black/20 space-y-3 text-xs"
-                    style={innerStyle}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-sm">
-                          Visita #{visit.id} · {visit.owner_name || 'Residente'}
-                        </span>
-                        <p className="opacity-80 mt-0.5">
-                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
-                          Horario propuesto: {visit.preferred_date || 'A convenir'}
-                        </p>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
-                          isConfirmed
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                            : statusLower === 'declined'
-                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                        }`}
-                      >
-                        {isConfirmed
-                          ? 'Disponibilidad Confirmada'
-                          : statusLower === 'declined'
-                          ? 'Sin Disponibilidad'
-                          : 'Pendiente de Confirmación'}
-                      </span>
-                    </div>
-
-                    {msgs.length > 0 && (
-                      <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5">
-                        {msgs.map((m, idx) => (
-                          <p key={m.id || idx} className="text-xs">
-                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
-                              {m.sender_role === 'provider' ? 'Prestador:' : 'Residente:'}
-                            </strong>
-                            <span>{m.text}</span>
-                          </p>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                      <input
-                        type="text"
-                        value={visitReplyDrafts[visit.id] || ''}
-                        onChange={(e) =>
-                          setVisitReplyDrafts((prev) => ({
-                            ...prev,
-                            [visit.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Escribí un mensaje o aclaración para el residente..."
-                        className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs"
-                        style={cardStyle}
-                      />
-
-                      <button
-                        type="button"
-                        disabled={respondingVisitId === visit.id}
-                        onClick={() => handleRespondVisit(visit.id, 'confirm')}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
-                        style={{ backgroundColor: primaryActionColor }}
-                      >
-                        {respondingVisitId === visit.id
-                          ? 'Guardando...'
-                          : isConfirmed
-                          ? 'Confirmada'
-                          : 'Confirmar Disponibilidad'}
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={respondingVisitId === visit.id}
-                        onClick={() => handleRespondVisit(visit.id, 'decline')}
-                        className={rowActionBtnClass}
-                        style={cardStyle}
-                      >
-                        Sin disponibilidad
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
       )}
 
-      {/* Modal para visualizar el token QR completo */}
       {selectedPassModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
