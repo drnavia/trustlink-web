@@ -1,13 +1,13 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador con secuencia operativa rigurosa de 6 pasos:
+ * @description Portal del Prestador unificado estéticamente y en ritmo UX/UI con Portal Residente.
+ * Secuencia operativa rigurosa de 6 pasos:
  * 1. Credenciales, 2. Flota Vehicular, 3. Agenda, 4. Visitas, 5. Pases QR y 6. Reseñas.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Wrench,
   ShieldCheck,
   Car,
   Plus,
@@ -35,7 +35,7 @@ import {
   Trash2,
   Clock,
 } from 'lucide-react';
-import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
+import { useBranding } from '../branding/BrandingContext';
 
 export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
@@ -111,16 +111,16 @@ function toDateInputValue(dateStr) {
 function getPassStatusBadge(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') {
-    return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
+    return 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60';
   }
   if (normalized === 'used') {
-    return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+    return 'bg-sky-950/80 text-sky-300 border-sky-700/60';
   }
   if (normalized === 'expired') {
-    return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+    return 'bg-amber-950/80 text-amber-300 border-amber-700/60';
   }
   if (normalized === 'cancelled') {
-    return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+    return 'bg-rose-950/80 text-rose-300 border-rose-700/60';
   }
   return 'bg-slate-800 text-slate-300 border-slate-700';
 }
@@ -145,17 +145,18 @@ function getBlockTypeLabel(blockType) {
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
+  // Mismos tokens de superficie y acción primaria que ResidentDashboard
+  const primaryColor = brand?.primaryActionColor || brand?.primaryColor || '#059669';
+
   const cardStyle = {
-    backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-    color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
+    backgroundColor: brand?.cardBgColor || '#020617',
+    color: brand?.cardTextColor || '#F1F5F9',
   };
 
   const innerStyle = {
-    backgroundColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-    color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
+    backgroundColor: brand?.innerBgColor || '#0F172A',
+    color: brand?.innerTextColor || '#E2E8F0',
   };
-
-  const primaryActionColor = brand.primaryColor || brand.accentColor || '#10b981';
 
   // Orden riguroso: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
@@ -845,173 +846,195 @@ export default function ProviderDashboard() {
   const listHeaderTitleClass =
     'text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5';
   const listCounterBadgeClass =
-    'text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15 shrink-0';
+    'text-[11px] font-mono px-2.5 py-0.5 rounded-full border border-slate-700/80 shrink-0';
   const rowActionBtnClass =
-    'px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-85 shrink-0';
+    'px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-90 shrink-0';
 
-  // Secuencia rigurosa de 6 pasos
   const steps = [
     {
       id: 'credentials',
-      label: '1. Credenciales',
+      stepNumber: 1,
+      label: 'Credenciales',
       count: profileData.providers.length,
       icon: ShieldCheck,
     },
     {
       id: 'vehicles',
-      label: '2. Flota Vehicular',
+      stepNumber: 2,
+      label: 'Flota Vehicular',
       count: profileData.vehicles.length,
       icon: Car,
     },
     {
       id: 'schedule',
-      label: '3. Agenda',
+      stepNumber: 3,
+      label: 'Agenda',
       count: scheduleBlocks.length,
       icon: Calendar,
     },
     {
       id: 'visits',
-      label: '4. Visitas',
+      stepNumber: 4,
+      label: 'Visitas',
       count: pendingVisitsCount || incomingVisits.length,
       icon: MessageSquare,
     },
     {
       id: 'passes',
-      label: '5. Pases QR',
+      stepNumber: 5,
+      label: 'Pases QR',
       count: activePassesCount || assignedPasses.length,
       icon: QrCode,
     },
     {
       id: 'reviews',
-      label: '6. Reseñas',
+      stepNumber: 6,
+      label: 'Reseñas',
       count: reviewContracts.length,
       icon: Star,
     },
   ];
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
-      <section
-        className="p-6 rounded-2xl border border-black/20 space-y-5"
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+      {/* Cabecera principal alineada estéticamente con Portal Residente */}
+      <div
+        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         style={cardStyle}
       >
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex items-center space-x-3.5">
-            <div className="p-3 rounded-xl border border-white/15" style={innerStyle}>
-              <Wrench size={22} className="text-emerald-400" />
-            </div>
-            <div>
-              <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
-              <p className="text-xs opacity-80">
-                Credenciales, flota vehicular, agenda online, visitas, pases QR y reseñas cruzadas.
-              </p>
-            </div>
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+            <ShieldCheck size={14} />
+            <span>Portal Prestador</span>
           </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+            Credenciales, agenda, visitas y pases QR
+          </h1>
+          <p className="text-xs sm:text-sm opacity-80">
+            Gestioná tu documentación verificada, flota, disponibilidad online, visitas y reseñas cruzadas.
+          </p>
+        </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5"
-              style={innerStyle}
-            >
-              <Star size={13} className="text-amber-400 fill-amber-400" />
-              Scoring: {Number(primaryProfile?.rating_avg || 0).toFixed(2)}
-            </span>
-            <span
-              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15"
-              style={innerStyle}
-            >
-              Estado: {profileStatus}
-            </span>
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          <span
+            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5"
+            style={innerStyle}
+          >
+            <Star size={13} className="text-amber-400 fill-amber-400" />
+            <span>Scoring: {Number(primaryProfile?.rating_avg || 0).toFixed(2)}</span>
+          </span>
+          <span
+            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-700/80"
+            style={innerStyle}
+          >
+            Estado: {profileStatus}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              fetchProviderProfile();
+              fetchProviderSchedule();
+              fetchIncomingVisits();
+              fetchAssignedPasses();
+              fetchProviderReviewContracts();
+            }}
+            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
+            style={innerStyle}
+            title="Actualizar información del prestador"
+          >
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/* Selector de pasos en grilla unificada */}
+      <div
+        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2"
+        style={cardStyle}
+      >
+        {steps.map((step) => {
+          const IconComponent = step.icon;
+          const isSelected = activeStep === step.id;
+          return (
             <button
+              key={step.id}
               type="button"
-              onClick={() => {
-                fetchProviderProfile();
-                fetchProviderSchedule();
-                fetchIncomingVisits();
-                fetchAssignedPasses();
-                fetchProviderReviewContracts();
-              }}
-              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5 cursor-pointer hover:opacity-85"
-              style={innerStyle}
+              onClick={() => setActiveStep(step.id)}
+              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                isSelected
+                  ? 'text-white border-transparent shadow-sm'
+                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
+              }`}
+              style={isSelected ? { backgroundColor: primaryColor } : innerStyle}
             >
-              <RefreshCw size={13} /> Actualizar
+              <span className="flex items-center gap-1.5 truncate">
+                <IconComponent size={14} className="shrink-0" />
+                <span className="truncate">
+                  {step.stepNumber}. {step.label}
+                </span>
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
+                {step.count}
+              </span>
             </button>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          {steps.map((step) => {
-            const IconComponent = step.icon;
-            const isSelected = activeStep === step.id;
-            return (
-              <button
-                key={step.id}
-                type="button"
-                onClick={() => setActiveStep(step.id)}
-                className={`px-3 py-2.5 rounded-xl text-xs font-bold flex items-center justify-between gap-1.5 border transition-all cursor-pointer ${
-                  isSelected
-                    ? 'text-white border-emerald-400/50 shadow-sm'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
-                }`}
-                style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
-              >
-                <span className="flex items-center gap-1.5 truncate">
-                  <IconComponent size={13} className="shrink-0" />
-                  <span className="truncate">{step.label}</span>
-                </span>
-                <span className="font-mono px-1.5 py-0.5 rounded bg-black/20 text-[11px] shrink-0">
-                  {step.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+          );
+        })}
+      </div>
 
       {errorMsg && (
-        <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <AlertCircle size={16} className="text-rose-400 shrink-0" />
+        <div className="rounded-2xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
+          <AlertCircle size={16} className="shrink-0" />
           <span>{errorMsg}</span>
         </div>
       )}
 
       {successMsg && (
-        <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
-          <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+        <div className="rounded-2xl p-4 border border-emerald-700/70 bg-emerald-950/50 text-emerald-200 text-xs flex items-center gap-2">
+          <CheckCircle2 size={16} className="shrink-0" />
           <span>{successMsg}</span>
         </div>
       )}
 
       {loading ? (
         <div
-          className="text-center py-12 rounded-2xl border border-black/20 text-xs flex items-center justify-center gap-2"
+          className="rounded-2xl p-10 border border-slate-800/80 text-center text-xs opacity-75 flex items-center justify-center gap-2"
           style={cardStyle}
         >
-          <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
+          <Loader2 className="animate-spin" size={16} />
+          <span>Cargando información del prestador...</span>
         </div>
       ) : activeStep === 'credentials' ? (
         /* 1. CREDENCIALES */
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-          <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <section
+            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+            style={cardStyle}
+          >
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <FileText size={18} className="text-emerald-400 shrink-0" /> Documentación Personal
-              </h3>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                  <FileText size={18} className="text-emerald-400 shrink-0" />
+                  <span>Documentación Personal</span>
+                </h2>
+                <p className="text-xs opacity-75">
+                  Antecedentes penales, póliza ART/seguro y fechas de vigencia.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowDocForm((prev) => !prev)}
-                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
-                style={{ backgroundColor: primaryActionColor }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shrink-0 shadow-sm"
+                style={{ backgroundColor: primaryColor }}
               >
                 {showDocForm ? <X size={14} /> : <Plus size={14} />}
-                {showDocForm ? 'Cerrar' : 'Cargar Documentación'}
+                {showDocForm ? 'Cerrar' : 'Cargar'}
               </button>
             </div>
 
             {showDocForm && (
               <form
                 onSubmit={handleCreateDocument}
-                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
                 style={innerStyle}
               >
                 <p className="font-bold">Nuevo Documento de Compliance</p>
@@ -1019,7 +1042,7 @@ export default function ProviderDashboard() {
                   <select
                     value={docType}
                     onChange={(e) => setDocType(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                     style={cardStyle}
                   >
                     <option value="Antecedentes Penales">Antecedentes Penales</option>
@@ -1031,7 +1054,7 @@ export default function ProviderDashboard() {
                     value={docUrl}
                     onChange={(e) => setDocUrl(e.target.value)}
                     placeholder="URL o enlace del documento"
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                     style={cardStyle}
                   />
                 </div>
@@ -1042,7 +1065,7 @@ export default function ProviderDashboard() {
                       type="date"
                       value={docValidFrom}
                       onChange={(e) => setDocValidFrom(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                       style={cardStyle}
                     />
                   </div>
@@ -1052,7 +1075,7 @@ export default function ProviderDashboard() {
                       type="date"
                       value={docValidTo}
                       onChange={(e) => setDocValidTo(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                       style={cardStyle}
                     />
                   </div>
@@ -1070,7 +1093,7 @@ export default function ProviderDashboard() {
                     type="submit"
                     disabled={savingDoc}
                     className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                    style={{ backgroundColor: primaryActionColor }}
+                    style={{ backgroundColor: primaryColor }}
                   >
                     <Save size={13} /> {savingDoc ? 'Guardando...' : 'Guardar Documento'}
                   </button>
@@ -1089,8 +1112,11 @@ export default function ProviderDashboard() {
 
             <div className="space-y-3">
               {documentHistory.length === 0 ? (
-                <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
-                  No hay documentación cargada aún. Usá &ldquo;+ Cargar Documentación&rdquo; para agregarla.
+                <div
+                  className="p-4 rounded-xl border border-slate-800/70 text-xs opacity-80"
+                  style={innerStyle}
+                >
+                  No hay documentación cargada aún. Usá &ldquo;+ Cargar&rdquo; para agregarla.
                 </div>
               ) : (
                 documentHistory.map((docItem) => {
@@ -1100,7 +1126,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={docItem.key}
-                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                      className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
                       {isEditingDoc ? (
@@ -1111,7 +1137,7 @@ export default function ProviderDashboard() {
                             value={editDocUrl}
                             onChange={(e) => setEditDocUrl(e.target.value)}
                             placeholder="URL del documento"
-                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                             style={cardStyle}
                           />
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1121,7 +1147,7 @@ export default function ProviderDashboard() {
                                 type="date"
                                 value={editDocValidFrom}
                                 onChange={(e) => setEditDocValidFrom(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                                 style={cardStyle}
                               />
                             </div>
@@ -1131,7 +1157,7 @@ export default function ProviderDashboard() {
                                 type="date"
                                 value={editDocValidTo}
                                 onChange={(e) => setEditDocValidTo(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                                 style={cardStyle}
                               />
                             </div>
@@ -1149,8 +1175,8 @@ export default function ProviderDashboard() {
                               type="button"
                               onClick={() => handleSaveDocumentEdit(docItem)}
                               disabled={updatingDoc}
-                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
+                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer"
+                              style={{ backgroundColor: primaryColor }}
                             >
                               <Save size={12} /> {updatingDoc ? 'Guardando...' : 'Guardar'}
                             </button>
@@ -1162,29 +1188,29 @@ export default function ProviderDashboard() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-sm">{docItem.docType}</span>
                               <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded border border-white/15 ${
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                   validity.tone === 'success'
-                                    ? 'bg-emerald-600/25 text-emerald-300'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                                     : validity.tone === 'warning'
-                                    ? 'bg-amber-600/25 text-amber-300'
+                                    ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
                                     : validity.tone === 'danger'
-                                    ? 'bg-rose-600/25 text-rose-300'
-                                    : ''
+                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                                    : 'border-slate-700'
                                 }`}
                                 style={validity.tone === 'neutral' ? cardStyle : undefined}
                               >
                                 {validity.label}
                               </span>
                               <span
-                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
+                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
                                 style={cardStyle}
                               >
-                                Validado TrustLink: {docItem.auditStatus}
+                                Validado: {docItem.auditStatus}
                               </span>
                             </div>
                             {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
-                            <p className="opacity-80">
-                              Vigencia: {formatDateShort(docItem.validFrom)} —{' '}
+                            <p className="opacity-75">
+                              Vigencia: {formatDateShort(docItem.validFrom)} →{' '}
                               {formatDateShort(docItem.validTo)}
                             </p>
                           </div>
@@ -1206,26 +1232,35 @@ export default function ProviderDashboard() {
             </div>
           </section>
 
-          <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+          <section
+            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+            style={cardStyle}
+          >
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Award size={18} className="text-emerald-400 shrink-0" /> Especialidades y Credenciales
-              </h3>
+              <div>
+                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                  <Award size={18} className="text-emerald-400 shrink-0" />
+                  <span>Especialidades y Credenciales</span>
+                </h2>
+                <p className="text-xs opacity-75">
+                  Administrá tus rubros habilitados y su visibilidad en el directorio.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setShowSpecialtyForm((prev) => !prev)}
-                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer shrink-0"
-                style={{ backgroundColor: primaryActionColor }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shrink-0 shadow-sm"
+                style={{ backgroundColor: primaryColor }}
               >
                 {showSpecialtyForm ? <X size={14} /> : <Plus size={14} />}
-                {showSpecialtyForm ? 'Cerrar' : 'Cargar Especialidad'}
+                {showSpecialtyForm ? 'Cerrar' : 'Agregar'}
               </button>
             </div>
 
             {showSpecialtyForm && (
               <form
                 onSubmit={handleCreateSpecialty}
-                className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
                 style={innerStyle}
               >
                 <p className="font-bold">Nueva Especialidad</p>
@@ -1236,14 +1271,14 @@ export default function ProviderDashboard() {
                     value={newSpecialty}
                     onChange={(e) => setNewSpecialty(e.target.value)}
                     placeholder="Nueva especialidad (ej: Plomero Matriculado)"
-                    className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    className="flex-1 px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
                     style={cardStyle}
                   />
                   <button
                     type="submit"
                     disabled={savingSpecialty}
-                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-90 cursor-pointer disabled:opacity-50 shrink-0"
-                    style={{ backgroundColor: primaryActionColor }}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50 shrink-0"
+                    style={{ backgroundColor: primaryColor }}
                   >
                     <Plus size={14} /> {savingSpecialty ? 'Agregando...' : 'Agregar'}
                   </button>
@@ -1262,8 +1297,11 @@ export default function ProviderDashboard() {
 
             <div className="space-y-3">
               {profileData.providers.length === 0 ? (
-                <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
-                  No tenés especialidades registradas aún. Usá &ldquo;+ Cargar Especialidad&rdquo; para agregar una.
+                <div
+                  className="p-4 rounded-xl border border-slate-800/70 text-xs opacity-80"
+                  style={innerStyle}
+                >
+                  No tenés especialidades registradas aún. Usá &ldquo;+ Agregar&rdquo; para cargar una.
                 </div>
               ) : (
                 profileData.providers.map((p) => {
@@ -1273,7 +1311,7 @@ export default function ProviderDashboard() {
                   return (
                     <div
                       key={p.id}
-                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                      className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
                       style={innerStyle}
                     >
                       {isEditing ? (
@@ -1282,7 +1320,7 @@ export default function ProviderDashboard() {
                             type="text"
                             value={editSpecialtyName}
                             onChange={(e) => setEditSpecialtyName(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                             style={cardStyle}
                           />
                           <div className="flex justify-end gap-2">
@@ -1298,8 +1336,8 @@ export default function ProviderDashboard() {
                               type="button"
                               onClick={() => handleSaveSpecialtyEdit(p)}
                               disabled={updatingSpecialty}
-                              className="text-white font-bold px-3 py-1.5 rounded-lg text-xs inline-flex items-center gap-1 cursor-pointer"
-                              style={{ backgroundColor: primaryActionColor }}
+                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer"
+                              style={{ backgroundColor: primaryColor }}
                             >
                               <Save size={12} /> {updatingSpecialty ? 'Guardando...' : 'Guardar'}
                             </button>
@@ -1311,20 +1349,26 @@ export default function ProviderDashboard() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-sm">{p.specialty}</span>
                               <span
-                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
-                                style={cardStyle}
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                  p.status === 'approved'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                    : 'border-slate-700'
+                                }`}
+                                style={p.status === 'approved' ? undefined : cardStyle}
                               >
                                 {p.status === 'approved' ? 'Aprobada' : 'Pendiente'}
                               </span>
                               <span
-                                className="text-[10px] font-bold px-2 py-0.5 rounded border border-white/15"
+                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
                                 style={cardStyle}
                               >
                                 {isHidden ? 'Oculta' : 'Visible'}
                               </span>
                             </div>
-                            <p className="opacity-80">
-                              Pendiente de validación de TrustLink para habilitarse a residentes.
+                            <p className="opacity-75">
+                              {p.status === 'approved'
+                                ? 'Habilitada y visible según tu configuración en el directorio.'
+                                : 'Pendiente de validación de TrustLink para habilitarse a residentes.'}
                             </p>
                           </div>
 
@@ -1361,20 +1405,29 @@ export default function ProviderDashboard() {
         </div>
       ) : activeStep === 'vehicles' ? (
         /* 2. FLOTA VEHICULAR */
-        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-base font-bold flex items-center gap-2">
-              <Car size={18} className="text-sky-400" /> Flota Vehicular Habilitada
-            </h3>
-            <div className="flex items-center gap-2.5">
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Car size={18} className="text-emerald-400 shrink-0" />
+                <span>Flota Vehicular Habilitada</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Asociá los vehículos y patentes con los que ingresás a los barrios privados.
+              </p>
+            </div>
+            <div className="flex items-center gap-2.5 self-start sm:self-auto">
               <span className={listCounterBadgeClass} style={innerStyle}>
                 {profileData.vehicles.length} vehículo(s)
               </span>
               <button
                 type="button"
                 onClick={() => setShowVehicleForm((prev) => !prev)}
-                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer"
-                style={{ backgroundColor: primaryActionColor }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                style={{ backgroundColor: primaryColor }}
               >
                 {showVehicleForm ? <X size={14} /> : <Plus size={14} />}
                 {showVehicleForm ? 'Cerrar' : 'Cargar Vehículo'}
@@ -1385,7 +1438,7 @@ export default function ProviderDashboard() {
           {showVehicleForm && (
             <form
               onSubmit={handleAddVehicle}
-              className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+              className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
               style={innerStyle}
             >
               <p className="font-bold">Asociar Vehículo</p>
@@ -1393,7 +1446,7 @@ export default function ProviderDashboard() {
                 <select
                   value={vehType}
                   onChange={(e) => setVehType(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 >
                   <option value="utilitario">Utilitario</option>
@@ -1407,7 +1460,7 @@ export default function ProviderDashboard() {
                   value={vehBrand}
                   onChange={(e) => setVehBrand(e.target.value)}
                   placeholder="Marca (ej: Ford)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 />
               </div>
@@ -1418,7 +1471,7 @@ export default function ProviderDashboard() {
                   value={vehModel}
                   onChange={(e) => setVehModel(e.target.value)}
                   placeholder="Modelo (ej: Fiorino)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 />
                 <input
@@ -1427,7 +1480,7 @@ export default function ProviderDashboard() {
                   value={vehColor}
                   onChange={(e) => setVehColor(e.target.value)}
                   placeholder="Color (ej: Blanco)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 />
                 <input
@@ -1436,7 +1489,7 @@ export default function ProviderDashboard() {
                   value={vehPlate}
                   onChange={(e) => setVehPlate(e.target.value)}
                   placeholder="Patente (ej: AF123CD)"
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs uppercase"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs uppercase"
                   style={cardStyle}
                 />
               </div>
@@ -1445,7 +1498,7 @@ export default function ProviderDashboard() {
                   type="submit"
                   disabled={savingVehicle}
                   className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: primaryActionColor }}
+                  style={{ backgroundColor: primaryColor }}
                 >
                   <Plus size={14} /> {savingVehicle ? 'Registrando...' : 'Registrar Vehículo'}
                 </button>
@@ -1453,16 +1506,19 @@ export default function ProviderDashboard() {
             </form>
           )}
 
-          <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {profileData.vehicles.length === 0 ? (
-              <div className="p-4 rounded-xl border border-black/20 text-xs opacity-80" style={innerStyle}>
+              <div
+                className="md:col-span-2 p-8 rounded-xl border border-slate-800/70 text-xs opacity-75 text-center"
+                style={innerStyle}
+              >
                 Sin vehículos registrados en tu flota.
               </div>
             ) : (
               profileData.vehicles.map((v) => (
                 <div
                   key={v.id}
-                  className="p-4 rounded-xl border border-black/20 flex items-center justify-between gap-3 text-xs"
+                  className="p-4 rounded-xl border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
                   style={innerStyle}
                 >
                   <div>
@@ -1471,7 +1527,7 @@ export default function ProviderDashboard() {
                         {v.brand} {v.model}
                       </span>
                       <span
-                        className="text-[10px] font-bold uppercase px-2 py-0.5 rounded border border-white/15"
+                        className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-slate-700"
                         style={cardStyle}
                       >
                         {v.vehicle_type}
@@ -1479,7 +1535,7 @@ export default function ProviderDashboard() {
                     </div>
                     <p className="opacity-80 mt-1">
                       Color: {v.color || '-'} · Patente:{' '}
-                      <strong className="font-mono">{v.license_plate}</strong>
+                      <strong className="font-mono">{v.license_plate || v.plate}</strong>
                     </p>
                   </div>
                 </div>
@@ -1488,14 +1544,18 @@ export default function ProviderDashboard() {
           </div>
         </section>
       ) : activeStep === 'schedule' ? (
-        /* 3. AGENDA — DISPONIBILIDAD, BLOQUEOS, VISITAS EXTERNAS Y BLOQUEO AUTOMÁTICO */
-        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+        /* 3. AGENDA */
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Calendar size={18} className="text-emerald-400" /> Agenda Online y Disponibilidad
-              </h3>
-              <p className="text-xs opacity-80 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Calendar size={18} className="text-emerald-400 shrink-0" />
+                <span>Agenda Online y Disponibilidad</span>
+              </h2>
+              <p className="text-xs opacity-75">
                 Bloqueá horarios no laborables, registrá visitas externas y revisá franjas ocupadas por TrustLink.
               </p>
             </div>
@@ -1511,7 +1571,7 @@ export default function ProviderDashboard() {
 
           <form
             onSubmit={handleCreateScheduleBlock}
-            className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+            className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
             style={innerStyle}
           >
             <p className="font-bold flex items-center gap-1.5">
@@ -1521,7 +1581,7 @@ export default function ProviderDashboard() {
               <select
                 value={blockType}
                 onChange={(e) => setBlockType(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                className="px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                 style={cardStyle}
               >
                 <option value="unavailable">Horario no laborable</option>
@@ -1532,7 +1592,7 @@ export default function ProviderDashboard() {
                 value={blockTitle}
                 onChange={(e) => setBlockTitle(e.target.value)}
                 placeholder="Detalle (ej: Descanso mediodía / Obra barrio norte)"
-                className="sm:col-span-2 px-3 py-2 rounded-xl border border-white/15 text-xs"
+                className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                 style={cardStyle}
               />
             </div>
@@ -1545,7 +1605,7 @@ export default function ProviderDashboard() {
                   value={blockStart}
                   onChange={(e) => setBlockStart(e.target.value)}
                   required
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 />
               </div>
@@ -1556,7 +1616,7 @@ export default function ProviderDashboard() {
                   value={blockEnd}
                   onChange={(e) => setBlockEnd(e.target.value)}
                   required
-                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                   style={cardStyle}
                 />
               </div>
@@ -1567,7 +1627,7 @@ export default function ProviderDashboard() {
                 type="submit"
                 disabled={savingBlock}
                 className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                style={{ backgroundColor: primaryActionColor }}
+                style={{ backgroundColor: primaryColor }}
               >
                 <Plus size={14} /> {savingBlock ? 'Guardando...' : 'Bloquear Franja'}
               </button>
@@ -1577,7 +1637,10 @@ export default function ProviderDashboard() {
           {loadingSchedule ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando agenda del prestador...</p>
           ) : scheduleBlocks.length === 0 ? (
-            <div className="p-6 rounded-xl border border-black/20 text-xs opacity-80 text-center" style={innerStyle}>
+            <div
+              className="p-8 rounded-xl border border-slate-800/70 text-xs opacity-75 text-center"
+              style={innerStyle}
+            >
               Sin bloques registrados todavía. Las visitas confirmadas o pases QR emitidos también se reflejarán aquí automáticamente.
             </div>
           ) : (
@@ -1587,7 +1650,7 @@ export default function ProviderDashboard() {
                 return (
                   <div
                     key={blk.id}
-                    className="p-4 rounded-xl border border-black/20 space-y-2 text-xs"
+                    className="p-4 rounded-xl border border-slate-800/70 space-y-2 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1597,7 +1660,7 @@ export default function ProviderDashboard() {
                           {formatDateTime(blk.start_at)} → {formatDateTime(blk.end_at)}
                         </p>
                       </div>
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15 shrink-0">
+                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700 shrink-0">
                         {getBlockTypeLabel(blk.block_type)}
                       </span>
                     </div>
@@ -1607,7 +1670,7 @@ export default function ProviderDashboard() {
                         <button
                           type="button"
                           onClick={() => handleDeleteScheduleBlock(blk.id)}
-                          className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 font-semibold cursor-pointer"
+                          className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 font-bold cursor-pointer"
                         >
                           <Trash2 size={12} /> Quitar bloque
                         </button>
@@ -1620,14 +1683,18 @@ export default function ProviderDashboard() {
           )}
         </section>
       ) : activeStep === 'visits' ? (
-        /* 4. VISITAS — CONFIRMACIÓN BIDIRECCIONAL CON RESIDENTES */
-        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
-          <div className="flex items-center justify-between gap-3">
+        /* 4. VISITAS */
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <MessageSquare size={18} className="text-emerald-400" /> Solicitudes y Confirmación de Visitas
-              </h3>
-              <p className="text-xs opacity-80 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <MessageSquare size={18} className="text-emerald-400 shrink-0" />
+                <span>Solicitudes y Confirmación de Visitas</span>
+              </h2>
+              <p className="text-xs opacity-75">
                 Respondé a los residentes y confirmá tu disponibilidad para bloquear el horario y habilitar el Pase QR.
               </p>
             </div>
@@ -1644,11 +1711,14 @@ export default function ProviderDashboard() {
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
           ) : incomingVisits.length === 0 ? (
-            <div className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20" style={innerStyle}>
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+              style={innerStyle}
+            >
               Todavía no tenés solicitudes de visita pendientes de coordinación.
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3.5">
               {incomingVisits.map((visit) => {
                 const statusLower = String(visit.status || '').toLowerCase();
                 const isConfirmed = statusLower === 'confirmed';
@@ -1657,7 +1727,7 @@ export default function ProviderDashboard() {
                 return (
                   <article
                     key={visit.id}
-                    className="rounded-xl p-4 border border-black/20 space-y-3 text-xs"
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1671,12 +1741,12 @@ export default function ProviderDashboard() {
                         </p>
                       </div>
                       <span
-                        className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
                           isConfirmed
-                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                             : statusLower === 'declined'
-                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                            : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
                         }`}
                       >
                         {isConfirmed
@@ -1688,7 +1758,7 @@ export default function ProviderDashboard() {
                     </div>
 
                     {msgs.length > 0 && (
-                      <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5">
+                      <div className="rounded-lg p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
                         {msgs.map((m, idx) => (
                           <p key={m.id || idx} className="text-xs">
                             <strong className="uppercase text-[10px] opacity-75 mr-1.5">
@@ -1711,7 +1781,7 @@ export default function ProviderDashboard() {
                           }))
                         }
                         placeholder="Escribí un mensaje o aclaración para el residente..."
-                        className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs"
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                         style={cardStyle}
                       />
 
@@ -1720,7 +1790,7 @@ export default function ProviderDashboard() {
                         disabled={respondingVisitId === visit.id}
                         onClick={() => handleRespondVisit(visit.id, 'confirm')}
                         className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
-                        style={{ backgroundColor: primaryActionColor }}
+                        style={{ backgroundColor: primaryColor }}
                       >
                         {respondingVisitId === visit.id
                           ? 'Guardando...'
@@ -1747,13 +1817,17 @@ export default function ProviderDashboard() {
         </section>
       ) : activeStep === 'passes' ? (
         /* 5. PASES QR */
-        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <QrCode size={18} className="text-emerald-400" /> Pases QR Asignados para tu Ingreso
-              </h3>
-              <p className="text-xs opacity-80 mt-0.5">
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <QrCode size={18} className="text-emerald-400 shrink-0" />
+                <span>Pases QR Asignados para tu Ingreso</span>
+              </h2>
+              <p className="text-xs opacity-75">
                 Consultá las autorizaciones emitidas por residentes con destino, vigencia y token QR.
               </p>
             </div>
@@ -1772,7 +1846,7 @@ export default function ProviderDashboard() {
                     setPassPage(1);
                   }}
                   placeholder="Buscar residente, lote o patente..."
-                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-white/15 focus:outline-none"
+                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
                   style={innerStyle}
                 />
               </div>
@@ -1783,7 +1857,7 @@ export default function ProviderDashboard() {
                   setPassStatusFilter(e.target.value);
                   setPassPage(1);
                 }}
-                className="px-3 py-2 rounded-xl text-xs border border-white/15 focus:outline-none"
+                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
                 style={innerStyle}
               >
                 <option value="all">Todos los estados</option>
@@ -1796,7 +1870,7 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={fetchAssignedPasses}
-                className="p-2 rounded-xl border border-white/15 hover:opacity-85 cursor-pointer self-end sm:self-auto"
+                className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer self-end sm:self-auto"
                 style={innerStyle}
                 title="Actualizar pases QR"
               >
@@ -1814,11 +1888,14 @@ export default function ProviderDashboard() {
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
           ) : paginatedPasses.length === 0 ? (
-            <div className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20" style={innerStyle}>
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+              style={innerStyle}
+            >
               No hay pases QR registrados para tu perfil con los filtros actuales.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {paginatedPasses.map((passItem) => {
                 const ownerLabel =
                   `${passItem.owner_first_name || ''} ${passItem.owner_last_name || ''}`.trim() ||
@@ -1829,7 +1906,7 @@ export default function ProviderDashboard() {
                 return (
                   <article
                     key={passItem.id}
-                    className="rounded-xl p-4 border border-black/20 space-y-2.5 text-xs"
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1858,7 +1935,7 @@ export default function ProviderDashboard() {
                         <Car size={13} className="text-sky-400 shrink-0" />
                         <span>Acceso: {plateLabel}</span>
                       </p>
-                      <p className="flex items-center gap-1.5 text-[11px] opacity-80">
+                      <p className="flex items-center gap-1.5 text-[11px] opacity-75">
                         <Calendar size={13} className="text-amber-400 shrink-0" />
                         <span>
                           Vigencia: {formatDateTime(passItem.start_time)} →{' '}
@@ -1868,7 +1945,7 @@ export default function ProviderDashboard() {
                     </div>
 
                     {passItem.qr_token && (
-                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10">
+                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
                         <code className="text-[11px] truncate">{passItem.qr_token}</code>
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
@@ -1915,7 +1992,7 @@ export default function ProviderDashboard() {
                   type="button"
                   disabled={passPage <= 1}
                   onClick={() => setPassPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-lg border border-white/15 font-bold disabled:opacity-40 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
                   style={innerStyle}
                 >
                   Anterior
@@ -1924,7 +2001,7 @@ export default function ProviderDashboard() {
                   type="button"
                   disabled={passPage >= totalPassPages}
                   onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
-                  className="px-3 py-1.5 rounded-lg border border-white/15 font-bold disabled:opacity-40 cursor-pointer"
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
                   style={innerStyle}
                 >
                   Siguiente
@@ -1935,18 +2012,19 @@ export default function ProviderDashboard() {
         </section>
       ) : (
         /* 6. RESEÑAS */
-        <section className="p-6 rounded-2xl border border-black/20 space-y-5" style={cardStyle}>
-          <div className="flex items-center justify-between border-b border-black/20 pb-4">
-            <div className="flex items-center gap-2.5">
-              <div className="p-2.5 rounded-xl border border-white/15" style={innerStyle}>
-                <Star size={18} className="text-amber-400" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold">Servicios Realizados &amp; Reputación Cruzada</h3>
-                <p className="text-xs opacity-80">
-                  Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
-                </p>
-              </div>
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Star size={18} className="text-emerald-400 shrink-0" />
+                <span>Servicios Realizados &amp; Reputación Cruzada</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+              </p>
             </div>
             <span className={listCounterBadgeClass} style={innerStyle}>
               {reviewContracts.length} contrato(s)
@@ -1954,15 +2032,16 @@ export default function ProviderDashboard() {
           </div>
 
           {loadingReviews ? (
-            <div className="text-center py-8 rounded-xl border border-black/20 text-xs" style={innerStyle}>
-              Cargando historial de servicios...
-            </div>
+            <p className="text-xs opacity-75 py-8 text-center">Cargando historial de servicios...</p>
           ) : reviewContracts.length === 0 ? (
-            <div className="text-center py-8 rounded-xl border border-black/20 text-xs opacity-85" style={innerStyle}>
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+              style={innerStyle}
+            >
               Aún no tenés contratos asignados en tu historial.
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {reviewContracts.map((item) => {
                 const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
                 const commentDraft = ownerCommentDrafts[item.contract_id] || '';
@@ -1971,111 +2050,89 @@ export default function ProviderDashboard() {
                 return (
                   <div
                     key={item.contract_id}
-                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-mono font-bold px-2 py-0.5 rounded border border-white/15">
-                          Contrato #{item.contract_id}
-                        </span>
-                        <span className="opacity-80">
-                          {item.country_name || 'TrustLink Community'}
+                        <span className="font-bold">
+                          Contrato #{item.contract_id} · {item.owner_name || 'Residente Verificado'}
                         </span>
                       </div>
-                      <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-white/15">
+                      <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700">
                         {item.status}
                       </span>
                     </div>
 
-                    <p className="font-bold">
-                      Residente: {item.owner_name || 'Residente Verificado'}
-                    </p>
                     <p className="opacity-85">{item.description}</p>
 
                     {item.provider_review_rating && (
-                      <div
-                        className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2"
-                        style={cardStyle}
-                      >
-                        <span className="font-semibold text-emerald-400">
-                          Reseña recibida del residente:{' '}
-                          {'★'.repeat(item.provider_review_rating)} ({item.provider_review_rating}/5)
+                      <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                        <span className="font-bold text-emerald-300">
+                          Reseña recibida del residente: ★ {item.provider_review_rating}/5
                         </span>
                         {item.provider_review_comment && (
-                          <span className="opacity-85 italic">
+                          <p className="opacity-85 mt-0.5">
                             &ldquo;{item.provider_review_comment}&rdquo;
-                          </span>
+                          </p>
                         )}
                       </div>
                     )}
 
                     {alreadyRatedOwner ? (
-                      <div className="p-3 rounded-lg border border-white/15 text-xs" style={cardStyle}>
-                        Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
-                        {item.owner_review_rating}/5)
+                      <div
+                        className="p-3 rounded-lg border border-slate-700/80 text-xs"
+                        style={cardStyle}
+                      >
+                        Tu calificación al residente: ★ {item.owner_review_rating}/5
                         {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
                       </div>
                     ) : (
-                      <div className="space-y-2.5 pt-2 border-t border-black/20">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold">Calificar al residente:</span>
-                          <div className="flex items-center gap-1">
-                            {[1, 2, 3, 4, 5].map((starVal) => (
-                              <button
-                                key={starVal}
-                                type="button"
-                                onClick={() =>
-                                  setOwnerRatingDrafts((prev) => ({
-                                    ...prev,
-                                    [item.contract_id]: starVal,
-                                  }))
-                                }
-                                className={`p-1.5 rounded-lg border cursor-pointer ${
-                                  ratingDraft >= starVal
-                                    ? 'bg-amber-600/30 border-amber-500 text-amber-300'
-                                    : 'border-white/15 opacity-70'
-                                }`}
-                              >
-                                <Star size={14} className="fill-current" />
-                              </button>
-                            ))}
-                          </div>
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center pt-1">
+                        <select
+                          value={ratingDraft}
+                          onChange={(e) =>
+                            setOwnerRatingDrafts((prev) => ({
+                              ...prev,
+                              [item.contract_id]: Number(e.target.value),
+                            }))
+                          }
+                          className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                          style={cardStyle}
+                        >
+                          <option value={5}>★★★★★ (5/5)</option>
+                          <option value={4}>★★★★☆ (4/5)</option>
+                          <option value={3}>★★★☆☆ (3/5)</option>
+                          <option value={2}>★★☆☆☆ (2/5)</option>
+                          <option value={1}>★☆☆☆☆ (1/5)</option>
+                        </select>
 
-                        <div className="relative">
-                          <MessageSquare
-                            size={14}
-                            className="absolute left-3 top-2.5 opacity-70"
-                          />
-                          <input
-                            type="text"
-                            value={commentDraft}
-                            onChange={(e) =>
-                              setOwnerCommentDrafts((prev) => ({
-                                ...prev,
-                                [item.contract_id]: e.target.value,
-                              }))
-                            }
-                            placeholder="Comentario sobre el trato y acceso en el domicilio..."
-                            className="w-full pl-8 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                            style={cardStyle}
-                          />
-                        </div>
+                        <input
+                          type="text"
+                          value={commentDraft}
+                          onChange={(e) =>
+                            setOwnerCommentDrafts((prev) => ({
+                              ...prev,
+                              [item.contract_id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Comentario sobre el trato y acceso en el domicilio..."
+                          className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                          style={cardStyle}
+                        />
 
-                        <div className="flex justify-end">
-                          <button
-                            type="button"
-                            onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                            disabled={submittingOwnerReviewId === item.contract_id}
-                            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <Send size={13} />
-                            {submittingOwnerReviewId === item.contract_id
-                              ? 'Enviando...'
-                              : 'Calificar Residente'}
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitOwnerReview(item.contract_id)}
+                          disabled={submittingOwnerReviewId === item.contract_id}
+                          className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <Send size={13} />
+                          {submittingOwnerReviewId === item.contract_id
+                            ? 'Enviando...'
+                            : 'Calificar Residente'}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -2086,6 +2143,7 @@ export default function ProviderDashboard() {
         </section>
       )}
 
+      {/* Modal para visualizar el token QR completo */}
       {selectedPassModal && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
@@ -2102,14 +2160,13 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={() => setSelectedPassModal(null)}
-                className="p-1.5 rounded-lg border border-white/15 cursor-pointer"
-                style={innerStyle}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
               >
-                <X size={15} />
+                <X size={18} />
               </button>
             </div>
 
-            <div className="rounded-xl p-3.5 border border-white/15 space-y-1.5" style={innerStyle}>
+            <div className="rounded-xl p-3.5 border border-slate-800/70 space-y-1.5" style={innerStyle}>
               <p>
                 <strong>Destino:</strong> {selectedPassModal.fraction_number || '—'} /{' '}
                 {selectedPassModal.lot_number || '—'}
@@ -2126,7 +2183,7 @@ export default function ProviderDashboard() {
               </p>
             </div>
 
-            <div className="rounded-xl p-3 bg-black/35 border border-white/15 space-y-2">
+            <div className="rounded-xl p-3 bg-black/30 border border-slate-700/60 space-y-2">
               <span className="block text-[10px] font-bold uppercase opacity-75">
                 Token QR para validación en garita
               </span>
@@ -2137,7 +2194,7 @@ export default function ProviderDashboard() {
                 type="button"
                 onClick={() => handleCopyToken(selectedPassModal.qr_token, 'modal-pass')}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: primaryActionColor }}
+                style={{ backgroundColor: primaryColor }}
               >
                 {copiedPassId === 'modal-pass' ? (
                   <>
@@ -2155,7 +2212,7 @@ export default function ProviderDashboard() {
               <button
                 type="button"
                 onClick={() => setSelectedPassModal(null)}
-                className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
                 style={innerStyle}
               >
                 Cerrar
