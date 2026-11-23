@@ -1,9 +1,9 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente con navegador superior por pasos clicables
- * (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas), buscador rápido
- * con chips de especialidad, coordinación bidireccional de visita con hilo de mensajes,
- * emisión/cancelación de pases QR y reputación cruzada.
+ * @description Portal del Residente alineado con la evolución de la plataforma:
+ * pasos ordenados (1. Prestadores, 2. Visitas, 3. Pases QR, 4. Visitas y Pagos, 5. Reseñas),
+ * estado de contacto/confirmación en la tarjeta del prestador, navegación directa a Visitas,
+ * íconos consistentes en los títulos de sección y respeto a los colores por zona (BrandingContext).
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -25,6 +25,7 @@ import {
   ArrowRight,
   RefreshCw,
   Send,
+  Calendar,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -84,10 +85,45 @@ const getPassStatusBadge = (status) => {
   return 'bg-slate-800 text-slate-300 border-slate-700';
 };
 
+const getVisitStatusMeta = (visit) => {
+  if (!visit) {
+    return {
+      label: 'Sin contacto previo',
+      badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-700',
+      isConfirmed: false,
+      isDeclined: false,
+    };
+  }
+  const st = String(visit.status || '').toLowerCase();
+  if (st === 'confirmed') {
+    return {
+      label: 'Disponibilidad Confirmada',
+      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      isConfirmed: true,
+      isDeclined: false,
+    };
+  }
+  if (st === 'declined') {
+    return {
+      label: 'Sin Disponibilidad',
+      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+      isConfirmed: false,
+      isDeclined: true,
+    };
+  }
+  return {
+    label: 'Pendiente de Confirmación',
+    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    isConfirmed: false,
+    isDeclined: false,
+  };
+};
+
 export default function ResidentDashboard({ onNavigate }) {
   const { brand } = useBranding();
   const { user } = useAuth();
 
+  // Paso activo: 'providers' | 'visits' | 'passes' | 'payments' | 'reviews'
   const [activeStep, setActiveStep] = useState('providers');
 
   const [providers, setProviders] = useState([]);
@@ -98,6 +134,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
   // Solicitudes / coordinación de visita del residente
   const [myVisits, setMyVisits] = useState([]);
+  const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitModalProvider, setVisitModalProvider] = useState(null);
   const [visitFraction, setVisitFraction] = useState('');
   const [visitLot, setVisitLot] = useState('');
@@ -195,6 +232,7 @@ export default function ResidentDashboard({ onNavigate }) {
   };
 
   const fetchMyVisits = async () => {
+    setLoadingVisits(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/my`, {
         method: 'GET',
@@ -208,6 +246,8 @@ export default function ResidentDashboard({ onNavigate }) {
       }
     } catch (error) {
       console.error('Error al cargar visitas del residente:', error);
+    } finally {
+      setLoadingVisits(false);
     }
   };
 
@@ -378,7 +418,7 @@ export default function ResidentDashboard({ onNavigate }) {
           type: 'success',
           text:
             data.message ||
-            'Solicitud enviada al prestador. Podés seguir el hilo y emitir el QR al confirmar.',
+            'Solicitud enviada al prestador. Podés seguir la confirmación en el paso 2. Visitas.',
         });
         await fetchMyVisits();
       } else {
@@ -635,6 +675,7 @@ export default function ResidentDashboard({ onNavigate }) {
     (c) => String(c.status || '').toLowerCase() === 'pending'
   ).length;
 
+  // Flujo alineado: 1. Prestadores -> 2. Visitas -> 3. Pases QR -> 4. Visitas y Pagos -> 5. Reseñas
   const steps = [
     {
       id: 'providers',
@@ -644,22 +685,29 @@ export default function ResidentDashboard({ onNavigate }) {
       icon: Users,
     },
     {
-      id: 'passes',
+      id: 'visits',
       stepNumber: 2,
+      label: 'Visitas',
+      count: myVisits.length,
+      icon: Calendar,
+    },
+    {
+      id: 'passes',
+      stepNumber: 3,
       label: 'Pases QR',
       count: myPasses.length,
       icon: QrCode,
     },
     {
       id: 'payments',
-      stepNumber: 3,
+      stepNumber: 4,
       label: 'Visitas y Pagos',
       count: pendingContractsCount,
       icon: CreditCard,
     },
     {
       id: 'reviews',
-      stepNumber: 4,
+      stepNumber: 5,
       label: 'Reseñas',
       count: reviewContracts.length,
       icon: MessageSquare,
@@ -677,11 +725,12 @@ export default function ResidentDashboard({ onNavigate }) {
             <ShieldCheck size={14} />
             <span>Portal Residente</span>
           </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-            Servicios verificados y pases de ingreso
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
+            <Users size={20} className="text-emerald-400 shrink-0" />
+            <span>Servicios verificados y pases de ingreso</span>
           </h1>
           <p className="text-xs sm:text-sm opacity-80">
-            Coordiná disponibilidad con el prestador, emití pases QR y gestioná pagos y calificaciones.
+            Coordiná disponibilidad con el prestador, confirmá visitas, emití pases QR y gestioná pagos y reseñas.
           </p>
         </div>
 
@@ -698,8 +747,9 @@ export default function ResidentDashboard({ onNavigate }) {
         )}
       </div>
 
+      {/* Selector de pasos alineado */}
       <div
-        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2"
+        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2"
         style={cardStyle}
       >
         {steps.map((step) => {
@@ -731,6 +781,7 @@ export default function ResidentDashboard({ onNavigate }) {
         })}
       </div>
 
+      {/* PASO 1: PRESTADORES */}
       {activeStep === 'providers' && (
         <section className="space-y-4">
           <div
@@ -739,11 +790,12 @@ export default function ResidentDashboard({ onNavigate }) {
           >
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
-                <h2 className="text-base sm:text-lg font-bold">
-                  Directorio de Prestadores Verificados
+                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                  <Users size={18} className="text-emerald-400 shrink-0" />
+                  <span>Directorio de Prestadores Verificados</span>
                 </h2>
                 <p className="text-xs opacity-75">
-                  Consultá disponibilidad en TrustLink y emití el Pase QR una vez acordada la visita.
+                  Consultá si ya lo contactaste, revisá el estado de confirmación y pasá a Visitas o Pases QR.
                 </p>
               </div>
 
@@ -845,8 +897,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 const rating = Number(provider.rating_avg || 0).toFixed(1);
                 const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
                 const activeVisit = latestVisitByProvider[providerId];
-                const visitStatus = String(activeVisit?.status || '').toLowerCase();
-                const isVisitConfirmed = visitStatus === 'confirmed';
+                const visitMeta = getVisitStatusMeta(activeVisit);
 
                 return (
                   <article
@@ -873,86 +924,48 @@ export default function ResidentDashboard({ onNavigate }) {
                         </p>
                       </div>
 
+                      {/* Estado limpio de contacto y confirmación */}
                       <div
-                        className="rounded-xl p-3 text-xs space-y-1 border border-slate-800/60"
+                        className="rounded-xl p-3 text-xs space-y-2 border border-slate-800/60"
                         style={innerStyle}
                       >
-                        <p className="truncate opacity-85">
-                          📞 {provider.phone || 'Teléfono no informado'}
-                        </p>
-                        <p className="truncate opacity-85">✉️ {provider.email || '—'}</p>
-                      </div>
-
-                      {activeVisit && (
-                        <div
-                          className="rounded-xl p-3 text-xs space-y-2 border border-slate-700/70"
-                          style={innerStyle}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-bold">Visita #{activeVisit.id}</span>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                                isVisitConfirmed
-                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                                  : visitStatus === 'declined'
-                                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
-                                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                              }`}
-                            >
-                              {isVisitConfirmed
-                                ? 'Confirmada por Prestador'
-                                : visitStatus === 'declined'
-                                ? 'Sin Disponibilidad'
-                                : 'Esperando Confirmación'}
-                            </span>
-                          </div>
-
-                          {Array.isArray(activeVisit.messages) &&
-                            activeVisit.messages.slice(-2).map((m, idx) => (
-                              <p key={m.id || idx} className="text-[11px] opacity-85">
-                                <strong>{m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}</strong>{' '}
-                                {m.text}
-                              </p>
-                            ))}
-
-                          <div className="flex items-center gap-1.5 pt-1">
-                            <input
-                              type="text"
-                              value={followupDrafts[activeVisit.id] || ''}
-                              onChange={(e) =>
-                                setFollowupDrafts((prev) => ({
-                                  ...prev,
-                                  [activeVisit.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Mensaje de coordinación..."
-                              className="flex-1 px-2.5 py-1.5 rounded-lg text-[11px] border border-slate-700"
-                              style={cardStyle}
-                            />
-                            <button
-                              type="button"
-                              disabled={sendingFollowupId === activeVisit.id}
-                              onClick={() => handleSendFollowupMessage(activeVisit.id)}
-                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer"
-                              style={{ backgroundColor: primaryColor }}
-                              title="Enviar mensaje"
-                            >
-                              <Send size={12} />
-                            </button>
-                          </div>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-semibold opacity-80">Estado de visita:</span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${visitMeta.badgeClass}`}
+                          >
+                            {visitMeta.label}
+                          </span>
                         </div>
-                      )}
+                        <p className="truncate opacity-80">
+                          ✉️ {provider.email || '—'} · 📞 {provider.phone || 'Sin teléfono'}
+                        </p>
+                      </div>
                     </div>
 
+                    {/* Acciones: Solicitar Visita / Ir a 2. Visitas + Generar QR */}
                     <div className="pt-2 border-t border-slate-800/70 flex flex-wrap items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openVisitModalForProvider(provider)}
-                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
-                        style={innerStyle}
-                      >
-                        <MessageSquare size={13} /> Solicitar Visita
-                      </button>
+                      {activeVisit ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveStep('visits')}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
+                          style={innerStyle}
+                        >
+                          <Calendar size={13} className="text-emerald-400" />
+                          <span>Ir a 2. Visitas</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openVisitModalForProvider(provider)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
+                          style={innerStyle}
+                        >
+                          <MessageSquare size={13} />
+                          <span>Solicitar Visita</span>
+                        </button>
+                      )}
 
                       <button
                         type="button"
@@ -966,8 +979,8 @@ export default function ResidentDashboard({ onNavigate }) {
                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
                         style={{ backgroundColor: primaryColor }}
                       >
-                        <QrCode size={14} />{' '}
-                        {isVisitConfirmed ? 'Emitir Pase QR' : 'Generar QR'}
+                        <QrCode size={14} />
+                        <span>{visitMeta.isConfirmed ? 'Emitir Pase QR' : 'Generar QR'}</span>
                       </button>
                     </div>
                   </article>
@@ -978,6 +991,149 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
+      {/* PASO 2: VISITAS — CONFIRMACIÓN BIDIRECCIONAL Y SEGUIMIENTO */}
+      {activeStep === 'visits' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Calendar size={18} className="text-emerald-400 shrink-0" />
+                <span>Visitas Solicitadas y Confirmación de Disponibilidad</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Conversá con el prestador, verificá si confirmó disponibilidad y emití el Pase QR cuando esté acordada.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={fetchMyVisits}
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 cursor-pointer self-start sm:self-auto"
+              style={innerStyle}
+            >
+              <RefreshCw size={14} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
+
+          {loadingVisits ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando visitas...</p>
+          ) : myVisits.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60 space-y-2"
+              style={innerStyle}
+            >
+              <p className="font-bold">Todavía no coordinaste visitas con prestadores.</p>
+              <button
+                type="button"
+                onClick={() => setActiveStep('providers')}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
+              >
+                Ir a 1. Prestadores
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3.5">
+              {myVisits.map((visit) => {
+                const meta = getVisitStatusMeta(visit);
+                const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+                const matchedProvider = providers.find(
+                  (p) => Number(p.provider_id || p.id) === Number(visit.provider_id)
+                ) || {
+                  id: visit.provider_id,
+                  provider_id: visit.provider_id,
+                  first_name: visit.provider_name || 'Prestador',
+                  last_name: '',
+                };
+
+                return (
+                  <article
+                    key={visit.id}
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">
+                          Visita #{visit.id} · {visit.provider_name || `Prestador #${visit.provider_id}`}
+                        </span>
+                        <p className="opacity-80 mt-0.5">
+                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
+                          Horario propuesto: {visit.preferred_date || 'A convenir'}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${meta.badgeClass}`}
+                      >
+                        {meta.label}
+                      </span>
+                    </div>
+
+                    {msgs.length > 0 && (
+                      <div className="rounded-lg p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
+                        {msgs.map((m, idx) => (
+                          <p key={m.id || idx} className="text-xs">
+                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
+                              {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
+                            </strong>
+                            <span>{m.text}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={followupDrafts[visit.id] || ''}
+                        onChange={(e) =>
+                          setFollowupDrafts((prev) => ({
+                            ...prev,
+                            [visit.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Escribí un mensaje para coordinar horario..."
+                        className="flex-1 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                        style={cardStyle}
+                      />
+
+                      <button
+                        type="button"
+                        disabled={sendingFollowupId === visit.id}
+                        onClick={() => handleSendFollowupMessage(visit.id)}
+                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 cursor-pointer"
+                        style={cardStyle}
+                      >
+                        <Send size={13} /> Enviar
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openQrModalForProvider(matchedProvider, {
+                            fraction: visit.fraction_number,
+                            lot: visit.lot_number,
+                            preferredDate: visit.preferred_date,
+                          })
+                        }
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <QrCode size={14} /> Emitir Pase QR
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 3: PASES QR EMITIDOS */}
       {activeStep === 'passes' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
@@ -985,7 +1141,10 @@ export default function ResidentDashboard({ onNavigate }) {
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold">Mis Pases QR Emitidos</h2>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <QrCode size={18} className="text-emerald-400 shrink-0" />
+                <span>Mis Pases QR Emitidos</span>
+              </h2>
               <p className="text-xs opacity-75">
                 Consultá el estado de tus autorizaciones, copiá el token o cancelá pases pendientes.
               </p>
@@ -1150,13 +1309,17 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
+      {/* PASO 4: VISITAS Y PAGOS */}
       {activeStep === 'payments' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
           <div>
-            <h2 className="text-base sm:text-lg font-bold">Visitas y Órdenes de Pago</h2>
+            <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <CreditCard size={18} className="text-emerald-400 shrink-0" />
+              <span>Visitas y Órdenes de Pago</span>
+            </h2>
             <p className="text-xs opacity-75">
               Revisá los contratos acordados con desglose de comisión (7% plataforma / 93% prestador).
             </p>
@@ -1181,7 +1344,7 @@ export default function ResidentDashboard({ onNavigate }) {
               className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
               style={innerStyle}
             >
-              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 2 o abrir la
+              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 3 o abrir la
               vista completa de Pagos y Reseñas.
             </div>
           ) : (
@@ -1250,13 +1413,17 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
+      {/* PASO 5: RESEÑAS */}
       {activeStep === 'reviews' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
           <div>
-            <h2 className="text-base sm:text-lg font-bold">Reseñas y Calificación Cruzada</h2>
+            <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <MessageSquare size={18} className="text-emerald-400 shrink-0" />
+              <span>Reseñas y Calificación Cruzada</span>
+            </h2>
             <p className="text-xs opacity-75">
               Calificá a los prestadores por los trabajos realizados y consultá sus devoluciones.
             </p>
