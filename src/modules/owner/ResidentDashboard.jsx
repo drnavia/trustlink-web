@@ -2,7 +2,8 @@
  * @file ResidentDashboard.jsx
  * @description Portal del Residente con navegador superior por pasos clicables
  * (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas), buscador rápido
- * con chips de especialidad, emisión y cancelación de pases QR y reputación cruzada.
+ * con chips de especialidad, coordinación previa de visita, emisión/cancelación
+ * de pases QR y reputación cruzada.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -94,6 +95,16 @@ export default function ResidentDashboard({ onNavigate }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
 
+  // Coordinación previa de visita dentro de TrustLink
+  const [visitModalProvider, setVisitModalProvider] = useState(null);
+  const [visitFraction, setVisitFraction] = useState('');
+  const [visitLot, setVisitLot] = useState('');
+  const [visitDate, setVisitDate] = useState('');
+  const [visitNotes, setVisitNotes] = useState('');
+  const [savingVisit, setSavingVisit] = useState(false);
+  const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
+
+  // Emisión de pase QR vinculado a un prestador
   const [qrModalProvider, setQrModalProvider] = useState(null);
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
@@ -107,6 +118,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const [passFeedback, setPassFeedback] = useState({ type: '', text: '', qrToken: '' });
   const [copiedTokenId, setCopiedTokenId] = useState(null);
 
+  // Listado y gestión de Pases QR emitidos
   const [myPasses, setMyPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passSearch, setPassSearch] = useState('');
@@ -115,11 +127,13 @@ export default function ResidentDashboard({ onNavigate }) {
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passListFeedback, setPassListFeedback] = useState({ type: '', text: '' });
 
+  // Contratos / Pagos
   const [contracts, setContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [payingContractId, setPayingContractId] = useState(null);
   const [paymentFeedback, setPaymentFeedback] = useState({ type: '', text: '' });
 
+  // Reseñas y reputación cruzada
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [ratingByContract, setRatingByContract] = useState({});
@@ -297,12 +311,71 @@ export default function ResidentDashboard({ onNavigate }) {
     });
   }, [providers, searchTerm, selectedSpecialty]);
 
-  const openQrModalForProvider = (provider) => {
+  const openVisitModalForProvider = (provider) => {
+    setVisitModalProvider(provider);
+    setVisitFraction(user?.fraction_number || '');
+    setVisitLot(user?.lot_number || '');
+    setVisitDate(toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000)));
+    setVisitNotes('');
+    setVisitFeedback({ type: '', text: '' });
+  };
+
+  const handleSaveVisitCoordination = async (e) => {
+    e.preventDefault();
+    if (!visitModalProvider) return;
+    const providerId = visitModalProvider.provider_id || visitModalProvider.id;
+
+    setSavingVisit(true);
+    setVisitFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          provider_id: providerId,
+          fraction_number: visitFraction.trim() || null,
+          lot_number: visitLot.trim() || null,
+          preferred_date: visitDate || null,
+          notes: visitNotes.trim(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setVisitFeedback({
+          type: 'success',
+          text:
+            data.message ||
+            'Visita coordinada en TrustLink. Ahora podés emitir el Pase QR con estos datos.',
+        });
+      } else {
+        setVisitFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo registrar la coordinación de la visita.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al coordinar visita:', error);
+      setVisitFeedback({
+        type: 'error',
+        text: 'Error de conexión con el servidor al registrar la visita.',
+      });
+    } finally {
+      setSavingVisit(false);
+    }
+  };
+
+  const openQrModalForProvider = (provider, prefill = {}) => {
     setQrModalProvider(provider);
-    setFractionNumber(user?.fraction_number || '');
-    setLotNumber(user?.lot_number || '');
-    setStartTime(toLocalDateTimeInput(new Date(Date.now() - 10 * 60 * 1000)));
-    setEndTime(toLocalDateTimeInput(new Date(Date.now() + 8 * 60 * 60 * 1000)));
+    setFractionNumber(prefill.fraction ?? user?.fraction_number ?? '');
+    setLotNumber(prefill.lot ?? user?.lot_number ?? '');
+    const baseStart = prefill.preferredDate
+      ? new Date(prefill.preferredDate)
+      : new Date(Date.now() - 10 * 60 * 1000);
+    const validStart = Number.isNaN(baseStart.getTime())
+      ? new Date(Date.now() - 10 * 60 * 1000)
+      : baseStart;
+    setStartTime(toLocalDateTimeInput(validStart));
+    setEndTime(toLocalDateTimeInput(new Date(validStart.getTime() + 8 * 60 * 60 * 1000)));
     setPassFeedback({ type: '', text: '', qrToken: '' });
   };
 
@@ -553,7 +626,7 @@ export default function ResidentDashboard({ onNavigate }) {
             Servicios verificados y pases de ingreso
           </h1>
           <p className="text-xs sm:text-sm opacity-80">
-            Buscá profesionales aprobados, emití pases QR con vigencia y gestioná pagos y calificaciones.
+            Coordiná visitas en la plataforma, emití pases QR con vigencia y gestioná pagos y calificaciones.
           </p>
         </div>
 
@@ -615,7 +688,7 @@ export default function ResidentDashboard({ onNavigate }) {
                   Directorio de Prestadores Verificados
                 </h2>
                 <p className="text-xs opacity-75">
-                  Profesionales habilitados con documentación revisada y calificación acumulada.
+                  Coordiná la visita dentro de TrustLink y emití el Pase QR para el ingreso al barrio.
                 </p>
               </div>
 
@@ -762,30 +835,24 @@ export default function ResidentDashboard({ onNavigate }) {
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-800/70 flex items-center justify-between gap-2">
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
-                        <CheckCircle2 size={14} /> Verificado
-                      </span>
+                    <div className="pt-2 border-t border-slate-800/70 flex flex-wrap items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openVisitModalForProvider(provider)}
+                        className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
+                        style={innerStyle}
+                      >
+                        <MessageSquare size={13} /> Coordinar
+                      </button>
 
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openQrModalForProvider(provider)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          <QrCode size={14} /> Generar QR
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => setActiveStep('payments')}
-                          className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
-                          style={innerStyle}
-                        >
-                          Contratar
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openQrModalForProvider(provider)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        <QrCode size={14} /> Generar QR
+                      </button>
                     </div>
                   </article>
                 );
@@ -1177,6 +1244,133 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
+      {/* Modal de Coordinación Previa de Visita en TrustLink */}
+      {visitModalProvider && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold">
+                Coordinar Visita · {visitModalProvider.first_name} {visitModalProvider.last_name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setVisitModalProvider(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveVisitCoordination} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold mb-1 opacity-85">Fracción</label>
+                  <input
+                    type="text"
+                    value={visitFraction}
+                    onChange={(e) => setVisitFraction(e.target.value)}
+                    placeholder="Ej: Fracción 5"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                    style={innerStyle}
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1 opacity-85">Lote</label>
+                  <input
+                    type="text"
+                    value={visitLot}
+                    onChange={(e) => setVisitLot(e.target.value)}
+                    placeholder="Ej: Lote 15"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                    style={innerStyle}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Fecha y hora estimada</label>
+                <input
+                  type="datetime-local"
+                  value={visitDate}
+                  onChange={(e) => setVisitDate(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">
+                  Motivo / detalle de la visita a acordar
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={visitNotes}
+                  onChange={(e) => setVisitNotes(e.target.value)}
+                  placeholder="Ej: Revisión de tablero eléctrico y presupuesto in situ..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                />
+              </div>
+
+              {visitFeedback.text && (
+                <div
+                  className={`rounded-xl p-3 border space-y-2 ${
+                    visitFeedback.type === 'success'
+                      ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                      : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+                  }`}
+                >
+                  <p>{visitFeedback.text}</p>
+                  {visitFeedback.type === 'success' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetProv = visitModalProvider;
+                        const pref = {
+                          fraction: visitFraction,
+                          lot: visitLot,
+                          preferredDate: visitDate,
+                        };
+                        setVisitModalProvider(null);
+                        openQrModalForProvider(targetProv, pref);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <QrCode size={13} /> Continuar a Emitir Pase QR
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setVisitModalProvider(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingVisit}
+                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {savingVisit ? 'Guardando...' : 'Registrar Visita'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Emisión de Pase QR por Prestador */}
       {qrModalProvider && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
