@@ -2,8 +2,8 @@
  * @file ResidentDashboard.jsx
  * @description Portal del Residente con navegador superior por pasos clicables
  * (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas), buscador rápido
- * con chips de especialidad, coordinación previa de visita, emisión/cancelación
- * de pases QR y reputación cruzada.
+ * con chips de especialidad, coordinación bidireccional de visita con hilo de mensajes,
+ * emisión/cancelación de pases QR y reputación cruzada.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -24,6 +24,7 @@ import {
   Users,
   ArrowRight,
   RefreshCw,
+  Send,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -95,7 +96,8 @@ export default function ResidentDashboard({ onNavigate }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
 
-  // Coordinación previa de visita dentro de TrustLink
+  // Solicitudes / coordinación de visita del residente
+  const [myVisits, setMyVisits] = useState([]);
   const [visitModalProvider, setVisitModalProvider] = useState(null);
   const [visitFraction, setVisitFraction] = useState('');
   const [visitLot, setVisitLot] = useState('');
@@ -103,6 +105,8 @@ export default function ResidentDashboard({ onNavigate }) {
   const [visitNotes, setVisitNotes] = useState('');
   const [savingVisit, setSavingVisit] = useState(false);
   const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
+  const [followupDrafts, setFollowupDrafts] = useState({});
+  const [sendingFollowupId, setSendingFollowupId] = useState(null);
 
   // Emisión de pase QR vinculado a un prestador
   const [qrModalProvider, setQrModalProvider] = useState(null);
@@ -190,6 +194,23 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  const fetchMyVisits = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/my`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setMyVisits(data.visits || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar visitas del residente:', error);
+    }
+  };
+
   const fetchMyPasses = async () => {
     setLoadingPasses(true);
     try {
@@ -261,10 +282,22 @@ export default function ResidentDashboard({ onNavigate }) {
 
   useEffect(() => {
     fetchVerifiedProviders();
+    fetchMyVisits();
     fetchMyPasses();
     fetchContractsData();
     fetchReviewsData();
   }, []);
+
+  const latestVisitByProvider = useMemo(() => {
+    const map = {};
+    myVisits.forEach((v) => {
+      const pid = Number(v.provider_id);
+      if (pid && !map[pid]) {
+        map[pid] = v;
+      }
+    });
+    return map;
+  }, [myVisits]);
 
   const availableSpecialties = useMemo(() => {
     const dbSpecialties = new Set();
@@ -345,8 +378,9 @@ export default function ResidentDashboard({ onNavigate }) {
           type: 'success',
           text:
             data.message ||
-            'Visita coordinada en TrustLink. Ahora podés emitir el Pase QR con estos datos.',
+            'Solicitud enviada al prestador. Podés seguir el hilo y emitir el QR al confirmar.',
         });
+        await fetchMyVisits();
       } else {
         setVisitFeedback({
           type: 'error',
@@ -361,6 +395,27 @@ export default function ResidentDashboard({ onNavigate }) {
       });
     } finally {
       setSavingVisit(false);
+    }
+  };
+
+  const handleSendFollowupMessage = async (visitId) => {
+    const text = String(followupDrafts[visitId] || '').trim();
+    if (!text) return;
+    setSendingFollowupId(visitId);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/${visitId}/messages`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ text }),
+      });
+      if (response.ok) {
+        setFollowupDrafts((prev) => ({ ...prev, [visitId]: '' }));
+        await fetchMyVisits();
+      }
+    } catch (error) {
+      console.error('Error al enviar mensaje de seguimiento:', error);
+    } finally {
+      setSendingFollowupId(null);
     }
   };
 
@@ -626,7 +681,7 @@ export default function ResidentDashboard({ onNavigate }) {
             Servicios verificados y pases de ingreso
           </h1>
           <p className="text-xs sm:text-sm opacity-80">
-            Coordiná visitas en la plataforma, emití pases QR con vigencia y gestioná pagos y calificaciones.
+            Coordiná disponibilidad con el prestador, emití pases QR y gestioná pagos y calificaciones.
           </p>
         </div>
 
@@ -688,7 +743,7 @@ export default function ResidentDashboard({ onNavigate }) {
                   Directorio de Prestadores Verificados
                 </h2>
                 <p className="text-xs opacity-75">
-                  Coordiná la visita dentro de TrustLink y emití el Pase QR para el ingreso al barrio.
+                  Consultá disponibilidad en TrustLink y emití el Pase QR una vez acordada la visita.
                 </p>
               </div>
 
@@ -720,10 +775,13 @@ export default function ResidentDashboard({ onNavigate }) {
 
                 <button
                   type="button"
-                  onClick={fetchVerifiedProviders}
+                  onClick={() => {
+                    fetchVerifiedProviders();
+                    fetchMyVisits();
+                  }}
                   className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
                   style={innerStyle}
-                  title="Actualizar directorio"
+                  title="Actualizar directorio y visitas"
                 >
                   <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
                 </button>
@@ -775,33 +833,24 @@ export default function ResidentDashboard({ onNavigate }) {
               <p className="text-xs opacity-75">
                 Probá limpiar el buscador o seleccionar otra especialidad.
               </p>
-              {(searchTerm || selectedSpecialty !== 'Todos') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedSpecialty('Todos');
-                  }}
-                  className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  Restablecer filtros
-                </button>
-              )}
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredProviders.map((provider) => {
+                const providerId = Number(provider.provider_id || provider.id);
                 const fullName =
                   `${provider.first_name || ''} ${provider.last_name || ''}`.trim() ||
                   provider.email ||
                   'Prestador Verificado';
                 const rating = Number(provider.rating_avg || 0).toFixed(1);
                 const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
+                const activeVisit = latestVisitByProvider[providerId];
+                const visitStatus = String(activeVisit?.status || '').toLowerCase();
+                const isVisitConfirmed = visitStatus === 'confirmed';
 
                 return (
                   <article
-                    key={provider.provider_id || provider.id}
+                    key={providerId}
                     className="rounded-2xl p-5 border border-slate-800/80 shadow-sm flex flex-col justify-between gap-4"
                     style={cardStyle}
                   >
@@ -833,6 +882,66 @@ export default function ResidentDashboard({ onNavigate }) {
                         </p>
                         <p className="truncate opacity-85">✉️ {provider.email || '—'}</p>
                       </div>
+
+                      {activeVisit && (
+                        <div
+                          className="rounded-xl p-3 text-xs space-y-2 border border-slate-700/70"
+                          style={innerStyle}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold">Visita #{activeVisit.id}</span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                isVisitConfirmed
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                  : visitStatus === 'declined'
+                                  ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                  : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                              }`}
+                            >
+                              {isVisitConfirmed
+                                ? 'Confirmada por Prestador'
+                                : visitStatus === 'declined'
+                                ? 'Sin Disponibilidad'
+                                : 'Esperando Confirmación'}
+                            </span>
+                          </div>
+
+                          {Array.isArray(activeVisit.messages) &&
+                            activeVisit.messages.slice(-2).map((m, idx) => (
+                              <p key={m.id || idx} className="text-[11px] opacity-85">
+                                <strong>{m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}</strong>{' '}
+                                {m.text}
+                              </p>
+                            ))}
+
+                          <div className="flex items-center gap-1.5 pt-1">
+                            <input
+                              type="text"
+                              value={followupDrafts[activeVisit.id] || ''}
+                              onChange={(e) =>
+                                setFollowupDrafts((prev) => ({
+                                  ...prev,
+                                  [activeVisit.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Mensaje de coordinación..."
+                              className="flex-1 px-2.5 py-1.5 rounded-lg text-[11px] border border-slate-700"
+                              style={cardStyle}
+                            />
+                            <button
+                              type="button"
+                              disabled={sendingFollowupId === activeVisit.id}
+                              onClick={() => handleSendFollowupMessage(activeVisit.id)}
+                              className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer"
+                              style={{ backgroundColor: primaryColor }}
+                              title="Enviar mensaje"
+                            >
+                              <Send size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     <div className="pt-2 border-t border-slate-800/70 flex flex-wrap items-center justify-between gap-2">
@@ -842,16 +951,23 @@ export default function ResidentDashboard({ onNavigate }) {
                         className="inline-flex items-center gap-1 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
                         style={innerStyle}
                       >
-                        <MessageSquare size={13} /> Coordinar
+                        <MessageSquare size={13} /> Solicitar Visita
                       </button>
 
                       <button
                         type="button"
-                        onClick={() => openQrModalForProvider(provider)}
+                        onClick={() =>
+                          openQrModalForProvider(provider, {
+                            fraction: activeVisit?.fraction_number,
+                            lot: activeVisit?.lot_number,
+                            preferredDate: activeVisit?.preferred_date,
+                          })
+                        }
                         className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
                         style={{ backgroundColor: primaryColor }}
                       >
-                        <QrCode size={14} /> Generar QR
+                        <QrCode size={14} />{' '}
+                        {isVisitConfirmed ? 'Emitir Pase QR' : 'Generar QR'}
                       </button>
                     </div>
                   </article>
@@ -1244,7 +1360,7 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* Modal de Coordinación Previa de Visita en TrustLink */}
+      {/* Modal de Solicitud / Coordinación de Visita */}
       {visitModalProvider && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
@@ -1253,7 +1369,7 @@ export default function ResidentDashboard({ onNavigate }) {
           >
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-base font-bold">
-                Coordinar Visita · {visitModalProvider.first_name} {visitModalProvider.last_name}
+                Solicitar Visita · {visitModalProvider.first_name} {visitModalProvider.last_name}
               </h3>
               <button
                 type="button"
@@ -1291,7 +1407,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </div>
 
               <div>
-                <label className="block font-semibold mb-1 opacity-85">Fecha y hora estimada</label>
+                <label className="block font-semibold mb-1 opacity-85">Fecha y hora propuesta</label>
                 <input
                   type="datetime-local"
                   value={visitDate}
@@ -1303,14 +1419,14 @@ export default function ResidentDashboard({ onNavigate }) {
 
               <div>
                 <label className="block font-semibold mb-1 opacity-85">
-                  Motivo / detalle de la visita a acordar
+                  Consulta / disponibilidad a coordinar
                 </label>
                 <textarea
                   rows={3}
                   required
                   value={visitNotes}
                   onChange={(e) => setVisitNotes(e.target.value)}
-                  placeholder="Ej: Revisión de tablero eléctrico y presupuesto in situ..."
+                  placeholder="Ej: ¿Tenés disponibilidad mañana por la tarde para revisar el tablero?"
                   className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
                   style={innerStyle}
                 />
@@ -1325,25 +1441,6 @@ export default function ResidentDashboard({ onNavigate }) {
                   }`}
                 >
                   <p>{visitFeedback.text}</p>
-                  {visitFeedback.type === 'success' && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const targetProv = visitModalProvider;
-                        const pref = {
-                          fraction: visitFraction,
-                          lot: visitLot,
-                          preferredDate: visitDate,
-                        };
-                        setVisitModalProvider(null);
-                        openQrModalForProvider(targetProv, pref);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      <QrCode size={13} /> Continuar a Emitir Pase QR
-                    </button>
-                  )}
                 </div>
               )}
 
@@ -1362,7 +1459,7 @@ export default function ResidentDashboard({ onNavigate }) {
                   className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
                   style={{ backgroundColor: primaryColor }}
                 >
-                  {savingVisit ? 'Guardando...' : 'Registrar Visita'}
+                  {savingVisit ? 'Enviando...' : 'Enviar Solicitud'}
                 </button>
               </div>
             </form>

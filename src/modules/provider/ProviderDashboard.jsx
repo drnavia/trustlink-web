@@ -1,7 +1,7 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador con flujo E2E ordenado en 4 pasos:
- * 1. Credenciales, 2. Flota Vehicular, 3. Pases QR y 4. Reseñas.
+ * @description Portal del Prestador con flujo E2E ordenado:
+ * 1. Credenciales, 2. Flota Vehicular, 3. Pases QR, 4. Reseñas y 5. Visitas (confirmación bidireccional).
  * Soporta ejecución en entorno LOCAL y EXTERNO (VITE_API_BASE_URL) y respeta
  * los colores de marca por zona (BrandingContext).
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
@@ -43,9 +43,6 @@ export const API_BASE =
 
 const PASSES_PER_PAGE = 6;
 
-/**
- * Calcula el estado de vigencia de un documento a partir de su fecha de vencimiento.
- */
 function getValidityStatus(expiryDateStr) {
   if (!expiryDateStr) {
     return { label: 'Sin fecha', tone: 'neutral' };
@@ -71,9 +68,6 @@ function getValidityStatus(expiryDateStr) {
   return { label: 'Vigente', tone: 'success' };
 }
 
-/**
- * Formatea una fecha corta (dd/mm/aaaa).
- */
 function formatDateShort(dateStr) {
   if (!dateStr) return 'Sin fecha';
   const parsed = new Date(dateStr);
@@ -81,9 +75,6 @@ function formatDateShort(dateStr) {
   return parsed.toLocaleDateString('es-AR');
 }
 
-/**
- * Formatea fecha y hora local para vigencias de pases QR.
- */
 function formatDateTime(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -97,9 +88,6 @@ function formatDateTime(value) {
   });
 }
 
-/**
- * Convierte cualquier valor de fecha a 'YYYY-MM-DD' para inputs type="date".
- */
 function toDateInputValue(dateStr) {
   if (!dateStr) return '';
   if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
@@ -110,9 +98,6 @@ function toDateInputValue(dateStr) {
   return parsed.toISOString().slice(0, 10);
 }
 
-/**
- * Devuelve clases de badge según estado del pase QR.
- */
 function getPassStatusBadge(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') {
@@ -142,7 +127,6 @@ function getPassStatusLabel(status) {
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
-  // Estilos de superficie configurables desde BrandingContext
   const cardStyle = {
     backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
     color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
@@ -155,18 +139,15 @@ export default function ProviderDashboard() {
 
   const primaryActionColor = brand.primaryColor || brand.accentColor || '#10b981';
 
-  // Paso activo en orden operativo: 'credentials' -> 'vehicles' -> 'passes' -> 'reviews'
+  // Paso activo: 'credentials' | 'vehicles' | 'passes' | 'reviews' | 'visits'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  // Datos del perfil del prestador
   const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // ---------------------------------------------------------------------------
-  // PASO 1: DOCUMENTACIÓN PERSONAL + ESPECIALIDADES Y CREDENCIALES
-  // ---------------------------------------------------------------------------
+  // 1. Credenciales
   const [showDocForm, setShowDocForm] = useState(false);
   const [docType, setDocType] = useState('Antecedentes Penales');
   const [docUrl, setDocUrl] = useState('');
@@ -188,9 +169,7 @@ export default function ProviderDashboard() {
   const [editSpecialtyName, setEditSpecialtyName] = useState('');
   const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
 
-  // ---------------------------------------------------------------------------
-  // PASO 2: FLOTA VEHICULAR
-  // ---------------------------------------------------------------------------
+  // 2. Flota Vehicular
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const [vehType, setVehType] = useState('utilitario');
   const [vehBrand, setVehBrand] = useState('');
@@ -199,9 +178,7 @@ export default function ProviderDashboard() {
   const [vehPlate, setVehPlate] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
 
-  // ---------------------------------------------------------------------------
-  // PASO 3: PASES QR ASIGNADOS PARA INGRESO
-  // ---------------------------------------------------------------------------
+  // 3. Pases QR
   const [assignedPasses, setAssignedPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passesError, setPassesError] = useState('');
@@ -211,14 +188,18 @@ export default function ProviderDashboard() {
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  // ---------------------------------------------------------------------------
-  // PASO 4: RESEÑAS / REPUTACIÓN CRUZADA
-  // ---------------------------------------------------------------------------
+  // 4. Reseñas
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
   const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
+
+  // 5. Visitas / Confirmación bidireccional
+  const [incomingVisits, setIncomingVisits] = useState([]);
+  const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
+  const [respondingVisitId, setRespondingVisitId] = useState(null);
 
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
@@ -291,10 +272,29 @@ export default function ProviderDashboard() {
     }
   };
 
+  const fetchIncomingVisits = async () => {
+    setLoadingVisits(true);
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/provider`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setIncomingVisits(data.visits || []);
+      }
+    } catch (error) {
+      console.error('Error al cargar solicitudes de visita:', error);
+    } finally {
+      setLoadingVisits(false);
+    }
+  };
+
   useEffect(() => {
     fetchProviderProfile();
     fetchAssignedPasses();
     fetchProviderReviewContracts();
+    fetchIncomingVisits();
   }, []);
 
   const documentHistory = useMemo(() => {
@@ -629,6 +629,40 @@ export default function ProviderDashboard() {
     }
   };
 
+  const handleRespondVisit = async (visitId, action) => {
+    setRespondingVisitId(visitId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    const replyText = String(visitReplyDrafts[visitId] || '').trim();
+
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/${visitId}/respond`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          action,
+          reply_text: replyText || undefined,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Respuesta registrada en la visita.');
+        setVisitReplyDrafts((prev) => ({ ...prev, [visitId]: '' }));
+        await fetchIncomingVisits();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la visita.');
+      }
+    } catch (error) {
+      console.error('Error al responder visita:', error);
+      setErrorMsg('Error de conexión al responder la visita.');
+    } finally {
+      setRespondingVisitId(null);
+    }
+  };
+
   const handleSubmitOwnerReview = async (contractId) => {
     const ratingVal = ownerRatingDrafts[contractId] || 5;
     const commentVal = (ownerCommentDrafts[contractId] || '').trim();
@@ -700,6 +734,10 @@ export default function ProviderDashboard() {
     (p) => String(p.status || '').toLowerCase() === 'pending'
   ).length;
 
+  const pendingVisitsCount = incomingVisits.filter(
+    (v) => String(v.status || '').toLowerCase() === 'pending_provider'
+  ).length;
+
   const primaryProfile = profileData.providers[0] || null;
   const profileStatus = primaryProfile?.status || 'Pendiente';
 
@@ -735,11 +773,16 @@ export default function ProviderDashboard() {
       count: reviewContracts.length,
       icon: Star,
     },
+    {
+      id: 'visits',
+      label: '5. Visitas',
+      count: pendingVisitsCount || incomingVisits.length,
+      icon: MessageSquare,
+    },
   ];
 
   return (
     <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
-      {/* Cabecera principal y selectores de pasos en orden operativo (1 -> 2 -> 3 -> 4) */}
       <section
         className="p-6 rounded-2xl border border-black/20 space-y-5"
         style={cardStyle}
@@ -752,7 +795,7 @@ export default function ProviderDashboard() {
             <div>
               <h2 className="text-xl font-black tracking-tight">Portal Prestador</h2>
               <p className="text-xs opacity-80">
-                Credenciales, flota vehicular, pases QR de ingreso y reseñas cruzadas.
+                Credenciales, flota vehicular, pases QR de ingreso, reseñas y confirmación de visitas.
               </p>
             </div>
           </div>
@@ -777,6 +820,7 @@ export default function ProviderDashboard() {
                 fetchProviderProfile();
                 fetchAssignedPasses();
                 fetchProviderReviewContracts();
+                fetchIncomingVisits();
               }}
               className="text-xs font-bold px-3 py-1.5 rounded-xl border border-white/15 inline-flex items-center gap-1.5 cursor-pointer hover:opacity-85"
               style={innerStyle}
@@ -786,8 +830,7 @@ export default function ProviderDashboard() {
           </div>
         </div>
 
-        {/* Selector de los 4 pasos clicables */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
           {steps.map((step) => {
             const IconComponent = step.icon;
             const isSelected = activeStep === step.id;
@@ -838,9 +881,6 @@ export default function ProviderDashboard() {
           <Loader2 className="animate-spin" size={16} /> Cargando información del prestador...
         </div>
       ) : activeStep === 'credentials' ? (
-        /* =====================================================================
-           1. CREDENCIALES
-           ===================================================================== */
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <section
             className="p-6 rounded-2xl border border-black/20 space-y-5"
@@ -1222,9 +1262,6 @@ export default function ProviderDashboard() {
           </section>
         </div>
       ) : activeStep === 'vehicles' ? (
-        /* =====================================================================
-           2. FLOTA VEHICULAR
-           ===================================================================== */
         <section
           className="p-6 rounded-2xl border border-black/20 space-y-5"
           style={cardStyle}
@@ -1358,9 +1395,6 @@ export default function ProviderDashboard() {
           </div>
         </section>
       ) : activeStep === 'passes' ? (
-        /* =====================================================================
-           3. PASES QR
-           ===================================================================== */
         <section
           className="p-6 rounded-2xl border border-black/20 space-y-5"
           style={cardStyle}
@@ -1553,10 +1587,7 @@ export default function ProviderDashboard() {
             </div>
           )}
         </section>
-      ) : (
-        /* =====================================================================
-           4. RESEÑAS / REPUTACIÓN CRUZADA
-           ===================================================================== */
+      ) : activeStep === 'reviews' ? (
         <section
           className="p-6 rounded-2xl border border-black/20 space-y-5"
           style={cardStyle}
@@ -1713,6 +1744,140 @@ export default function ProviderDashboard() {
                       </div>
                     )}
                   </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : (
+        /* =====================================================================
+           5. VISITAS — CONFIRMACIÓN BIDIRECCIONAL CON RESIDENTES
+           ===================================================================== */
+        <section
+          className="p-6 rounded-2xl border border-black/20 space-y-5"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <MessageSquare size={18} className="text-emerald-400" /> Solicitudes y Confirmación de Visitas
+              </h3>
+              <p className="text-xs opacity-80 mt-0.5">
+                Respondé a los residentes y confirmá tu disponibilidad para que emitan el Pase QR.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchIncomingVisits}
+              className={rowActionBtnClass}
+              style={innerStyle}
+            >
+              <RefreshCw size={13} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
+
+          {loadingVisits ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
+          ) : incomingVisits.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-black/20"
+              style={innerStyle}
+            >
+              Todavía no tenés solicitudes de visita pendientes de coordinación.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {incomingVisits.map((visit) => {
+                const statusLower = String(visit.status || '').toLowerCase();
+                const isConfirmed = statusLower === 'confirmed';
+                const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+
+                return (
+                  <article
+                    key={visit.id}
+                    className="rounded-xl p-4 border border-black/20 space-y-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">
+                          Visita #{visit.id} · {visit.owner_name || 'Residente'}
+                        </span>
+                        <p className="opacity-80 mt-0.5">
+                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
+                          Horario propuesto: {visit.preferred_date || 'A convenir'}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border ${
+                          isConfirmed
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : statusLower === 'declined'
+                            ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                            : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                        }`}
+                      >
+                        {isConfirmed
+                          ? 'Disponibilidad Confirmada'
+                          : statusLower === 'declined'
+                          ? 'Sin Disponibilidad'
+                          : 'Pendiente de Confirmación'}
+                      </span>
+                    </div>
+
+                    {msgs.length > 0 && (
+                      <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5">
+                        {msgs.map((m, idx) => (
+                          <p key={m.id || idx} className="text-xs">
+                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
+                              {m.sender_role === 'provider' ? 'Prestador:' : 'Residente:'}
+                            </strong>
+                            <span>{m.text}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        value={visitReplyDrafts[visit.id] || ''}
+                        onChange={(e) =>
+                          setVisitReplyDrafts((prev) => ({
+                            ...prev,
+                            [visit.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="Escribí un mensaje o aclaración para el residente..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-white/15 text-xs"
+                        style={cardStyle}
+                      />
+
+                      <button
+                        type="button"
+                        disabled={respondingVisitId === visit.id}
+                        onClick={() => handleRespondVisit(visit.id, 'confirm')}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
+                        style={{ backgroundColor: primaryActionColor }}
+                      >
+                        {respondingVisitId === visit.id
+                          ? 'Guardando...'
+                          : isConfirmed
+                          ? 'Confirmada'
+                          : 'Confirmar Disponibilidad'}
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={respondingVisitId === visit.id}
+                        onClick={() => handleRespondVisit(visit.id, 'decline')}
+                        className={rowActionBtnClass}
+                        style={cardStyle}
+                      >
+                        Sin disponibilidad
+                      </button>
+                    </div>
+                  </article>
                 );
               })}
             </div>
