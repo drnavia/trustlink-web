@@ -32,8 +32,9 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
+import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-const API_BASE = 'http://localhost:4000';
+/* const API_BASE = 'http://localhost:4000'; */
 
 /**
  * Traduce el estado de validación de TrustLink a etiqueta y estilo en español.

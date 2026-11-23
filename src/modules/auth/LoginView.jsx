@@ -10,8 +10,9 @@ import React, { useState } from 'react';
 import { Lock, Mail, LogIn, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useBranding } from '../branding/BrandingContext';
+import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-const API_BASE = 'http://localhost:4000';
+/* const API_BASE = 'http://localhost:4000'; */
 
 export default function LoginView({ onLoginSuccess, onViewChange }) {
   const { login } = useAuth();

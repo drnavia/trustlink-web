@@ -22,8 +22,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-const API_BASE = 'http://localhost:4000';
+/* const API_BASE = 'http://localhost:4000'; */
 
 /**
  * Formatea una fecha/hora de forma segura para la consola de garita.

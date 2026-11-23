@@ -23,8 +23,9 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
+import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-const API_BASE = 'http://localhost:4000';
+/* const API_BASE = 'http://localhost:4000'; */
 const PLATFORM_FEE_RATE = 0.07;
 
 export default function ContractPaymentView({ onViewChange }) {

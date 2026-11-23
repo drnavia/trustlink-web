@@ -9,8 +9,9 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-const API_BASE = 'http://localhost:4000';
+/* const API_BASE = 'http://localhost:4000'; */
 
 // 12 Presets (6 Dark en fila superior + 6 Light en fila inferior), cada uno con su par explícito dark/light
 export const BRANDING_PRESETS = {
