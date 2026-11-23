@@ -1,152 +1,141 @@
 /**
  * @file ProviderDashboard.jsx
- * @description Portal del Prestador conectado 100% a PostgreSQL mediante API REST.
- * Unifica la pestaña "3. Reseñas" y el encabezado "Reseñas y reputación cruzada"
- * con el Portal Residente, manteniendo la estética y funcionalidad de Credenciales
- * y Flota Vehicular.
+ * @description Portal del Prestador con navegación por pasos superiores
+ * (1. Credenciales, 2. Flota Vehicular, 3. Reseñas, 4. Pases QR),
+ * gestión de documentación/especialidades, flota vehicular con seguro y
+ * consulta de Pases QR asignados por residentes para el ingreso al barrio.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Wrench,
   ShieldCheck,
-  BadgeCheck,
   Car,
+  Star,
+  QrCode,
+  Search,
+  Copy,
+  Check,
+  RefreshCw,
+  FileText,
+  Award,
   Plus,
   Edit3,
-  Save,
-  X,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-  Star,
-  MessageSquare,
-  Send,
-  RefreshCw,
-  Award,
-  FileText,
-  History,
   Eye,
   EyeOff,
+  X,
+  Calendar,
+  MapPin,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-/* const API_BASE = 'http://localhost:4000'; */
+export const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
+  'http://localhost:4000';
 
-/**
- * Traduce el estado de validación de TrustLink a etiqueta y estilo en español.
- */
-function formatTrustlinkValidationStatus(status) {
-  const normalized = (status || 'pending').toLowerCase();
-  if (normalized === 'approved') {
-    return {
-      label: 'Verificado',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-      isVerified: true,
-    };
-  }
-  if (normalized === 'rejected') {
-    return {
-      label: 'Rechazado',
-      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
-      isVerified: false,
-    };
-  }
-  return {
-    label: 'Pendiente',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
-    isVerified: false,
-  };
-}
+const PASSES_PER_PAGE = 6;
 
-/**
- * Traduce el estado de especialidad de forma concisa.
- */
-function formatSpecialtyStatus(status) {
-  const normalized = (status || 'pending').toLowerCase();
-  if (normalized === 'approved') {
-    return {
-      label: 'Verificada',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-      isVerified: true,
-    };
-  }
-  if (normalized === 'rejected') {
-    return {
-      label: 'Rechazada',
-      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
-      isVerified: false,
-    };
-  }
-  return {
-    label: 'Pendiente',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
-    isVerified: false,
-  };
-}
+const formatDateTime = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('es-AR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
-/**
- * Normaliza un valor de fecha a YYYY-MM-DD para inputs de tipo date.
- */
-function toDateInputValue(dateStr) {
-  if (!dateStr) return '';
-  const raw = String(dateStr).trim();
-  if (/^\d{4}-\d{2}-\d{2}/.test(raw)) {
-    return raw.slice(0, 10);
+const getPassStatusBadge = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pending') {
+    return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
   }
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return '';
-  return parsed.toISOString().slice(0, 10);
-}
+  if (normalized === 'used') {
+    return 'bg-sky-500/15 text-sky-300 border-sky-500/30';
+  }
+  if (normalized === 'expired') {
+    return 'bg-amber-500/15 text-amber-300 border-amber-500/30';
+  }
+  if (normalized === 'cancelled') {
+    return 'bg-rose-500/15 text-rose-300 border-rose-500/30';
+  }
+  return 'bg-slate-800 text-slate-300 border-slate-700';
+};
 
-/**
- * Formatea una fecha YYYY-MM-DD o ISO a DD/MM/AAAA.
- */
-function formatDisplayDate(dateStr) {
-  const isoDate = toDateInputValue(dateStr);
-  if (!isoDate) return 'Sin fecha';
-  const [y, m, d] = isoDate.split('-');
-  return `${d}/${m}/${y}`;
-}
-
-/**
- * Evalúa la vigencia de un documento o póliza según las fechas Desde / Hasta.
- */
-function resolveDateValidity(fromStr, untilStr) {
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const fromIso = toDateInputValue(fromStr);
-  const untilIso = toDateInputValue(untilStr);
-
-  if (untilIso && untilIso < todayIso) {
-    return {
-      label: 'Vencido',
-      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
-    };
-  }
-  if (fromIso && fromIso > todayIso) {
-    return {
-      label: 'Vigencia futura',
-      badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
-    };
-  }
-  if (fromIso || untilIso) {
-    return {
-      label: 'Vigente',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-    };
-  }
-  return {
-    label: 'Sin seguro / Sin fecha',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
-  };
-}
+const getPassStatusLabel = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pending') return 'Vigente / Pendiente';
+  if (normalized === 'used') return 'Utilizado';
+  if (normalized === 'expired') return 'Vencido';
+  if (normalized === 'cancelled') return 'Cancelado';
+  return status || 'Sin estado';
+};
 
 export default function ProviderDashboard() {
   const { brand } = useBranding();
   const { user } = useAuth();
+
+  // Paso activo en el Portal Prestador: 'credentials' | 'vehicles' | 'reviews' | 'passes'
+  const [activeTab, setActiveTab] = useState('credentials');
+
+  // Datos generales del perfil del prestador
+  const [profiles, setProfiles] = useState([]);
+  const [documents, setDocuments] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
+  const [contracts, setContracts] = useState([]);
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [feedback, setFeedback] = useState({ type: '', text: '' });
+
+  // Formularios colapsables en Credenciales y Flota Vehicular
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+
+  const [docForm, setDocForm] = useState({
+    doc_type: 'Antecedentes Penales',
+    doc_url: '',
+    issued_at: '',
+    expires_at: '',
+  });
+  const [savingDoc, setSavingDoc] = useState(false);
+
+  const [specialtyForm, setSpecialtyForm] = useState({
+    specialty: '',
+    license_url: '',
+  });
+  const [savingSpecialty, setSavingSpecialty] = useState(false);
+
+  const [vehicleForm, setVehicleForm] = useState({
+    vehicle_type: 'Automóvil',
+    brand: '',
+    model: '',
+    color: '',
+    plate: '',
+    vehicle_insurance_url: '',
+    vehicle_insurance_expiry: '',
+  });
+  const [savingVehicle, setSavingVehicle] = useState(false);
+
+  // Reseñas cruzadas hacia residentes
+  const [residentRating, setResidentRating] = useState({});
+  const [residentComment, setResidentComment] = useState({});
+  const [sendingReviewId, setSendingReviewId] = useState(null);
+
+  // Pases QR asignados por residentes para el prestador
+  const [assignedPasses, setAssignedPasses] = useState([]);
+  const [loadingPasses, setLoadingPasses] = useState(false);
+  const [passesError, setPassesError] = useState('');
+  const [passSearch, setPassSearch] = useState('');
+  const [passStatusFilter, setPassStatusFilter] = useState('all');
+  const [passPage, setPassPage] = useState(1);
+  const [copiedPassId, setCopiedPassId] = useState(null);
+  const [selectedPassModal, setSelectedPassModal] = useState(null);
+
+  const primaryColor = brand?.primaryActionColor || '#059669';
 
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
@@ -155,1856 +144,1154 @@ export default function ProviderDashboard() {
 
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
-    color: brand?.innerTextColor || '#F1F5F9',
+    color: brand?.innerTextColor || '#E2E8F0',
   };
 
-  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
-
-  const hiddenStorageKey = `trustlink_hidden_specialties_${user?.id || user?.email || 'default'}`;
-
-  // Paso activo: 'credentials' | 'vehicles' | 'reviews'
-  const [activeStep, setActiveStep] = useState('credentials');
-
-  const [providerProfiles, setProviderProfiles] = useState([]);
-  const [documentHistory, setDocumentHistory] = useState([]);
-  const [vehicles, setVehicles] = useState([]);
-  const [fetching, setFetching] = useState(true);
-  const [loadingAction, setLoadingAction] = useState(false);
-  const [savingDocs, setSavingDocs] = useState(false);
-  const [feedback, setFeedback] = useState({ type: '', text: '' });
-
-  const [hiddenProfileIds, setHiddenProfileIds] = useState(() => {
-    try {
-      const raw = localStorage.getItem(hiddenStorageKey);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.map(Number) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [baseDocs, setBaseDocs] = useState({
-    criminalRecordUrl: '',
-    criminalFromDate: '',
-    criminalUntilDate: '',
-    insurancePolicyUrl: '',
-    insuranceFromDate: '',
-    insuranceUntilDate: '',
-  });
-
-  // 1A. Documentación Personal
-  const [showNewDocForm, setShowNewDocForm] = useState(false);
-  const [newDocType, setNewDocType] = useState('criminal');
-  const [newDocUrl, setNewDocUrl] = useState('');
-  const [newDocFrom, setNewDocFrom] = useState('');
-  const [newDocUntil, setNewDocUntil] = useState('');
-
-  const [editingDocKey, setEditingDocKey] = useState(null);
-  const [editDocUrl, setEditDocUrl] = useState('');
-  const [editDocFrom, setEditDocFrom] = useState('');
-  const [editDocUntil, setEditDocUntil] = useState('');
-
-  // 1B. Especialidades y Credenciales
-  const [showNewSpecialtyForm, setShowNewSpecialtyForm] = useState(false);
-  const [specialty, setSpecialty] = useState('');
-  const [editingProfileId, setEditingProfileId] = useState(null);
-  const [editSpecialty, setEditSpecialty] = useState('');
-
-  // 2. Flota Vehicular
-  const [showNewVehicleForm, setShowNewVehicleForm] = useState(false);
-  const [vehicleType, setVehicleType] = useState('Utilitario');
-  const [brandName, setBrandName] = useState('');
-  const [modelName, setModelName] = useState('');
-  const [colorName, setColorName] = useState('');
-  const [plate, setPlate] = useState('');
-  const [vehInsuranceUrl, setVehInsuranceUrl] = useState('');
-  const [vehInsuranceFrom, setVehInsuranceFrom] = useState('');
-  const [vehInsuranceUntil, setVehInsuranceUntil] = useState('');
-
-  const [editingVehicleId, setEditingVehicleId] = useState(null);
-  const [editVehicleType, setEditVehicleType] = useState('Utilitario');
-  const [editBrand, setEditBrand] = useState('');
-  const [editModel, setEditModel] = useState('');
-  const [editColor, setEditColor] = useState('');
-  const [editPlate, setEditPlate] = useState('');
-  const [editVehInsuranceUrl, setEditVehInsuranceUrl] = useState('');
-  const [editVehInsuranceFrom, setEditVehInsuranceFrom] = useState('');
-  const [editVehInsuranceUntil, setEditVehInsuranceUntil] = useState('');
-
-  // 3. Reseñas y Reputación Cruzada
-  const [providerContracts, setProviderContracts] = useState([]);
-  const [loadingContracts, setLoadingContracts] = useState(true);
-  const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
-  const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
-  const [submittingReviewId, setSubmittingReviewId] = useState(null);
-  const [crossReviewFeedback, setCrossReviewFeedback] = useState(null);
-
-  const getAuthHeaders = () => ({
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const handleToggleSpecialtyVisibility = (prof) => {
-    const idNum = Number(prof.id);
-    setHiddenProfileIds((prev) => {
-      const exists = prev.includes(idNum);
-      const next = exists ? prev.filter((item) => item !== idNum) : [...prev, idNum];
-      try {
-        localStorage.setItem(hiddenStorageKey, JSON.stringify(next));
-      } catch {
-        // Ignora errores de almacenamiento local
-      }
-      setFeedback({
-        type: 'success',
-        text: exists
-          ? `Especialidad "${prof.specialty}" marcada como Visible.`
-          : `Especialidad "${prof.specialty}" marcada como Oculta.`,
-      });
-      return next;
-    });
-  };
-
-  const fetchProviderData = useCallback(async () => {
-    setFetching(true);
+  const fetchProviderData = async () => {
+    setLoadingProfile(true);
+    setFeedback({ type: '', text: '' });
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/me`, {
-        headers: getAuthHeaders(),
+        method: 'GET',
+        headers: authHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        const list = data.providers || [];
-        setProviderProfiles(list);
-        setDocumentHistory(data.document_history || []);
+        setProfiles(data.profiles || data.providers || []);
+        setDocuments(data.documents || []);
         setVehicles(data.vehicles || []);
-
-        const withDocs =
-          list.find((p) => p.criminal_record_url || p.insurance_policy_url) || list[0];
-        if (withDocs) {
-          setBaseDocs({
-            criminalRecordUrl: withDocs.criminal_record_url || '',
-            criminalFromDate: toDateInputValue(
-              withDocs.criminal_record_from || withDocs.created_at
-            ),
-            criminalUntilDate: toDateInputValue(withDocs.criminal_record_expiry),
-            insurancePolicyUrl: withDocs.insurance_policy_url || '',
-            insuranceFromDate: toDateInputValue(withDocs.insurance_from || withDocs.created_at),
-            insuranceUntilDate: toDateInputValue(withDocs.insurance_expiry),
-          });
-        }
+        setContracts(data.contracts || []);
+      } else {
+        setFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo cargar la información del prestador.',
+        });
       }
     } catch (error) {
       console.error('Error al cargar datos del prestador:', error);
+      setFeedback({
+        type: 'error',
+        text: 'Error de conexión con el servidor backend de TrustLink.',
+      });
     } finally {
-      setFetching(false);
+      setLoadingProfile(false);
     }
-  }, []);
+  };
 
-  const fetchProviderContracts = useCallback(async () => {
-    setLoadingContracts(true);
+  // Consulta los Pases QR generados por residentes para este prestador
+  const fetchAssignedPasses = async () => {
+    setLoadingPasses(true);
+    setPassesError('');
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
-        headers: getAuthHeaders(),
+      const response = await fetch(`${API_BASE}/api/v1/passes/provider`, {
+        method: 'GET',
+        headers: authHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        setProviderContracts(data.contracts || []);
-      }
-    } catch (error) {
-      console.error('Error al cargar contratos del prestador:', error);
-    } finally {
-      setLoadingContracts(false);
-    }
-  }, []);
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([fetchProviderData(), fetchProviderContracts()]);
-  }, [fetchProviderData, fetchProviderContracts]);
-
-  useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
-
-  const persistPersonalDocs = async (
-    docType,
-    { url, fromDate, untilDate },
-    nextDocs,
-    successText
-  ) => {
-    setSavingDocs(true);
-    setFeedback({ type: '', text: '' });
-
-    const isCriminal = docType === 'criminal';
-    const docPayload = {
-      criminal_record_url: nextDocs.criminalRecordUrl.trim() || null,
-      criminal_record_from: isCriminal ? fromDate || null : nextDocs.criminalFromDate || null,
-      criminal_record_expiry: nextDocs.criminalUntilDate || null,
-      insurance_policy_url: nextDocs.insurancePolicyUrl.trim() || null,
-      insurance_from: !isCriminal ? fromDate || null : nextDocs.insuranceFromDate || null,
-      insurance_expiry: nextDocs.insuranceUntilDate || null,
-    };
-
-    try {
-      if (providerProfiles.length === 0) {
-        const res = await fetch(`${API_BASE}/api/v1/providers/profile`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-          body: JSON.stringify({
-            specialty: 'Servicios Generales',
-            ...docPayload,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
-          return false;
-        }
+        setAssignedPasses(data.passes || data.items || []);
       } else {
-        await Promise.all(
-          providerProfiles.map((prof) =>
-            fetch(`${API_BASE}/api/v1/providers/profile/${prof.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-              body: JSON.stringify({
-                specialty: prof.specialty,
-                criminal_record_url: isCriminal ? url.trim() || null : prof.criminal_record_url,
-                criminal_record_from: isCriminal ? fromDate || null : prof.criminal_record_from,
-                criminal_record_expiry: isCriminal ? untilDate || null : prof.criminal_record_expiry,
-                insurance_policy_url: !isCriminal ? url.trim() || null : prof.insurance_policy_url,
-                insurance_from: !isCriminal ? fromDate || null : prof.insurance_from,
-                insurance_expiry: !isCriminal ? untilDate || null : prof.insurance_expiry,
-              }),
-            })
-          )
+        setPassesError(
+          data.error ||
+            'No se pudieron obtener los pases QR asignados. Verificá el endpoint GET /api/v1/passes/provider.'
         );
       }
-
-      setFeedback({ type: 'success', text: successText });
-      await fetchProviderData();
-      return true;
     } catch (error) {
-      console.error('Error al guardar documentación personal:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
-      return false;
+      console.error('Error al cargar pases QR del prestador:', error);
+      setPassesError('Error de conexión al consultar los pases QR asignados.');
     } finally {
-      setSavingDocs(false);
+      setLoadingPasses(false);
     }
   };
 
-  const handleCreateNewDoc = async (e) => {
+  useEffect(() => {
+    fetchProviderData();
+    fetchAssignedPasses();
+  }, []);
+
+  const handleSaveDocument = async (e) => {
     e.preventDefault();
-    if (newDocFrom && newDocUntil && newDocUntil < newDocFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
+    if (!docForm.doc_type.trim()) return;
+    setSavingDoc(true);
+    setFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/documents`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify(docForm),
       });
-      return;
-    }
-
-    const nextDocs =
-      newDocType === 'criminal'
-        ? {
-            ...baseDocs,
-            criminalRecordUrl: newDocUrl,
-            criminalFromDate: newDocFrom,
-            criminalUntilDate: newDocUntil,
-          }
-        : {
-            ...baseDocs,
-            insurancePolicyUrl: newDocUrl,
-            insuranceFromDate: newDocFrom,
-            insuranceUntilDate: newDocUntil,
-          };
-
-    const ok = await persistPersonalDocs(
-      newDocType,
-      { url: newDocUrl, fromDate: newDocFrom, untilDate: newDocUntil },
-      nextDocs,
-      'Nueva versión documental registrada en el historial.'
-    );
-    if (ok) {
-      setNewDocUrl('');
-      setNewDocFrom('');
-      setNewDocUntil('');
-      setShowNewDocForm(false);
-    }
-  };
-
-  const startInlineDocEdit = (row) => {
-    setEditingDocKey(row.docKey);
-    setEditDocUrl(row.url === 'Sin URL' ? '' : row.url || '');
-    setEditDocFrom(toDateInputValue(row.fromDate));
-    setEditDocUntil(toDateInputValue(row.untilDate));
-  };
-
-  const handleSaveInlineDocEdit = async (row) => {
-    if (editDocFrom && editDocUntil && editDocUntil < editDocFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" no puede ser anterior a la fecha "Desde".',
-      });
-      return;
-    }
-
-    const nextDocs =
-      row.docType === 'criminal'
-        ? {
-            ...baseDocs,
-            criminalRecordUrl: editDocUrl,
-            criminalFromDate: editDocFrom,
-            criminalUntilDate: editDocUntil,
-          }
-        : {
-            ...baseDocs,
-            insurancePolicyUrl: editDocUrl,
-            insuranceFromDate: editDocFrom,
-            insuranceUntilDate: editDocUntil,
-          };
-
-    const ok = await persistPersonalDocs(
-      row.docType,
-      { url: editDocUrl, fromDate: editDocFrom, untilDate: editDocUntil },
-      nextDocs,
-      'Versión documental guardada en el historial.'
-    );
-    if (ok) {
-      setEditingDocKey(null);
+      const data = await response.json();
+      if (response.ok) {
+        setFeedback({ type: 'success', text: 'Documentación guardada correctamente.' });
+        setDocForm({
+          doc_type: 'Antecedentes Penales',
+          doc_url: '',
+          issued_at: '',
+          expires_at: '',
+        });
+        setShowDocForm(false);
+        await fetchProviderData();
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'No se pudo guardar la documentación.' });
+      }
+    } catch (error) {
+      console.error('Error al guardar documento:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al guardar documentación.' });
+    } finally {
+      setSavingDoc(false);
     }
   };
 
   const handleAddSpecialty = async (e) => {
     e.preventDefault();
-    if (!specialty.trim()) return;
-    setLoadingAction(true);
+    if (!specialtyForm.specialty.trim()) return;
+    setSavingSpecialty(true);
     setFeedback({ type: '', text: '' });
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/profile`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/specialties`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          specialty: specialty.trim(),
-          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
-          criminal_record_from: baseDocs.criminalFromDate || null,
-          criminal_record_expiry: baseDocs.criminalUntilDate || null,
-          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
-          insurance_from: baseDocs.insuranceFromDate || null,
-          insurance_expiry: baseDocs.insuranceUntilDate || null,
-        }),
+        headers: authHeaders(),
+        body: JSON.stringify(specialtyForm),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text:
-            data.message ||
-            'Especialidad agregada. Queda en revisión de compliance para su aprobación.',
-        });
-        setSpecialty('');
-        setShowNewSpecialtyForm(false);
+        setFeedback({ type: 'success', text: 'Especialidad cargada correctamente.' });
+        setSpecialtyForm({ specialty: '', license_url: '' });
+        setShowSpecialtyForm(false);
         await fetchProviderData();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo agregar la especialidad.' });
+        setFeedback({ type: 'error', text: data.error || 'No se pudo cargar la especialidad.' });
       }
     } catch (error) {
-      console.error('Error al agregar especialidad:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión con el servidor.' });
+      console.error('Error al cargar especialidad:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al cargar especialidad.' });
     } finally {
-      setLoadingAction(false);
+      setSavingSpecialty(false);
     }
   };
 
-  const handleSaveEditSpecialty = async (profileId) => {
-    if (!editSpecialty.trim()) return;
-    setLoadingAction(true);
-    setFeedback({ type: '', text: '' });
+  const handleToggleSpecialtyVisibility = async (profileItem) => {
+    const profileId = profileItem.id;
+    const nextVisible = !(profileItem.is_visible_in_directory ?? true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${profileId}`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/${profileId}/visibility`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          specialty: editSpecialty.trim(),
-          criminal_record_url: baseDocs.criminalRecordUrl.trim() || null,
-          criminal_record_from: baseDocs.criminalFromDate || null,
-          criminal_record_expiry: baseDocs.criminalUntilDate || null,
-          insurance_policy_url: baseDocs.insurancePolicyUrl.trim() || null,
-          insurance_from: baseDocs.insuranceFromDate || null,
-          insurance_expiry: baseDocs.insuranceUntilDate || null,
-        }),
+        headers: authHeaders(),
+        body: JSON.stringify({ is_visible_in_directory: nextVisible }),
       });
-      const data = await response.json();
       if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text: data.message || 'Especialidad actualizada.',
-        });
-        setEditingProfileId(null);
         await fetchProviderData();
-      } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
       }
     } catch (error) {
-      console.error('Error al editar especialidad:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
-    } finally {
-      setLoadingAction(false);
+      console.error('Error al cambiar visibilidad de especialidad:', error);
     }
   };
 
   const handleAddVehicle = async (e) => {
     e.preventDefault();
-    if (!plate.trim()) {
-      setFeedback({ type: 'error', text: 'La patente del vehículo es obligatoria.' });
-      return;
-    }
-    if (vehInsuranceFrom && vehInsuranceUntil && vehInsuranceUntil < vehInsuranceFrom) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" del seguro vehicular no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-
-    setLoadingAction(true);
+    if (!vehicleForm.brand.trim() || !vehicleForm.plate.trim()) return;
+    setSavingVehicle(true);
     setFeedback({ type: '', text: '' });
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicles`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          vehicle_type: vehicleType,
-          brand: brandName.trim(),
-          model: modelName.trim(),
-          color: colorName.trim(),
-          plate: plate.trim().toUpperCase(),
-          vehicle_insurance_url: vehInsuranceUrl.trim() || null,
-          vehicle_insurance_from: vehInsuranceFrom || null,
-          vehicle_insurance_expiry: vehInsuranceUntil || null,
-        }),
+        headers: authHeaders(),
+        body: JSON.stringify(vehicleForm),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text: data.message || 'Vehículo y seguro automotor registrados con éxito.',
+        setFeedback({ type: 'success', text: 'Vehículo registrado correctamente.' });
+        setVehicleForm({
+          vehicle_type: 'Automóvil',
+          brand: '',
+          model: '',
+          color: '',
+          plate: '',
+          vehicle_insurance_url: '',
+          vehicle_insurance_expiry: '',
         });
-        setBrandName('');
-        setModelName('');
-        setColorName('');
-        setPlate('');
-        setVehInsuranceUrl('');
-        setVehInsuranceFrom('');
-        setVehInsuranceUntil('');
-        setShowNewVehicleForm(false);
+        setShowVehicleForm(false);
         await fetchProviderData();
       } else {
         setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el vehículo.' });
       }
     } catch (error) {
-      console.error('Error al agregar vehículo:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
+      console.error('Error al registrar vehículo:', error);
+      setFeedback({ type: 'error', text: 'Error de conexión al registrar vehículo.' });
     } finally {
-      setLoadingAction(false);
+      setSavingVehicle(false);
     }
   };
 
-  const handleSaveEditVehicle = async (vehicleId) => {
-    if (!editPlate.trim()) {
-      setFeedback({ type: 'error', text: 'La patente del vehículo no puede quedar vacía.' });
-      return;
-    }
-    if (
-      editVehInsuranceFrom &&
-      editVehInsuranceUntil &&
-      editVehInsuranceUntil < editVehInsuranceFrom
-    ) {
-      setFeedback({
-        type: 'error',
-        text: 'La fecha "Hasta" del seguro vehicular no puede ser anterior a "Desde".',
-      });
-      return;
-    }
-
-    setLoadingAction(true);
+  const handleSendOwnerReview = async (contractId) => {
+    setSendingReviewId(contractId);
     setFeedback({ type: '', text: '' });
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle/${vehicleId}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          vehicle_type: editVehicleType,
-          brand: editBrand.trim(),
-          model: editModel.trim(),
-          color: editColor.trim(),
-          plate: editPlate.trim().toUpperCase(),
-          vehicle_insurance_url: editVehInsuranceUrl.trim() || null,
-          vehicle_insurance_from: editVehInsuranceFrom || null,
-          vehicle_insurance_expiry: editVehInsuranceUntil || null,
-        }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setFeedback({
-          type: 'success',
-          text: data.message || 'Vehículo y seguro automotor actualizados.',
-        });
-        setEditingVehicleId(null);
-        await fetchProviderData();
-      } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo actualizar.' });
-      }
-    } catch (error) {
-      console.error('Error al editar vehículo:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión.' });
-    } finally {
-      setLoadingAction(false);
-    }
-  };
-
-  const handleSubmitOwnerReview = async (contractId) => {
-    const selectedRating = ownerRatingDrafts[contractId] || 5;
-    const commentText = (ownerCommentDrafts[contractId] || '').trim();
-
-    setSubmittingReviewId(contractId);
-    setCrossReviewFeedback(null);
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/owner`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
+        headers: authHeaders(),
         body: JSON.stringify({
           contract_id: contractId,
-          rating: selectedRating,
-          comment: commentText || null,
+          rating: Number(residentRating[contractId] || 5),
+          comment: String(residentComment[contractId] || '').trim(),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setCrossReviewFeedback({
-          type: 'success',
-          message: data.message || 'Calificación al residente registrada correctamente.',
-        });
-        await fetchProviderContracts();
+        setFeedback({ type: 'success', text: 'Calificación al residente enviada.' });
+        await fetchProviderData();
       } else {
-        setCrossReviewFeedback({
-          type: 'error',
-          message: data.error || 'No se pudo registrar la calificación.',
-        });
+        setFeedback({ type: 'error', text: data.error || 'No se pudo enviar la reseña.' });
       }
     } catch (error) {
       console.error('Error al enviar reseña al residente:', error);
-      setCrossReviewFeedback({
-        type: 'error',
-        message: 'Error de conexión al guardar la calificación.',
-      });
+      setFeedback({ type: 'error', text: 'Error de conexión al enviar reseña.' });
     } finally {
-      setSubmittingReviewId(null);
+      setSendingReviewId(null);
     }
   };
 
-  const personalDocRows = useMemo(() => {
-    const rawRows = [];
-
-    if (documentHistory.length > 0) {
-      documentHistory.forEach((ver, idx) => {
-        const isInsurance = ver.doc_type === 'insurance';
-        const fromVal = ver.valid_from || ver.created_at;
-        const untilVal = ver.valid_to;
-        rawRows.push({
-          docKey: `ver-${ver.id || idx}`,
-          docType: isInsurance ? 'insurance' : 'criminal',
-          title: isInsurance ? 'Póliza ART / Seguro' : 'Antecedentes Penales',
-          url: (ver.document_url || 'Sin URL').trim(),
-          fromDate: fromVal,
-          untilDate: untilVal,
-          validity: resolveDateValidity(fromVal, untilVal),
-          trustlinkValidation: formatTrustlinkValidationStatus(ver.status),
-        });
-      });
-    } else {
-      const baseSource =
-        providerProfiles.find(
-          (p) =>
-            p.criminal_record_url ||
-            p.criminal_record_expiry ||
-            p.insurance_policy_url ||
-            p.insurance_expiry
-        ) || providerProfiles[0];
-
-      if (baseSource) {
-        const trustStatus = baseSource.status || 'pending';
-
-        if (
-          baseSource.criminal_record_url ||
-          baseSource.criminal_record_from ||
-          baseSource.criminal_record_expiry
-        ) {
-          const fromVal = baseSource.criminal_record_from || baseSource.created_at;
-          const untilVal = baseSource.criminal_record_expiry;
-          rawRows.push({
-            docKey: 'criminal',
-            docType: 'criminal',
-            title: 'Antecedentes Penales',
-            url: (baseSource.criminal_record_url || 'Sin URL').trim(),
-            fromDate: fromVal,
-            untilDate: untilVal,
-            validity: resolveDateValidity(fromVal, untilVal),
-            trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-          });
-        }
-
-        if (
-          baseSource.insurance_policy_url ||
-          baseSource.insurance_from ||
-          baseSource.insurance_expiry
-        ) {
-          const fromVal = baseSource.insurance_from || baseSource.created_at;
-          const untilVal = baseSource.insurance_expiry;
-          rawRows.push({
-            docKey: 'insurance',
-            docType: 'insurance',
-            title: 'Póliza ART / Seguro',
-            url: (baseSource.insurance_policy_url || 'Sin URL').trim(),
-            fromDate: fromVal,
-            untilDate: untilVal,
-            validity: resolveDateValidity(fromVal, untilVal),
-            trustlinkValidation: formatTrustlinkValidationStatus(trustStatus),
-          });
-        }
-      }
+  const handleCopyToken = async (tokenValue, passId) => {
+    if (!tokenValue) return;
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopiedPassId(passId);
+      setTimeout(() => setCopiedPassId(null), 1800);
+    } catch (err) {
+      console.error('No se pudo copiar el token:', err);
     }
+  };
 
-    const seenSignatures = new Set();
-    return rawRows.filter((row) => {
-      const signature = [
-        row.docType,
-        row.url.toLowerCase(),
-        toDateInputValue(row.fromDate),
-        toDateInputValue(row.untilDate),
-      ].join('|');
-      if (seenSignatures.has(signature)) return false;
-      seenSignatures.add(signature);
-      return true;
+  const filteredPasses = useMemo(() => {
+    const q = passSearch.trim().toLowerCase();
+    return assignedPasses.filter((item) => {
+      const status = String(item.status || '').toLowerCase();
+      const matchesStatus = passStatusFilter === 'all' || status === passStatusFilter;
+      const residentName = `${item.owner_first_name || ''} ${item.owner_last_name || ''} ${
+        item.authorized_by || ''
+      }`.toLowerCase();
+      const dest = `${item.fraction_number || ''} ${item.lot_number || ''}`.toLowerCase();
+      const plate = String(item.vehicle_plate || item.plate || '').toLowerCase();
+      const token = String(item.qr_token || '').toLowerCase();
+
+      const matchesQuery =
+        !q ||
+        residentName.includes(q) ||
+        dest.includes(q) ||
+        plate.includes(q) ||
+        token.includes(q) ||
+        String(item.id).includes(q);
+
+      return matchesStatus && matchesQuery;
     });
-  }, [documentHistory, providerProfiles]);
+  }, [assignedPasses, passSearch, passStatusFilter]);
 
-  const primaryStatusInfo = formatSpecialtyStatus(providerProfiles[0]?.status);
+  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
+  const paginatedPasses = useMemo(() => {
+    const safePage = Math.min(passPage, totalPassPages);
+    const startIdx = (safePage - 1) * PASSES_PER_PAGE;
+    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
+  }, [filteredPasses, passPage, totalPassPages]);
 
-  // Pestañas cortas unificadas: 1. Credenciales, 2. Flota Vehicular, 3. Reseñas
-  const steps = [
+  const activePassesCount = assignedPasses.filter(
+    (p) => String(p.status || '').toLowerCase() === 'pending'
+  ).length;
+
+  const avgRating = useMemo(() => {
+    if (!profiles.length) return '0.00';
+    const sum = profiles.reduce((acc, p) => acc + Number(p.rating_avg || 0), 0);
+    return (sum / profiles.length).toFixed(2);
+  }, [profiles]);
+
+  const primaryStatus = profiles[0]?.compliance_status || 'pending';
+
+  const tabs = [
     {
       id: 'credentials',
-      stepNumber: '1',
-      label: 'Credenciales',
-      count: providerProfiles.length,
-      icon: ShieldCheck,
+      label: '1. Credenciales',
+      count: profiles.length + documents.length,
+      icon: FileText,
     },
     {
       id: 'vehicles',
-      stepNumber: '2',
-      label: 'Flota Vehicular',
+      label: '2. Flota Vehicular',
       count: vehicles.length,
       icon: Car,
     },
     {
       id: 'reviews',
-      stepNumber: '3',
-      label: 'Reseñas',
-      count: providerContracts.length,
+      label: '3. Reseñas',
+      count: contracts.length,
       icon: Star,
+    },
+    {
+      id: 'passes',
+      label: '4. Pases QR',
+      count: activePassesCount || assignedPasses.length,
+      icon: QrCode,
     },
   ];
 
-  const activeStepMeta = steps.find((s) => s.id === activeStep) || steps[0];
-
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-6xl mx-auto space-y-6">
-        {/* Cabecera del Portal Prestador + Navegación de Pasos */}
-        <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
-                style={innerStyle}
-              >
-                <Wrench size={20} strokeWidth={1.8} />
-              </div>
-              <div>
-                <h2 className="text-xl font-black tracking-tight">
-                  Portal Prestador — {activeStepMeta.stepNumber}. {activeStepMeta.label}
-                </h2>
-                <p className="text-xs opacity-80 mt-0.5">
-                  {activeStep === 'credentials' &&
-                    'Historial documental deduplicado (incluyendo vencidos), vigencia por fechas y especialidades verificadas en TrustLink.'}
-                  {activeStep === 'vehicles' &&
-                    'Vehículos habilitados, patentes y vigencia de seguro automotor asociado a tu perfil.'}
-                  {activeStep === 'reviews' &&
-                    'Reseñas recibidas de residentes y calificación cruzada por servicio realizado.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2.5 flex-wrap">
-              {providerProfiles.length > 0 && (
-                <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                  <Star size={14} className="fill-amber-400" />
-                  Scoring: {Number(providerProfiles[0].rating_avg || 0).toFixed(2)}
-                </span>
-              )}
-              <span
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl border inline-flex items-center gap-1.5 ${primaryStatusInfo.badgeClass}`}
-              >
-                {primaryStatusInfo.isVerified && <BadgeCheck size={14} />}
-                Estado: {primaryStatusInfo.label}
-              </span>
-              <button
-                type="button"
-                onClick={refreshAll}
-                disabled={fetching || loadingContracts}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
-                style={innerStyle}
-              >
-                <RefreshCw
-                  size={13}
-                  className={fetching || loadingContracts ? 'animate-spin' : ''}
-                />
-                Actualizar
-              </button>
-            </div>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+      {/* Cabecera del Portal Prestador */}
+      <div
+        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        style={cardStyle}
+      >
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+            <ShieldCheck size={14} />
+            <span>Portal Prestador</span>
           </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+            {user?.full_name || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || 'Gestión del Prestador'}
+          </h1>
+          <p className="text-xs sm:text-sm opacity-80">
+            Administrá tus credenciales, vehículos, reseñas y pases QR habilitados para ingresar al barrio.
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-            {steps.map((item) => {
-              const IconComp = item.icon;
-              const isSelected = activeStep === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveStep(item.id)}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                    isSelected
-                      ? 'text-white border-transparent shadow-sm'
-                      : 'border-white/15 opacity-85 hover:opacity-100'
-                  }`}
-                  style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-black/25 text-white' : 'bg-white/10'
-                      }`}
-                    >
-                      {item.stepNumber}
-                    </span>
-                    <IconComp size={14} className="shrink-0" />
-                    <span className="text-xs font-bold truncate">{item.label}</span>
-                  </div>
-                  <span
-                    className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                      isSelected ? 'bg-black/25 text-white' : 'bg-black/20'
-                    }`}
-                  >
-                    {item.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {feedback.text && (
-          <div
-            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <span
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300"
           >
-            <div className="flex items-center gap-2">
-              {feedback.type === 'success' ? (
-                <CheckCircle2 size={16} />
-              ) : (
-                <AlertCircle size={16} />
-              )}
-              <span>{feedback.text}</span>
-            </div>
+            <Star size={13} className="fill-amber-400 text-amber-400" />
+            Scoring: {avgRating}
+          </span>
+
+          <span
+            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-700/80"
+            style={innerStyle}
+          >
+            Estado: {primaryStatus === 'approved' ? 'Aprobado' : 'Pendiente'}
+          </span>
+
+          <button
+            type="button"
+            onClick={() => {
+              fetchProviderData();
+              fetchAssignedPasses();
+            }}
+            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
+            style={innerStyle}
+            title="Actualizar información"
+          >
+            <RefreshCw size={15} className={loadingProfile || loadingPasses ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
+
+      {/* Selector de pasos clicables superiores */}
+      <div
+        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2"
+        style={cardStyle}
+      >
+        {tabs.map((tab) => {
+          const IconComponent = tab.icon;
+          const isSelected = activeTab === tab.id;
+          return (
             <button
+              key={tab.id}
               type="button"
-              onClick={() => setFeedback({ type: '', text: '' })}
-              className="p-1 rounded-lg hover:bg-black/20 cursor-pointer"
-              aria-label="Cerrar aviso"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                isSelected
+                  ? 'text-white border-transparent shadow-sm'
+                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
+              }`}
+              style={isSelected ? { backgroundColor: primaryColor } : innerStyle}
             >
-              <X size={14} />
+              <span className="flex items-center gap-1.5 truncate">
+                <IconComponent size={14} className="shrink-0" />
+                <span className="truncate">{tab.label}</span>
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
+                {tab.count}
+              </span>
             </button>
-          </div>
-        )}
+          );
+        })}
+      </div>
 
-        {/* PASO 1: Credenciales */}
-        {activeStep === 'credentials' && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
-              style={cardStyle}
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
-                <div className="flex items-center gap-2">
-                  <FileText size={16} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold">Documentación Personal</h3>
-                </div>
+      {feedback.text && (
+        <div
+          className={`rounded-2xl p-4 text-xs border ${
+            feedback.type === 'success'
+              ? 'bg-emerald-950/50 border-emerald-700/70 text-emerald-200'
+              : 'bg-rose-950/50 border-rose-800/70 text-rose-200'
+          }`}
+        >
+          {feedback.text}
+        </div>
+      )}
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewDocForm((prev) => !prev);
-                    setNewDocType('criminal');
-                    setNewDocUrl('');
-                    setNewDocFrom('');
-                    setNewDocUntil('');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 shrink-0"
-                  style={{ backgroundColor: primaryActionColor }}
-                >
-                  {showNewDocForm ? (
-                    <>
-                      <X size={13} /> Cerrar
-                    </>
-                  ) : (
-                    <>
-                      <Plus size={13} /> Cargar Documentación
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {showNewDocForm && (
-                <form
-                  onSubmit={handleCreateNewDoc}
-                  className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
-                  style={innerStyle}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                      Nueva Versión Documental
-                    </span>
-                    <select
-                      value={newDocType}
-                      onChange={(e) => setNewDocType(e.target.value)}
-                      className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    >
-                      <option value="criminal">Antecedentes Penales</option>
-                      <option value="insurance">Póliza ART / Seguro</option>
-                    </select>
-                  </div>
-
-                  <input
-                    type="text"
-                    required
-                    value={newDocUrl}
-                    onChange={(e) => setNewDocUrl(e.target.value)}
-                    placeholder="URL del documento (https://...)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Desde</label>
-                      <input
-                        type="date"
-                        value={newDocFrom}
-                        onChange={(e) => setNewDocFrom(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[10px] opacity-70 mb-0.5">Hasta</label>
-                      <input
-                        type="date"
-                        value={newDocUntil}
-                        onChange={(e) => setNewDocUntil(e.target.value)}
-                        className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                        style={cardStyle}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewDocForm(false)}
-                      className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
-                      style={cardStyle}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={savingDocs || !newDocUrl.trim()}
-                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
-                      style={{ backgroundColor: primaryActionColor }}
-                    >
-                      <Save size={12} /> {savingDocs ? 'Guardando...' : 'Guardar'}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2.5 text-xs flex-1 flex flex-col">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
-                    <History size={13} className="text-sky-400" />
-                    Historial Documental
-                  </span>
-                  <span
-                    className="text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15"
-                    style={innerStyle}
-                  >
-                    {personalDocRows.length} doc(s)
-                  </span>
-                </div>
-
-                {fetching ? (
-                  <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin" size={14} /> Cargando documentación...
-                  </div>
-                ) : personalDocRows.length === 0 ? (
-                  <div
-                    className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
-                    style={innerStyle}
-                  >
-                    Sin documentación cargada. Usá el botón <strong>Cargar Documentación</strong> para
-                    registrar tus antecedentes o seguro.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-                    {personalDocRows.map((row) => {
-                      const isRowEditing = editingDocKey === row.docKey;
-                      return (
-                        <div
-                          key={row.docKey}
-                          className="p-3.5 rounded-xl border border-black/20 space-y-2 text-[11px] min-h-[116px] flex flex-col justify-between"
-                          style={innerStyle}
-                        >
-                          {isRowEditing ? (
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <span className="font-bold text-xs">{row.title}</span>
-                                <span className="text-[10px] opacity-70">Nueva versión</span>
-                              </div>
-                              <input
-                                type="text"
-                                value={editDocUrl}
-                                onChange={(e) => setEditDocUrl(e.target.value)}
-                                placeholder="URL del documento"
-                                className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <div className="grid grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] opacity-70 mb-0.5">
-                                    Desde
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editDocFrom}
-                                    onChange={(e) => setEditDocFrom(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] opacity-70 mb-0.5">
-                                    Hasta
-                                  </label>
-                                  <input
-                                    type="date"
-                                    value={editDocUntil}
-                                    onChange={(e) => setEditDocUntil(e.target.value)}
-                                    className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex justify-end gap-1.5 pt-1">
-                                <button
-                                  type="button"
-                                  disabled={savingDocs}
-                                  onClick={() => handleSaveInlineDocEdit(row)}
-                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50"
-                                  style={{ backgroundColor: primaryActionColor }}
-                                >
-                                  <Save size={11} /> Guardar
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingDocKey(null)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                                  style={cardStyle}
-                                >
-                                  <X size={11} /> Cancelar
-                                </button>
-                              </div>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center justify-between gap-2 h-6">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-bold text-xs truncate">{row.title}</span>
-                                  <span
-                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 shrink-0 ${row.trustlinkValidation.badgeClass}`}
-                                    title="Estado de verificación en TrustLink"
-                                  >
-                                    {row.trustlinkValidation.isVerified && <BadgeCheck size={12} />}
-                                    {row.trustlinkValidation.label}
-                                  </span>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => startInlineDocEdit(row)}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90 shrink-0"
-                                  style={cardStyle}
-                                >
-                                  <Edit3 size={11} /> Editar
-                                </button>
-                              </div>
-
-                              <div className="truncate opacity-80 h-4 leading-4">{row.url}</div>
-
-                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
-                                <span className="font-mono text-[10px] opacity-75 truncate">
-                                  Vigencia: {formatDisplayDate(row.fromDate)} —{' '}
-                                  {formatDisplayDate(row.untilDate)}
-                                </span>
-                                <span
-                                  className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${row.validity.badgeClass}`}
-                                >
-                                  {row.validity.label}
-                                </span>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </section>
-
-            <section
-              className="lg:col-span-6 border border-black/20 p-5 rounded-2xl shadow-sm space-y-4 flex flex-col"
-              style={cardStyle}
-            >
-              <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
-                <div className="flex items-center gap-2">
-                  <Award size={16} className="text-emerald-400" />
-                  <h3 className="text-sm font-bold">Especialidades y Credenciales</h3>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewSpecialtyForm((prev) => !prev);
-                    setSpecialty('');
-                  }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 shrink-0"
-                  style={{ backgroundColor: primaryActionColor }}
-                >
-                  {showNewSpecialtyForm ? (
-                    <>
-                      <X size={13} /> Cerrar
-                    </>
-                  ) : (
-                    <>
-                      <Plus size={13} /> Cargar Especialidad
-                    </>
-                  )}
-                </button>
-              </div>
-
-              {showNewSpecialtyForm && (
-                <form
-                  onSubmit={handleAddSpecialty}
-                  className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
-                  style={innerStyle}
-                >
-                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                    Nueva Especialidad
-                  </div>
-                  <input
-                    type="text"
-                    required
-                    value={specialty}
-                    onChange={(e) => setSpecialty(e.target.value)}
-                    placeholder="Especialidad (ej: Plomero Matriculado)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <div className="flex justify-end gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewSpecialtyForm(false)}
-                      className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
-                      style={cardStyle}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={loadingAction || !specialty.trim()}
-                      className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
-                      style={{ backgroundColor: primaryActionColor }}
-                    >
-                      <Plus size={12} /> {loadingAction ? 'Agregando...' : 'Agregar'}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <div className="space-y-2.5 text-xs flex-1 flex flex-col">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
-                    <Award size={13} className="text-emerald-400" />
-                    Especialidades Cargadas
-                  </span>
-                  <span
-                    className="text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15"
-                    style={innerStyle}
-                  >
-                    {providerProfiles.length} activa(s)
-                  </span>
-                </div>
-
-                {fetching ? (
-                  <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin" size={14} /> Cargando especialidades...
-                  </div>
-                ) : providerProfiles.length === 0 ? (
-                  <div
-                    className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
-                    style={innerStyle}
-                  >
-                    Sin especialidades cargadas. Usá el botón <strong>Cargar Especialidad</strong>{' '}
-                    para sumar tu oficio.
-                  </div>
-                ) : (
-                  <div className="space-y-2.5 max-h-[420px] overflow-y-auto pr-1">
-                    {providerProfiles.map((prof) => {
-                      const isEditing = editingProfileId === prof.id;
-                      const profStatus = formatSpecialtyStatus(prof.status);
-                      const isHiddenByProvider = hiddenProfileIds.includes(Number(prof.id));
-                      const isVisible = !isHiddenByProvider;
-
-                      return (
-                        <div
-                          key={prof.id}
-                          className="p-3.5 rounded-xl border border-black/20 text-[11px] space-y-2 min-h-[116px] flex flex-col justify-between"
-                          style={innerStyle}
-                        >
-                          {isEditing ? (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={editSpecialty}
-                                onChange={(e) => setEditSpecialty(e.target.value)}
-                                className="flex-1 px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEditSpecialty(prof.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white font-bold cursor-pointer"
-                                style={{ backgroundColor: primaryActionColor }}
-                              >
-                                <Save size={11} /> Guardar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingProfileId(null)}
-                                className="p-1.5 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                                style={cardStyle}
-                                aria-label="Cancelar"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex items-center justify-between gap-2 h-6">
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <span className="font-bold text-xs truncate">
-                                    {prof.specialty}
-                                  </span>
-                                  <span
-                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border inline-flex items-center gap-1 shrink-0 ${profStatus.badgeClass}`}
-                                  >
-                                    {profStatus.isVerified && <BadgeCheck size={12} />}
-                                    {profStatus.label}
-                                  </span>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setEditingProfileId(prof.id);
-                                    setEditSpecialty(prof.specialty || '');
-                                  }}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90 shrink-0"
-                                  style={cardStyle}
-                                >
-                                  <Edit3 size={11} /> Editar
-                                </button>
-                              </div>
-
-                              <p className="opacity-80 truncate h-4 leading-4">
-                                {isHiddenByProvider
-                                  ? 'Oculta por tu configuración actual para residentes.'
-                                  : profStatus.isVerified
-                                  ? 'Verificada y habilitada para mostrarse a residentes.'
-                                  : 'Pendiente de verificación de TrustLink para residentes.'}
-                              </p>
-
-                              <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
-                                <span className="opacity-75 truncate">
-                                  Visibilidad en directorio:
-                                </span>
-
-                                <button
-                                  type="button"
-                                  role="switch"
-                                  aria-checked={isVisible}
-                                  onClick={() => handleToggleSpecialtyVisibility(prof)}
-                                  className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full border text-[10px] font-bold transition-all cursor-pointer shrink-0 ${
-                                    isVisible
-                                      ? 'bg-sky-500/15 text-sky-300 border-sky-500/35'
-                                      : 'bg-slate-800/80 text-slate-400 border-slate-700'
-                                  }`}
-                                  title="Clic para alternar entre Visible y Oculta"
-                                >
-                                  {isVisible ? (
-                                    <Eye size={11} className="text-sky-300" />
-                                  ) : (
-                                    <EyeOff size={11} className="text-slate-400" />
-                                  )}
-                                  <span>{isVisible ? 'Visible' : 'Oculta'}</span>
-                                  <span
-                                    className={`relative inline-flex h-3.5 w-6 items-center rounded-full transition-colors ${
-                                      isVisible ? 'bg-sky-400/80' : 'bg-slate-600'
-                                    }`}
-                                  >
-                                    <span
-                                      className={`inline-block h-2.5 w-2.5 transform rounded-full bg-white transition-transform ${
-                                        isVisible ? 'translate-x-3' : 'translate-x-0.5'
-                                      }`}
-                                    />
-                                  </span>
-                                </button>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </section>
-          </div>
-        )}
-
-        {/* PASO 2: Flota Vehicular Habilitada */}
-        {activeStep === 'vehicles' && (
+      {/* PASO 1: Credenciales y Especialidades */}
+      {activeTab === 'credentials' && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Documentación Personal */}
           <section
-            className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-4"
+            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-black/20 pb-3">
-              <div className="flex items-center gap-2">
-                <Car size={16} className="text-sky-400" />
-                <h3 className="text-sm font-bold">Flota Vehicular Habilitada</h3>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold">Documentación Personal</h2>
+                <p className="text-xs opacity-75">
+                  Antecedentes y ART / seguro personal del prestador.
+                </p>
               </div>
-
               <button
                 type="button"
-                onClick={() => {
-                  setShowNewVehicleForm((prev) => !prev);
-                  setVehicleType('Utilitario');
-                  setBrandName('');
-                  setModelName('');
-                  setColorName('');
-                  setPlate('');
-                  setVehInsuranceUrl('');
-                  setVehInsuranceFrom('');
-                  setVehInsuranceUntil('');
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 shrink-0"
-                style={{ backgroundColor: primaryActionColor }}
+                onClick={() => setShowDocForm((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
               >
-                {showNewVehicleForm ? (
-                  <>
-                    <X size={13} /> Cerrar
-                  </>
-                ) : (
-                  <>
-                    <Plus size={13} /> Cargar Vehículo
-                  </>
-                )}
+                <Plus size={14} /> {showDocForm ? 'Cerrar' : 'Cargar Doc.'}
               </button>
             </div>
 
-            {showNewVehicleForm && (
+            {showDocForm && (
               <form
-                onSubmit={handleAddVehicle}
-                className="p-3.5 rounded-xl border border-white/15 space-y-2.5 text-xs"
+                onSubmit={handleSaveDocument}
+                className="rounded-xl p-4 border border-slate-700/80 space-y-3 text-xs"
                 style={innerStyle}
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-85">
-                    Nuevo Vehículo y Seguro Automotor
-                  </span>
+                <div>
+                  <label className="block font-semibold mb-1">Tipo de documento</label>
                   <select
-                    value={vehicleType}
-                    onChange={(e) => setVehicleType(e.target.value)}
-                    className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                    value={docForm.doc_type}
+                    onChange={(e) => setDocForm((prev) => ({ ...prev, doc_type: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
                     style={cardStyle}
                   >
-                    <option value="Utilitario">Utilitario</option>
-                    <option value="Automóvil">Automóvil</option>
-                    <option value="Camioneta">Camioneta</option>
-                    <option value="Moto">Moto</option>
+                    <option value="Antecedentes Penales">Antecedentes Penales</option>
+                    <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
                   </select>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <div>
+                  <label className="block font-semibold mb-1">URL del comprobante</label>
                   <input
                     type="text"
-                    required
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder="Marca (ej: Ford)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={modelName}
-                    onChange={(e) => setModelName(e.target.value)}
-                    placeholder="Modelo (ej: Fiorino)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <input
-                    type="text"
-                    value={colorName}
-                    onChange={(e) => setColorName(e.target.value)}
-                    placeholder="Color (ej: Blanco)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                  <input
-                    type="text"
-                    required
-                    value={plate}
-                    onChange={(e) => setPlate(e.target.value)}
-                    placeholder="Patente (ej: AF123CD)"
-                    className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                    value={docForm.doc_url}
+                    onChange={(e) => setDocForm((prev) => ({ ...prev, doc_url: e.target.value }))}
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
                     style={cardStyle}
                   />
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-end">
-                  <div className="sm:col-span-6">
-                    <label className="block text-[10px] opacity-70 mb-0.5">
-                      URL Póliza de Seguro Vehicular (PDF / Enlace)
-                    </label>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-semibold mb-1">Vigencia desde</label>
                     <input
-                      type="text"
-                      value={vehInsuranceUrl}
-                      onChange={(e) => setVehInsuranceUrl(e.target.value)}
-                      placeholder="https://storage.trustlink.com/seguro-auto.pdf"
-                      className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                      type="date"
+                      value={docForm.issued_at}
+                      onChange={(e) =>
+                        setDocForm((prev) => ({ ...prev, issued_at: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700"
                       style={cardStyle}
                     />
                   </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[10px] opacity-70 mb-0.5">Seguro Desde</label>
+                  <div>
+                    <label className="block font-semibold mb-1">Vigencia hasta</label>
                     <input
                       type="date"
-                      value={vehInsuranceFrom}
-                      onChange={(e) => setVehInsuranceFrom(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
-                      style={cardStyle}
-                    />
-                  </div>
-                  <div className="sm:col-span-3">
-                    <label className="block text-[10px] opacity-70 mb-0.5">Seguro Hasta</label>
-                    <input
-                      type="date"
-                      value={vehInsuranceUntil}
-                      onChange={(e) => setVehInsuranceUntil(e.target.value)}
-                      className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                      value={docForm.expires_at}
+                      onChange={(e) =>
+                        setDocForm((prev) => ({ ...prev, expires_at: e.target.value }))
+                      }
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700"
                       style={cardStyle}
                     />
                   </div>
                 </div>
-
-                <div className="flex justify-end gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowNewVehicleForm(false)}
-                    className="px-3 py-1.5 rounded-lg border border-white/15 text-xs font-semibold cursor-pointer"
-                    style={cardStyle}
-                  >
-                    Cancelar
-                  </button>
+                <div className="flex justify-end">
                   <button
                     type="submit"
-                    disabled={loadingAction || !plate.trim()}
-                    className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer"
-                    style={{ backgroundColor: primaryActionColor }}
+                    disabled={savingDoc}
+                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryColor }}
                   >
-                    <Save size={12} /> {loadingAction ? 'Guardando...' : 'Guardar Vehículo'}
+                    {savingDoc ? 'Guardando...' : 'Guardar Documento'}
                   </button>
                 </div>
               </form>
             )}
 
-            <div className="space-y-2.5 text-xs">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5">
-                  <Car size={13} className="text-sky-400" />
-                  Vehículos Registrados
-                </span>
-                <span
-                  className="text-[11px] font-mono px-2.5 py-0.5 rounded-lg border border-white/15"
-                  style={innerStyle}
-                >
-                  {vehicles.length} vehículo(s)
-                </span>
-              </div>
-
-              {fetching ? (
-                <div className="text-center py-6 text-xs opacity-80 flex items-center justify-center gap-2">
-                  <Loader2 className="animate-spin" size={14} /> Cargando flota vehicular...
-                </div>
-              ) : vehicles.length === 0 ? (
+            <div className="space-y-2.5">
+              {documents.length === 0 ? (
                 <div
-                  className="p-4 rounded-xl border border-black/20 text-[11px] opacity-75 text-center"
+                  className="rounded-xl p-6 text-center text-xs opacity-75 border border-slate-800/60"
                   style={innerStyle}
                 >
-                  Sin vehículos registrados. Usá el botón <strong>Cargar Vehículo</strong> para
-                  asociar un vehículo y su póliza de seguro.
+                  Sin documentación personal cargada todavía.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {vehicles.map((veh) => {
-                    const isEditingVeh = editingVehicleId === veh.id;
-                    const cleanPlate = (veh.plate || '').trim();
-                    const insFrom = veh.vehicle_insurance_from;
-                    const insUntil = veh.vehicle_insurance_expiry;
-                    const insValidity = resolveDateValidity(insFrom, insUntil);
-
-                    return (
-                      <div
-                        key={veh.id}
-                        className="p-3.5 rounded-xl border border-black/20 space-y-2 text-[11px] min-h-[116px] flex flex-col justify-between"
-                        style={innerStyle}
-                      >
-                        {isEditingVeh ? (
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-xs">Editando Vehículo</span>
-                              <select
-                                value={editVehicleType}
-                                onChange={(e) => setEditVehicleType(e.target.value)}
-                                className="px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
-                                style={cardStyle}
-                              >
-                                <option value="Utilitario">Utilitario</option>
-                                <option value="Automóvil">Automóvil</option>
-                                <option value="Camioneta">Camioneta</option>
-                                <option value="Moto">Moto</option>
-                              </select>
-                            </div>
-
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                              <input
-                                type="text"
-                                value={editBrand}
-                                onChange={(e) => setEditBrand(e.target.value)}
-                                placeholder="Marca"
-                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                style={cardStyle}
-                              />
-                              <input
-                                type="text"
-                                value={editModel}
-                                onChange={(e) => setEditModel(e.target.value)}
-                                placeholder="Modelo"
-                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                style={cardStyle}
-                              />
-                              <input
-                                type="text"
-                                value={editColor}
-                                onChange={(e) => setEditColor(e.target.value)}
-                                placeholder="Color"
-                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs"
-                                style={cardStyle}
-                              />
-                              <input
-                                type="text"
-                                value={editPlate}
-                                onChange={(e) => setEditPlate(e.target.value)}
-                                placeholder="Patente"
-                                className="px-2.5 py-1 rounded-lg border border-white/15 text-xs font-mono uppercase"
-                                style={cardStyle}
-                              />
-                            </div>
-
-                            <input
-                              type="text"
-                              value={editVehInsuranceUrl}
-                              onChange={(e) => setEditVehInsuranceUrl(e.target.value)}
-                              placeholder="URL Póliza de Seguro Vehicular"
-                              className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs"
-                              style={cardStyle}
-                            />
-
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="block text-[10px] opacity-70 mb-0.5">
-                                  Seguro Desde
-                                </label>
-                                <input
-                                  type="date"
-                                  value={editVehInsuranceFrom}
-                                  onChange={(e) => setEditVehInsuranceFrom(e.target.value)}
-                                  className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
-                                  style={cardStyle}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] opacity-70 mb-0.5">
-                                  Seguro Hasta
-                                </label>
-                                <input
-                                  type="date"
-                                  value={editVehInsuranceUntil}
-                                  onChange={(e) => setEditVehInsuranceUntil(e.target.value)}
-                                  className="w-full px-2.5 py-1 rounded-lg border border-white/15 text-[11px]"
-                                  style={cardStyle}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-1.5 pt-1">
-                              <button
-                                type="button"
-                                onClick={() => handleSaveEditVehicle(veh.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold cursor-pointer"
-                                style={{ backgroundColor: primaryActionColor }}
-                              >
-                                <Save size={11} /> Guardar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEditingVehicleId(null)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-85 cursor-pointer"
-                                style={cardStyle}
-                              >
-                                <X size={11} /> Cancelar
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <>
-                            <div className="flex items-center justify-between gap-2 h-6">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="font-bold text-xs truncate">
-                                  {veh.brand} {veh.model}
-                                </span>
-                                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-sky-500/15 text-sky-300 border-sky-500/35 uppercase shrink-0">
-                                  {veh.vehicle_type || 'Vehículo'}
-                                </span>
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingVehicleId(veh.id);
-                                  setEditVehicleType(veh.vehicle_type || 'Utilitario');
-                                  setEditBrand(veh.brand || '');
-                                  setEditModel(veh.model || '');
-                                  setEditColor(veh.color || '');
-                                  setEditPlate(veh.plate || '');
-                                  setEditVehInsuranceUrl(veh.vehicle_insurance_url || '');
-                                  setEditVehInsuranceFrom(
-                                    toDateInputValue(veh.vehicle_insurance_from)
-                                  );
-                                  setEditVehInsuranceUntil(
-                                    toDateInputValue(veh.vehicle_insurance_expiry)
-                                  );
-                                }}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90 shrink-0"
-                                style={cardStyle}
-                              >
-                                <Edit3 size={11} /> Editar
-                              </button>
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 opacity-80 h-4 leading-4">
-                              <span className="truncate">
-                                Color: {veh.color || 'No especificado'} · Patente:{' '}
-                                {cleanPlate ? (
-                                  <strong className="text-sky-300 font-mono">{cleanPlate}</strong>
-                                ) : (
-                                  <strong className="text-amber-400">Sin patente</strong>
-                                )}
-                              </span>
-                              {veh.vehicle_insurance_url && (
-                                <a
-                                  href={veh.vehicle_insurance_url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="text-emerald-300 hover:underline font-semibold shrink-0"
-                                >
-                                  Ver póliza
-                                </a>
-                              )}
-                            </div>
-
-                            <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-white/10 h-7">
-                              <span className="font-mono text-[10px] opacity-75 truncate">
-                                Seguro: {formatDisplayDate(insFrom)} —{' '}
-                                {formatDisplayDate(insUntil)}
-                              </span>
-                              <span
-                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${insValidity.badgeClass}`}
-                              >
-                                {insValidity.label}
-                              </span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+                documents.map((doc) => (
+                  <div
+                    key={doc.id}
+                    className="rounded-xl p-3.5 border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="min-w-0">
+                      <p className="font-bold truncate">{doc.doc_type}</p>
+                      <p className="opacity-75 truncate">{doc.doc_url || 'Sin enlace'}</p>
+                      <p className="text-[11px] opacity-70 mt-0.5">
+                        Vigencia: {doc.issued_at || '—'} → {doc.expires_at || 'Sin fecha'}
+                      </p>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-bold border border-emerald-500/30 bg-emerald-500/15 text-emerald-300 shrink-0">
+                      {doc.status || 'Registrado'}
+                    </span>
+                  </div>
+                ))
               )}
             </div>
           </section>
-        )}
 
-        {/* PASO 3: Reseñas y Reputación Cruzada */}
-        {activeStep === 'reviews' && (
-          <div
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          {/* Especialidades y Matrículas */}
+          <section
+            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
             style={cardStyle}
           >
-            <div className="flex items-center justify-between border-b border-black/20 pb-4">
-              <div className="flex items-center gap-2.5">
-                <Star size={18} className="text-amber-400" />
-                <div>
-                  <h3 className="text-sm font-bold">Reseñas y Reputación Cruzada</h3>
-                  <p className="text-xs opacity-80">
-                    Reseñas recibidas de residentes y calificación cruzada por servicio realizado.
-                  </p>
-                </div>
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h2 className="text-base font-bold flex items-center gap-1.5">
+                  <Award size={16} className="text-emerald-400" />
+                  <span>Especialidades y Credenciales</span>
+                </h2>
+                <p className="text-xs opacity-75">
+                  Rubros habilitados y visibilidad en el directorio de residentes.
+                </p>
               </div>
-              <span className="text-xs font-mono opacity-80">
-                {providerContracts.length} contrato(s)
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowSpecialtyForm((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Plus size={14} /> {showSpecialtyForm ? 'Cerrar' : 'Cargar Especialidad'}
+              </button>
             </div>
 
-            {crossReviewFeedback && (
-              <div
-                className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
-                  crossReviewFeedback.type === 'success'
-                    ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                    : 'bg-rose-950/60 border-rose-800 text-rose-200'
-                }`}
+            {showSpecialtyForm && (
+              <form
+                onSubmit={handleAddSpecialty}
+                className="rounded-xl p-4 border border-slate-700/80 space-y-3 text-xs"
+                style={innerStyle}
               >
-                {crossReviewFeedback.type === 'success' ? (
-                  <CheckCircle2 size={15} />
-                ) : (
-                  <AlertCircle size={15} />
-                )}
-                <span>{crossReviewFeedback.message}</span>
-              </div>
+                <div>
+                  <label className="block font-semibold mb-1">Especialidad</label>
+                  <input
+                    type="text"
+                    value={specialtyForm.specialty}
+                    onChange={(e) =>
+                      setSpecialtyForm((prev) => ({ ...prev, specialty: e.target.value }))
+                    }
+                    placeholder="Ej: Electricista Matriculado, Gasista..."
+                    required
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                    style={cardStyle}
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">URL Matrícula / Habilitación</label>
+                  <input
+                    type="text"
+                    value={specialtyForm.license_url}
+                    onChange={(e) =>
+                      setSpecialtyForm((prev) => ({ ...prev, license_url: e.target.value }))
+                    }
+                    placeholder="https://..."
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                    style={cardStyle}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingSpecialty}
+                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {savingSpecialty ? 'Guardando...' : 'Guardar Especialidad'}
+                  </button>
+                </div>
+              </form>
             )}
 
-            {loadingContracts ? (
-              <div className="text-center py-6 text-xs opacity-80">
-                Cargando servicios y calificaciones cruzadas...
-              </div>
-            ) : providerContracts.length === 0 ? (
-              <div className="text-center py-6 text-xs opacity-75">
-                Aún no tenés contratos asignados en tu historial.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {providerContracts.map((item) => {
-                  const draftRating = ownerRatingDrafts[item.contract_id] || 5;
-                  const draftComment = ownerCommentDrafts[item.contract_id] || '';
-                  const alreadyRatedOwner = Boolean(item.owner_review_id);
-
+            <div className="space-y-2.5">
+              {profiles.length === 0 ? (
+                <div
+                  className="rounded-xl p-6 text-center text-xs opacity-75 border border-slate-800/60"
+                  style={innerStyle}
+                >
+                  Todavía no cargaste especialidades.
+                </div>
+              ) : (
+                profiles.map((prof) => {
+                  const isVisible = prof.is_visible_in_directory ?? true;
                   return (
                     <div
-                      key={item.contract_id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                      key={prof.id}
+                      className="rounded-xl p-3.5 border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
                       style={innerStyle}
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <span className="font-mono font-bold text-emerald-400">
-                            Contrato #{item.contract_id}
-                          </span>{' '}
-                          ·{' '}
-                          <span className="font-semibold">
-                            Residente:{' '}
-                            {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
-                              'Propietario'}
-                          </span>{' '}
-                          <span className="opacity-75">({item.country_name || 'Comunidad'})</span>
-                          <p className="opacity-80 mt-1">{item.description}</p>
-                        </div>
-                        <span
-                          className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
-                          style={cardStyle}
-                        >
-                          ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
-                        </span>
+                      <div className="min-w-0">
+                        <p className="font-bold truncate">{prof.specialty}</p>
+                        <p className="text-[11px] opacity-75 mt-0.5">
+                          Estado: {prof.compliance_status === 'approved' ? 'Aprobada' : 'Pendiente'}
+                        </p>
                       </div>
 
-                      {item.provider_review_rating && (
-                        <div className="bg-emerald-950/30 border border-emerald-800/60 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-emerald-300">
-                            Reseña recibida del residente: {'★'.repeat(item.provider_review_rating)} (
-                            {item.provider_review_rating}/5)
-                          </span>
-                          {item.provider_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.provider_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      )}
-
-                      {alreadyRatedOwner ? (
-                        <div
-                          className="border border-white/15 rounded-lg p-3 flex flex-wrap items-center justify-between gap-2"
-                          style={cardStyle}
-                        >
-                          <span className="font-semibold text-indigo-300">
-                            Tu calificación al residente: {'★'.repeat(item.owner_review_rating)} (
-                            {item.owner_review_rating}/5)
-                          </span>
-                          {item.owner_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.owner_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div
-                          className="border border-black/20 rounded-lg p-3.5 space-y-2.5"
-                          style={cardStyle}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="opacity-90 font-semibold">
-                              Calificar experiencia con el residente / acceso:
-                            </span>
-                            <div className="flex items-center gap-1">
-                              {[1, 2, 3, 4, 5].map((starVal) => (
-                                <button
-                                  key={starVal}
-                                  type="button"
-                                  onClick={() =>
-                                    setOwnerRatingDrafts((prev) => ({
-                                      ...prev,
-                                      [item.contract_id]: starVal,
-                                    }))
-                                  }
-                                  className={`p-1 rounded-lg border cursor-pointer ${
-                                    draftRating >= starVal
-                                      ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                      : 'border-white/15 opacity-60'
-                                  }`}
-                                  style={draftRating >= starVal ? undefined : innerStyle}
-                                >
-                                  <Star
-                                    size={13}
-                                    className={draftRating >= starVal ? 'fill-amber-400' : ''}
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <div className="relative flex-1">
-                              <MessageSquare
-                                size={13}
-                                className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
-                              />
-                              <input
-                                type="text"
-                                value={draftComment}
-                                onChange={(e) =>
-                                  setOwnerCommentDrafts((prev) => ({
-                                    ...prev,
-                                    [item.contract_id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Comentario sobre trato, claridad del trabajo y acceso al barrio..."
-                                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={innerStyle}
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                              disabled={submittingReviewId === item.contract_id}
-                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
-                              style={{ backgroundColor: primaryActionColor }}
-                            >
-                              <Send size={12} />
-                              {submittingReviewId === item.contract_id
-                                ? 'Enviando...'
-                                : 'Calificar Residente'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSpecialtyVisibility(prof)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer shrink-0 ${
+                          isVisible
+                            ? 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}
+                      >
+                        {isVisible ? <Eye size={13} /> : <EyeOff size={13} />}
+                        {isVisible ? 'Visible' : 'Oculta'}
+                      </button>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* PASO 2: Flota Vehicular */}
+      {activeTab === 'vehicles' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold">Flota Vehicular</h2>
+              <p className="text-xs opacity-75">
+                Vehículos asociados a tu perfil para agilizar el control en el acceso.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowVehicleForm((prev) => !prev)}
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+              style={{ backgroundColor: primaryColor }}
+            >
+              <Plus size={14} /> {showVehicleForm ? 'Cerrar' : 'Cargar Vehículo'}
+            </button>
           </div>
-        )}
-      </main>
+
+          {showVehicleForm && (
+            <form
+              onSubmit={handleAddVehicle}
+              className="rounded-xl p-4 border border-slate-700/80 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs"
+              style={innerStyle}
+            >
+              <div>
+                <label className="block font-semibold mb-1">Tipo de vehículo</label>
+                <input
+                  type="text"
+                  value={vehicleForm.vehicle_type}
+                  onChange={(e) =>
+                    setVehicleForm((prev) => ({ ...prev, vehicle_type: e.target.value }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Marca</label>
+                <input
+                  type="text"
+                  value={vehicleForm.brand}
+                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, brand: e.target.value }))}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Modelo</label>
+                <input
+                  type="text"
+                  value={vehicleForm.model}
+                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, model: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Color</label>
+                <input
+                  type="text"
+                  value={vehicleForm.color}
+                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, color: e.target.value }))}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Patente</label>
+                <input
+                  type="text"
+                  value={vehicleForm.plate}
+                  onChange={(e) => setVehicleForm((prev) => ({ ...prev, plate: e.target.value }))}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Vencimiento seguro</label>
+                <input
+                  type="date"
+                  value={vehicleForm.vehicle_insurance_expiry}
+                  onChange={(e) =>
+                    setVehicleForm((prev) => ({
+                      ...prev,
+                      vehicle_insurance_expiry: e.target.value,
+                    }))
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700"
+                  style={cardStyle}
+                />
+              </div>
+              <div className="sm:col-span-2 lg:col-span-3 flex justify-end">
+                <button
+                  type="submit"
+                  disabled={savingVehicle}
+                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {savingVehicle ? 'Guardando...' : 'Guardar Vehículo'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {vehicles.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              style={innerStyle}
+            >
+              No hay vehículos registrados en tu flota.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {vehicles.map((v) => (
+                <div
+                  key={v.id}
+                  className="rounded-xl p-4 border border-slate-800/70 space-y-1.5 text-xs"
+                  style={innerStyle}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold text-sm">
+                      {v.brand} {v.model || ''}
+                    </span>
+                    <span className="font-mono font-bold px-2.5 py-0.5 rounded bg-black/30 border border-slate-700">
+                      {v.plate}
+                    </span>
+                  </div>
+                  <p className="opacity-80">
+                    Tipo: {v.vehicle_type || 'Vehículo'} · Color: {v.color || 'No informado'}
+                  </p>
+                  {v.vehicle_insurance_expiry && (
+                    <p className="opacity-75">Seguro vigente hasta: {v.vehicle_insurance_expiry}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 3: Reseñas y Reputación Cruzada */}
+      {activeTab === 'reviews' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div>
+            <h2 className="text-base sm:text-lg font-bold">Reseñas y Calificación Cruzada</h2>
+            <p className="text-xs opacity-75">
+              Consultá las calificaciones recibidas de residentes y calificá a quienes te contrataron.
+            </p>
+          </div>
+
+          {contracts.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              style={innerStyle}
+            >
+              Todavía no tenés contratos registrados para calificar.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {contracts.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
+                  style={innerStyle}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-bold">
+                      Servicio #{item.id} ·{' '}
+                      {item.owner_name ||
+                        `${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
+                        'Residente'}
+                    </span>
+                    <span className="opacity-75">Estado: {item.status}</span>
+                  </div>
+
+                  {item.provider_review_rating && (
+                    <div className="rounded-lg p-2.5 bg-amber-950/25 border border-amber-700/40">
+                      <span className="font-bold text-amber-300">
+                        Calificación del residente: ★ {item.provider_review_rating}/5
+                      </span>
+                      {item.provider_review_comment && (
+                        <p className="opacity-85 mt-0.5">“{item.provider_review_comment}”</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                    <select
+                      value={residentRating[item.id] ?? 5}
+                      onChange={(e) =>
+                        setResidentRating((prev) => ({
+                          ...prev,
+                          [item.id]: Number(e.target.value),
+                        }))
+                      }
+                      className="sm:col-span-3 px-3 py-2 rounded-xl border border-slate-700"
+                      style={cardStyle}
+                    >
+                      <option value={5}>★★★★★ (5/5)</option>
+                      <option value={4}>★★★★☆ (4/5)</option>
+                      <option value={3}>★★★☆☆ (3/5)</option>
+                      <option value={2}>★★☆☆☆ (2/5)</option>
+                      <option value={1}>★☆☆☆☆ (1/5)</option>
+                    </select>
+
+                    <input
+                      type="text"
+                      value={residentComment[item.id] ?? ''}
+                      onChange={(e) =>
+                        setResidentComment((prev) => ({
+                          ...prev,
+                          [item.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="Comentario sobre la atención o acceso..."
+                      className="sm:col-span-6 px-3 py-2 rounded-xl border border-slate-700"
+                      style={cardStyle}
+                    />
+
+                    <button
+                      type="button"
+                      disabled={sendingReviewId === item.id}
+                      onClick={() => handleSendOwnerReview(item.id)}
+                      className="sm:col-span-3 py-2 px-3 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {sendingReviewId === item.id ? 'Enviando...' : 'Calificar Residente'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 4: Pases QR Generados por Residentes para el Prestador */}
+      {activeTab === 'passes' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold">
+                Pases QR Generados para tu Ingreso
+              </h2>
+              <p className="text-xs opacity-75">
+                Consultá las autorizaciones emitidas por residentes con destino, vigencia y token QR.
+              </p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <div className="relative">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={passSearch}
+                  onChange={(e) => {
+                    setPassSearch(e.target.value);
+                    setPassPage(1);
+                  }}
+                  placeholder="Buscar residente, lote o patente..."
+                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <select
+                value={passStatusFilter}
+                onChange={(e) => {
+                  setPassStatusFilter(e.target.value);
+                  setPassPage(1);
+                }}
+                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                style={innerStyle}
+              >
+                <option value="all">Todos los estados</option>
+                <option value="pending">Vigentes / Pendientes</option>
+                <option value="used">Utilizados</option>
+                <option value="expired">Vencidos</option>
+                <option value="cancelled">Cancelados</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={fetchAssignedPasses}
+                className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer self-end sm:self-auto"
+                style={innerStyle}
+                title="Actualizar pases QR"
+              >
+                <RefreshCw size={15} className={loadingPasses ? 'animate-spin' : ''} />
+              </button>
+            </div>
+          </div>
+
+          {passesError && (
+            <div className="rounded-xl p-3.5 text-xs border border-amber-700/60 bg-amber-950/40 text-amber-200">
+              {passesError}
+            </div>
+          )}
+
+          {loadingPasses ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
+          ) : paginatedPasses.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              style={innerStyle}
+            >
+              No hay pases QR registrados para tu perfil con los filtros actuales.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+              {paginatedPasses.map((passItem) => {
+                const ownerLabel =
+                  `${passItem.owner_first_name || ''} ${passItem.owner_last_name || ''}`.trim() ||
+                  passItem.authorized_by ||
+                  'Residente';
+                const plateLabel = passItem.vehicle_plate || passItem.plate || 'Ingreso peatonal';
+
+                return (
+                  <article
+                    key={passItem.id}
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5 text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <span className="font-bold text-sm">Pase #{passItem.id}</span>
+                        <p className="opacity-80 mt-0.5">Autorizó: {ownerLabel}</p>
+                      </div>
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${getPassStatusBadge(
+                          passItem.status
+                        )}`}
+                      >
+                        {getPassStatusLabel(passItem.status)}
+                      </span>
+                    </div>
+
+                    <div className="space-y-1 opacity-85">
+                      <p className="flex items-center gap-1.5">
+                        <MapPin size={13} className="text-emerald-400 shrink-0" />
+                        <span>
+                          Destino: {passItem.fraction_number || 'Sin fracción'} /{' '}
+                          {passItem.lot_number || 'Sin lote'}
+                        </span>
+                      </p>
+                      <p className="flex items-center gap-1.5">
+                        <Car size={13} className="text-sky-400 shrink-0" />
+                        <span>Acceso: {plateLabel}</span>
+                      </p>
+                      <p className="flex items-center gap-1.5 text-[11px] opacity-80">
+                        <Calendar size={13} className="text-amber-400 shrink-0" />
+                        <span>
+                          Vigencia: {formatDateTime(passItem.start_time)} →{' '}
+                          {formatDateTime(passItem.end_time)}
+                        </span>
+                      </p>
+                    </div>
+
+                    {passItem.qr_token && (
+                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
+                        <code className="text-[11px] truncate">{passItem.qr_token}</code>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyToken(passItem.qr_token, passItem.id)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                          >
+                            {copiedPassId === passItem.id ? (
+                              <>
+                                <Check size={12} className="text-emerald-400" /> Copiado
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} /> Copiar
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedPassModal(passItem)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                            title="Ver detalle del token QR"
+                          >
+                            <QrCode size={12} /> Ver
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {filteredPasses.length > PASSES_PER_PAGE && (
+            <div className="flex items-center justify-between pt-2 text-xs">
+              <span className="opacity-75">
+                Página {Math.min(passPage, totalPassPages)} de {totalPassPages} (
+                {filteredPasses.length} pases)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={passPage <= 1}
+                  onClick={() => setPassPage((p) => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={passPage >= totalPassPages}
+                  onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Modal limpio para visualizar el token QR completo en el celular */}
+      {selectedPassModal && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold">Pase QR #{selectedPassModal.id}</h3>
+                <p className="opacity-75">
+                  Estado: {getPassStatusLabel(selectedPassModal.status)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedPassModal(null)}
+                className="p-1.5 rounded-lg border border-slate-700/80 cursor-pointer"
+                style={innerStyle}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div className="rounded-xl p-3.5 border border-slate-800/70 space-y-1.5" style={innerStyle}>
+              <p>
+                <strong>Destino:</strong> {selectedPassModal.fraction_number || '—'} /{' '}
+                {selectedPassModal.lot_number || '—'}
+              </p>
+              <p>
+                <strong>Acceso:</strong>{' '}
+                {selectedPassModal.vehicle_plate || selectedPassModal.plate || 'Ingreso peatonal'}
+              </p>
+              <p>
+                <strong>Desde:</strong> {formatDateTime(selectedPassModal.start_time)}
+              </p>
+              <p>
+                <strong>Hasta:</strong> {formatDateTime(selectedPassModal.end_time)}
+              </p>
+            </div>
+
+            <div className="rounded-xl p-3 bg-black/35 border border-slate-700/70 space-y-2">
+              <span className="block text-[10px] font-bold uppercase opacity-75">
+                Token QR para validación en garita
+              </span>
+              <code className="block font-mono text-[11px] break-all select-all">
+                {selectedPassModal.qr_token}
+              </code>
+              <button
+                type="button"
+                onClick={() => handleCopyToken(selectedPassModal.qr_token, 'modal-pass')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {copiedPassId === 'modal-pass' ? (
+                  <>
+                    <Check size={13} /> Token Copiado
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} /> Copiar Token
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setSelectedPassModal(null)}
+                className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                style={innerStyle}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
