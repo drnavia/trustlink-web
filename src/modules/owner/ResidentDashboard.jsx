@@ -2,7 +2,7 @@
  * @file ResidentDashboard.jsx
  * @description Portal del Residente con navegador superior por pasos clicables
  * (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas), buscador rápido
- * con chips de especialidad, emisión de pases QR por prestador y reputación cruzada.
+ * con chips de especialidad, emisión y cancelación de pases QR y reputación cruzada.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -86,17 +86,14 @@ export default function ResidentDashboard({ onNavigate }) {
   const { brand } = useBranding();
   const { user } = useAuth();
 
-  // Paso activo dentro del Portal Residente: 'providers' | 'passes' | 'payments' | 'reviews'
   const [activeStep, setActiveStep] = useState('providers');
 
-  // Directorio de prestadores verificados
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [providersError, setProvidersError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
 
-  // Emisión de pase QR vinculado a un prestador
   const [qrModalProvider, setQrModalProvider] = useState(null);
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
@@ -110,21 +107,19 @@ export default function ResidentDashboard({ onNavigate }) {
   const [passFeedback, setPassFeedback] = useState({ type: '', text: '', qrToken: '' });
   const [copiedTokenId, setCopiedTokenId] = useState(null);
 
-  // Listado y gestión de Pases QR emitidos
   const [myPasses, setMyPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passesPage, setPassesPage] = useState(1);
   const [cancellingPassId, setCancellingPassId] = useState(null);
+  const [passListFeedback, setPassListFeedback] = useState({ type: '', text: '' });
 
-  // Contratos / Pagos (Take Rate 7% / 93%)
   const [contracts, setContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [payingContractId, setPayingContractId] = useState(null);
   const [paymentFeedback, setPaymentFeedback] = useState({ type: '', text: '' });
 
-  // Reseñas y reputación cruzada
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
   const [ratingByContract, setRatingByContract] = useState({});
@@ -149,7 +144,6 @@ export default function ResidentDashboard({ onNavigate }) {
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  // Recupera consulta inicial guardada desde la Landing si existiera
   useEffect(() => {
     const savedQuery = sessionStorage.getItem('trustlink_initial_service_query');
     if (savedQuery && savedQuery.trim()) {
@@ -258,7 +252,6 @@ export default function ResidentDashboard({ onNavigate }) {
     fetchReviewsData();
   }, []);
 
-  // Lista dinámica de especialidades disponibles combinando base de datos + atajos rápidos
   const availableSpecialties = useMemo(() => {
     const dbSpecialties = new Set();
     providers.forEach((p) => {
@@ -384,19 +377,31 @@ export default function ResidentDashboard({ onNavigate }) {
 
   const handleCancelPass = async (passId) => {
     setCancellingPassId(passId);
+    setPassListFeedback({ type: '', text: '' });
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/${passId}/cancel`, {
         method: 'PATCH',
         headers: getAuthHeaders(),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (response.ok) {
+        setPassListFeedback({
+          type: 'success',
+          text: data.message || `Pase #${passId} cancelado correctamente.`,
+        });
         await fetchMyPasses();
       } else {
-        alert(data.error || 'No se pudo cancelar el pase.');
+        setPassListFeedback({
+          type: 'error',
+          text: data.error || `No se pudo cancelar el pase #${passId} (HTTP ${response.status}).`,
+        });
       }
     } catch (error) {
       console.error('Error al cancelar pase:', error);
+      setPassListFeedback({
+        type: 'error',
+        text: 'Error de conexión con el servidor al intentar cancelar el pase.',
+      });
     } finally {
       setCancellingPassId(null);
     }
@@ -535,7 +540,6 @@ export default function ResidentDashboard({ onNavigate }) {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
-      {/* Encabezado limpio del Portal Residente */}
       <div
         className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         style={cardStyle}
@@ -566,7 +570,6 @@ export default function ResidentDashboard({ onNavigate }) {
         )}
       </div>
 
-      {/* Indicadores de pasos clicables superiores */}
       <div
         className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2"
         style={cardStyle}
@@ -600,7 +603,6 @@ export default function ResidentDashboard({ onNavigate }) {
         })}
       </div>
 
-      {/* PASO 1: Directorio de Prestadores Verificados con Buscador Rápido y Chips */}
       {activeStep === 'providers' && (
         <section className="space-y-4">
           <div
@@ -655,7 +657,6 @@ export default function ResidentDashboard({ onNavigate }) {
               </div>
             </div>
 
-            {/* Chips de especialidad para filtrado instantáneo */}
             <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
               {availableSpecialties.map((spec) => {
                 const active = selectedSpecialty === spec;
@@ -733,15 +734,11 @@ export default function ResidentDashboard({ onNavigate }) {
                   >
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
-                        <span
-                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                        >
+                        <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
                           {provider.specialty || 'Servicio Verificado'}
                         </span>
 
-                        <span
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0"
-                        >
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0">
                           <Star size={12} className="fill-amber-400 text-amber-400" />
                           {rating}
                         </span>
@@ -798,7 +795,6 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 2: Pases QR Emitidos */}
       {activeStep === 'passes' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
@@ -841,6 +837,23 @@ export default function ResidentDashboard({ onNavigate }) {
               </select>
             </div>
           </div>
+
+          {passListFeedback.text && (
+            <div
+              className={`rounded-xl p-3 text-xs border flex items-center gap-2 ${
+                passListFeedback.type === 'success'
+                  ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                  : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+              }`}
+            >
+              {passListFeedback.type === 'success' ? (
+                <CheckCircle2 size={15} className="shrink-0" />
+              ) : (
+                <AlertCircle size={15} className="shrink-0" />
+              )}
+              <span>{passListFeedback.text}</span>
+            </div>
+          )}
 
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR...</p>
@@ -954,7 +967,6 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 3: Visitas y Pagos (Take Rate 7% / 93%) */}
       {activeStep === 'payments' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
@@ -1055,7 +1067,6 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 4: Reseñas y Reputación Cruzada */}
       {activeStep === 'reviews' && (
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
@@ -1166,7 +1177,6 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* Modal de Emisión de Pase QR por Prestador */}
       {qrModalProvider && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
