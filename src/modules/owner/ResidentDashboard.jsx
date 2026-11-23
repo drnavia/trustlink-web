@@ -1,133 +1,139 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente conectado 100% a PostgreSQL mediante API REST.
- * Incluye los 4 pasos clicables (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas)
- * con el formulario de Pases QR reordenado, buscador, filtro por estado, paginación,
- * edición inline de pases VIGENTES (incluyendo patente de flota y Válido Desde / Hasta)
- * y actualización inmediata de `vehicle_plate` al guardar.
+ * @description Portal del Residente con navegador superior por pasos clicables
+ * (1. Prestadores, 2. Pases QR, 3. Visitas y Pagos, 4. Reseñas), buscador rápido
+ * con chips de especialidad, emisión de pases QR por prestador y reputación cruzada.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Home,
-  Compass,
-  QrCode,
-  CreditCard,
-  Star,
-  Search,
   ShieldCheck,
-  BadgeCheck,
-  Phone,
-  Mail,
+  Star,
+  QrCode,
+  Search,
   AlertCircle,
   CheckCircle2,
-  Loader2,
-  RefreshCw,
-  MessageSquare,
-  Send,
-  Car,
-  Footprints,
-  Clock,
-  ChevronLeft,
-  ChevronRight,
-  MapPin,
-  Edit3,
-  Save,
   X,
+  Copy,
+  Check,
+  Ban,
+  CreditCard,
+  MessageSquare,
+  Users,
+  ArrowRight,
+  RefreshCw,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { useAuth } from '../auth/AuthContext';
 
-/* const API_BASE = 'http://localhost:4000'; */
-const PLATFORM_FEE_RATE = 0.07;
+export const API_BASE =
+  (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
+  'http://localhost:4000';
+
+const QUICK_SPECIALTIES = [
+  'Todos',
+  'Electricista',
+  'Gasista',
+  'Plomero',
+  'Jardinería',
+  'Aire Acondicionado',
+];
+
 const PASSES_PER_PAGE = 6;
 
-/**
- * Formatea un objeto Date o timestamp a valor compatible con input `datetime-local`
- * en zona horaria local.
- */
-function toLocalDateTimeInput(dateObj) {
-  const d = dateObj instanceof Date ? dateObj : new Date(dateObj);
-  if (Number.isNaN(d.getTime())) return '';
+const toLocalDateTimeInput = (dateObj) => {
   const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours()
-  )}:${pad(d.getMinutes())}`;
-}
+  const y = dateObj.getFullYear();
+  const m = pad(dateObj.getMonth() + 1);
+  const d = pad(dateObj.getDate());
+  const hh = pad(dateObj.getHours());
+  const mm = pad(dateObj.getMinutes());
+  return `${y}-${m}-${d}T${hh}:${mm}`;
+};
 
-/**
- * Formatea un timestamp de pase para mostrar fecha y hora corta en español (es-AR).
- */
-function formatPassDateTime(dateStr) {
-  if (!dateStr) return '—';
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('es-AR', {
+const formatLocalDateTime = (value) => {
+  if (!value) return '—';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleString('es-AR', {
     day: '2-digit',
     month: '2-digit',
-    year: '2-digit',
+    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   });
-}
+};
 
-/**
- * Determina si un pase está realmente vigente (no cancelado, no usado y con end_time futuro).
- */
-function isPassCurrentlyActive(pass) {
-  const rawStatus = String(pass?.status || 'pending').toLowerCase();
-  if (rawStatus !== 'pending' && rawStatus !== 'active') return false;
-  if (pass?.end_time) {
-    const endMs = new Date(pass.end_time).getTime();
-    if (!Number.isNaN(endMs) && endMs < Date.now()) {
-      return false;
-    }
+const getPassStatusBadge = (status) => {
+  const normalized = String(status || '').toLowerCase();
+  if (normalized === 'pending') {
+    return 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60';
   }
-  return true;
-}
+  if (normalized === 'used') {
+    return 'bg-sky-950/80 text-sky-300 border-sky-700/60';
+  }
+  if (normalized === 'expired') {
+    return 'bg-amber-950/80 text-amber-300 border-amber-700/60';
+  }
+  if (normalized === 'cancelled') {
+    return 'bg-rose-950/80 text-rose-300 border-rose-700/60';
+  }
+  return 'bg-slate-800 text-slate-300 border-slate-700';
+};
 
-/**
- * Normaliza el estado de un pase QR para mostrar badge semántico y determinar si es editable.
- */
-function formatPassBadge(pass) {
-  const rawStatus = String(pass?.status || 'pending').toLowerCase();
-  if (rawStatus === 'cancelled') {
-    return {
-      key: 'cancelled',
-      label: 'CANCELADO',
-      badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/35',
-      canEdit: false,
-    };
-  }
-  if (rawStatus === 'used') {
-    return {
-      key: 'used',
-      label: 'USADO',
-      badgeClass: 'bg-sky-500/15 text-sky-300 border-sky-500/35',
-      canEdit: false,
-    };
-  }
-  if (!isPassCurrentlyActive(pass) || rawStatus === 'expired') {
-    return {
-      key: 'expired',
-      label: 'VENCIDO',
-      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
-      canEdit: false,
-    };
-  }
-  return {
-    key: 'pending',
-    label: 'VIGENTE',
-    badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/35',
-    canEdit: true,
-  };
-}
-
-export default function ResidentDashboard({ onViewChange }) {
+export default function ResidentDashboard({ onNavigate }) {
   const { brand } = useBranding();
+  const { user } = useAuth();
 
-  // Zonas 4 y 5 configurables desde BrandingContext
+  // Paso activo dentro del Portal Residente: 'providers' | 'passes' | 'payments' | 'reviews'
+  const [activeStep, setActiveStep] = useState('providers');
+
+  // Directorio de prestadores verificados
+  const [providers, setProviders] = useState([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
+  const [providersError, setProvidersError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
+
+  // Emisión de pase QR vinculado a un prestador
+  const [qrModalProvider, setQrModalProvider] = useState(null);
+  const [fractionNumber, setFractionNumber] = useState('');
+  const [lotNumber, setLotNumber] = useState('');
+  const [startTime, setStartTime] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() - 10 * 60 * 1000))
+  );
+  const [endTime, setEndTime] = useState(() =>
+    toLocalDateTimeInput(new Date(Date.now() + 8 * 60 * 60 * 1000))
+  );
+  const [creatingPass, setCreatingPass] = useState(false);
+  const [passFeedback, setPassFeedback] = useState({ type: '', text: '', qrToken: '' });
+  const [copiedTokenId, setCopiedTokenId] = useState(null);
+
+  // Listado y gestión de Pases QR emitidos
+  const [myPasses, setMyPasses] = useState([]);
+  const [loadingPasses, setLoadingPasses] = useState(false);
+  const [passSearch, setPassSearch] = useState('');
+  const [passStatusFilter, setPassStatusFilter] = useState('all');
+  const [passesPage, setPassesPage] = useState(1);
+  const [cancellingPassId, setCancellingPassId] = useState(null);
+
+  // Contratos / Pagos (Take Rate 7% / 93%)
+  const [contracts, setContracts] = useState([]);
+  const [loadingContracts, setLoadingContracts] = useState(false);
+  const [payingContractId, setPayingContractId] = useState(null);
+  const [paymentFeedback, setPaymentFeedback] = useState({ type: '', text: '' });
+
+  // Reseñas y reputación cruzada
+  const [reviewContracts, setReviewContracts] = useState([]);
+  const [loadingReviews, setLoadingReviews] = useState(false);
+  const [ratingByContract, setRatingByContract] = useState({});
+  const [commentByContract, setCommentByContract] = useState({});
+  const [submittingReviewId, setSubmittingReviewId] = useState(null);
+  const [reviewFeedback, setReviewFeedback] = useState({ type: '', text: '' });
+
+  const primaryColor = brand?.primaryActionColor || '#059669';
+
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
@@ -135,1424 +141,1155 @@ export default function ResidentDashboard({ onViewChange }) {
 
   const innerStyle = {
     backgroundColor: brand?.innerBgColor || '#0F172A',
-    color: brand?.innerTextColor || '#F1F5F9',
+    color: brand?.innerTextColor || '#E2E8F0',
   };
 
-  const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
-
-  // Paso activo: 'providers' | 'passes' | 'payments' | 'reviews'
-  const [activeStep, setActiveStep] = useState('providers');
-
-  // 1. Directorio de prestadores
-  const [providers, setProviders] = useState([]);
-  const [loadingProviders, setLoadingProviders] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  // 2. Pases QR + Buscador, Filtro, Paginación y Edición de Vigentes
-  const [passes, setPasses] = useState([]);
-  const [loadingPasses, setLoadingPasses] = useState(true);
-  const [selectedProviderId, setSelectedProviderId] = useState('');
-  const [fractionNumber, setFractionNumber] = useState('');
-  const [lotNumber, setLotNumber] = useState('');
-  const [vehiclePlate, setVehiclePlate] = useState('');
-  const [validFrom, setValidFrom] = useState(() =>
-    toLocalDateTimeInput(new Date(Date.now() - 15 * 60 * 1000))
-  );
-  const [validUntil, setValidUntil] = useState(() =>
-    toLocalDateTimeInput(new Date(Date.now() + 8 * 3600 * 1000))
-  );
-  const [creatingPass, setCreatingPass] = useState(false);
-
-  const [passSearch, setPassSearch] = useState('');
-  const [passStatusFilter, setPassStatusFilter] = useState('all');
-  const [passPage, setPassPage] = useState(1);
-
-  // Estado de edición inline para un pase QR vigente
-  const [editingPassId, setEditingPassId] = useState(null);
-  const [editFraction, setEditFraction] = useState('');
-  const [editLot, setEditLot] = useState('');
-  const [editPlate, setEditPlate] = useState('');
-  const [editValidFrom, setEditValidFrom] = useState('');
-  const [editValidUntil, setEditValidUntil] = useState('');
-  const [savingPassEdit, setSavingPassEdit] = useState(false);
-
-  // 3. Visitas y Pagos
-  const [pendingContracts, setPendingContracts] = useState([]);
-  const [loadingPayments, setLoadingPayments] = useState(true);
-  const [payingId, setPayingId] = useState(null);
-
-  // 4. Reseñas y Reputación Cruzada
-  const [reviewContracts, setReviewContracts] = useState([]);
-  const [loadingReviews, setLoadingReviews] = useState(true);
-  const [ratingDrafts, setRatingDrafts] = useState({});
-  const [commentDrafts, setCommentDrafts] = useState({});
-  const [submittingContractId, setSubmittingContractId] = useState(null);
-
-  const [feedback, setFeedback] = useState(null);
-
   const getAuthHeaders = () => ({
+    'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const fetchVerifiedProviders = useCallback(async () => {
+  // Recupera consulta inicial guardada desde la Landing si existiera
+  useEffect(() => {
+    const savedQuery = sessionStorage.getItem('trustlink_initial_service_query');
+    if (savedQuery && savedQuery.trim()) {
+      setSearchTerm(savedQuery.trim());
+      sessionStorage.removeItem('trustlink_initial_service_query');
+    }
+  }, []);
+
+  const fetchVerifiedProviders = async () => {
     setLoadingProviders(true);
+    setProvidersError('');
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/directory`, {
-        headers: getAuthHeaders(),
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        const list = data.providers || [];
-        setProviders(list);
-        if (list.length > 0) {
-          setSelectedProviderId((prev) => prev || String(list[0].provider_id));
-        }
+        setProviders(data.providers || []);
+      } else {
+        setProvidersError(data.error || 'No se pudo cargar el directorio de prestadores.');
       }
     } catch (error) {
       console.error('Error al cargar directorio de prestadores:', error);
+      setProvidersError('Error de conexión con el servidor backend de TrustLink.');
     } finally {
       setLoadingProviders(false);
     }
-  }, []);
+  };
 
-  const fetchMyPasses = useCallback(async () => {
+  const fetchMyPasses = async () => {
     setLoadingPasses(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/my`, {
-        headers: getAuthHeaders(),
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        setPasses(data.passes || []);
+        setMyPasses(data.passes || data.items || []);
       }
     } catch (error) {
-      console.error('Error al cargar pases QR:', error);
+      console.error('Error al cargar pases emitidos:', error);
     } finally {
       setLoadingPasses(false);
     }
-  }, []);
+  };
 
-  const fetchPendingContracts = useCallback(async () => {
-    setLoadingPayments(true);
+  const fetchContractsData = async () => {
+    setLoadingContracts(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/payments/pending`, {
-        headers: getAuthHeaders(),
+      const response = await fetch(`${API_BASE}/api/v1/contracts`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        setPendingContracts(data.contracts || []);
+        setContracts(data.contracts || data.items || []);
       }
     } catch (error) {
-      console.error('Error al cargar contratos pendientes:', error);
+      console.error('Error al cargar contratos:', error);
     } finally {
-      setLoadingPayments(false);
+      setLoadingContracts(false);
     }
-  }, []);
+  };
 
-  const fetchReviewContracts = useCallback(async () => {
+  const fetchReviewsData = async () => {
     setLoadingReviews(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
-        headers: getAuthHeaders(),
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
       });
       const data = await response.json();
       if (response.ok) {
-        setReviewContracts(data.contracts || []);
+        const list = data.contracts || data.items || [];
+        setReviewContracts(list);
+        const initialRatings = {};
+        const initialComments = {};
+        list.forEach((c) => {
+          initialRatings[c.id] = c.provider_review_rating || 5;
+          initialComments[c.id] = c.provider_review_comment || '';
+        });
+        setRatingByContract(initialRatings);
+        setCommentByContract(initialComments);
       }
     } catch (error) {
-      console.error('Error al cargar contratos y reseñas cruzadas:', error);
+      console.error('Error al cargar contratos para reseñas:', error);
     } finally {
       setLoadingReviews(false);
     }
-  }, []);
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([
-      fetchVerifiedProviders(),
-      fetchMyPasses(),
-      fetchPendingContracts(),
-      fetchReviewContracts(),
-    ]);
-  }, [fetchVerifiedProviders, fetchMyPasses, fetchPendingContracts, fetchReviewContracts]);
+  };
 
   useEffect(() => {
-    refreshAll();
-  }, [refreshAll]);
+    fetchVerifiedProviders();
+    fetchMyPasses();
+    fetchContractsData();
+    fetchReviewsData();
+  }, []);
 
-  const selectedProviderObj = useMemo(
-    () =>
-      providers.find((p) => String(p.provider_id) === String(selectedProviderId)) || null,
-    [providers, selectedProviderId]
-  );
+  // Lista dinámica de especialidades disponibles combinando base de datos + atajos rápidos
+  const availableSpecialties = useMemo(() => {
+    const dbSpecialties = new Set();
+    providers.forEach((p) => {
+      const raw = String(p.specialty || '').trim();
+      if (!raw) return;
+      raw
+        .split(/[·,|/]/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .forEach((part) => dbSpecialties.add(part));
+    });
 
-  const selectedProviderFleet = useMemo(() => {
-    const rawVehicles = selectedProviderObj?.vehicles;
-    if (!Array.isArray(rawVehicles)) return [];
-    return rawVehicles.filter((v) => v && String(v.plate || '').trim());
-  }, [selectedProviderObj]);
+    const combined = ['Todos'];
+    QUICK_SPECIALTIES.slice(1).forEach((s) => {
+      if (!combined.includes(s)) combined.push(s);
+    });
+    dbSpecialties.forEach((s) => {
+      if (!combined.some((existing) => existing.toLowerCase() === s.toLowerCase())) {
+        combined.push(s);
+      }
+    });
+    return combined;
+  }, [providers]);
 
-  /**
-   * Emite un pase QR enviando `provider_id`, `fraction_number`, `lot_number`,
-   * `vehicle_plate`, `start_time` y `end_time` al backend.
-   */
-  const handleCreatePass = async (e) => {
+  const filteredProviders = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    return providers.filter((p) => {
+      const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
+      const specialty = String(p.specialty || '').toLowerCase();
+      const email = String(p.email || '').toLowerCase();
+
+      const matchesSpecialty =
+        selectedSpecialty === 'Todos' ||
+        specialty.includes(selectedSpecialty.toLowerCase());
+
+      const matchesQuery =
+        !query ||
+        fullName.includes(query) ||
+        specialty.includes(query) ||
+        email.includes(query);
+
+      return matchesSpecialty && matchesQuery;
+    });
+  }, [providers, searchTerm, selectedSpecialty]);
+
+  const openQrModalForProvider = (provider) => {
+    setQrModalProvider(provider);
+    setFractionNumber(user?.fraction_number || '');
+    setLotNumber(user?.lot_number || '');
+    setStartTime(toLocalDateTimeInput(new Date(Date.now() - 10 * 60 * 1000)));
+    setEndTime(toLocalDateTimeInput(new Date(Date.now() + 8 * 60 * 60 * 1000)));
+    setPassFeedback({ type: '', text: '', qrToken: '' });
+  };
+
+  const handleCreatePassSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedProviderId) {
-      setFeedback({ type: 'error', text: 'Seleccioná un prestador verificado.' });
-      return;
-    }
+    if (!qrModalProvider) return;
 
-    const startDateObj = validFrom
-      ? new Date(validFrom)
-      : new Date(Date.now() - 15 * 60 * 1000);
-    const endDateObj = validUntil
-      ? new Date(validUntil)
-      : new Date(startDateObj.getTime() + 8 * 3600 * 1000);
-
-    if (
-      Number.isNaN(startDateObj.getTime()) ||
-      Number.isNaN(endDateObj.getTime()) ||
-      endDateObj <= startDateObj
-    ) {
-      setFeedback({
+    const providerId = qrModalProvider.provider_id || qrModalProvider.id;
+    if (!providerId || !startTime || !endTime) {
+      setPassFeedback({
         type: 'error',
-        text: 'Verificá que la fecha/hora de fin sea posterior a la de inicio.',
+        text: 'Completá el prestador, la fecha/hora de inicio y la fecha/hora de fin.',
+        qrToken: '',
       });
       return;
     }
 
-    const cleanFraction = fractionNumber.trim() || 'S/N';
-    const cleanLot = lotNumber.trim() || 'Lote Residente';
-
     setCreatingPass(true);
-    setFeedback(null);
+    setPassFeedback({ type: '', text: '', qrToken: '' });
+
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/create`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
-          provider_id: Number(selectedProviderId),
-          fraction_number: cleanFraction,
-          lot_number: cleanLot,
-          destination: `${cleanFraction} — ${cleanLot}`,
-          vehicle_plate: vehiclePlate.trim().toUpperCase() || null,
-          start_time: startDateObj.toISOString(),
-          end_time: endDateObj.toISOString(),
+          provider_id: providerId,
+          fraction_number: fractionNumber.trim() || null,
+          lot_number: lotNumber.trim() || null,
+          start_time: new Date(startTime).toISOString(),
+          end_time: new Date(endTime).toISOString(),
         }),
       });
+
       const data = await response.json();
       if (response.ok) {
-        setFeedback({
+        const createdToken = data.pass?.qr_token || data.qr_token || '';
+        setPassFeedback({
           type: 'success',
-          text: data.message || 'Pase QR generado con éxito.',
+          text: data.message || 'Pase QR generado correctamente.',
+          qrToken: createdToken,
         });
-        setFractionNumber('');
-        setLotNumber('');
-        setVehiclePlate('');
-        setPassPage(1);
         await fetchMyPasses();
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo generar el pase QR.' });
+        setPassFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo emitir el pase QR.',
+          qrToken: '',
+        });
       }
     } catch (error) {
-      console.error('Error al generar pase QR:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al generar el pase QR.' });
+      console.error('Error al crear pase QR:', error);
+      setPassFeedback({
+        type: 'error',
+        text: 'Error de conexión con el servidor al emitir el pase QR.',
+        qrToken: '',
+      });
     } finally {
       setCreatingPass(false);
     }
   };
 
-  /**
-   * Inicia la edición inline de un pase QR que aún se encuentra VIGENTE.
-   */
-  const startEditingPass = (pass) => {
-    if (!isPassCurrentlyActive(pass)) {
-      setFeedback({
-        type: 'error',
-        text: 'Solo podés editar pases QR que se encuentren vigentes.',
-      });
-      return;
+  const handleCopyToken = async (tokenValue, idKey) => {
+    if (!tokenValue) return;
+    try {
+      await navigator.clipboard.writeText(tokenValue);
+      setCopiedTokenId(idKey);
+      setTimeout(() => setCopiedTokenId(null), 1800);
+    } catch (err) {
+      console.error('No se pudo copiar el token:', err);
     }
-    setEditingPassId(pass.id);
-    setEditFraction(pass.fraction_number || '');
-    setEditLot(pass.lot_number || pass.destination || '');
-    setEditPlate(pass.vehicle_plate || '');
-    setEditValidFrom(
-      pass.start_time
-        ? toLocalDateTimeInput(pass.start_time)
-        : toLocalDateTimeInput(new Date(Date.now() - 15 * 60 * 1000))
-    );
-    setEditValidUntil(
-      pass.end_time
-        ? toLocalDateTimeInput(pass.end_time)
-        : toLocalDateTimeInput(new Date(Date.now() + 4 * 3600 * 1000))
-    );
-    setFeedback(null);
   };
 
-  /**
-   * Guarda los cambios de un pase QR vigente mediante PATCH /api/v1/passes/:id
-   * y actualiza `vehicle_plate` de inmediato en el estado y en la consulta al backend.
-   */
-  const handleSavePassEdit = async (pass) => {
-    if (!isPassCurrentlyActive(pass)) {
-      setFeedback({
-        type: 'error',
-        text: 'El pase ya no está vigente y no puede modificarse.',
-      });
-      setEditingPassId(null);
-      return;
-    }
-
-    const startObj = editValidFrom ? new Date(editValidFrom) : new Date(pass.start_time);
-    const endObj = editValidUntil ? new Date(editValidUntil) : null;
-
-    if (
-      Number.isNaN(startObj.getTime()) ||
-      !endObj ||
-      Number.isNaN(endObj.getTime()) ||
-      endObj <= startObj ||
-      endObj <= new Date()
-    ) {
-      setFeedback({
-        type: 'error',
-        text: 'Verificá que "Válido Hasta" sea posterior a "Válido Desde" y a la hora actual.',
-      });
-      return;
-    }
-
-    const normalizedPlate = editPlate.trim() ? editPlate.trim().toUpperCase() : null;
-
-    setSavingPassEdit(true);
-    setFeedback(null);
+  const handleCancelPass = async (passId) => {
+    setCancellingPassId(passId);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/passes/${pass.id}`, {
+      const response = await fetch(`${API_BASE}/api/v1/passes/${passId}/cancel`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          fraction_number: editFraction.trim() || null,
-          lot_number: editLot.trim() || null,
-          vehicle_plate: normalizedPlate,
-          start_time: startObj.toISOString(),
-          end_time: endObj.toISOString(),
-        }),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        const persistedPlate =
-          data.pass?.vehicle_plate !== undefined ? data.pass.vehicle_plate : normalizedPlate;
-
-        setPasses((prev) =>
-          prev.map((item) =>
-            item.id === pass.id
-              ? {
-                  ...item,
-                  fraction_number:
-                    data.pass?.fraction_number ?? (editFraction.trim() || null),
-                  lot_number: data.pass?.lot_number ?? (editLot.trim() || null),
-                  vehicle_plate: persistedPlate,
-                  start_time: data.pass?.start_time ?? startObj.toISOString(),
-                  end_time: data.pass?.end_time ?? endObj.toISOString(),
-                }
-              : item
-          )
-        );
-
-        setFeedback({
-          type: 'success',
-          text: data.message || `Pase #${pass.id} actualizado correctamente.`,
-        });
-        setEditingPassId(null);
         await fetchMyPasses();
       } else {
-        setFeedback({
-          type: 'error',
-          text: data.error || 'No se pudo actualizar el pase QR.',
-        });
+        alert(data.error || 'No se pudo cancelar el pase.');
       }
     } catch (error) {
-      console.error('Error al editar pase QR:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al actualizar el pase QR.' });
+      console.error('Error al cancelar pase:', error);
     } finally {
-      setSavingPassEdit(false);
+      setCancellingPassId(null);
     }
   };
 
-  const handlePayContract = async (contractId, amount) => {
-    setPayingId(contractId);
-    setFeedback(null);
+  const filteredPasses = useMemo(() => {
+    const q = passSearch.trim().toLowerCase();
+    return myPasses.filter((passItem) => {
+      const status = String(passItem.status || '').toLowerCase();
+      const matchesStatus = passStatusFilter === 'all' || status === passStatusFilter;
+      const providerLabel = String(passItem.provider_name || passItem.provider_id || '').toLowerCase();
+      const destLabel = `${passItem.fraction_number || ''} ${passItem.lot_number || ''}`.toLowerCase();
+      const tokenLabel = String(passItem.qr_token || '').toLowerCase();
+
+      const matchesQuery =
+        !q ||
+        providerLabel.includes(q) ||
+        destLabel.includes(q) ||
+        tokenLabel.includes(q) ||
+        String(passItem.id).includes(q);
+
+      return matchesStatus && matchesQuery;
+    });
+  }, [myPasses, passSearch, passStatusFilter]);
+
+  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
+  const paginatedPasses = useMemo(() => {
+    const safePage = Math.min(passesPage, totalPassPages);
+    const startIdx = (safePage - 1) * PASSES_PER_PAGE;
+    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
+  }, [filteredPasses, passesPage, totalPassPages]);
+
+  const handlePayContract = async (contractId) => {
+    setPayingContractId(contractId);
+    setPaymentFeedback({ type: '', text: '' });
     try {
-      const response = await fetch(`${API_BASE}/api/v1/payments/checkout`, {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/pay`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          contract_id: contractId,
-          amount,
-          payment_method: 'mercado_pago_mock',
-        }),
+        headers: getAuthHeaders(),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({
+        setPaymentFeedback({
           type: 'success',
-          text: data.message || 'Pago acreditado correctamente.',
+          text: data.message || 'Pago confirmado y comisión registrada.',
         });
-        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
+        await Promise.all([fetchContractsData(), fetchReviewsData(), fetchVerifiedProviders()]);
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo procesar el pago.' });
+        setPaymentFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo procesar el pago del contrato.',
+        });
       }
     } catch (error) {
       console.error('Error al pagar contrato:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al procesar el pago.' });
+      setPaymentFeedback({
+        type: 'error',
+        text: 'Error de conexión al confirmar el pago.',
+      });
     } finally {
-      setPayingId(null);
+      setPayingContractId(null);
     }
   };
 
   const handleSubmitProviderReview = async (contractId) => {
-    const selectedRating = ratingDrafts[contractId] || 5;
-    const commentText = (commentDrafts[contractId] || '').trim();
-    setSubmittingContractId(contractId);
-    setFeedback(null);
-
+    setSubmittingReviewId(contractId);
+    setReviewFeedback({ type: '', text: '' });
     try {
       const response = await fetch(`${API_BASE}/api/v1/reviews/provider`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify({
           contract_id: contractId,
-          rating: selectedRating,
-          comment: commentText || null,
+          rating: Number(ratingByContract[contractId] || 5),
+          comment: String(commentByContract[contractId] || '').trim(),
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setFeedback({
+        setReviewFeedback({
           type: 'success',
-          text:
-            data.message ||
-            'Calificación al prestador registrada y reputación actualizada en TrustLink.',
+          text: data.message || 'Calificación enviada y reputación actualizada.',
         });
-        await Promise.all([fetchReviewContracts(), fetchVerifiedProviders()]);
+        await Promise.all([fetchReviewsData(), fetchVerifiedProviders()]);
       } else {
-        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar la reseña.' });
+        setReviewFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo guardar la calificación.',
+        });
       }
     } catch (error) {
-      console.error('Error al calificar prestador:', error);
-      setFeedback({ type: 'error', text: 'Error de conexión al enviar la calificación.' });
+      console.error('Error al enviar reseña:', error);
+      setReviewFeedback({
+        type: 'error',
+        text: 'Error de conexión al enviar la calificación.',
+      });
     } finally {
-      setSubmittingContractId(null);
+      setSubmittingReviewId(null);
     }
   };
 
-  const filteredProviders = providers.filter((p) => {
-    const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
-    const spec = (p.specialties_label || p.specialty || '').toLowerCase();
-    const q = searchTerm.toLowerCase();
-    return fullName.includes(q) || spec.includes(q);
-  });
-
-  const filteredPasses = useMemo(() => {
-    const q = passSearch.trim().toLowerCase();
-    return passes.filter((pass) => {
-      const badge = formatPassBadge(pass);
-      const matchesStatus =
-        passStatusFilter === 'all' || badge.key === passStatusFilter;
-
-      if (!matchesStatus) return false;
-      if (!q) return true;
-
-      const idStr = String(pass.id || '').toLowerCase();
-      const provStr = String(
-        pass.provider_name || `prestador #${pass.provider_id || ''}`
-      ).toLowerCase();
-      const specStr = String(pass.provider_specialty || '').toLowerCase();
-      const fracStr = String(pass.fraction_number || '').toLowerCase();
-      const lotStr = String(pass.lot_number || pass.destination || 'domicilio').toLowerCase();
-      const plateStr = String(pass.vehicle_plate || '').toLowerCase();
-      return (
-        idStr.includes(q) ||
-        provStr.includes(q) ||
-        specStr.includes(q) ||
-        fracStr.includes(q) ||
-        lotStr.includes(q) ||
-        plateStr.includes(q)
-      );
-    });
-  }, [passes, passSearch, passStatusFilter]);
-
-  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
-  const safePassPage = Math.min(passPage, totalPassPages);
-  const paginatedPasses = useMemo(() => {
-    const startIdx = (safePassPage - 1) * PASSES_PER_PAGE;
-    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
-  }, [filteredPasses, safePassPage]);
+  const pendingContractsCount = contracts.filter(
+    (c) => String(c.status || '').toLowerCase() === 'pending'
+  ).length;
 
   const steps = [
     {
       id: 'providers',
-      stepNumber: '1',
+      stepNumber: 1,
       label: 'Prestadores',
-      count: providers.length,
-      icon: Compass,
+      count: filteredProviders.length,
+      icon: Users,
     },
     {
       id: 'passes',
-      stepNumber: '2',
+      stepNumber: 2,
       label: 'Pases QR',
-      count: passes.length,
+      count: myPasses.length,
       icon: QrCode,
     },
     {
       id: 'payments',
-      stepNumber: '3',
+      stepNumber: 3,
       label: 'Visitas y Pagos',
-      count: pendingContracts.length,
+      count: pendingContractsCount,
       icon: CreditCard,
     },
     {
       id: 'reviews',
-      stepNumber: '4',
+      stepNumber: 4,
       label: 'Reseñas',
       count: reviewContracts.length,
-      icon: Star,
+      icon: MessageSquare,
     },
   ];
 
-  const activeStepMeta = steps.find((s) => s.id === activeStep) || steps[0];
-
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-6xl mx-auto space-y-6">
-        <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-          style={cardStyle}
-        >
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="flex items-center gap-3.5">
-              <div
-                className="p-3 rounded-xl border border-white/15 text-emerald-400 shrink-0"
-                style={innerStyle}
-              >
-                <Home size={20} strokeWidth={1.8} />
-              </div>
-              <div>
-                <h2 className="text-xl font-black tracking-tight">
-                  Portal Residente — {activeStepMeta.stepNumber}. {activeStepMeta.label}
-                </h2>
-                <p className="text-xs opacity-80 mt-0.5">
-                  {activeStep === 'providers' &&
-                    'Explorá prestadores verificados en TrustLink y generá pases QR de ingreso seguro.'}
-                  {activeStep === 'passes' &&
-                    'Emití, editá pases vigentes y gestioná tus pases QR para ingreso de prestadores al barrio.'}
-                  {activeStep === 'payments' &&
-                    'Aprobá presupuestos acordados y aboná con desglose transparente (7% comisión plataforma).'}
-                  {activeStep === 'reviews' &&
-                    'Reseñas enviadas a prestadores, calificaciones recibidas y reputación cruzada por contrato.'}
-                </p>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={refreshAll}
-              disabled={loadingProviders || loadingPasses || loadingPayments || loadingReviews}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
-              style={innerStyle}
-            >
-              <RefreshCw
-                size={13}
-                className={
-                  loadingProviders || loadingPasses || loadingPayments || loadingReviews
-                    ? 'animate-spin'
-                    : ''
-                }
-              />
-              Actualizar
-            </button>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+      {/* Encabezado limpio del Portal Residente */}
+      <div
+        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        style={cardStyle}
+      >
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+            <ShieldCheck size={14} />
+            <span>Portal Residente</span>
           </div>
+          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+            Servicios verificados y pases de ingreso
+          </h1>
+          <p className="text-xs sm:text-sm opacity-80">
+            Buscá profesionales aprobados, emití pases QR con vigencia y gestioná pagos y calificaciones.
+          </p>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
-            {steps.map((item) => {
-              const IconComp = item.icon;
-              const isSelected = activeStep === item.id;
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setActiveStep(item.id)}
-                  className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex items-center justify-between gap-2 ${
-                    isSelected
-                      ? 'text-white border-transparent shadow-sm'
-                      : 'border-white/15 opacity-85 hover:opacity-100'
-                  }`}
-                  style={isSelected ? { backgroundColor: primaryActionColor } : innerStyle}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`w-5 h-5 rounded-full text-[11px] font-black flex items-center justify-center shrink-0 ${
-                        isSelected ? 'bg-black/25 text-white' : 'bg-white/10'
-                      }`}
-                    >
-                      {item.stepNumber}
-                    </span>
-                    <IconComp size={14} className="shrink-0" />
-                    <span className="text-xs font-bold truncate">{item.label}</span>
-                  </div>
-                  <span
-                    className={`text-[11px] font-mono font-bold px-2 py-0.5 rounded-md shrink-0 ${
-                      isSelected ? 'bg-black/25 text-white' : 'bg-black/20'
-                    }`}
-                  >
-                    {item.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {feedback && (
-          <div
-            className={`p-4 rounded-xl text-xs border flex items-center justify-between gap-2 ${
-              feedback.type === 'success'
-                ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
-                : 'bg-rose-950/60 border-rose-800 text-rose-200'
-            }`}
+        {onNavigate && (
+          <button
+            type="button"
+            onClick={() => onNavigate('payments')}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer self-start sm:self-auto"
+            style={innerStyle}
           >
-            <div className="flex items-center gap-2">
-              {feedback.type === 'success' ? (
-                <CheckCircle2 size={16} />
-              ) : (
-                <AlertCircle size={16} />
-              )}
-              <span>{feedback.text}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setFeedback(null)}
-              className="text-[11px] underline opacity-80 cursor-pointer"
-            >
-              Cerrar
-            </button>
-          </div>
+            <span>Vista completa Pagos y Reseñas</span>
+            <ArrowRight size={14} />
+          </button>
         )}
+      </div>
 
-        {/* PASO 1: Prestadores Verificados */}
-        {activeStep === 'providers' && (
-          <section
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+      {/* Indicadores de pasos clicables superiores */}
+      <div
+        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-4 gap-2"
+        style={cardStyle}
+      >
+        {steps.map((step) => {
+          const IconComponent = step.icon;
+          const isActive = activeStep === step.id;
+          return (
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => setActiveStep(step.id)}
+              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                isActive
+                  ? 'text-white border-transparent shadow-sm'
+                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
+              }`}
+              style={isActive ? { backgroundColor: primaryColor } : innerStyle}
+            >
+              <span className="flex items-center gap-1.5 truncate">
+                <IconComponent size={14} className="shrink-0" />
+                <span className="truncate">
+                  {step.stepNumber}. {step.label}
+                </span>
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
+                {step.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* PASO 1: Directorio de Prestadores Verificados con Buscador Rápido y Chips */}
+      {activeStep === 'providers' && (
+        <section className="space-y-4">
+          <div
+            className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-4"
             style={cardStyle}
           >
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold">Directorio de Prestadores Verificados</h3>
-                <p className="text-xs opacity-80">
-                  Profesionales auditados con compliance aprobado para ingreso seguro por QR.
+                <h2 className="text-base sm:text-lg font-bold">
+                  Directorio de Prestadores Verificados
+                </h2>
+                <p className="text-xs opacity-75">
+                  Profesionales habilitados con documentación revisada y calificación acumulada.
                 </p>
               </div>
 
-              <div className="relative w-full md:w-80">
-                <Search className="absolute left-3 top-2.5 opacity-60" size={15} />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por nombre o especialidad..."
-                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1 md:w-72">
+                  <Search
+                    size={15}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                  />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Buscar por nombre o especialidad..."
+                    className="w-full pl-9 pr-8 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
+                    style={innerStyle}
+                  />
+                  {searchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchTerm('')}
+                      aria-label="Limpiar búsqueda"
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={fetchVerifiedProviders}
+                  className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
                   style={innerStyle}
-                />
+                  title="Actualizar directorio"
+                >
+                  <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
+                </button>
               </div>
             </div>
 
-            {loadingProviders ? (
-              <div className="text-center py-10 text-xs opacity-80 flex items-center justify-center gap-2">
-                <Loader2 className="animate-spin" size={15} /> Cargando prestadores verificados...
-              </div>
-            ) : filteredProviders.length === 0 ? (
-              <div
-                className="p-6 rounded-xl border border-black/20 text-center text-xs opacity-80"
-                style={innerStyle}
-              >
-                No hay prestadores verificados que coincidan con la búsqueda.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredProviders.map((p) => (
-                  <div
-                    key={p.provider_id}
-                    className="p-4 rounded-xl border border-black/20 flex flex-col justify-between gap-4"
-                    style={innerStyle}
+            {/* Chips de especialidad para filtrado instantáneo */}
+            <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
+              {availableSpecialties.map((spec) => {
+                const active = selectedSpecialty === spec;
+                return (
+                  <button
+                    key={spec}
+                    type="button"
+                    onClick={() => setSelectedSpecialty(spec)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-slate-700/70 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
                   >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold border bg-emerald-500/15 text-emerald-300 border-emerald-500/35 inline-flex items-center gap-1">
-                          <BadgeCheck size={12} /> Verificado
+                    {spec}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {providersError && (
+            <div className="rounded-2xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
+              <AlertCircle size={16} className="shrink-0" />
+              <span>{providersError}</span>
+            </div>
+          )}
+
+          {loadingProviders ? (
+            <div
+              className="rounded-2xl p-10 border border-slate-800/80 text-center text-xs opacity-75"
+              style={cardStyle}
+            >
+              Cargando prestadores verificados...
+            </div>
+          ) : filteredProviders.length === 0 ? (
+            <div
+              className="rounded-2xl p-10 border border-slate-800/80 text-center space-y-2"
+              style={cardStyle}
+            >
+              <p className="text-sm font-bold">No se encontraron prestadores con ese filtro</p>
+              <p className="text-xs opacity-75">
+                Probá limpiar el buscador o seleccionar otra especialidad.
+              </p>
+              {(searchTerm || selectedSpecialty !== 'Todos') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedSpecialty('Todos');
+                  }}
+                  className="mt-2 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  Restablecer filtros
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {filteredProviders.map((provider) => {
+                const fullName =
+                  `${provider.first_name || ''} ${provider.last_name || ''}`.trim() ||
+                  provider.email ||
+                  'Prestador Verificado';
+                const rating = Number(provider.rating_avg || 0).toFixed(1);
+                const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
+
+                return (
+                  <article
+                    key={provider.provider_id || provider.id}
+                    className="rounded-2xl p-5 border border-slate-800/80 shadow-sm flex flex-col justify-between gap-4"
+                    style={cardStyle}
+                  >
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <span
+                          className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+                        >
+                          {provider.specialty || 'Servicio Verificado'}
                         </span>
-                        <span className="text-amber-300 font-bold text-xs bg-amber-950/60 border border-amber-800 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
-                          <Star size={11} className="fill-amber-400" />
-                          {Number(p.rating_avg || 0).toFixed(2)}
+
+                        <span
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0"
+                        >
+                          <Star size={12} className="fill-amber-400 text-amber-400" />
+                          {rating}
                         </span>
                       </div>
 
                       <div>
-                        <h4 className="text-sm font-bold">
-                          {p.first_name} {p.last_name}
-                        </h4>
-                        <p className="text-xs text-emerald-300 font-semibold mt-0.5">
-                          {p.specialties_label || p.specialty}
+                        <h3 className="text-base font-bold">{fullName}</h3>
+                        <p className="text-xs opacity-75 mt-0.5">
+                          {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
                         </p>
                       </div>
 
-                      <p className="text-[11px] opacity-80">
-                        {p.total_jobs || 0} trabajo(s) registrado(s) en la red
-                      </p>
-
-                      <div className="space-y-1 text-[11px] opacity-80 pt-1">
-                        <p className="flex items-center gap-1.5">
-                          <Phone size={12} /> {p.phone || 'Teléfono no especificado'}
-                        </p>
-                        <p className="flex items-center gap-1.5 truncate">
-                          <Mail size={12} /> {p.email}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2.5 border-t border-white/10 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-emerald-300 font-semibold inline-flex items-center gap-1">
-                        <ShieldCheck size={13} /> Compliance OK
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedProviderId(String(p.provider_id));
-                          setVehiclePlate('');
-                          setActiveStep('passes');
-                        }}
-                        className="text-white text-xs font-bold px-3 py-1.5 rounded-xl inline-flex items-center gap-1.5 cursor-pointer hover:opacity-95"
-                        style={{ backgroundColor: primaryActionColor }}
+                      <div
+                        className="rounded-xl p-3 text-xs space-y-1 border border-slate-800/60"
+                        style={innerStyle}
                       >
-                        <QrCode size={13} /> Generar QR
-                      </button>
+                        <p className="truncate opacity-85">
+                          📞 {provider.phone || 'Teléfono no informado'}
+                        </p>
+                        <p className="truncate opacity-85">✉️ {provider.email || '—'}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </section>
-        )}
 
-        {/* PASO 2: Pases QR */}
-        {activeStep === 'passes' && (
-          <section
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-            style={cardStyle}
-          >
-            <div className="flex items-center justify-between border-b border-black/20 pb-3">
-              <div className="flex items-center gap-2">
-                <QrCode size={17} className="text-emerald-400" />
-                <h3 className="text-base font-bold">Emisión y Gestión de Pases QR</h3>
-              </div>
-              <span className="text-xs font-mono opacity-80">{passes.length} pase(s)</span>
+                    <div className="pt-2 border-t border-slate-800/70 flex items-center justify-between gap-2">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-400">
+                        <CheckCircle2 size={14} /> Verificado
+                      </span>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openQrModalForProvider(provider)}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <QrCode size={14} /> Generar QR
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setActiveStep('payments')}
+                          className="inline-flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
+                          style={innerStyle}
+                        >
+                          Contratar
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 2: Pases QR Emitidos */}
+      {activeStep === 'passes' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold">Mis Pases QR Emitidos</h2>
+              <p className="text-xs opacity-75">
+                Consultá el estado de tus autorizaciones, copiá el token o cancelá pases pendientes.
+              </p>
             </div>
 
-            {/* Formulario de emisión de pase QR */}
-            <form
-              onSubmit={handleCreatePass}
-              className="p-4 rounded-xl border border-white/15 space-y-3.5 text-xs"
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <input
+                type="text"
+                value={passSearch}
+                onChange={(e) => {
+                  setPassSearch(e.target.value);
+                  setPassesPage(1);
+                }}
+                placeholder="Buscar por prestador, lote o token..."
+                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                style={innerStyle}
+              />
+              <select
+                value={passStatusFilter}
+                onChange={(e) => {
+                  setPassStatusFilter(e.target.value);
+                  setPassesPage(1);
+                }}
+                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                style={innerStyle}
+              >
+                <option value="all">Todos los estados</option>
+                <option value="pending">Pendiente</option>
+                <option value="used">Utilizado</option>
+                <option value="expired">Vencido</option>
+                <option value="cancelled">Cancelado</option>
+              </select>
+            </div>
+          </div>
+
+          {loadingPasses ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR...</p>
+          ) : paginatedPasses.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
               style={innerStyle}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-                <div className="lg:col-span-4">
-                  <label className="block text-[10px] opacity-75 mb-1">Prestador Verificado</label>
-                  <select
-                    value={selectedProviderId}
-                    onChange={(e) => {
-                      setSelectedProviderId(e.target.value);
-                      setVehiclePlate('');
-                    }}
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
+              No hay pases QR que coincidan con el filtro seleccionado.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {paginatedPasses.map((item) => {
+                const isPending = String(item.status || '').toLowerCase() === 'pending';
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5"
+                    style={innerStyle}
                   >
-                    {providers.map((p) => (
-                      <option key={p.provider_id} value={p.provider_id}>
-                        {p.first_name} {p.last_name} — {p.specialty}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold">
+                        Pase #{item.id} · {item.provider_name || `Prestador #${item.provider_id}`}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${getPassStatusBadge(
+                          item.status
+                        )}`}
+                      >
+                        {item.status}
+                      </span>
+                    </div>
 
-                <div className="lg:col-span-2">
-                  <label className="block text-[10px] opacity-75 mb-1">Manzana / Fracción</label>
-                  <input
-                    type="text"
-                    required
-                    value={fractionNumber}
-                    onChange={(e) => setFractionNumber(e.target.value)}
-                    placeholder="Ej: Mz 4 / Fracc 2"
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                </div>
+                    <p className="text-xs opacity-80">
+                      Destino: {item.fraction_number || 'Sin fracción'} /{' '}
+                      {item.lot_number || 'Sin lote'}
+                    </p>
+                    <p className="text-[11px] opacity-75">
+                      Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
+                      {formatLocalDateTime(item.end_time)}
+                    </p>
 
-                <div className="lg:col-span-3">
-                  <label className="block text-[10px] opacity-75 mb-1">Lote / Destino</label>
-                  <input
-                    type="text"
-                    required
-                    value={lotNumber}
-                    onChange={(e) => setLotNumber(e.target.value)}
-                    placeholder="Ej: Lote 42 - Sector Norte"
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                </div>
+                    {item.qr_token && (
+                      <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
+                        <code className="text-[11px] truncate">{item.qr_token}</code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyToken(item.qr_token, item.id)}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer shrink-0"
+                        >
+                          {copiedTokenId === item.id ? (
+                            <>
+                              <Check size={12} className="text-emerald-400" /> Copiado
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} /> Copiar
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    )}
 
-                <div className="lg:col-span-3">
-                  <label className="block text-[10px] opacity-75 mb-1">
-                    Patente (opcional · Flota)
-                  </label>
-                  {selectedProviderFleet.length > 0 ? (
+                    {isPending && (
+                      <div className="pt-1 flex justify-end">
+                        <button
+                          type="button"
+                          disabled={cancellingPassId === item.id}
+                          onClick={() => handleCancelPass(item.id)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-rose-300 hover:text-rose-200 cursor-pointer disabled:opacity-50"
+                        >
+                          <Ban size={13} />
+                          {cancellingPassId === item.id ? 'Cancelando...' : 'Cancelar pase'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {filteredPasses.length > PASSES_PER_PAGE && (
+            <div className="flex items-center justify-between pt-2 text-xs">
+              <span className="opacity-75">
+                Página {Math.min(passesPage, totalPassPages)} de {totalPassPages} (
+                {filteredPasses.length} pases)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={passesPage <= 1}
+                  onClick={() => setPassesPage((p) => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  disabled={passesPage >= totalPassPages}
+                  onClick={() => setPassesPage((p) => Math.min(totalPassPages, p + 1))}
+                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Siguiente
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 3: Visitas y Pagos (Take Rate 7% / 93%) */}
+      {activeStep === 'payments' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div>
+            <h2 className="text-base sm:text-lg font-bold">Visitas y Órdenes de Pago</h2>
+            <p className="text-xs opacity-75">
+              Revisá los contratos acordados con desglose de comisión (7% plataforma / 93% prestador).
+            </p>
+          </div>
+
+          {paymentFeedback.text && (
+            <div
+              className={`rounded-xl p-3 text-xs border ${
+                paymentFeedback.type === 'success'
+                  ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                  : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+              }`}
+            >
+              {paymentFeedback.text}
+            </div>
+          )}
+
+          {loadingContracts ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando contratos y pagos...</p>
+          ) : contracts.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              style={innerStyle}
+            >
+              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 2 o abrir la
+              vista completa de Pagos y Reseñas.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {contracts.map((contract) => {
+                const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
+                const feeAmount = Number((totalAmount * 0.07).toFixed(2));
+                const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
+                const isPending = String(contract.status || '').toLowerCase() === 'pending';
+
+                return (
+                  <div
+                    key={contract.id}
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-3"
+                    style={innerStyle}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold">
+                        Contrato #{contract.id} ·{' '}
+                        {contract.provider_name || `Prestador #${contract.provider_id}`}
+                      </span>
+                      <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-slate-700">
+                        {contract.status}
+                      </span>
+                    </div>
+
+                    {contract.description && (
+                      <p className="text-xs opacity-85">{contract.description}</p>
+                    )}
+
+                    <div className="text-xs space-y-1 pt-2 border-t border-slate-800/70">
+                      <div className="flex justify-between">
+                        <span className="opacity-75">Monto acordado:</span>
+                        <span className="font-bold">${totalAmount.toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="opacity-75">Comisión TrustLink (7%):</span>
+                        <span>${feeAmount.toLocaleString('es-AR')}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="opacity-75">Neto prestador (93%):</span>
+                        <span className="font-semibold text-emerald-400">
+                          ${payoutAmount.toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                    </div>
+
+                    {isPending && (
+                      <button
+                        type="button"
+                        disabled={payingContractId === contract.id}
+                        onClick={() => handlePayContract(contract.id)}
+                        className="w-full py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        {payingContractId === contract.id
+                          ? 'Procesando pago...'
+                          : 'Confirmar y Pagar'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PASO 4: Reseñas y Reputación Cruzada */}
+      {activeStep === 'reviews' && (
+        <section
+          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+          style={cardStyle}
+        >
+          <div>
+            <h2 className="text-base sm:text-lg font-bold">Reseñas y Calificación Cruzada</h2>
+            <p className="text-xs opacity-75">
+              Calificá a los prestadores por los trabajos realizados y consultá sus devoluciones.
+            </p>
+          </div>
+
+          {reviewFeedback.text && (
+            <div
+              className={`rounded-xl p-3 text-xs border ${
+                reviewFeedback.type === 'success'
+                  ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                  : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+              }`}
+            >
+              {reviewFeedback.text}
+            </div>
+          )}
+
+          {loadingReviews ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando reseñas...</p>
+          ) : reviewContracts.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              style={innerStyle}
+            >
+              Todavía no tenés contratos habilitados para calificar.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {reviewContracts.map((item) => (
+                <div
+                  key={item.id}
+                  className="rounded-xl p-4 border border-slate-800/70 space-y-3"
+                  style={innerStyle}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-bold">
+                      Servicio #{item.id} ·{' '}
+                      {item.provider_name || `Prestador #${item.provider_id}`}
+                    </span>
+                    <span className="text-[11px] opacity-75">Estado: {item.status}</span>
+                  </div>
+
+                  {item.owner_review_rating && (
+                    <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                      <span className="font-bold text-emerald-300">
+                        Reseña del prestador: ★ {item.owner_review_rating}/5
+                      </span>
+                      {item.owner_review_comment && (
+                        <p className="opacity-85 mt-0.5">“{item.owner_review_comment}”</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
                     <select
-                      value={vehiclePlate}
-                      onChange={(e) => setVehiclePlate(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                      value={ratingByContract[item.id] ?? 5}
+                      onChange={(e) =>
+                        setRatingByContract((prev) => ({
+                          ...prev,
+                          [item.id]: Number(e.target.value),
+                        }))
+                      }
+                      className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
                       style={cardStyle}
                     >
-                      <option value="">Sin vehículo / Ingreso peatonal</option>
-                      {selectedProviderFleet.map((veh) => (
-                        <option key={veh.id || veh.plate} value={veh.plate}>
-                          {veh.plate} —{' '}
-                          {[veh.brand, veh.model].filter(Boolean).join(' ') ||
-                            veh.vehicle_type ||
-                            'Vehículo'}
-                        </option>
-                      ))}
+                      <option value={5}>★★★★★ (5/5)</option>
+                      <option value={4}>★★★★☆ (4/5)</option>
+                      <option value={3}>★★★☆☆ (3/5)</option>
+                      <option value={2}>★★☆☆☆ (2/5)</option>
+                      <option value={1}>★☆☆☆☆ (1/5)</option>
                     </select>
-                  ) : (
+
                     <input
                       type="text"
-                      value={vehiclePlate}
-                      onChange={(e) => setVehiclePlate(e.target.value)}
-                      placeholder="Sin flota cargada (o patente)"
-                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs font-mono uppercase focus:outline-none"
+                      value={commentByContract[item.id] ?? ''}
+                      onChange={(e) =>
+                        setCommentByContract((prev) => ({
+                          ...prev,
+                          [item.id]: e.target.value,
+                        }))
+                      }
+                      placeholder="Dejá un comentario sobre el servicio..."
+                      className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
                       style={cardStyle}
                     />
-                  )}
+
+                    <button
+                      type="button"
+                      disabled={submittingReviewId === item.id}
+                      onClick={() => handleSubmitProviderReview(item.id)}
+                      className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {submittingReviewId === item.id ? 'Guardando...' : 'Enviar Reseña'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Modal de Emisión de Pase QR por Prestador */}
+      {qrModalProvider && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold">
+                Emitir Pase QR · {qrModalProvider.first_name} {qrModalProvider.last_name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setQrModalProvider(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreatePassSubmit} className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold mb-1 opacity-85">Fracción</label>
+                  <input
+                    type="text"
+                    value={fractionNumber}
+                    onChange={(e) => setFractionNumber(e.target.value)}
+                    placeholder="Ej: Fracción 5"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                    style={innerStyle}
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1 opacity-85">Lote</label>
+                  <input
+                    type="text"
+                    value={lotNumber}
+                    onChange={(e) => setLotNumber(e.target.value)}
+                    placeholder="Ej: Lote 15"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                    style={innerStyle}
+                  />
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-                <div className="lg:col-span-4">
-                  <label className="block text-[10px] opacity-75 mb-1">Válido Desde</label>
-                  <input
-                    type="datetime-local"
-                    value={validFrom}
-                    onChange={(e) => setValidFrom(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                </div>
-
-                <div className="lg:col-span-4">
-                  <label className="block text-[10px] opacity-75 mb-1">Válido Hasta</label>
-                  <input
-                    type="datetime-local"
-                    value={validUntil}
-                    onChange={(e) => setValidUntil(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
-                    style={cardStyle}
-                  />
-                </div>
-
-                <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
-                  <button
-                    type="submit"
-                    disabled={creatingPass || providers.length === 0}
-                    className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50"
-                    style={{ backgroundColor: primaryActionColor }}
-                  >
-                    <QrCode size={14} />
-                    {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
-                  </button>
-                </div>
-              </div>
-            </form>
-
-            {/* Buscador y filtro por estado */}
-            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-2.5 opacity-60" size={14} />
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
                 <input
-                  type="text"
-                  value={passSearch}
-                  onChange={(e) => {
-                    setPassSearch(e.target.value);
-                    setPassPage(1);
-                  }}
-                  placeholder="Buscar pase por #, prestador, especialidad, destino o patente..."
-                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
                   style={innerStyle}
                 />
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <select
-                  value={passStatusFilter}
-                  onChange={(e) => {
-                    setPassStatusFilter(e.target.value);
-                    setPassPage(1);
-                  }}
-                  aria-label="Filtrar pases por estado"
-                  className="px-3 py-2 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Válido hasta</label>
+                <input
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
                   style={innerStyle}
+                />
+              </div>
+
+              {passFeedback.text && (
+                <div
+                  className={`rounded-xl p-3 border space-y-2 ${
+                    passFeedback.type === 'success'
+                      ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                      : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+                  }`}
                 >
-                  <option value="all">Todos los estados</option>
-                  <option value="pending">Vigentes</option>
-                  <option value="expired">Vencidos</option>
-                  <option value="cancelled">Cancelados</option>
-                  <option value="used">Usados</option>
-                </select>
-                <span className="text-[11px] font-mono opacity-75">
-                  {filteredPasses.length} resultado(s)
-                </span>
-              </div>
-            </div>
-
-            {loadingPasses ? (
-              <div className="text-center py-6 text-xs opacity-80">Cargando pases QR...</div>
-            ) : paginatedPasses.length === 0 ? (
-              <div
-                className="p-4 rounded-xl border border-black/20 text-center text-xs opacity-80"
-                style={innerStyle}
-              >
-                No hay pases QR que coincidan con el filtro seleccionado.
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {paginatedPasses.map((pass) => {
-                    const badge = formatPassBadge(pass);
-                    const isEditing = editingPassId === pass.id && badge.canEdit;
-                    const locationParts = [pass.fraction_number, pass.lot_number]
-                      .filter(Boolean)
-                      .join(' · ');
-
-                    const matchedProvider = providers.find(
-                      (p) => Number(p.provider_id) === Number(pass.provider_id)
-                    );
-                    const passSpecialty =
-                      pass.provider_specialty ||
-                      matchedProvider?.specialties_label ||
-                      matchedProvider?.specialty ||
-                      'Especialidad contratada';
-
-                    const passFleet = Array.isArray(matchedProvider?.vehicles)
-                      ? matchedProvider.vehicles.filter((v) => v && String(v.plate || '').trim())
-                      : [];
-
-                    return (
-                      <div
-                        key={pass.id}
-                        className="p-4 rounded-xl border border-black/20 space-y-2 text-xs flex flex-col justify-between"
-                        style={innerStyle}
+                  <p>{passFeedback.text}</p>
+                  {passFeedback.qrToken && (
+                    <div className="flex items-center justify-between gap-2 bg-black/30 px-2.5 py-1.5 rounded-lg">
+                      <code className="text-[11px] truncate">{passFeedback.qrToken}</code>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyToken(passFeedback.qrToken, 'modal-token')}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer shrink-0"
                       >
-                        {isEditing ? (
-                          <div className="space-y-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-mono font-bold text-emerald-400">
-                                Editando Pase #{pass.id} · {pass.provider_name}
-                              </span>
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.badgeClass}`}
-                              >
-                                {badge.label}
-                              </span>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                              <div>
-                                <label className="block text-[10px] opacity-75 mb-0.5">
-                                  Manzana / Fracción
-                                </label>
-                                <input
-                                  type="text"
-                                  value={editFraction}
-                                  onChange={(e) => setEditFraction(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                  style={cardStyle}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-[10px] opacity-75 mb-0.5">
-                                  Lote / Destino
-                                </label>
-                                <input
-                                  type="text"
-                                  value={editLot}
-                                  onChange={(e) => setEditLot(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                  style={cardStyle}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                              <div>
-                                <label className="block text-[10px] opacity-75 mb-0.5">
-                                  Patente (Flota)
-                                </label>
-                                {passFleet.length > 0 ? (
-                                  <select
-                                    value={editPlate}
-                                    onChange={(e) => setEditPlate(e.target.value)}
-                                    className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
-                                    style={cardStyle}
-                                  >
-                                    <option value="">Ingreso peatonal</option>
-                                    {passFleet.map((veh) => (
-                                      <option key={veh.id || veh.plate} value={veh.plate}>
-                                        {veh.plate} —{' '}
-                                        {[veh.brand, veh.model].filter(Boolean).join(' ') ||
-                                          'Vehículo'}
-                                      </option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <input
-                                    type="text"
-                                    value={editPlate}
-                                    onChange={(e) => setEditPlate(e.target.value)}
-                                    placeholder="Patente o peatonal"
-                                    className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs font-mono uppercase focus:outline-none"
-                                    style={cardStyle}
-                                  />
-                                )}
-                              </div>
-
-                              <div>
-                                <label className="block text-[10px] opacity-75 mb-0.5">
-                                  Válido Desde
-                                </label>
-                                <input
-                                  type="datetime-local"
-                                  value={editValidFrom}
-                                  onChange={(e) => setEditValidFrom(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                  style={cardStyle}
-                                />
-                              </div>
-
-                              <div>
-                                <label className="block text-[10px] opacity-75 mb-0.5">
-                                  Válido Hasta
-                                </label>
-                                <input
-                                  type="datetime-local"
-                                  value={editValidUntil}
-                                  onChange={(e) => setEditValidUntil(e.target.value)}
-                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                  style={cardStyle}
-                                />
-                              </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2 pt-1">
-                              <button
-                                type="button"
-                                onClick={() => setEditingPassId(null)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer"
-                                style={cardStyle}
-                              >
-                                <X size={11} /> Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                disabled={savingPassEdit}
-                                onClick={() => handleSavePassEdit(pass)}
-                                className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-white font-bold text-[11px] cursor-pointer disabled:opacity-50"
-                                style={{ backgroundColor: primaryActionColor }}
-                              >
-                                <Save size={11} />{' '}
-                                {savingPassEdit ? 'Guardando...' : 'Guardar Cambios'}
-                              </button>
-                            </div>
-                          </div>
+                        {copiedTokenId === 'modal-token' ? (
+                          <>
+                            <Check size={12} className="text-emerald-400" /> Copiado
+                          </>
                         ) : (
                           <>
-                            <div className="space-y-1.5">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-mono font-bold text-emerald-400">
-                                  Pase #{pass.id}
-                                </span>
-                                <div className="flex items-center gap-2">
-                                  <span
-                                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border uppercase ${badge.badgeClass}`}
-                                  >
-                                    {badge.label}
-                                  </span>
-                                  {badge.canEdit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => startEditingPass(pass)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-semibold cursor-pointer hover:opacity-90"
-                                      style={cardStyle}
-                                      title="Editar pase vigente por imprevistos"
-                                    >
-                                      <Edit3 size={11} /> Editar
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                                <span className="font-bold text-sm">
-                                  {pass.provider_name || `Prestador #${pass.provider_id}`}
-                                </span>
-                                <span className="text-[11px] text-emerald-300 font-semibold">
-                                  {passSpecialty}
-                                </span>
-                              </div>
-
-                              <div className="flex flex-wrap items-center justify-between gap-2 opacity-85 pt-0.5">
-                                <span className="inline-flex items-center gap-1.5">
-                                  <MapPin size={12} className="text-sky-400 shrink-0" />
-                                  Destino: {locationParts || pass.destination || 'Domicilio'}
-                                </span>
-
-                                {pass.vehicle_plate ? (
-                                  <span className="inline-flex items-center gap-1 font-mono text-sky-300">
-                                    <Car size={12} /> Vehículo: {pass.vehicle_plate}
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-1 opacity-75">
-                                    <Footprints size={12} /> Ingreso peatonal
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="pt-1.5 border-t border-white/10 flex items-center justify-between gap-2 text-[10px] font-mono opacity-80">
-                              <span className="inline-flex items-center gap-1 truncate">
-                                <Clock size={11} className="shrink-0" />
-                                Validez: {formatPassDateTime(pass.start_time)} —{' '}
-                                {formatPassDateTime(pass.end_time)}
-                              </span>
-                            </div>
+                            <Copy size={12} /> Copiar
                           </>
                         )}
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {/* Controles de paginación */}
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-black/20 text-xs">
-                  <span className="opacity-75 font-mono">
-                    Página {safePassPage} de {totalPassPages}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={safePassPage <= 1}
-                      onClick={() => setPassPage((p) => Math.max(1, p - 1))}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/15 font-semibold cursor-pointer disabled:opacity-40 hover:opacity-90"
-                      style={innerStyle}
-                    >
-                      <ChevronLeft size={13} /> Anterior
-                    </button>
-                    <button
-                      type="button"
-                      disabled={safePassPage >= totalPassPages}
-                      onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
-                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-white/15 font-semibold cursor-pointer disabled:opacity-40 hover:opacity-90"
-                      style={innerStyle}
-                    >
-                      Siguiente <ChevronRight size={13} />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </section>
-        )}
-
-        {/* PASO 3: Visitas y Pagos */}
-        {activeStep === 'payments' && (
-          <section
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-            style={cardStyle}
-          >
-            <div className="flex items-center justify-between border-b border-black/20 pb-3">
-              <div className="flex items-center gap-2">
-                <CreditCard size={17} className="text-emerald-400" />
-                <h3 className="text-base font-bold">Visitas y Órdenes de Pago Pendientes</h3>
-              </div>
-              <span className="text-xs font-mono opacity-80">
-                {pendingContracts.length} pendiente(s)
-              </span>
-            </div>
-
-            {loadingPayments ? (
-              <div className="text-center py-6 text-xs opacity-80">
-                Consultando órdenes de pago pendientes...
-              </div>
-            ) : pendingContracts.length === 0 ? (
-              <div
-                className="p-4 rounded-xl border border-black/20 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs"
-                style={innerStyle}
-              >
-                <span className="opacity-85">
-                  No tenés órdenes de pago pendientes en este momento.
-                </span>
-                {typeof onViewChange === 'function' && (
-                  <button
-                    type="button"
-                    onClick={() => onViewChange('payments')}
-                    className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0"
-                    style={{ backgroundColor: primaryActionColor }}
-                  >
-                    Ir a Pagos y Reseñas
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {pendingContracts.map((contract) => {
-                  const agreed = Number(contract.agreed_amount || 0);
-                  const platformFee = Number((agreed * PLATFORM_FEE_RATE).toFixed(2));
-                  const providerPayout = Number((agreed - platformFee).toFixed(2));
-                  return (
-                    <div
-                      key={contract.id}
-                      className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
-                      style={innerStyle}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <span className="font-mono font-bold text-emerald-400">
-                            Contrato #{contract.id}
-                          </span>{' '}
-                          · <span className="font-bold">{contract.provider_name}</span>
-                          <p className="opacity-80 mt-1">{contract.description}</p>
-                        </div>
-                        <span className="font-mono font-bold text-sm">
-                          ${agreed.toLocaleString('es-AR')}
-                        </span>
-                      </div>
-
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/10 text-[11px]">
-                        <span className="opacity-80">
-                          Comisión TrustLink (7%): ${platformFee.toLocaleString('es-AR')} · Neto
-                          prestador (93%): ${providerPayout.toLocaleString('es-AR')}
-                        </span>
-                        <button
-                          type="button"
-                          disabled={payingId === contract.id}
-                          onClick={() => handlePayContract(contract.id, agreed)}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
-                          style={{ backgroundColor: primaryActionColor }}
-                        >
-                          <CreditCard size={13} />
-                          {payingId === contract.id ? 'Procesando...' : 'Aprobar y Pagar'}
-                        </button>
-                      </div>
+                      </button>
                     </div>
-                  );
-                })}
+                  )}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setQrModalProvider(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingPass}
+                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
+                </button>
               </div>
-            )}
-          </section>
-        )}
-
-        {/* PASO 4: Reseñas y Reputación Cruzada */}
-        {activeStep === 'reviews' && (
-          <section
-            className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
-            style={cardStyle}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-black/20 pb-3">
-              <div>
-                <h3 className="text-base font-bold">Reseñas y Reputación Cruzada</h3>
-                <p className="text-xs opacity-80">
-                  Calificá al prestador al concluir el trabajo y consultá las reseñas cruzadas de tus contratos.
-                </p>
-              </div>
-              <span className="text-xs font-mono opacity-80">
-                {reviewContracts.length} contrato(s)
-              </span>
-            </div>
-
-            {loadingReviews ? (
-              <div className="text-center py-6 text-xs opacity-80">
-                Cargando historial de contratos y reseñas cruzadas...
-              </div>
-            ) : reviewContracts.length === 0 ? (
-              <div
-                className="p-4 rounded-xl border border-black/20 text-center text-xs opacity-80"
-                style={innerStyle}
-              >
-                Aún no tenés contratos registrados para emitir o consultar reseñas.
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {reviewContracts.map((item) => {
-                  const currentDraftRating = ratingDrafts[item.contract_id] || 5;
-                  const currentDraftComment = commentDrafts[item.contract_id] || '';
-                  const alreadyRatedProvider = Boolean(item.provider_review_rating);
-                  const providerFullName =
-                    `${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
-                    'Prestador Verificado';
-
-                  return (
-                    <div
-                      key={item.contract_id}
-                      className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
-                      style={innerStyle}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <span className="font-mono font-bold text-emerald-400">
-                            Contrato #{item.contract_id}
-                          </span>{' '}
-                          · <span className="font-bold">{providerFullName}</span>
-                          {item.specialty && (
-                            <span className="opacity-75"> ({item.specialty})</span>
-                          )}
-                          <p className="opacity-80 mt-1">{item.description}</p>
-                        </div>
-                        <span
-                          className="font-mono border border-white/15 px-3 py-1 rounded-lg self-start"
-                          style={cardStyle}
-                        >
-                          ${Number(item.agreed_amount || 0).toLocaleString('es-AR')}
-                        </span>
-                      </div>
-
-                      {alreadyRatedProvider ? (
-                        <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-emerald-300">
-                            Tu calificación al prestador:{' '}
-                            {'★'.repeat(item.provider_review_rating)} (
-                            {item.provider_review_rating}/5)
-                          </span>
-                          {item.provider_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.provider_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div
-                          className="p-3 rounded-lg border border-white/15 space-y-2.5"
-                          style={cardStyle}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="opacity-90 font-semibold">
-                              Calificar al prestador:
-                            </span>
-                            <div className="flex items-center gap-1">
-                              {[1, 2, 3, 4, 5].map((starVal) => (
-                                <button
-                                  key={starVal}
-                                  type="button"
-                                  onClick={() =>
-                                    setRatingDrafts((prev) => ({
-                                      ...prev,
-                                      [item.contract_id]: starVal,
-                                    }))
-                                  }
-                                  className={`p-1 rounded-lg border cursor-pointer ${
-                                    currentDraftRating >= starVal
-                                      ? 'bg-amber-950/70 border-amber-700 text-amber-300'
-                                      : 'border-white/15 opacity-60'
-                                  }`}
-                                  style={currentDraftRating >= starVal ? undefined : innerStyle}
-                                >
-                                  <Star
-                                    size={13}
-                                    className={
-                                      currentDraftRating >= starVal ? 'fill-amber-400' : ''
-                                    }
-                                  />
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <div className="relative flex-1">
-                              <MessageSquare
-                                size={13}
-                                className="opacity-60 absolute left-3 top-1/2 -translate-y-1/2"
-                              />
-                              <input
-                                type="text"
-                                value={currentDraftComment}
-                                onChange={(e) =>
-                                  setCommentDrafts((prev) => ({
-                                    ...prev,
-                                    [item.contract_id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Comentario sobre puntualidad, prolijidad y cumplimiento..."
-                                className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={innerStyle}
-                              />
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleSubmitProviderReview(item.contract_id)}
-                              disabled={submittingContractId === item.contract_id}
-                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold text-white disabled:opacity-50 cursor-pointer transition-opacity hover:opacity-95"
-                              style={{ backgroundColor: primaryActionColor }}
-                            >
-                              <Send size={12} />
-                              {submittingContractId === item.contract_id
-                                ? 'Enviando...'
-                                : 'Calificar Prestador'}
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {item.owner_review_rating ? (
-                        <div className="p-3 rounded-lg border border-indigo-800/60 bg-indigo-950/35 flex flex-wrap items-center justify-between gap-2">
-                          <span className="font-semibold text-indigo-300">
-                            Reseña recibida del prestador:{' '}
-                            {'★'.repeat(item.owner_review_rating)} ({item.owner_review_rating}/5)
-                          </span>
-                          {item.owner_review_comment && (
-                            <span className="opacity-90 italic">
-                              "{item.owner_review_comment}"
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="p-3 rounded-lg border border-white/15 flex flex-wrap items-center justify-between gap-2 opacity-75">
-                          <span>Pendiente de reseña cruzada por parte del prestador.</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
-      </main>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
