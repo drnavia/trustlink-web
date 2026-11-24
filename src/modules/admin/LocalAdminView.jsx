@@ -527,9 +527,40 @@ export default function LocalAdminView() {
         className="border border-black/20 p-6 rounded-2xl space-y-4"
         style={cardStyle}
       >
-        <h3 className="text-sm font-bold">
-          Historial de reportes y suspensiones locales ({suspensions.length})
-        </h3>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-bold">
+            Historial de reportes y suspensiones locales ({suspensions.length})
+          </h3>
+          {suspensions.length > 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                downloadCsv(
+                  `trustlink-suspensiones-locales-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [
+                    { key: 'id', label: 'ID' },
+                    { key: 'country_name', label: 'Comunidad' },
+                    {
+                      key: 'provider',
+                      label: 'Prestador',
+                      format: (s) => `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+                    },
+                    { key: 'specialty', label: 'Especialidad' },
+                    { key: 'reason', label: 'Motivo' },
+                    { key: 'status', label: 'Estado' },
+                    { key: 'created_at', label: 'Fecha Registro' },
+                    { key: 'lifted_at', label: 'Fecha Levantamiento' },
+                  ],
+                  suspensions
+                )
+              }
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90"
+              style={innerStyle}
+            >
+              <Download size={12} /> Exportar CSV
+            </button>
+          )}
+        </div>
 
         {loading ? (
           <div

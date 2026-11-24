@@ -644,7 +644,18 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     </div>
 
-                    <div className="flex justify-end pt-2 border-t border-white/10">
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-white/10">
+                      <button
+                        type="button"
+                        disabled={completingId === contract.id}
+                        onClick={() => handleCompleteContract(contract.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
+                        style={cardStyle}
+                        title="Registrar conformidad si abonaste en efectivo o acuerdo directo"
+                      >
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                        {completingId === contract.id ? 'Guardando...' : 'Conformidad (Efectivo)'}
+                      </button>
                       <button
                         type="button"
                         disabled={payingId === contract.id}

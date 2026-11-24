@@ -2855,6 +2855,32 @@ export default function SystemHealthDashboard() {
                 <div className="flex items-center gap-2">
                   <Receipt size={17} className="text-emerald-400" />
                   <h3 className="text-sm font-bold">Contratos y Transacciones</h3>
+                  {recentTransactions.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadCsv(
+                          `trustlink-transacciones-${new Date().toISOString().slice(0, 10)}.csv`,
+                          [
+                            { key: 'id', label: 'ID' },
+                            { key: 'contract_id', label: 'Contrato' },
+                            { key: 'gateway_provider', label: 'Pasarela' },
+                            { key: 'gateway_payment_id', label: 'ID Pago Externo' },
+                            { key: 'total_amount', label: 'Monto Total' },
+                            { key: 'platform_fee', label: 'Comision Plataforma' },
+                            { key: 'provider_payout', label: 'Neto Prestador' },
+                            { key: 'status', label: 'Estado' },
+                            { key: 'created_at', label: 'Fecha' },
+                          ],
+                          recentTransactions
+                        )
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                      style={innerStyle}
+                    >
+                      <Download size={11} /> Exportar CSV
+                    </button>
+                  )}
                 </div>
                 <div className="flex flex-wrap gap-4 text-xs font-mono">
                   <span>Volumen: ${transactionsSummary.gross_volume ?? 0}</span>
