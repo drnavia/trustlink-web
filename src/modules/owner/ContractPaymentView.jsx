@@ -30,11 +30,13 @@ import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
+import { HomeProtectedBadge } from '../../components/HomeProtectedBadge';
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
   ITEM_CARD_CLASS,
+  REVIEW_MICRO_TAGS,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
@@ -94,13 +96,30 @@ export default function ContractPaymentView({ onViewChange }) {
   const [agreedAmount, setAgreedAmount] = useState('');
   const [creatingContract, setCreatingContract] = useState(false);
 
-  // Reseñas cruzadas (Residente <-> Prestador)
+  // Reseñas cruzadas (Residente <-> Prestador) con micro-tags tocables
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ratingDrafts, setRatingDrafts] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
+  const [tagsDrafts, setTagsDrafts] = useState({});
   const [submittingContractId, setSubmittingContractId] = useState(null);
   const [reviewFeedback, setReviewFeedback] = useState(null);
+
+  /**
+   * Alterna un micro-tag en el borrador de reseña de un contrato específico.
+   *
+   * @param {number|string} contractId - Identificador del contrato.
+   * @param {string} tag - Micro-tag del catálogo oficial.
+   */
+  const toggleReviewTag = (contractId, tag) => {
+    setTagsDrafts((prev) => {
+      const current = Array.isArray(prev[contractId]) ? prev[contractId] : [];
+      const next = current.includes(tag)
+        ? current.filter((t) => t !== tag)
+        : [...current, tag];
+      return { ...prev, [contractId]: next };
+    });
+  };
 
   /**
    * Construye el encabezado de autorización Bearer utilizando el JWT de sesión vigente.
@@ -528,6 +547,7 @@ export default function ContractPaymentView({ onViewChange }) {
           contract_id: contractId,
           rating: selectedRating,
           comment: commentText || null,
+          tags: Array.isArray(tagsDrafts[contractId]) ? tagsDrafts[contractId] : [],
         }),
       });
       const data = await res.json();
@@ -624,6 +644,9 @@ export default function ContractPaymentView({ onViewChange }) {
               </button>
             </div>
           </div>
+
+          {/* Sello UX Hogar Protegido con las 3 garantías clave antes del checkout */}
+          <HomeProtectedBadge variant="compact" />
 
           {/* Banner de feedback operativo (con enlace directo de respaldo a Mercado Pago si aplica) */}
           {feedback && (
@@ -939,17 +962,31 @@ export default function ContractPaymentView({ onViewChange }) {
                       </span>
                     </div>
 
-                    {/* Calificación del residente al prestador (ya emitida o formulario interactivo de estrellas) */}
+                    {/* Calificación del residente al prestador (ya emitida o formulario interactivo de estrellas y micro-tags) */}
                     {alreadyRated ? (
-                      <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
-                        <span className="font-semibold text-emerald-300">
-                          Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
-                          {item.provider_review_rating}/5)
-                        </span>
-                        {item.provider_review_comment && (
-                          <span className="opacity-90 italic">
-                            "{item.provider_review_comment}"
+                      <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 space-y-1.5">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold text-emerald-300">
+                            Tu calificación al prestador: {'★'.repeat(item.provider_review_rating)} (
+                            {item.provider_review_rating}/5)
                           </span>
+                          {item.provider_review_comment && (
+                            <span className="opacity-90 italic">
+                              "{item.provider_review_comment}"
+                            </span>
+                          )}
+                        </div>
+                        {Array.isArray(item.provider_review_tags) && item.provider_review_tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.provider_review_tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
                     ) : (
@@ -986,6 +1023,29 @@ export default function ContractPaymentView({ onViewChange }) {
                               </button>
                             ))}
                           </div>
+                        </div>
+
+                        {/* Micro-tags tocables para destacar puntualidad, prolijidad o precio */}
+                        <div className="flex flex-wrap gap-1.5">
+                          {REVIEW_MICRO_TAGS.map((tag) => {
+                            const selected = (tagsDrafts[item.contract_id] || []).includes(tag);
+                            return (
+                              <button
+                                key={tag}
+                                type="button"
+                                onClick={() => toggleReviewTag(item.contract_id, tag)}
+                                className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                                  selected
+                                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                                    : 'border-white/15 opacity-75 hover:opacity-100'
+                                }`}
+                                style={selected ? undefined : innerStyle}
+                              >
+                                {selected ? '✓ ' : '+ '}
+                                {tag}
+                              </button>
+                            );
+                          })}
                         </div>
 
                         <div className="flex flex-col sm:flex-row gap-2">

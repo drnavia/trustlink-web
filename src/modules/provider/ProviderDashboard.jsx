@@ -52,6 +52,7 @@ import {
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
@@ -362,6 +363,7 @@ export default function ProviderDashboard() {
           expiry_alerts: data.expiry_alerts || [],
           membership: data.membership || null,
           membership_plans: data.membership_plans || [],
+          reputation: data.reputation || null,
         });
       } else {
         setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
@@ -1563,6 +1565,59 @@ export default function ProviderDashboard() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Tablero "Mi Reputación y Visibilidad" (termómetro estilo marketplace + próximo hito) */}
+      {!loading && profileData.reputation && (
+        <div
+          className="rounded-2xl p-4 border border-slate-800/80 space-y-3 text-xs"
+          style={cardStyle}
+        >
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
+            <div className="lg:col-span-5 space-y-1.5">
+              <div className="flex items-center gap-2 font-bold">
+                <Star size={15} className="text-amber-400 fill-amber-400 shrink-0" />
+                <span>Mi Reputación en el Directorio</span>
+              </div>
+              <ReputationThermometer reputation={profileData.reputation} />
+            </div>
+
+            <div className="lg:col-span-7 space-y-2">
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
+                  Conformados: <strong>{profileData.reputation.completed_jobs ?? 0}</strong>
+                </span>
+                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
+                  Reseñas: <strong>{profileData.reputation.reviews_count ?? 0}</strong> (★{' '}
+                  {Number(profileData.reputation.rating_avg || 0).toFixed(1)})
+                </span>
+                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
+                  Reclamos: <strong>{profileData.reputation.disputes_count ?? 0}</strong>
+                </span>
+              </div>
+
+              {Array.isArray(profileData.reputation.top_tags) &&
+                profileData.reputation.top_tags.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {profileData.reputation.top_tags.map((item) => (
+                      <span
+                        key={item.tag}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-200"
+                      >
+                        {item.tag} ({item.count})
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+              {profileData.reputation.next_milestone && (
+                <p className="text-[11px] opacity-85">
+                  <strong>Próximo objetivo:</strong> {profileData.reputation.next_milestone}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

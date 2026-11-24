@@ -32,6 +32,16 @@ export const ITEM_CARD_CLASS =
 export const FIELD_INPUT_CLASS =
   'px-3.5 py-2 rounded-xl border border-white/15 text-xs focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/25 transition-colors';
 
+/** Catálogo oficial de micro-tags tocables sincronizado con el backend (`providerReputation.js`). */
+export const REVIEW_MICRO_TAGS = [
+  'Puntual',
+  'Prolijo',
+  'Precio justo',
+  'Buena comunicación',
+  'Resolvió en el día',
+  'Recomendado',
+];
+
 // ============================================================================
 // Formateadores compartidos de fecha y hora
 // ============================================================================
