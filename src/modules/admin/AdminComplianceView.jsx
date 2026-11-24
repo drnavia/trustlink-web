@@ -142,8 +142,8 @@ export default function AdminComplianceView() {
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
-  const [bulkApprovingUserId, setBulkApprovingUserId] = useState(null);
-  const [confirmRejectProviderId, setConfirmRejectProviderId] = useState(null);
+  const [updatingUserComplianceId, setUpdatingUserComplianceId] = useState(null);
+  const [confirmRejectKey, setConfirmRejectKey] = useState(null);
   const [updatingMembershipUserId, setUpdatingMembershipUserId] = useState(null);
 
   // Estados de reclamos post-servicio
@@ -191,6 +191,9 @@ export default function AdminComplianceView() {
           provider_id: row.provider_id,
           specialty: row.specialty || 'Sin especialidad',
           status,
+          is_custom_specialty: Boolean(row.is_custom_specialty),
+          custom_specialty_description: row.custom_specialty_description || null,
+          specialty_approval_status: String(row.specialty_approval_status || 'approved').toLowerCase(),
           criminal_record_url: row.criminal_record_url || null,
           criminal_record_expiry: row.criminal_record_expiry || null,
           insurance_policy_url: row.insurance_policy_url || row.art_insurance_url || null,
@@ -199,21 +202,30 @@ export default function AdminComplianceView() {
       }
     }
 
-    // Ordenar especialidades internas y calcular resumen operativo de cada persona
+    // Ordenar especialidades internas y calcular resumen de compliance personal vs rubros personalizados
     return Array.from(byUser.values())
       .map((person) => {
         const sortedSpecs = [...person.specialties].sort(
           (a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9)
         );
+        const standardSpecs = sortedSpecs.filter((s) => !s.is_custom_specialty);
+        const customSpecs = sortedSpecs.filter((s) => s.is_custom_specialty);
+        const pendingCustomSpecs = customSpecs.filter(
+          (s) => s.specialty_approval_status === 'pending' || s.status === 'pending'
+        );
+        const pendingStandardSpecs = standardSpecs.filter((s) => s.status === 'pending');
         const pendingSpecs = sortedSpecs.filter((s) => s.status === 'pending');
         const approvedSpecs = sortedSpecs.filter((s) => s.status === 'approved');
         const rejectedSpecs = sortedSpecs.filter((s) => s.status === 'rejected');
 
-        // Estado consolidado de la persona para filtros y ordenamiento prioritario
+        // Estado consolidado de compliance personal (prioriza documentación/estándar pendientes, luego custom)
         let primaryStatus = 'sin_perfil';
-        if (pendingSpecs.length > 0) primaryStatus = 'pending';
+        if (pendingStandardSpecs.length > 0 || pendingSpecs.length > 0) primaryStatus = 'pending';
         else if (approvedSpecs.length > 0) primaryStatus = 'approved';
         else if (rejectedSpecs.length > 0) primaryStatus = 'rejected';
+
+        // Indica si la persona ya tiene compliance personal aprobado (al menos un perfil aprobado y sin estándar pendientes)
+        const isPersonApproved = approvedSpecs.length > 0 && pendingStandardSpecs.length === 0;
 
         // Documento representativo (primer registro con URL/fecha cargada)
         const docCriminal =
@@ -228,9 +240,14 @@ export default function AdminComplianceView() {
         return {
           ...person,
           specialties: sortedSpecs,
+          standardSpecs,
+          customSpecs,
+          pendingCustomSpecs,
+          pendingStandardSpecs,
           pendingCount: pendingSpecs.length,
           approvedCount: approvedSpecs.length,
           rejectedCount: rejectedSpecs.length,
+          isPersonApproved,
           primaryStatus,
           criminal_record_url: docCriminal?.criminal_record_url || null,
           criminal_record_expiry: docCriminal?.criminal_record_expiry || null,
@@ -246,13 +263,14 @@ export default function AdminComplianceView() {
       });
   }, [providers]);
 
-  // Métricas reales separando personas únicas vs. especialidades totales y por estado
+  // Métricas reales separando personas únicas, compliance pendiente y especialidades personalizadas en revisión
   const auditSummary = useMemo(() => {
     const counts = {
       totalPeople: groupedPeople.length,
       totalSpecialties: 0,
       all: groupedPeople.length,
       pending: 0,
+      custom_pending: 0,
       approved: 0,
       rejected: 0,
       sin_perfil: 0,
@@ -263,8 +281,9 @@ export default function AdminComplianceView() {
       counts.totalSpecialties += person.specialties.length;
       counts.totalPendingSpecs += person.pendingCount;
       if (person.pendingCount > 0) counts.pending += 1;
-      if (person.approvedCount > 0) counts.approved += 1;
-      if (person.rejectedCount > 0) counts.rejected += 1;
+      if (person.pendingCustomSpecs.length > 0) counts.custom_pending += 1;
+      if (person.isPersonApproved) counts.approved += 1;
+      if (person.rejectedCount > 0 && !person.isPersonApproved) counts.rejected += 1;
       if (person.specialties.length === 0) counts.sin_perfil += 1;
     });
 
@@ -277,14 +296,15 @@ export default function AdminComplianceView() {
     [disputes]
   );
 
-  // Filtra personas por estado de compliance y búsqueda libre (nombre, DNI, email o cualquiera de sus rubros)
+  // Filtra personas por estado de compliance / rubro personalizado y búsqueda libre
   const filteredPeople = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return groupedPeople.filter((person) => {
       let matchesStatus = true;
       if (statusFilter === 'pending') matchesStatus = person.pendingCount > 0;
-      else if (statusFilter === 'approved') matchesStatus = person.approvedCount > 0;
-      else if (statusFilter === 'rejected') matchesStatus = person.rejectedCount > 0;
+      else if (statusFilter === 'custom_pending') matchesStatus = person.pendingCustomSpecs.length > 0;
+      else if (statusFilter === 'approved') matchesStatus = person.isPersonApproved;
+      else if (statusFilter === 'rejected') matchesStatus = person.rejectedCount > 0 && !person.isPersonApproved;
       else if (statusFilter === 'sin_perfil') matchesStatus = person.specialties.length === 0;
 
       const specsText = person.specialties.map((s) => s.specialty).join(' ');
@@ -360,7 +380,7 @@ export default function AdminComplianceView() {
    */
   const handleUpdateStatus = async (providerId, newStatus) => {
     setUpdatingId(providerId);
-    setConfirmRejectProviderId(null);
+    setConfirmRejectKey(null);
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -380,7 +400,7 @@ export default function AdminComplianceView() {
       if (response.ok) {
         setSuccessMsg(
           newStatus === 'approved'
-            ? 'Especialidad aprobada correctamente.'
+            ? 'Especialidad personalizada aprobada correctamente.'
             : 'Especialidad rechazada / revocada correctamente.'
         );
         await fetchAllProviders();
@@ -396,49 +416,41 @@ export default function AdminComplianceView() {
   };
 
   /**
-   * Aprueba en lote todas las especialidades pendientes de una misma persona (`user_id`),
-   * agilizando la auditoría cuando el prestador comparte la misma documentación vigente.
+   * Aprueba o rechaza el compliance personal de una persona (`user_id`) en una sola acción
+   * mediante `PATCH /api/v1/providers/compliance/user`. Al aprobar, activa todos los rubros
+   * estándar del catálogo automáticamente y deja únicamente los personalizados pendientes
+   * para su moderación puntual.
    *
-   * @param {Object} person - Objeto agrupado del prestador.
+   * @param {number|string} userId - Identificador único de la persona prestadora.
+   * @param {'approved'|'rejected'} status - Estado de compliance personal a aplicar.
    * @returns {Promise<void>}
    */
-  const handleApproveAllForPerson = async (person) => {
-    const pendingIds = person.specialties
-      .filter((s) => s.status === 'pending')
-      .map((s) => s.provider_id);
-    if (pendingIds.length === 0) return;
-
-    setBulkApprovingUserId(person.user_id || person.user_key);
+  const handleUpdateUserCompliance = async (userId, status) => {
+    setUpdatingUserComplianceId(userId);
+    setConfirmRejectKey(null);
     setErrorMsg('');
     setSuccessMsg('');
     try {
-      const token = localStorage.getItem('trustlink_token') || '';
-      const responses = await Promise.all(
-        pendingIds.map((pid) =>
-          fetch(`${API_BASE}/api/v1/providers/compliance`, {
-            method: 'PATCH',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({ provider_id: pid, status: 'approved' }),
-          })
-        )
-      );
-      const allOk = responses.every((r) => r.ok);
-      if (allOk) {
-        setSuccessMsg(
-          `Se aprobaron ${pendingIds.length} especialidades pendientes de ${person.full_name}.`
-        );
+      const response = await fetch(`${API_BASE}/api/v1/providers/compliance/user`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify({ user_id: userId, status }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Compliance personal actualizado correctamente.');
+        await fetchAllProviders();
       } else {
-        setErrorMsg('Algunas especialidades no pudieron aprobarse. Revisá el estado actualizado.');
+        setErrorMsg(data.error || 'No se pudo actualizar el compliance personal.');
       }
-      await fetchAllProviders();
     } catch (error) {
-      console.error('Error en aprobación en lote:', error);
-      setErrorMsg('Error de conexión al aprobar especialidades en lote.');
+      console.error('Error al actualizar compliance personal:', error);
+      setErrorMsg('Error de conexión al actualizar el compliance personal.');
     } finally {
-      setBulkApprovingUserId(null);
+      setUpdatingUserComplianceId(null);
     }
   };
 
@@ -526,15 +538,15 @@ export default function AdminComplianceView() {
   };
 
   /**
-   * Renderiza los botones de acción de una especialidad individual aplicando jerarquía clara:
-   * `Aprobar` sólido solo cuando aplica; `Rechazar/Revocar` discreto outline con confirmación en 2 clics.
+   * Renderiza los botones de aprobación/rechazo de una especialidad personalizada en moderación.
    *
-   * @param {Object} spec - Especialidad perteneciente a una persona.
+   * @param {Object} spec - Especialidad personalizada perteneciente a una persona.
    * @returns {JSX.Element}
    */
-  const renderSpecialtyActions = (spec) => {
+  const renderCustomSpecialtyActions = (spec) => {
     const isBusy = updatingId === spec.provider_id;
-    const isConfirmingReject = confirmRejectProviderId === spec.provider_id;
+    const rejectKey = `spec-${spec.provider_id}`;
+    const isConfirmingReject = confirmRejectKey === rejectKey;
 
     return (
       <div className="flex items-center gap-1.5 shrink-0">
@@ -545,12 +557,12 @@ export default function AdminComplianceView() {
             disabled={isBusy}
             className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
           >
-            <CheckCircle2 size={12} /> Aprobar
+            <CheckCircle2 size={12} /> Aprobar rubro
           </button>
         )}
 
-        {spec.status !== 'rejected' && (
-          isConfirmingReject ? (
+        {spec.status !== 'rejected' &&
+          (isConfirmingReject ? (
             <div className="inline-flex items-center gap-1">
               <button
                 type="button"
@@ -562,7 +574,7 @@ export default function AdminComplianceView() {
               </button>
               <button
                 type="button"
-                onClick={() => setConfirmRejectProviderId(null)}
+                onClick={() => setConfirmRejectKey(null)}
                 className="px-2 py-1 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
                 style={cardStyle}
               >
@@ -572,14 +584,75 @@ export default function AdminComplianceView() {
           ) : (
             <button
               type="button"
-              onClick={() => setConfirmRejectProviderId(spec.provider_id)}
+              onClick={() => setConfirmRejectKey(rejectKey)}
               disabled={isBusy}
               className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
             >
-              <XCircle size={12} /> {spec.status === 'approved' ? 'Revocar' : 'Rechazar'}
+              <XCircle size={12} /> Rechazar rubro
             </button>
-          )
+          ))}
+      </div>
+    );
+  };
+
+  /**
+   * Renderiza la acción única de compliance personal a nivel persona (`user_id`):
+   * `Aprobar Prestador` cuando tiene compliance/rubros estándar pendientes y `Rechazar / Revocar`
+   * discreto en 2 clics.
+   *
+   * @param {Object} person - Persona prestadora agrupada.
+   * @returns {JSX.Element|null}
+   */
+  const renderPersonComplianceActions = (person) => {
+    if (!person.user_id || person.specialties.length === 0) return null;
+    const isBusy = updatingUserComplianceId === person.user_id;
+    const rejectKey = `user-${person.user_id}`;
+    const isConfirmingReject = confirmRejectKey === rejectKey;
+    const needsPersonalApproval = !person.isPersonApproved;
+
+    return (
+      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+        {needsPersonalApproval && (
+          <button
+            type="button"
+            onClick={() => handleUpdateUserCompliance(person.user_id, 'approved')}
+            disabled={isBusy}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+          >
+            <CheckCheck size={13} /> {isBusy ? 'Aprobando...' : 'Aprobar Prestador'}
+          </button>
         )}
+
+        {person.primaryStatus !== 'rejected' &&
+          (isConfirmingReject ? (
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleUpdateUserCompliance(person.user_id, 'rejected')}
+                disabled={isBusy}
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+              >
+                Confirmar rechazo
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRejectKey(null)}
+                className="px-2 py-1.5 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
+                style={cardStyle}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRejectKey(rejectKey)}
+              disabled={isBusy}
+              className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+            >
+              <XCircle size={12} /> {person.isPersonApproved ? 'Revocar' : 'Rechazar'}
+            </button>
+          ))}
       </div>
     );
   };
@@ -758,13 +831,14 @@ export default function AdminComplianceView() {
             </div>
           </div>
 
-          {/* Filtros rápidos por estado de auditoría (conteo por personas) */}
+          {/* Filtros rápidos por estado de compliance personal y rubros personalizados */}
           <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
             {[
               { id: 'all', label: 'Todos', count: auditSummary.all },
-              { id: 'pending', label: 'Con pendientes', count: auditSummary.pending },
-              { id: 'approved', label: 'Con aprobados', count: auditSummary.approved },
-              { id: 'rejected', label: 'Con rechazados', count: auditSummary.rejected },
+              { id: 'pending', label: 'Pendientes', count: auditSummary.pending },
+              { id: 'custom_pending', label: 'Rubros personalizados', count: auditSummary.custom_pending },
+              { id: 'approved', label: 'Aprobados', count: auditSummary.approved },
+              { id: 'rejected', label: 'Rechazados', count: auditSummary.rejected },
               { id: 'sin_perfil', label: 'Sin perfil', count: auditSummary.sin_perfil },
             ].map((chip) => {
               const active = statusFilter === chip.id;
@@ -805,13 +879,16 @@ export default function AdminComplianceView() {
               No hay prestadores que coincidan con el filtro seleccionado.
             </div>
           ) : viewMode === 'cards' ? (
-            /* VISTA A: TARJETAS CONSOLIDADAS POR PERSONA (1 tarjeta = 1 persona) */
+            /* VISTA A: TARJETAS CONSOLIDADAS POR PERSONA (compliance único + chips estándar + moderación custom) */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
               {filteredPeople.map((person) => {
                 const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                 const artMeta = getDocExpiryMeta(person.insurance_expiry);
-                const isBulkApproving = bulkApprovingUserId === (person.user_id || person.user_key);
                 const hasProfile = person.specialties.length > 0;
+                const personStatusMeta = getUnifiedStatusMeta(
+                  person.isPersonApproved ? 'approved' : person.primaryStatus,
+                  'compliance'
+                );
 
                 return (
                   <article
@@ -819,11 +896,16 @@ export default function AdminComplianceView() {
                     className="rounded-xl p-4 sm:p-5 border border-white/10 space-y-3.5 text-xs"
                     style={innerStyle}
                   >
-                    {/* Cabecera de persona: Identidad + Membresía única + Resumen de rubros */}
+                    {/* Cabecera de persona: Identidad + Estado de compliance personal + Membresía */}
                     <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-white/10">
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-sm font-black truncate">{person.full_name}</h4>
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${personStatusMeta.cls}`}
+                          >
+                            {personStatusMeta.label}
+                          </span>
                           {person.is_verified_member && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
                               <Award size={10} /> Socio
@@ -838,7 +920,7 @@ export default function AdminComplianceView() {
                         </p>
                       </div>
 
-                      {/* Acción comercial única por persona (estilo outline discreto, separada del compliance) */}
+                      {/* Acción comercial única por persona (estilo outline discreto) */}
                       {person.user_id && hasProfile && (
                         <div className="flex items-center gap-1.5 shrink-0">
                           {!person.is_verified_member ? (
@@ -878,7 +960,6 @@ export default function AdminComplianceView() {
                     {/* Documentación personal consolidada con semáforo de vencimiento visible */}
                     {hasProfile ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {/* Antecedentes penales */}
                         <div
                           className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
                           style={cardStyle}
@@ -909,7 +990,6 @@ export default function AdminComplianceView() {
                           </div>
                         </div>
 
-                        {/* Póliza ART / Seguro */}
                         <div
                           className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
                           style={cardStyle}
@@ -948,58 +1028,83 @@ export default function AdminComplianceView() {
                         <span className="opacity-75 italic">
                           Cuenta registrada como prestador — aún no cargó documentación ni especialidades.
                         </span>
-                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-slate-600 bg-slate-800/70 text-slate-300 shrink-0">
-                          Sin perfil
-                        </span>
                       </div>
                     )}
 
-                    {/* Sub-lista de especialidades de la persona con aprobación individual o en lote */}
-                    {hasProfile && (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] font-bold uppercase tracking-wider opacity-75">
-                            Especialidades ({person.specialties.length})
-                          </span>
-                          {person.pendingCount >= 2 && (
-                            <button
-                              type="button"
-                              disabled={isBulkApproving}
-                              onClick={() => handleApproveAllForPerson(person)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-50"
-                            >
-                              <CheckCheck size={12} />
-                              {isBulkApproving
-                                ? 'Aprobando...'
-                                : `Aprobar todas (${person.pendingCount})`}
-                            </button>
-                          )}
+                    {/* Rubros estándar (chips informativos sin botones repetidos) */}
+                    {person.standardSpecs.length > 0 && (
+                      <div className="space-y-1.5">
+                        <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                          Especialidades de catálogo ({person.standardSpecs.length})
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {person.standardSpecs.map((spec) => {
+                            const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
+                            return (
+                              <span
+                                key={spec.provider_id}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-semibold"
+                                style={cardStyle}
+                              >
+                                <span>{spec.specialty}</span>
+                                <span
+                                  className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                >
+                                  {statusMeta.label}
+                                </span>
+                              </span>
+                            );
+                          })}
                         </div>
+                      </div>
+                    )}
 
-                        <div className="space-y-1.5">
-                          {person.specialties.map((spec) => {
+                    {/* Bloque dedicado únicamente a Especialidades Personalizadas propuestas (con descripción) */}
+                    {person.customSpecs.length > 0 && (
+                      <div className="space-y-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
+                          Especialidades personalizadas ({person.customSpecs.length})
+                        </span>
+                        <div className="space-y-2">
+                          {person.customSpecs.map((spec) => {
                             const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
                             return (
                               <div
                                 key={spec.provider_id}
-                                className="rounded-xl px-3 py-2 border border-white/10 flex flex-wrap items-center justify-between gap-2"
-                                style={cardStyle}
+                                className="rounded-xl p-3 border border-amber-500/35 bg-amber-950/20 space-y-2"
                               >
-                                <div className="flex flex-wrap items-center gap-2 min-w-0">
-                                  <span className="font-bold text-xs truncate">
-                                    {spec.specialty}
-                                  </span>
-                                  <span
-                                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
-                                  >
-                                    {statusMeta.label}
-                                  </span>
+                                <div className="flex flex-wrap items-center justify-between gap-2">
+                                  <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                    <span className="font-bold text-xs">{spec.specialty}</span>
+                                    <span
+                                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                    >
+                                      {statusMeta.label}
+                                    </span>
+                                  </div>
+                                  {renderCustomSpecialtyActions(spec)}
                                 </div>
-                                {renderSpecialtyActions(spec)}
+                                {spec.custom_specialty_description && (
+                                  <p className="text-[11px] opacity-85 italic">
+                                    “{spec.custom_specialty_description}”
+                                  </p>
+                                )}
                               </div>
                             );
                           })}
                         </div>
+                      </div>
+                    )}
+
+                    {/* Pie de tarjeta: 1 única barra de auditoría de compliance personal por prestador */}
+                    {hasProfile && (
+                      <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] opacity-75">
+                          {person.isPersonApproved
+                            ? 'Compliance personal verificado'
+                            : 'Validá Antecedentes + ART para aprobar al prestador'}
+                        </span>
+                        {renderPersonComplianceActions(person)}
                       </div>
                     )}
                   </article>
@@ -1007,15 +1112,15 @@ export default function AdminComplianceView() {
               })}
             </div>
           ) : (
-            /* VISTA B: TABLA COMPACTA AGRUPADA POR PERSONA (ideal para nóminas grandes) */
+            /* VISTA B: TABLA COMPACTA AGRUPADA POR PERSONA */
             <div className="overflow-x-auto rounded-xl border border-white/10" style={innerStyle}>
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-white/10 opacity-75 text-[11px] uppercase">
                     <th className="py-2.5 px-3">Prestador</th>
                     <th className="py-2.5 px-3">Documentación / Vigencia</th>
-                    <th className="py-2.5 px-3">Especialidades y Auditoría</th>
-                    <th className="py-2.5 px-3 text-right">Socio</th>
+                    <th className="py-2.5 px-3">Rubros y Moderación</th>
+                    <th className="py-2.5 px-3 text-right">Compliance y Socio</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
@@ -1023,13 +1128,22 @@ export default function AdminComplianceView() {
                     const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                     const artMeta = getDocExpiryMeta(person.insurance_expiry);
                     const hasProfile = person.specialties.length > 0;
-                    const isBulkApproving =
-                      bulkApprovingUserId === (person.user_id || person.user_key);
+                    const personStatusMeta = getUnifiedStatusMeta(
+                      person.isPersonApproved ? 'approved' : person.primaryStatus,
+                      'compliance'
+                    );
 
                     return (
                       <tr key={person.user_key} className="align-top hover:bg-white/5">
-                        <td className="py-3 px-3">
-                          <div className="font-bold text-xs">{person.full_name}</div>
+                        <td className="py-3 px-3 space-y-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold text-xs">{person.full_name}</span>
+                            <span
+                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${personStatusMeta.cls}`}
+                            >
+                              {personStatusMeta.label}
+                            </span>
+                          </div>
                           <div className="text-[11px] opacity-75 font-mono">DNI {person.dni}</div>
                           <div className="text-[11px] opacity-70 truncate max-w-44">
                             {person.email}
@@ -1083,38 +1197,40 @@ export default function AdminComplianceView() {
                           )}
                         </td>
 
-                        <td className="py-3 px-3 space-y-1.5">
+                        <td className="py-3 px-3 space-y-2">
                           {hasProfile ? (
                             <>
-                              {person.pendingCount >= 2 && (
-                                <button
-                                  type="button"
-                                  disabled={isBulkApproving}
-                                  onClick={() => handleApproveAllForPerson(person)}
-                                  className="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
-                                >
-                                  <CheckCheck size={11} /> Aprobar todas ({person.pendingCount})
-                                </button>
+                              {person.standardSpecs.length > 0 && (
+                                <div className="flex flex-wrap gap-1">
+                                  {person.standardSpecs.map((spec) => (
+                                    <span
+                                      key={spec.provider_id}
+                                      className="px-2 py-0.5 rounded-md border border-white/15 text-[10px] font-semibold"
+                                      style={cardStyle}
+                                    >
+                                      {spec.specialty}
+                                    </span>
+                                  ))}
+                                </div>
                               )}
-                              {person.specialties.map((spec) => {
-                                const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
-                                return (
-                                  <div
-                                    key={spec.provider_id}
-                                    className="flex flex-wrap items-center justify-between gap-2 py-1 border-b border-white/5 last:border-b-0"
-                                  >
-                                    <div className="flex items-center gap-1.5">
-                                      <span className="font-semibold">{spec.specialty}</span>
-                                      <span
-                                        className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${statusMeta.cls}`}
-                                      >
-                                        {statusMeta.label}
-                                      </span>
-                                    </div>
-                                    {renderSpecialtyActions(spec)}
+                              {person.customSpecs.map((spec) => (
+                                <div
+                                  key={spec.provider_id}
+                                  className="rounded-lg p-2 border border-amber-500/35 bg-amber-950/20 space-y-1"
+                                >
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <span className="font-bold text-[11px] text-amber-200">
+                                      Personalizado: {spec.specialty}
+                                    </span>
+                                    {renderCustomSpecialtyActions(spec)}
                                   </div>
-                                );
-                              })}
+                                  {spec.custom_specialty_description && (
+                                    <p className="text-[10px] opacity-80 italic">
+                                      “{spec.custom_specialty_description}”
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
                             </>
                           ) : (
                             <span className="text-[11px] opacity-65 italic">
@@ -1125,35 +1241,34 @@ export default function AdminComplianceView() {
 
                         <td className="py-3 px-3 text-right">
                           {person.user_id && hasProfile ? (
-                            <div className="inline-flex flex-col items-end gap-1">
+                            <div className="inline-flex flex-col items-end gap-2">
+                              {renderPersonComplianceActions(person)}
                               {person.is_verified_member ? (
-                                <>
+                                <div className="flex items-center gap-1">
                                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
-                                    <Award size={10} /> Activo
+                                    <Award size={10} /> Socio
                                   </span>
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleManageMembership(person.user_id, 'extend', 30)
-                                      }
-                                      disabled={updatingMembershipUserId === person.user_id}
-                                      className="border border-amber-400/50 text-amber-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer"
-                                    >
-                                      +30d
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleManageMembership(person.user_id, 'cancel')
-                                      }
-                                      disabled={updatingMembershipUserId === person.user_id}
-                                      className="border border-white/15 px-2 py-0.5 rounded text-[10px] opacity-80 cursor-pointer"
-                                    >
-                                      Revocar
-                                    </button>
-                                  </div>
-                                </>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleManageMembership(person.user_id, 'extend', 30)
+                                    }
+                                    disabled={updatingMembershipUserId === person.user_id}
+                                    className="border border-amber-400/50 text-amber-200 px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer"
+                                  >
+                                    +30d
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      handleManageMembership(person.user_id, 'cancel')
+                                    }
+                                    disabled={updatingMembershipUserId === person.user_id}
+                                    className="border border-white/15 px-1.5 py-0.5 rounded text-[10px] opacity-80 cursor-pointer"
+                                  >
+                                    Revocar
+                                  </button>
+                                </div>
                               ) : (
                                 <button
                                   type="button"

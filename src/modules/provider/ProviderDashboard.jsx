@@ -59,6 +59,7 @@ import {
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
   ITEM_CARD_CLASS,
+  STANDARD_SPECIALTIES_CATALOG,
   formatDateTimeAR,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
@@ -263,9 +264,13 @@ export default function ProviderDashboard() {
   const [editDocValidTo, setEditDocValidTo] = useState('');
   const [updatingDoc, setUpdatingDoc] = useState(false);
 
-  // Paso 1: Alta, edición y control de visibilidad en directorio de especialidades
+  // Paso 1: Alta (catálogo oficial auto-aprobado vs. especialidad personalizada), edición y visibilidad
   const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
+  const [selectedCatalogSpecialty, setSelectedCatalogSpecialty] = useState(
+    STANDARD_SPECIALTIES_CATALOG[0]
+  );
   const [newSpecialty, setNewSpecialty] = useState('');
+  const [customSpecialtyDesc, setCustomSpecialtyDesc] = useState('');
   const [savingSpecialty, setSavingSpecialty] = useState(false);
   const [togglingVisibilityId, setTogglingVisibilityId] = useState(null);
   const [editingSpecialtyId, setEditingSpecialtyId] = useState(null);
@@ -874,39 +879,57 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Agrega una nueva especialidad/rubro al prestador reutilizando los enlaces documentales del perfil principal.
+   * Agrega una nueva especialidad al prestador (Fase 5.3):
+   * - Desde el catálogo estándar: se auto-aprueba al instante si el compliance personal ya está aprobado.
+   * - Desde "Otra especialidad" (`__custom__`): envía `is_custom_specialty: true` y su breve descripción
+   *   para moderación puntual en Operaciones TrustLink.
    * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de especialidad.
    * @returns {Promise<void>}
    */
   const handleCreateSpecialty = async (e) => {
     e.preventDefault();
-    if (!newSpecialty.trim()) return;
+    const isCustomMode = selectedCatalogSpecialty === '__custom__';
+    const specialtyName = isCustomMode ? newSpecialty.trim() : selectedCatalogSpecialty;
+    if (!specialtyName) return;
+
+    if (isCustomMode && customSpecialtyDesc.trim().length < 5) {
+      setErrorMsg('Describí brevemente tu especialidad personalizada (mínimo 5 caracteres).');
+      return;
+    }
 
     setSavingSpecialty(true);
     setErrorMsg('');
     setSuccessMsg('');
 
-    const currentDoc = profileData.providers[0] || {};
-
     try {
+      const payload = {
+        specialty: specialtyName,
+        is_custom_specialty: isCustomMode,
+      };
+      if (isCustomMode) {
+        payload.custom_specialty_description = customSpecialtyDesc.trim();
+      }
+
       const response = await fetch(`${API_BASE}/api/v1/providers/profile`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
         },
-        body: JSON.stringify({
-          specialty: newSpecialty.trim(),
-          criminal_record_url: currentDoc.criminal_record_url || '',
-          insurance_policy_url:
-            currentDoc.insurance_policy_url || currentDoc.art_insurance_url || '',
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
       if (response.ok) {
-        setSuccessMsg('Especialidad agregada correctamente.');
+        setSuccessMsg(
+          data.message ||
+            (data.auto_approved
+              ? `Especialidad "${specialtyName}" activada automáticamente.`
+              : 'Especialidad agregada correctamente.')
+        );
+        setSelectedCatalogSpecialty(STANDARD_SPECIALTIES_CATALOG[0]);
         setNewSpecialty('');
+        setCustomSpecialtyDesc('');
         setShowSpecialtyForm(false);
         await fetchProviderProfile();
       } else {
@@ -2380,32 +2403,84 @@ export default function ProviderDashboard() {
               </button>
             </div>
 
-            {/* Formulario desplegable para dar de alta una nueva especialidad */}
+            {/* Formulario desplegable: Catálogo estándar (auto-aprobado) u Otra especialidad (moderada por Ops) */}
             {showSpecialtyForm && (
               <form
                 onSubmit={handleCreateSpecialty}
                 className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
                 style={innerStyle}
               >
-                <p className="font-bold">Nueva Especialidad</p>
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <input
-                    type="text"
-                    required
-                    value={newSpecialty}
-                    onChange={(e) => setNewSpecialty(e.target.value)}
-                    placeholder="Nueva especialidad (ej: Plomero Matriculado)"
-                    className="flex-1 px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                <div className="space-y-1">
+                  <p className="font-bold">Nueva Especialidad</p>
+                  <p className="text-[11px] opacity-75">
+                    Elegí un rubro del catálogo oficial (se activa al instante si tu documentación ya está aprobada) o proponé una especialidad personalizada.
+                  </p>
+                </div>
+
+                <div className="space-y-2.5">
+                  <select
+                    value={selectedCatalogSpecialty}
+                    onChange={(e) => setSelectedCatalogSpecialty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
                     style={cardStyle}
-                  />
-                  <button
-                    type="submit"
-                    disabled={savingSpecialty}
-                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50 shrink-0"
-                    style={{ backgroundColor: primaryColor }}
                   >
-                    <Plus size={14} /> {savingSpecialty ? 'Agregando...' : 'Agregar'}
-                  </button>
+                    {STANDARD_SPECIALTIES_CATALOG.map((spec) => (
+                      <option key={spec} value={spec}>
+                        {spec}
+                      </option>
+                    ))}
+                    <option value="__custom__">
+                      Otra especialidad (no figura en la lista — requiere aprobación de Ops)
+                    </option>
+                  </select>
+
+                  {selectedCatalogSpecialty === '__custom__' ? (
+                    <div className="space-y-2 rounded-xl p-3 border border-amber-500/35 bg-amber-950/20">
+                      <input
+                        type="text"
+                        required
+                        maxLength={100}
+                        value={newSpecialty}
+                        onChange={(e) => setNewSpecialty(e.target.value)}
+                        placeholder="Nombre de la especialidad (ej: Técnico en Domótica, Paneles Solares...)"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                      <textarea
+                        rows={2}
+                        required
+                        maxLength={300}
+                        value={customSpecialtyDesc}
+                        onChange={(e) => setCustomSpecialtyDesc(e.target.value)}
+                        placeholder="Breve descripción del servicio que prestás para que Operaciones TrustLink pueda aprobar el rubro..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                      <p className="text-[11px] text-amber-200 opacity-90">
+                        Este rubro personalizado quedará en revisión por Operaciones antes de mostrarse en el directorio.
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-emerald-300 opacity-90">
+                      Rubro de catálogo estándar: si tu compliance personal (Antecedentes + ART) ya está aprobado, queda activo inmediatamente.
+                    </p>
+                  )}
+
+                  <div className="flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={savingSpecialty}
+                      className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50 shrink-0"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <Plus size={14} />{' '}
+                      {savingSpecialty
+                        ? 'Agregando...'
+                        : selectedCatalogSpecialty === '__custom__'
+                        ? 'Enviar a revisión'
+                        : 'Agregar especialidad'}
+                    </button>
+                  </div>
                 </div>
               </form>
             )}
@@ -2473,15 +2548,26 @@ export default function ProviderDashboard() {
                           <div className="space-y-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-sm">{p.specialty}</span>
+                              {p.is_custom_specialty && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/45 bg-amber-500/15 text-amber-200">
+                                  Personalizada
+                                </span>
+                              )}
                               <span
                                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                   p.status === 'approved'
                                     ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                    : p.status === 'rejected'
+                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
                                     : 'border-slate-700'
                                 }`}
-                                style={p.status === 'approved' ? undefined : cardStyle}
+                                style={p.status === 'approved' || p.status === 'rejected' ? undefined : cardStyle}
                               >
-                                {p.status === 'approved' ? 'Aprobada' : 'Pendiente'}
+                                {p.status === 'approved'
+                                  ? 'Aprobada'
+                                  : p.status === 'rejected'
+                                  ? 'Rechazada'
+                                  : 'Pendiente'}
                               </span>
                               <span
                                 className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"

@@ -42,6 +42,32 @@ export const REVIEW_MICRO_TAGS = [
   'Recomendado',
 ];
 
+/**
+ * Catálogo oficial de especialidades estándar sincronizado con el backend (`providerReputation.js`).
+ * Los rubros de esta lista se auto-aprueban si el prestador ya tiene compliance personal aprobado;
+ * cualquier especialidad fuera de esta lista requiere descripción y moderación de Operaciones.
+ */
+export const STANDARD_SPECIALTIES_CATALOG = [
+  'Electricista',
+  'Plomero',
+  'Gasista',
+  'Climatización',
+  'Piletero',
+  'Jardinero / Parquero',
+  'Pintor',
+  'Albañil',
+  'Carpintero',
+  'Herrero',
+  'Cerrajero',
+  'Limpieza',
+  'Fumigación',
+  'Durlock / Yesero',
+  'Techista / Impermeabilización',
+  'Riego Automático',
+  'Mantenimiento General',
+  'Técnico en Electrodomésticos',
+];
+
 // ============================================================================
 // Formateadores compartidos de fecha y hora
 // ============================================================================
