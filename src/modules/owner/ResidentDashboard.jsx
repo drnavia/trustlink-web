@@ -291,7 +291,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const fetchReviewsData = async () => {
     setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts?portal=resident`, {
         method: 'GET',
         headers: {
           Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
@@ -1568,29 +1568,43 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
 
             <form onSubmit={handleSaveVisitCoordination} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-semibold mb-1 opacity-85">Fracción</label>
-                  <input
-                    type="text"
-                    value={visitFraction}
-                    onChange={(e) => setVisitFraction(e.target.value)}
-                    placeholder="Ej: Fracción 5"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                    style={innerStyle}
-                  />
+              <div
+                className="rounded-xl p-3 border border-slate-700/80 flex items-center justify-between gap-2"
+                style={innerStyle}
+              >
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider opacity-70">
+                    Ubicación residencial automática
+                  </span>
+                  <span className="font-bold">
+                    {user?.lot_number
+                      ? `${
+                          user?.fraction_number
+                            ? `${
+                                user?.fraction_type === 'manzana'
+                                  ? 'Manzana '
+                                  : user?.fraction_type === 'fraccion'
+                                  ? 'Fracción '
+                                  : ''
+                              }${user.fraction_number} · `
+                            : ''
+                        }Lote ${user.lot_number}`
+                      : 'Sin Lote registrado en Mi Cuenta'}
+                  </span>
                 </div>
-                <div>
-                  <label className="block font-semibold mb-1 opacity-85">Lote</label>
-                  <input
-                    type="text"
-                    value={visitLot}
-                    onChange={(e) => setVisitLot(e.target.value)}
-                    placeholder="Ej: Lote 15"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                    style={innerStyle}
-                  />
-                </div>
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitModalProvider(null);
+                      onNavigate('account');
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90 shrink-0"
+                    style={cardStyle}
+                  >
+                    {user?.lot_number ? 'Mi Cuenta' : 'Completar'}
+                  </button>
+                )}
               </div>
 
               <div>
@@ -1675,29 +1689,43 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
 
             <form onSubmit={handleCreatePassSubmit} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-2.5">
-                <div>
-                  <label className="block font-semibold mb-1 opacity-85">Fracción</label>
-                  <input
-                    type="text"
-                    value={fractionNumber}
-                    onChange={(e) => setFractionNumber(e.target.value)}
-                    placeholder="Ej: Fracción 5"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                    style={innerStyle}
-                  />
+              <div
+                className="rounded-xl p-3 border border-slate-700/80 flex items-center justify-between gap-2"
+                style={innerStyle}
+              >
+                <div className="min-w-0">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider opacity-70">
+                    Ubicación residencial automática (bloqueada)
+                  </span>
+                  <span className="font-bold">
+                    {user?.lot_number
+                      ? `${
+                          user?.fraction_number
+                            ? `${
+                                user?.fraction_type === 'manzana'
+                                  ? 'Manzana '
+                                  : user?.fraction_type === 'fraccion'
+                                  ? 'Fracción '
+                                  : ''
+                              }${user.fraction_number} · `
+                            : ''
+                        }Lote ${user.lot_number}`
+                      : 'Sin Lote registrado en Mi Cuenta'}
+                  </span>
                 </div>
-                <div>
-                  <label className="block font-semibold mb-1 opacity-85">Lote</label>
-                  <input
-                    type="text"
-                    value={lotNumber}
-                    onChange={(e) => setLotNumber(e.target.value)}
-                    placeholder="Ej: Lote 15"
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                    style={innerStyle}
-                  />
-                </div>
+                {onNavigate && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQrModalProvider(null);
+                      onNavigate('account');
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90 shrink-0"
+                    style={cardStyle}
+                  >
+                    {user?.lot_number ? 'Mi Cuenta' : 'Completar'}
+                  </button>
+                )}
               </div>
 
               <div>

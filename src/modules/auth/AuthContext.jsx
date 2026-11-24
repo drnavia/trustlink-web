@@ -5,8 +5,8 @@
  * @location /trustlink-web/src/modules/auth/AuthContext.jsx
  */
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { API_BASE } from '../../config/api'; // Verificá la ruta relativa hacia src/config/api.js
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../../config/api';
 
 const AuthContext = createContext(null);
 
@@ -15,6 +15,47 @@ export const AuthProvider = ({ children }) => {
   const [token, setToken] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const logout = useCallback(() => {
+    localStorage.removeItem('trustlink_token');
+    localStorage.removeItem('trustlink_user');
+    setToken(null);
+    setUser(null);
+  }, []);
+
+  const updateUser = useCallback((partialOrFullUser) => {
+    if (!partialOrFullUser) return;
+    setUser((prev) => {
+      const merged = { ...(prev || {}), ...partialOrFullUser };
+      localStorage.setItem('trustlink_user', JSON.stringify(merged));
+      return merged;
+    });
+  }, []);
+
+  const refreshAccount = useCallback(
+    async (explicitToken = null) => {
+      const activeToken = explicitToken || localStorage.getItem('trustlink_token');
+      if (!activeToken) return null;
+      try {
+        const res = await fetch(`${API_BASE}/api/v1/account/me`, {
+          headers: { Authorization: `Bearer ${activeToken}` },
+        });
+        if (res.status === 401 || res.status === 403) {
+          logout();
+          return null;
+        }
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.account) {
+          updateUser(data.account);
+          return data;
+        }
+      } catch (err) {
+        console.warn('No se pudo sincronizar Mi Cuenta al iniciar:', err);
+      }
+      return null;
+    },
+    [logout, updateUser]
+  );
+
   useEffect(() => {
     const storedToken = localStorage.getItem('trustlink_token');
     const storedUser = localStorage.getItem('trustlink_user');
@@ -22,12 +63,13 @@ export const AuthProvider = ({ children }) => {
       setToken(storedToken);
       try {
         setUser(JSON.parse(storedUser));
-      } catch (e) {
+        refreshAccount(storedToken);
+      } catch {
         logout();
       }
     }
     setLoading(false);
-  }, []);
+  }, [logout, refreshAccount]);
 
   const login = async (email, password) => {
     try {
@@ -62,15 +104,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = () => {
-    localStorage.removeItem('trustlink_token');
-    localStorage.removeItem('trustlink_user');
-    setToken(null);
-    setUser(null);
-  };
-
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated: !!token, loading }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        logout,
+        updateUser,
+        refreshAccount,
+        isAuthenticated: !!token,
+        loading,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

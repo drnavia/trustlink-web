@@ -322,7 +322,7 @@ export default function ProviderDashboard() {
   const fetchProviderReviewContracts = async () => {
     setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts?portal=provider`, {
         method: 'GET',
         headers: getAuthHeaders(),
       });

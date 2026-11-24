@@ -30,6 +30,7 @@ import { AuthProvider, useAuth } from './modules/auth/AuthContext';
 import LandingHome from './modules/landing/LandingHome';
 import LoginView from './modules/auth/LoginView';
 import RegisterView from './modules/auth/RegisterView';
+import AccountView from './modules/auth/AccountView';
 import ResidentDashboard from './modules/owner/ResidentDashboard';
 import ProviderDashboard from './modules/provider/ProviderDashboard';
 import ContractPaymentView from './modules/owner/ContractPaymentView';
@@ -51,28 +52,44 @@ function MainAppContent() {
   const isSuperadmin = userRole === 'superadmin';
   const isLocalAdmin = userRole === 'admin';
 
-  // Permisos de módulos según el rol autenticado
+  // Permisos de módulos según rol base + capacidades duales de Mi Cuenta
   const canSeeResident =
-    isSuperadmin || userRole === 'owner' || userRole === 'family' || userRole === 'resident';
-  const canSeeProvider = isSuperadmin || userRole === 'provider';
-  const canSeePayments =
     isSuperadmin ||
     userRole === 'owner' ||
     userRole === 'family' ||
-    userRole === 'resident';
+    userRole === 'resident' ||
+    Boolean(user?.can_use_resident);
+  const canSeeProvider =
+    isSuperadmin || userRole === 'provider' || Boolean(user?.can_use_provider);
+  const canSeePayments = canSeeResident;
   const canSeeSecurity = isSuperadmin || userRole === 'security';
 
-  // Vista activa inicial según estado de sesión
-  const getDefaultAuthenticatedView = (role) => {
-    const normalized = String(role || '').toLowerCase();
-    if (normalized === 'provider') return 'provider';
+  // Vista activa inicial según rol base y Portal Principal configurable
+  const getDefaultAuthenticatedView = (targetUser) => {
+    const normalized = String(targetUser?.role || '').toLowerCase();
     if (normalized === 'security') return 'security';
     if (normalized === 'admin') return 'local_admin';
+
+    const preferred = String(targetUser?.primary_portal || '').toLowerCase();
+    const hasProvider =
+      normalized === 'superadmin' ||
+      normalized === 'provider' ||
+      Boolean(targetUser?.can_use_provider);
+    const hasResident =
+      normalized === 'superadmin' ||
+      normalized === 'owner' ||
+      normalized === 'family' ||
+      normalized === 'resident' ||
+      Boolean(targetUser?.can_use_resident);
+
+    if (preferred === 'provider' && hasProvider) return 'provider';
+    if (preferred === 'resident' && hasResident) return 'resident';
+    if (normalized === 'provider') return 'provider';
     return 'resident';
   };
 
   const [currentView, setCurrentView] = useState(
-    isAuthenticated ? getDefaultAuthenticatedView(userRole) : 'landing'
+    isAuthenticated ? getDefaultAuthenticatedView(user) : 'landing'
   );
   const [masterModeOpen, setMasterModeOpen] = useState(false);
 
@@ -84,11 +101,11 @@ function MainAppContent() {
     } else {
       setCurrentView((prev) =>
         prev === 'landing' || prev === 'login' || prev === 'register'
-          ? getDefaultAuthenticatedView(userRole)
+          ? getDefaultAuthenticatedView(user)
           : prev
       );
     }
-  }, [isAuthenticated, userRole]);
+  }, [isAuthenticated, user]);
 
   // Cierra sesión y vuelve a la vista pública
   const handleLogout = () => {
@@ -145,7 +162,7 @@ function MainAppContent() {
             <button
               type="button"
               onClick={() =>
-                setCurrentView(isAuthenticated ? getDefaultAuthenticatedView(userRole) : 'landing')
+                setCurrentView(isAuthenticated ? getDefaultAuthenticatedView(user) : 'landing')
               }
               className="flex items-center gap-2.5 cursor-pointer text-left shrink-0"
             >
@@ -179,20 +196,26 @@ function MainAppContent() {
               </div>
             </button>
 
-            {/* En móvil (< md): Quién está logueado + Salir en una línea compacta */}
+            {/* En móvil (< md): Quién está logueado (acceso a Mi Cuenta) + Salir en una línea compacta */}
             <div className="flex md:hidden items-center gap-1.5 shrink-0">
               {isAuthenticated && user ? (
                 <>
-                  <div
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-900/90 border border-emerald-500/30 text-emerald-300 text-[11px] font-bold max-w-[145px]"
-                    title={`${displayUserName} (${userRole})`}
+                  <button
+                    type="button"
+                    onClick={() => setCurrentView('account')}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold max-w-[155px] cursor-pointer transition-all ${
+                      currentView === 'account'
+                        ? 'bg-emerald-600 text-white border border-emerald-400 shadow-sm'
+                        : 'bg-slate-900/90 border border-emerald-500/30 text-emerald-300 hover:bg-slate-800'
+                    }`}
+                    title={`Mi Cuenta — ${displayUserName} (${userRole})`}
                   >
-                    <User size={12} className="text-emerald-400 shrink-0" />
+                    <User size={12} className="shrink-0" />
                     <span className="truncate">{displayUserName}</span>
-                    <span className="text-slate-400 font-medium text-[10px] shrink-0">
-                      · {userRole}
+                    <span className="opacity-75 font-medium text-[10px] shrink-0">
+                      · Cuenta
                     </span>
-                  </div>
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -312,22 +335,40 @@ function MainAppContent() {
             </nav>
           )}
 
-          {/* En escritorio (>= md): Quién está logueado + Salir */}
+          {/* En escritorio (>= md): Quién está logueado (acceso a Mi Cuenta) + Salir */}
           <div className="hidden md:flex items-center gap-2.5 shrink-0">
             {isAuthenticated && user ? (
               <>
-                <div
-                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs shadow-sm"
-                  title={`Sesión iniciada como ${displayUserName} con rol ${userRole}`}
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('account')}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs shadow-sm cursor-pointer transition-all ${
+                    currentView === 'account'
+                      ? 'bg-emerald-600 text-white border border-emerald-400'
+                      : 'bg-slate-900/90 border border-slate-700/80 hover:border-emerald-500/50'
+                  }`}
+                  title={`Abrir Mi Cuenta (${displayUserName} · ${userRole})`}
                 >
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                  <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shrink-0">
                     <User size={12} />
                   </span>
-                  <span className="font-bold text-emerald-300">{displayUserName}</span>
-                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 font-semibold border border-slate-700">
-                    {userRole}
+                  <span
+                    className={`font-bold ${
+                      currentView === 'account' ? 'text-white' : 'text-emerald-300'
+                    }`}
+                  >
+                    {displayUserName}
                   </span>
-                </div>
+                  <span
+                    className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${
+                      currentView === 'account'
+                        ? 'bg-black/20 text-white border-white/25'
+                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                    }`}
+                  >
+                    Mi Cuenta
+                  </span>
+                </button>
 
                 <button
                   type="button"
@@ -454,7 +495,7 @@ function MainAppContent() {
         {currentView === 'login' && (
           <LoginView
             onLoginSuccess={(loggedInUser) => {
-              setCurrentView(getDefaultAuthenticatedView(loggedInUser?.role));
+              setCurrentView(getDefaultAuthenticatedView(loggedInUser));
             }}
             onViewChange={setCurrentView}
           />
@@ -465,6 +506,10 @@ function MainAppContent() {
             onRegisterSuccess={() => setCurrentView('login')}
             onViewChange={setCurrentView}
           />
+        )}
+
+        {isAuthenticated && currentView === 'account' && (
+          <AccountView onNavigate={setCurrentView} />
         )}
 
         {currentView === 'resident' && (
