@@ -520,6 +520,22 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
 
               <p className="text-xs opacity-90">{result.message}</p>
 
+              {!result.authorized &&
+                ['CRIMINAL_RECORD_EXPIRED', 'INSURANCE_EXPIRED', 'CREW_INSURANCE_EXPIRED'].includes(
+                  result.code
+                ) && (
+                  <div className="p-3 rounded-xl bg-rose-950/70 border border-rose-700/80 text-rose-100 text-xs flex items-start gap-2">
+                    <AlertCircle size={15} className="text-rose-300 shrink-0 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="font-bold">Bloqueo automático por compliance vencido</p>
+                      <p className="opacity-90">
+                        No permitir el ingreso hasta que el prestador renueve su documentación
+                        obligatoria en TrustLink (este intento quedó auditado en garita).
+                      </p>
+                    </div>
+                  </div>
+                )}
+
               {result.authorized && result.details && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   {/* Bloque Prestador */}

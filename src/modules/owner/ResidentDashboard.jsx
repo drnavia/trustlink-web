@@ -29,6 +29,7 @@ import {
   Edit3,
   Save,
   Share2,
+  Award,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -1018,18 +1019,40 @@ export default function ResidentDashboard({ onNavigate }) {
                 const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
                 const activeVisit = latestVisitByProvider[providerId];
                 const visitMeta = getVisitStatusMeta(activeVisit);
+                const isVerifiedMember = Boolean(provider.is_verified_member);
+                const membershipBadgeLabel =
+                  provider.membership_tier === 'verified_pro'
+                    ? 'Socio Verificado Pro'
+                    : 'Socio Verificado';
+                const hasExpiredDocs = Boolean(provider.has_expired_docs);
 
                 return (
                   <article
                     key={providerId}
-                    className={ITEM_CARD_CLASS}
+                    className={`${ITEM_CARD_CLASS} ${
+                      isVerifiedMember ? 'border-amber-500/45 ring-1 ring-amber-500/20' : ''
+                    }`}
                     style={innerStyle}
                   >
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
-                        <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                          {provider.specialty || 'Servicio Verificado'}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                            {provider.specialty || 'Servicio Verificado'}
+                          </span>
+                          {isVerifiedMember && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
+                              <Award size={11} className="text-amber-300 shrink-0" />
+                              <span>{membershipBadgeLabel}</span>
+                            </span>
+                          )}
+                          {hasExpiredDocs && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-500/45 bg-rose-950/60 text-rose-200">
+                              <AlertCircle size={11} className="text-rose-300 shrink-0" />
+                              <span>Doc. vencida</span>
+                            </span>
+                          )}
+                        </div>
 
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0">
                           <Star size={12} className="fill-amber-400 text-amber-400" />

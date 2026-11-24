@@ -156,7 +156,11 @@ export default function ProviderDashboard() {
     vehicles: [],
     employees: [],
     expiry_alerts: [],
+    membership: null,
+    membership_plans: [],
   });
+  const [showMembershipPlans, setShowMembershipPlans] = useState(false);
+  const [subscribingPlan, setSubscribingPlan] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -280,6 +284,8 @@ export default function ProviderDashboard() {
           vehicles: data.vehicles || [],
           employees: data.employees || [],
           expiry_alerts: data.expiry_alerts || [],
+          membership: data.membership || null,
+          membership_plans: data.membership_plans || [],
         });
       } else {
         setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
@@ -955,6 +961,35 @@ export default function ProviderDashboard() {
     }
   };
 
+  const handleSubscribeMembership = async (planCode) => {
+    setSubscribingPlan(planCode);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/billing/provider/subscribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ plan_code: planCode, auto_renew: true }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Membresía Socio Verificado activada correctamente.');
+        setShowMembershipPlans(false);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo activar la membresía.');
+      }
+    } catch (error) {
+      console.error('Error al activar membresía Socio Verificado:', error);
+      setErrorMsg('Error de conexión al activar la membresía.');
+    } finally {
+      setSubscribingPlan('');
+    }
+  };
+
   const handleCopyToken = async (tokenValue, passId) => {
     if (!tokenValue) return;
     try {
@@ -1116,6 +1151,12 @@ export default function ProviderDashboard() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          {profileData.membership?.is_verified_member && (
+            <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-400/50 bg-amber-500/15 text-amber-200 inline-flex items-center gap-1.5">
+              <Award size={13} className="text-amber-300" />
+              <span>{profileData.membership.badge_label || 'Socio Verificado'}</span>
+            </span>
+          )}
           <span
             className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5"
             style={innerStyle}
@@ -1218,8 +1259,10 @@ export default function ProviderDashboard() {
                 Atención documental: tenés {profileData.expiry_alerts.length} alerta(s) de vencimiento
               </span>
             </div>
-            <span className="text-[11px] opacity-80">
-              Renovalos antes del vencimiento para evitar demoras en garita
+            <span className="text-[11px] opacity-85">
+              {profileData.expiry_alerts.some((a) => a.severity === 'expired')
+                ? 'Bloqueo activo: los documentos vencidos impiden emitir y validar pases QR en garita.'
+                : 'Renovalos antes del vencimiento para evitar bloqueos automáticos en garita.'}
             </span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
@@ -1252,6 +1295,120 @@ export default function ProviderDashboard() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {/* Barra compacta de Membresía "Socio Verificado" (progressive disclosure) */}
+      {!loading && (
+        <div
+          className={`rounded-2xl p-4 border space-y-3 text-xs ${
+            profileData.membership?.is_verified_member
+              ? 'border-amber-500/40'
+              : 'border-slate-800/80'
+          }`}
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div
+                className="p-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0"
+              >
+                <Award size={16} />
+              </div>
+              <div className="space-y-0.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-bold text-sm">
+                    {profileData.membership?.is_verified_member
+                      ? `Membresía activa: ${profileData.membership.plan_name}`
+                      : 'Destacá tu perfil como Socio Verificado'}
+                  </span>
+                  {profileData.membership?.is_verified_member && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
+                      {profileData.membership.days_remaining} día(s) restantes
+                    </span>
+                  )}
+                </div>
+                <p className="opacity-80">
+                  {profileData.membership?.is_verified_member
+                    ? `Vigente hasta ${formatDateShort(profileData.membership.ends_at)}. Tu perfil aparece primero en el directorio de residentes con insignia distintiva.`
+                    : 'Obtené insignia verificada, prioridad absoluta en el buscador de residentes y reputación acumulable incluso si cobrás en efectivo.'}
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowMembershipPlans((prev) => !prev)}
+              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0 self-start sm:self-auto transition-opacity hover:opacity-95"
+              style={{ backgroundColor: primaryColor }}
+            >
+              {showMembershipPlans
+                ? 'Ocultar planes'
+                : profileData.membership?.is_verified_member
+                ? 'Renovar / Cambiar plan'
+                : 'Ver planes'}
+            </button>
+          </div>
+
+          {showMembershipPlans && Array.isArray(profileData.membership_plans) && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-white/10">
+              {profileData.membership_plans.map((plan) => {
+                const isCurrent =
+                  profileData.membership?.is_verified_member &&
+                  profileData.membership?.plan_code === plan.code;
+                const isBusy = subscribingPlan === plan.code;
+                return (
+                  <div
+                    key={plan.code}
+                    className={`rounded-xl p-4 border flex flex-col justify-between gap-3 ${
+                      isCurrent ? 'border-amber-400/50' : 'border-white/10'
+                    }`}
+                    style={innerStyle}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold text-sm">{plan.name}</span>
+                        {isCurrent && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/40">
+                            Actual
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-base font-black text-emerald-400">
+                        ARS {Number(plan.price_ars || 0).toLocaleString('es-AR')}
+                        <span className="text-[11px] font-normal opacity-75">
+                          {' '}
+                          / {plan.duration_days} días
+                        </span>
+                      </p>
+                      <ul className="space-y-1 opacity-85">
+                        {(plan.features || []).map((feat) => (
+                          <li key={feat} className="flex items-start gap-1.5">
+                            <CheckCircle2 size={12} className="text-emerald-400 shrink-0 mt-0.5" />
+                            <span>{feat}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={Boolean(subscribingPlan)}
+                      onClick={() => handleSubscribeMembership(plan.code)}
+                      className="w-full py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 transition-opacity hover:opacity-95"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {isBusy
+                        ? 'Activando...'
+                        : profileData.membership?.is_verified_member
+                        ? `Extender +${plan.duration_days} días`
+                        : 'Activar membresía'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

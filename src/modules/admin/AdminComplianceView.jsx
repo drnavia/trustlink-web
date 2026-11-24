@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Search,
   X,
+  Award,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -54,6 +55,7 @@ export default function AdminComplianceView() {
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
+  const [updatingMembershipUserId, setUpdatingMembershipUserId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -143,6 +145,38 @@ export default function AdminComplianceView() {
       setErrorMsg('Error de conexión al actualizar el estado.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleManageMembership = async (userId, action, days = 30) => {
+    setUpdatingMembershipUserId(userId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/billing/provider/${userId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify({
+          action,
+          plan_code: 'verified_monthly',
+          days,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Membresía Socio Verificado actualizada.');
+        await fetchAllProviders();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la membresía del prestador.');
+      }
+    } catch (error) {
+      console.error('Error al gestionar membresía:', error);
+      setErrorMsg('Error de conexión al gestionar la membresía.');
+    } finally {
+      setUpdatingMembershipUserId(null);
     }
   };
 
@@ -303,11 +337,18 @@ export default function AdminComplianceView() {
                       <span className="text-sm font-bold">
                         {p.first_name} {p.last_name}
                       </span>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
-                      >
-                        {statusMeta.label}
-                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {p.is_verified_member && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
+                            <Award size={10} /> Socio
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      </div>
                     </div>
                     <div>
                       <span
@@ -365,24 +406,60 @@ export default function AdminComplianceView() {
                   </div>
 
                   {targetProviderId ? (
-                    <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-white/10 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateStatus(targetProviderId, 'approved')}
-                        disabled={updatingId === targetProviderId || currentStatus === 'approved'}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
-                      >
-                        <CheckCircle2 size={14} /> Aprobar
-                      </button>
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10 shrink-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {p.user_id && !p.is_verified_member && (
+                          <button
+                            type="button"
+                            onClick={() => handleManageMembership(p.user_id, 'activate', 30)}
+                            disabled={updatingMembershipUserId === p.user_id}
+                            className="bg-amber-600/90 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+                          >
+                            <Award size={12} /> Activar Socio (30d)
+                          </button>
+                        )}
+                        {p.user_id && p.is_verified_member && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleManageMembership(p.user_id, 'extend', 30)}
+                              disabled={updatingMembershipUserId === p.user_id}
+                              className="bg-amber-600/80 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+                            >
+                              <Award size={12} /> +30d
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleManageMembership(p.user_id, 'cancel')}
+                              disabled={updatingMembershipUserId === p.user_id}
+                              className="border border-white/15 hover:opacity-90 font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-opacity cursor-pointer disabled:opacity-45"
+                              style={cardStyle}
+                            >
+                              Revocar Socio
+                            </button>
+                          </>
+                        )}
+                      </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleUpdateStatus(targetProviderId, 'rejected')}
-                        disabled={updatingId === targetProviderId || currentStatus === 'rejected'}
-                        className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
-                      >
-                        <XCircle size={14} /> Rechazar
-                      </button>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateStatus(targetProviderId, 'approved')}
+                          disabled={updatingId === targetProviderId || currentStatus === 'approved'}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
+                        >
+                          <CheckCircle2 size={14} /> Aprobar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUpdateStatus(targetProviderId, 'rejected')}
+                          disabled={updatingId === targetProviderId || currentStatus === 'rejected'}
+                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
+                        >
+                          <XCircle size={14} /> Rechazar
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <div className="pt-3 border-t border-white/10">
