@@ -10,10 +10,23 @@ import { API_BASE } from '../../config/api';
 
 const AuthContext = createContext(null);
 
+function readStoredUser() {
+  try {
+    const raw = localStorage.getItem('trustlink_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    localStorage.removeItem('trustlink_token');
+    localStorage.removeItem('trustlink_user');
+    return null;
+  }
+}
+
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null);
-  const [token, setToken] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState(() => localStorage.getItem('trustlink_token') || null);
+  const [user, setUser] = useState(() =>
+    localStorage.getItem('trustlink_token') ? readStoredUser() : null
+  );
+  const loading = false;
 
   const logout = useCallback(() => {
     localStorage.removeItem('trustlink_token');
@@ -57,19 +70,10 @@ export const AuthProvider = ({ children }) => {
   );
 
   useEffect(() => {
-    const storedToken = localStorage.getItem('trustlink_token');
-    const storedUser = localStorage.getItem('trustlink_user');
-    if (storedToken && storedUser) {
-      setToken(storedToken);
-      try {
-        setUser(JSON.parse(storedUser));
-        refreshAccount(storedToken);
-      } catch {
-        logout();
-      }
+    if (token) {
+      refreshAccount(token);
     }
-    setLoading(false);
-  }, [logout, refreshAccount]);
+  }, [token, refreshAccount]);
 
   const login = async (email, password) => {
     try {

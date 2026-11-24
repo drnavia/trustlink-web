@@ -9,7 +9,7 @@ import React, { useState, useMemo } from 'react';
 import { Check, Link2 } from 'lucide-react';
 import { encodeQrMatrix } from '../utils/qrEncoder';
 
-export function buildGateQrUrl(qrToken) {
+function buildGateQrUrl(qrToken) {
   if (!qrToken) return '';
   if (typeof window === 'undefined') return String(qrToken);
   const url = new URL(window.location.origin);

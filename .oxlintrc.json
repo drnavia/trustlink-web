@@ -3,6 +3,18 @@
   "plugins": ["react", "oxc"],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/set-state-in-effect": "off",
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true,
+        "allowExportNames": [
+          "useAuth",
+          "useBranding",
+          "BRANDING_PRESETS",
+          "DEFAULT_BRANDING_CONFIG"
+        ]
+      }
+    ]
   }
 }

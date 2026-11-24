@@ -6,7 +6,7 @@
  * @location /trustlink-web/src/modules/admin/LocalAdminView.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   ShieldAlert,
   Building2,
@@ -54,41 +54,44 @@ export default function LocalAdminView() {
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
-  const fetchLocalData = async (countryFilter = selectedCountryId) => {
-    setLoading(true);
-    try {
-      const query = isSuperadmin && countryFilter ? `?country_id=${countryFilter}` : '';
-      const res = await fetch(`${API_BASE}/api/v1/providers/local-suspensions${query}`, {
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        const loadedCountries = data.countries || [];
-        const loadedProviders = data.providers || [];
-        setCountries(loadedCountries);
-        setProviders(loadedProviders);
-        setSuspensions(data.suspensions || []);
+  const fetchLocalData = useCallback(
+    async (countryFilter) => {
+      setLoading(true);
+      try {
+        const query = isSuperadmin && countryFilter ? `?country_id=${countryFilter}` : '';
+        const res = await fetch(`${API_BASE}/api/v1/providers/local-suspensions${query}`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const loadedCountries = data.countries || [];
+          const loadedProviders = data.providers || [];
+          setCountries(loadedCountries);
+          setProviders(loadedProviders);
+          setSuspensions(data.suspensions || []);
 
-        if (data.effective_country_id) {
-          setSelectedCountryId(String(data.effective_country_id));
-        } else if (loadedCountries.length > 0 && !selectedCountryId) {
-          setSelectedCountryId(String(loadedCountries[0].id));
-        }
+          if (data.effective_country_id) {
+            setSelectedCountryId(String(data.effective_country_id));
+          } else if (loadedCountries.length > 0) {
+            setSelectedCountryId((prev) => prev || String(loadedCountries[0].id));
+          }
 
-        if (loadedProviders.length > 0 && !selectedProviderId) {
-          setSelectedProviderId(String(loadedProviders[0].provider_id));
+          if (loadedProviders.length > 0) {
+            setSelectedProviderId((prev) => prev || String(loadedProviders[0].provider_id));
+          }
         }
+      } catch (error) {
+        console.error('Error al cargar reportes locales:', error);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error al cargar reportes locales:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [isSuperadmin]
+  );
 
   useEffect(() => {
-    fetchLocalData(selectedCountryId);
-  }, []);
+    fetchLocalData(user?.country_id ? String(user.country_id) : '1');
+  }, [fetchLocalData, user?.country_id]);
 
   const handleCreateSuspension = async (e) => {
     e.preventDefault();

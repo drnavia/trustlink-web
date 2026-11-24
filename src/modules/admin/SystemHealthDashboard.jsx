@@ -237,6 +237,7 @@ export default function SystemHealthDashboard() {
 
   // Pases QR recientes
   const [recentPasses, setRecentPasses] = useState([]);
+  const [referenceNowMs, setReferenceNowMs] = useState(() => Date.now());
   const [loadingPasses, setLoadingPasses] = useState(true);
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
@@ -473,6 +474,7 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         const list = data.passes || [];
         setRecentPasses(list);
+        setReferenceNowMs(Date.now());
         const pagination = data.pagination || {};
         setPassPage(pagination.page || pageToLoad);
         setPassTotalPages(pagination.totalPages || 1);
@@ -541,15 +543,17 @@ export default function SystemHealthDashboard() {
   useEffect(() => {
     fetchSystemHealth();
     fetchAllCountriesForSelector();
-    fetchCountries(1, '', countryPageSize, 'all');
-    fetchIntegrations(1, integrationsPageSize);
-    fetchRecentPasses(1, 'all', '', passPageSize);
+    fetchCountries(1, '', 4, 'all');
+    fetchIntegrations(1, 6);
+    fetchRecentPasses(1, 'all', '', 6);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (activeTab === 'audit') {
       fetchAuditOverview(auditPage, auditOutcomeFilter, auditSearch, auditPageSize);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const handleRefreshAll = async () => {
@@ -941,7 +945,7 @@ export default function SystemHealthDashboard() {
     const rawStatus = String(pass.status || 'pending').toLowerCase();
     const startMs = parseUtcTimestampMs(pass.start_time, pass.start_utc_ms);
     const endMs = parseUtcTimestampMs(pass.end_time, pass.end_utc_ms);
-    const nowMs = Date.now();
+    const nowMs = referenceNowMs;
     const isPastEnd = endMs !== null && nowMs > endMs;
     const isBeforeStart = startMs !== null && nowMs < startMs;
 

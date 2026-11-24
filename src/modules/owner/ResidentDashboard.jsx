@@ -130,7 +130,14 @@ export default function ResidentDashboard({ onNavigate }) {
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [providersError, setProvidersError] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(() => {
+    const saved = sessionStorage.getItem('trustlink_initial_service_query');
+    if (saved && saved.trim()) {
+      sessionStorage.removeItem('trustlink_initial_service_query');
+      return saved.trim();
+    }
+    return '';
+  });
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
 
   // Solicitudes / coordinación de visita del residente
@@ -209,14 +216,6 @@ export default function ResidentDashboard({ onNavigate }) {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
-
-  useEffect(() => {
-    const savedQuery = sessionStorage.getItem('trustlink_initial_service_query');
-    if (savedQuery && savedQuery.trim()) {
-      setSearchTerm(savedQuery.trim());
-      sessionStorage.removeItem('trustlink_initial_service_query');
-    }
-  }, []);
 
   const fetchVerifiedProviders = async () => {
     setLoadingProviders(true);
