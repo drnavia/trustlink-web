@@ -6,7 +6,7 @@
  * @location /trustlink-web/src/App.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Home,
   Wrench,
@@ -40,6 +40,38 @@ import LocalAdminView from './modules/admin/LocalAdminView';
 import UserManagementView from './modules/admin/UserManagementView';
 import BrandingSettingsView from './modules/branding/BrandingSettingsView';
 import SystemHealthDashboard from './modules/admin/SystemHealthDashboard';
+
+const VALID_VIEWS = new Set([
+  'landing',
+  'login',
+  'register',
+  'account',
+  'resident',
+  'provider',
+  'payments',
+  'security',
+  'admin',
+  'local_admin',
+  'users_master',
+  'branding_master',
+  'health',
+]);
+
+function readInitialQrTokenFromUrl() {
+  if (typeof window === 'undefined') return '';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get('qr_token') || params.get('token') || '').trim();
+  } catch {
+    return '';
+  }
+}
+
+function readViewFromHash() {
+  if (typeof window === 'undefined') return '';
+  const raw = String(window.location.hash || '').replace(/^#\/?/, '').trim();
+  return VALID_VIEWS.has(raw) ? raw : '';
+}
 
 /**
  * Contenido principal de la aplicación con acceso a BrandingContext y AuthContext.
@@ -88,24 +120,75 @@ function MainAppContent() {
     return 'resident';
   };
 
-  const [currentView, setCurrentView] = useState(
-    isAuthenticated ? getDefaultAuthenticatedView(user) : 'landing'
-  );
+  const [initialQrToken, setInitialQrToken] = useState(() => readInitialQrTokenFromUrl());
+
+  const [currentView, setCurrentViewState] = useState(() => {
+    const hashView = readViewFromHash();
+    if (!isAuthenticated) {
+      if (readInitialQrTokenFromUrl()) return 'login';
+      return hashView === 'login' || hashView === 'register' ? hashView : 'landing';
+    }
+    if (readInitialQrTokenFromUrl() && canSeeSecurity) return 'security';
+    return hashView || getDefaultAuthenticatedView(user);
+  });
   const [masterModeOpen, setMasterModeOpen] = useState(false);
 
-  // Sincroniza la vista cuando cambia la sesión (login / logout)
+  const setCurrentView = useCallback((nextOrUpdater) => {
+    setCurrentViewState((prev) => {
+      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      if (typeof window !== 'undefined' && next && VALID_VIEWS.has(next)) {
+        const targetHash = `#${next}`;
+        if (window.location.hash !== targetHash) {
+          window.history.pushState({ view: next }, '', `${window.location.pathname}${window.location.search}${targetHash}`);
+        }
+      }
+      return next;
+    });
+  }, []);
+
+  const clearInitialQrToken = useCallback(() => {
+    setInitialQrToken('');
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('qr_token');
+      url.searchParams.delete('token');
+      window.history.replaceState(null, '', url.pathname + url.search + url.hash);
+    }
+  }, []);
+
+  // Soporte para botón Atrás/Adelante del navegador vía hash
+  useEffect(() => {
+    const onPopState = () => {
+      const tokenFromUrl = readInitialQrTokenFromUrl();
+      if (tokenFromUrl) {
+        setInitialQrToken(tokenFromUrl);
+      }
+      const hashView = readViewFromHash();
+      if (hashView) {
+        setCurrentViewState(hashView);
+      }
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  // Sincroniza la vista cuando cambia la sesión (login / logout) o llega un ?qr_token=
   useEffect(() => {
     if (!isAuthenticated) {
-      setCurrentView('landing');
+      setCurrentViewState((prev) =>
+        initialQrToken ? 'login' : prev === 'login' || prev === 'register' ? prev : 'landing'
+      );
       setMasterModeOpen(false);
+    } else if (initialQrToken && canSeeSecurity) {
+      setCurrentView('security');
     } else {
-      setCurrentView((prev) =>
+      setCurrentViewState((prev) =>
         prev === 'landing' || prev === 'login' || prev === 'register'
           ? getDefaultAuthenticatedView(user)
           : prev
       );
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, initialQrToken, canSeeSecurity, setCurrentView]);
 
   // Cierra sesión y vuelve a la vista pública
   const handleLogout = () => {
@@ -520,7 +603,12 @@ function MainAppContent() {
 
         {currentView === 'payments' && <ContractPaymentView onViewChange={setCurrentView} />}
 
-        {currentView === 'security' && <SecurityScanner />}
+        {currentView === 'security' && (
+          <SecurityScanner
+            initialToken={initialQrToken}
+            onClearInitialToken={clearInitialQrToken}
+          />
+        )}
 
         {isSuperadmin && currentView === 'admin' && <AdminComplianceView />}
 

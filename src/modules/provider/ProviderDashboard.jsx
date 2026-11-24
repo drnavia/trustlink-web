@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
+import QrCodeDisplay from '../../components/QrCodeDisplay';
 
 const PASSES_PER_PAGE = 6;
 
@@ -192,7 +193,21 @@ export default function ProviderDashboard() {
   const [vehModel, setVehModel] = useState('');
   const [vehColor, setVehColor] = useState('');
   const [vehPlate, setVehPlate] = useState('');
+  const [vehInsuranceUrl, setVehInsuranceUrl] = useState('');
+  const [vehInsuranceFrom, setVehInsuranceFrom] = useState('');
+  const [vehInsuranceExpiry, setVehInsuranceExpiry] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
+
+  const [editingVehicleId, setEditingVehicleId] = useState(null);
+  const [editVehType, setEditVehType] = useState('utilitario');
+  const [editVehBrand, setEditVehBrand] = useState('');
+  const [editVehModel, setEditVehModel] = useState('');
+  const [editVehColor, setEditVehColor] = useState('');
+  const [editVehPlate, setEditVehPlate] = useState('');
+  const [editVehInsuranceUrl, setEditVehInsuranceUrl] = useState('');
+  const [editVehInsuranceFrom, setEditVehInsuranceFrom] = useState('');
+  const [editVehInsuranceExpiry, setEditVehInsuranceExpiry] = useState('');
+  const [updatingVehicle, setUpdatingVehicle] = useState(false);
 
   // 3. Agenda
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
@@ -649,15 +664,21 @@ export default function ProviderDashboard() {
           model: vehModel.trim(),
           color: vehColor.trim(),
           plate: vehPlate.trim().toUpperCase(),
+          vehicle_insurance_url: vehInsuranceUrl.trim() || null,
+          vehicle_insurance_from: vehInsuranceFrom || null,
+          vehicle_insurance_expiry: vehInsuranceExpiry || null,
         }),
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg('Vehículo asociado a tu flota correctamente.');
+        setSuccessMsg('Vehículo y seguro automotor asociados a tu flota correctamente.');
         setVehBrand('');
         setVehModel('');
         setVehColor('');
         setVehPlate('');
+        setVehInsuranceUrl('');
+        setVehInsuranceFrom('');
+        setVehInsuranceExpiry('');
         setShowVehicleForm(false);
         await fetchProviderProfile();
       } else {
@@ -668,6 +689,58 @@ export default function ProviderDashboard() {
       setErrorMsg('Error de conexión con el servidor.');
     } finally {
       setSavingVehicle(false);
+    }
+  };
+
+  const startEditingVehicle = (v) => {
+    setEditingVehicleId(v.id);
+    setEditVehType(v.vehicle_type || 'utilitario');
+    setEditVehBrand(v.brand || '');
+    setEditVehModel(v.model || '');
+    setEditVehColor(v.color || '');
+    setEditVehPlate(v.plate || v.license_plate || '');
+    setEditVehInsuranceUrl(v.vehicle_insurance_url || '');
+    setEditVehInsuranceFrom(toDateInputValue(v.vehicle_insurance_from));
+    setEditVehInsuranceExpiry(toDateInputValue(v.vehicle_insurance_expiry));
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  const handleSaveVehicleEdit = async (vehicleId) => {
+    setUpdatingVehicle(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle/${vehicleId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          vehicle_type: editVehType,
+          brand: editVehBrand.trim(),
+          model: editVehModel.trim(),
+          color: editVehColor.trim(),
+          plate: editVehPlate.trim().toUpperCase(),
+          vehicle_insurance_url: editVehInsuranceUrl.trim() || null,
+          vehicle_insurance_from: editVehInsuranceFrom || null,
+          vehicle_insurance_expiry: editVehInsuranceExpiry || null,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg('Vehículo y póliza de seguro actualizados correctamente.');
+        setEditingVehicleId(null);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar el vehículo.');
+      }
+    } catch (error) {
+      console.error('Error al actualizar vehículo:', error);
+      setErrorMsg('Error de conexión al actualizar el vehículo.');
+    } finally {
+      setUpdatingVehicle(false);
     }
   };
 
@@ -1494,6 +1567,32 @@ export default function ProviderDashboard() {
                   style={cardStyle}
                 />
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  type="url"
+                  value={vehInsuranceUrl}
+                  onChange={(e) => setVehInsuranceUrl(e.target.value)}
+                  placeholder="URL Póliza de Seguro Automotor (opcional)"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                  style={cardStyle}
+                />
+                <input
+                  type="date"
+                  value={vehInsuranceFrom}
+                  onChange={(e) => setVehInsuranceFrom(e.target.value)}
+                  title="Seguro vigente desde"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                  style={cardStyle}
+                />
+                <input
+                  type="date"
+                  value={vehInsuranceExpiry}
+                  onChange={(e) => setVehInsuranceExpiry(e.target.value)}
+                  title="Vencimiento del seguro"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                  style={cardStyle}
+                />
+              </div>
               <div className="flex justify-end">
                 <button
                   type="submit"
@@ -1516,31 +1615,174 @@ export default function ProviderDashboard() {
                 Sin vehículos registrados en tu flota.
               </div>
             ) : (
-              profileData.vehicles.map((v) => (
-                <div
-                  key={v.id}
-                  className="p-4 rounded-xl border border-slate-800/70 flex items-center justify-between gap-3 text-xs"
-                  style={innerStyle}
-                >
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-bold text-sm">
-                        {v.brand} {v.model}
-                      </span>
-                      <span
-                        className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-slate-700"
-                        style={cardStyle}
-                      >
-                        {v.vehicle_type}
-                      </span>
-                    </div>
-                    <p className="opacity-80 mt-1">
-                      Color: {v.color || '-'} · Patente:{' '}
-                      <strong className="font-mono">{v.license_plate || v.plate}</strong>
-                    </p>
+              profileData.vehicles.map((v) => {
+                const isEditing = editingVehicleId === v.id;
+                const insValidity = getValidityStatus(v.vehicle_insurance_expiry);
+
+                return (
+                  <div
+                    key={v.id}
+                    className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
+                    style={innerStyle}
+                  >
+                    {isEditing ? (
+                      <div className="space-y-2.5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            value={editVehType}
+                            onChange={(e) => setEditVehType(e.target.value)}
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          >
+                            <option value="utilitario">Utilitario</option>
+                            <option value="auto">Automóvil</option>
+                            <option value="moto">Motocicleta</option>
+                            <option value="camioneta">Camioneta</option>
+                          </select>
+                          <input
+                            type="text"
+                            value={editVehPlate}
+                            onChange={(e) => setEditVehPlate(e.target.value.toUpperCase())}
+                            placeholder="Patente"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs font-mono uppercase"
+                            style={cardStyle}
+                          />
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          <input
+                            type="text"
+                            value={editVehBrand}
+                            onChange={(e) => setEditVehBrand(e.target.value)}
+                            placeholder="Marca"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          />
+                          <input
+                            type="text"
+                            value={editVehModel}
+                            onChange={(e) => setEditVehModel(e.target.value)}
+                            placeholder="Modelo"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          />
+                          <input
+                            type="text"
+                            value={editVehColor}
+                            onChange={(e) => setEditVehColor(e.target.value)}
+                            placeholder="Color"
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          />
+                        </div>
+                        <input
+                          type="url"
+                          value={editVehInsuranceUrl}
+                          onChange={(e) => setEditVehInsuranceUrl(e.target.value)}
+                          placeholder="URL Póliza de Seguro Automotor"
+                          className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                          <input
+                            type="date"
+                            value={editVehInsuranceFrom}
+                            onChange={(e) => setEditVehInsuranceFrom(e.target.value)}
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          />
+                          <input
+                            type="date"
+                            value={editVehInsuranceExpiry}
+                            onChange={(e) => setEditVehInsuranceExpiry(e.target.value)}
+                            className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                            style={cardStyle}
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingVehicleId(null)}
+                            className={rowActionBtnClass}
+                            style={cardStyle}
+                          >
+                            <X size={12} /> Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={updatingVehicle}
+                            onClick={() => handleSaveVehicleEdit(v.id)}
+                            className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Save size={12} /> {updatingVehicle ? 'Guardando...' : 'Guardar'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm">
+                              {v.brand} {v.model}
+                            </span>
+                            <span
+                              className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-slate-700"
+                              style={cardStyle}
+                            >
+                              {v.vehicle_type}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                insValidity.tone === 'success'
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                  : insValidity.tone === 'warning'
+                                  ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                                  : insValidity.tone === 'danger'
+                                  ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                                  : 'border-slate-700'
+                              }`}
+                              style={insValidity.tone === 'neutral' ? cardStyle : undefined}
+                            >
+                              Seguro: {v.vehicle_insurance_url ? insValidity.label : 'Sin póliza'}
+                            </span>
+                          </div>
+                          <p className="opacity-80">
+                            Color: {v.color || '-'} · Patente:{' '}
+                            <strong className="font-mono">{v.license_plate || v.plate}</strong>
+                          </p>
+                          {(v.vehicle_insurance_url || v.vehicle_insurance_expiry) && (
+                            <p className="opacity-75 text-[11px]">
+                              Vigencia seguro: {formatDateShort(v.vehicle_insurance_from)} →{' '}
+                              {formatDateShort(v.vehicle_insurance_expiry)}
+                              {v.vehicle_insurance_url && (
+                                <>
+                                  {' · '}
+                                  <a
+                                    href={v.vehicle_insurance_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-sky-400 hover:underline font-semibold"
+                                  >
+                                    Ver póliza
+                                  </a>
+                                </>
+                              )}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => startEditingVehicle(v)}
+                          className={rowActionBtnClass}
+                          style={cardStyle}
+                        >
+                          <Edit3 size={12} /> Editar
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
@@ -2186,6 +2428,8 @@ export default function ProviderDashboard() {
                 <strong>Hasta:</strong> {formatDateTime(selectedPassModal.end_time)}
               </p>
             </div>
+
+            <QrCodeDisplay token={selectedPassModal.qr_token} size={200} />
 
             <div className="rounded-xl p-3 bg-black/30 border border-slate-700/60 space-y-2">
               <span className="block text-[10px] font-bold uppercase opacity-75">

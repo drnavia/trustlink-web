@@ -26,10 +26,14 @@ import {
   RefreshCw,
   Send,
   Calendar,
+  Car,
+  Edit3,
+  Save,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
+import QrCodeDisplay from '../../components/QrCodeDisplay';
 
 const QUICK_SPECIALTIES = [
   'Todos',
@@ -146,6 +150,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const [qrModalProvider, setQrModalProvider] = useState(null);
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
+  const [selectedVehiclePlate, setSelectedVehiclePlate] = useState('');
   const [startTime, setStartTime] = useState(() =>
     toLocalDateTimeInput(new Date(Date.now() - 10 * 60 * 1000))
   );
@@ -155,6 +160,15 @@ export default function ResidentDashboard({ onNavigate }) {
   const [creatingPass, setCreatingPass] = useState(false);
   const [passFeedback, setPassFeedback] = useState({ type: '', text: '', qrToken: '' });
   const [copiedTokenId, setCopiedTokenId] = useState(null);
+
+  // Modal de visualización QR y edición de pase vigente
+  const [viewingQrPass, setViewingQrPass] = useState(null);
+  const [editingPass, setEditingPass] = useState(null);
+  const [editPassPlate, setEditPassPlate] = useState('');
+  const [editPassStart, setEditPassStart] = useState('');
+  const [editPassEnd, setEditPassEnd] = useState('');
+  const [savingPassEdit, setSavingPassEdit] = useState(false);
+  const [editPassFeedback, setEditPassFeedback] = useState({ type: '', text: '' });
 
   // Listado y gestión de Pases QR emitidos
   const [myPasses, setMyPasses] = useState([]);
@@ -461,6 +475,8 @@ export default function ResidentDashboard({ onNavigate }) {
     setQrModalProvider(provider);
     setFractionNumber(prefill.fraction ?? user?.fraction_number ?? '');
     setLotNumber(prefill.lot ?? user?.lot_number ?? '');
+    const providerVehicles = Array.isArray(provider?.vehicles) ? provider.vehicles : [];
+    setSelectedVehiclePlate(providerVehicles[0]?.plate || '');
     const baseStart = prefill.preferredDate
       ? new Date(prefill.preferredDate)
       : new Date(Date.now() - 10 * 60 * 1000);
@@ -470,6 +486,58 @@ export default function ResidentDashboard({ onNavigate }) {
     setStartTime(toLocalDateTimeInput(validStart));
     setEndTime(toLocalDateTimeInput(new Date(validStart.getTime() + 8 * 60 * 60 * 1000)));
     setPassFeedback({ type: '', text: '', qrToken: '' });
+  };
+
+  const openEditPassModal = (passItem) => {
+    setEditingPass(passItem);
+    setEditPassPlate(passItem.vehicle_plate || '');
+    const parsedStart = passItem.start_time ? new Date(passItem.start_time) : new Date();
+    const parsedEnd = passItem.end_time ? new Date(passItem.end_time) : new Date(Date.now() + 4 * 3600000);
+    setEditPassStart(toLocalDateTimeInput(Number.isNaN(parsedStart.getTime()) ? new Date() : parsedStart));
+    setEditPassEnd(toLocalDateTimeInput(Number.isNaN(parsedEnd.getTime()) ? new Date() : parsedEnd));
+    setEditPassFeedback({ type: '', text: '' });
+  };
+
+  const handleSavePassEdit = async (e) => {
+    e.preventDefault();
+    if (!editingPass) return;
+    setSavingPassEdit(true);
+    setEditPassFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/${editingPass.id}`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          fraction_number: user?.fraction_number || null,
+          lot_number: user?.lot_number || null,
+          vehicle_plate: editPassPlate.trim() ? editPassPlate.trim().toUpperCase() : null,
+          start_time: new Date(editPassStart).toISOString(),
+          end_time: new Date(editPassEnd).toISOString(),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setPassListFeedback({
+          type: 'success',
+          text: data.message || `Pase #${editingPass.id} actualizado correctamente.`,
+        });
+        setEditingPass(null);
+        await fetchMyPasses();
+      } else {
+        setEditPassFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo actualizar el pase QR.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al editar pase QR:', error);
+      setEditPassFeedback({
+        type: 'error',
+        text: 'Error de conexión con el servidor al actualizar el pase.',
+      });
+    } finally {
+      setSavingPassEdit(false);
+    }
   };
 
   const handleCreatePassSubmit = async (e) => {
@@ -497,6 +565,7 @@ export default function ResidentDashboard({ onNavigate }) {
           provider_id: providerId,
           fraction_number: fractionNumber.trim() || null,
           lot_number: lotNumber.trim() || null,
+          vehicle_plate: selectedVehiclePlate.trim() ? selectedVehiclePlate.trim().toUpperCase() : null,
           start_time: new Date(startTime).toISOString(),
           end_time: new Date(endTime).toISOString(),
         }),
@@ -1231,6 +1300,10 @@ export default function ResidentDashboard({ onNavigate }) {
                       Destino: {item.fraction_number || 'Sin fracción'} /{' '}
                       {item.lot_number || 'Sin lote'}
                     </p>
+                    <p className="text-xs opacity-80 flex items-center gap-1.5">
+                      <Car size={12} className="text-sky-400 shrink-0" />
+                      <span>Acceso: {item.vehicle_plate || 'Ingreso peatonal'}</span>
+                    </p>
                     <p className="text-[11px] opacity-75">
                       Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
                       {formatLocalDateTime(item.end_time)}
@@ -1239,26 +1312,44 @@ export default function ResidentDashboard({ onNavigate }) {
                     {item.qr_token && (
                       <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
                         <code className="text-[11px] truncate">{item.qr_token}</code>
-                        <button
-                          type="button"
-                          onClick={() => handleCopyToken(item.qr_token, item.id)}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer shrink-0"
-                        >
-                          {copiedTokenId === item.id ? (
-                            <>
-                              <Check size={12} className="text-emerald-400" /> Copiado
-                            </>
-                          ) : (
-                            <>
-                              <Copy size={12} /> Copiar
-                            </>
-                          )}
-                        </button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleCopyToken(item.qr_token, item.id)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                          >
+                            {copiedTokenId === item.id ? (
+                              <>
+                                <Check size={12} className="text-emerald-400" /> Copiado
+                              </>
+                            ) : (
+                              <>
+                                <Copy size={12} /> Copiar
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setViewingQrPass(item)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                            title="Mostrar código QR escaneable"
+                          >
+                            <QrCode size={12} /> Ver QR
+                          </button>
+                        </div>
                       </div>
                     )}
 
                     {isPending && (
-                      <div className="pt-1 flex justify-end">
+                      <div className="pt-1 flex items-center justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => openEditPassModal(item)}
+                          className="inline-flex items-center gap-1 text-xs font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
+                        >
+                          <Edit3 size={13} />
+                          Editar pase
+                        </button>
                         <button
                           type="button"
                           disabled={cancellingPassId === item.id}
@@ -1729,6 +1820,36 @@ export default function ResidentDashboard({ onNavigate }) {
               </div>
 
               <div>
+                <label className="block font-semibold mb-1 opacity-85">
+                  Vehículo autorizado del prestador
+                </label>
+                {Array.isArray(qrModalProvider.vehicles) && qrModalProvider.vehicles.length > 0 ? (
+                  <select
+                    value={selectedVehiclePlate}
+                    onChange={(e) => setSelectedVehiclePlate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                    style={innerStyle}
+                  >
+                    <option value="">Ingreso peatonal / sin vehículo</option>
+                    {qrModalProvider.vehicles.map((v) => (
+                      <option key={v.id || v.plate} value={v.plate}>
+                        {v.brand} {v.model} ({v.vehicle_type || 'Vehículo'}) · {v.plate}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={selectedVehiclePlate}
+                    onChange={(e) => setSelectedVehiclePlate(e.target.value.toUpperCase())}
+                    placeholder="Opcional: patente (dejar vacío para ingreso peatonal)"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 font-mono uppercase"
+                    style={innerStyle}
+                  />
+                )}
+              </div>
+
+              <div>
                 <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
                 <input
                   type="datetime-local"
@@ -1762,23 +1883,26 @@ export default function ResidentDashboard({ onNavigate }) {
                 >
                   <p>{passFeedback.text}</p>
                   {passFeedback.qrToken && (
-                    <div className="flex items-center justify-between gap-2 bg-black/30 px-2.5 py-1.5 rounded-lg">
-                      <code className="text-[11px] truncate">{passFeedback.qrToken}</code>
-                      <button
-                        type="button"
-                        onClick={() => handleCopyToken(passFeedback.qrToken, 'modal-token')}
-                        className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer shrink-0"
-                      >
-                        {copiedTokenId === 'modal-token' ? (
-                          <>
-                            <Check size={12} className="text-emerald-400" /> Copiado
-                          </>
-                        ) : (
-                          <>
-                            <Copy size={12} /> Copiar
-                          </>
-                        )}
-                      </button>
+                    <div className="space-y-2.5 pt-1">
+                      <QrCodeDisplay token={passFeedback.qrToken} size={160} />
+                      <div className="flex items-center justify-between gap-2 bg-black/30 px-2.5 py-1.5 rounded-lg">
+                        <code className="text-[11px] truncate">{passFeedback.qrToken}</code>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyToken(passFeedback.qrToken, 'modal-token')}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer shrink-0"
+                        >
+                          {copiedTokenId === 'modal-token' ? (
+                            <>
+                              <Check size={12} className="text-emerald-400" /> Copiado
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={12} /> Copiar
+                            </>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1800,6 +1924,142 @@ export default function ResidentDashboard({ onNavigate }) {
                   style={{ backgroundColor: primaryColor }}
                 >
                   {creatingPass ? 'Generando...' : 'Emitir Pase QR'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para visualizar QR escaneable de un pase emitido */}
+      {viewingQrPass && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div>
+                <h3 className="text-base font-bold">
+                  Pase QR #{viewingQrPass.id} · {viewingQrPass.provider_name || `Prestador #${viewingQrPass.provider_id}`}
+                </h3>
+                <p className="opacity-75">
+                  Destino: {viewingQrPass.fraction_number || '—'} / Lote {viewingQrPass.lot_number || '—'} ·{' '}
+                  {viewingQrPass.vehicle_plate || 'Ingreso peatonal'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingQrPass(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <QrCodeDisplay token={viewingQrPass.qr_token} size={200} />
+
+            <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
+              <span className="block text-[10px] font-bold uppercase opacity-75">Token QR</span>
+              <code className="block font-mono text-[11px] break-all select-all">
+                {viewingQrPass.qr_token}
+              </code>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setViewingQrPass(null)}
+                className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                style={innerStyle}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para editar un pase QR vigente (pending) */}
+      {editingPass && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold">Editar Pase QR #{editingPass.id}</h3>
+              <button
+                type="button"
+                onClick={() => setEditingPass(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePassEdit} className="space-y-3">
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">
+                  Patente de vehículo (vacío = ingreso peatonal)
+                </label>
+                <input
+                  type="text"
+                  value={editPassPlate}
+                  onChange={(e) => setEditPassPlate(e.target.value.toUpperCase())}
+                  placeholder="Ej: AF123CD"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 font-mono uppercase"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editPassStart}
+                  onChange={(e) => setEditPassStart(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Válido hasta</label>
+                <input
+                  type="datetime-local"
+                  required
+                  value={editPassEnd}
+                  onChange={(e) => setEditPassEnd(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                />
+              </div>
+
+              {editPassFeedback.text && (
+                <div className="rounded-xl p-3 border border-rose-800/70 bg-rose-950/50 text-rose-200">
+                  {editPassFeedback.text}
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPass(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPassEdit}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <Save size={13} />
+                  {savingPassEdit ? 'Guardando...' : 'Guardar Cambios'}
                 </button>
               </div>
             </form>

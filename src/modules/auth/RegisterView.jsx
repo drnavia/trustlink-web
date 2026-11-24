@@ -6,18 +6,17 @@
  * @location /trustlink-web/src/modules/auth/RegisterView.jsx
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   UserPlus,
   AlertCircle,
   CheckCircle2,
   Loader2,
   ArrowLeft,
+  Building2,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
-
-/* const API_BASE = 'http://localhost:4000'; */
+import { API_BASE } from '../../config/api';
 
 export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const { brand } = useBranding();
@@ -38,17 +37,38 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const accentColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [role, setRole] = useState('owner');
+  const [countries, setCountries] = useState([]);
+  const [countryId, setCountryId] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [dni, setDni] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [fractionType, setFractionType] = useState('na');
   const [fraction, setFraction] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    fetch(`${API_BASE}/api/v1/auth/countries`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (mounted && Array.isArray(data.countries)) {
+          setCountries(data.countries);
+          if (data.countries.length > 0) {
+            setCountryId((prev) => prev || String(data.countries[0].id));
+          }
+        }
+      })
+      .catch(() => {});
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -58,6 +78,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
 
     try {
       const payload = {
+        country_id: countryId ? Number(countryId) : null,
         role,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
@@ -65,7 +86,8 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
         phone: phone.trim() || null,
         email: email.trim(),
         password,
-        fraction_number: fraction.trim() || null,
+        fraction_type: fractionType,
+        fraction_number: fractionType === 'na' ? null : fraction.trim() || null,
         lot_number: lotNumber.trim() || null,
       };
 
@@ -154,19 +176,40 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
 
         {/* Formulario de registro */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-          <div>
-            <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
-              Perfil / Rol
-            </label>
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
-              style={innerStyle}
-            >
-              <option value="owner">Propietario / Residente</option>
-              <option value="provider">Prestador de Servicios</option>
-            </select>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
+                Perfil / Rol
+              </label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                style={innerStyle}
+              >
+                <option value="owner">Propietario / Residente</option>
+                <option value="provider">Prestador de Servicios</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5 flex items-center gap-1">
+                <Building2 size={12} /> Comunidad / Barrio
+              </label>
+              <select
+                value={countryId}
+                onChange={(e) => setCountryId(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                style={innerStyle}
+              >
+                <option value="">Seleccionar comunidad (opcional)</option>
+                {countries.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -265,35 +308,60 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
-          {/* Sub-bloque interno (Zona 5) para datos residenciales opcionales */}
+          {/* Sub-bloque interno (Zona 5) para datos residenciales normalizados */}
           <div
-            className="p-4 rounded-xl border border-black/20 grid grid-cols-1 sm:grid-cols-2 gap-4"
+            className="p-4 rounded-xl border border-black/20 grid grid-cols-1 sm:grid-cols-3 gap-3"
             style={innerStyle}
           >
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
-                Fracción / Manzana
+                Tipo de Área
+              </label>
+              <select
+                value={fractionType}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setFractionType(next);
+                  if (next === 'na') setFraction('');
+                }}
+                className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                style={cardStyle}
+              >
+                <option value="na">No aplica (N/A)</option>
+                <option value="manzana">Manzana</option>
+                <option value="fraccion">Fracción</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
+                N° {fractionType === 'manzana' ? 'Manzana' : 'Fracción'}
               </label>
               <input
                 type="text"
+                inputMode="numeric"
+                disabled={fractionType === 'na'}
+                required={fractionType !== 'na'}
                 value={fraction}
-                onChange={(e) => setFraction(e.target.value)}
-                placeholder="Ej. F-04"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                onChange={(e) => setFraction(e.target.value.replace(/\D+/g, ''))}
+                placeholder={fractionType === 'na' ? 'N/A' : 'Ej. 4'}
+                className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs font-mono focus:outline-none disabled:opacity-45"
                 style={cardStyle}
               />
             </div>
 
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
-                Lote
+                N° Lote {role === 'owner' ? '*' : ''}
               </label>
               <input
                 type="text"
+                inputMode="numeric"
+                required={role === 'owner'}
                 value={lotNumber}
-                onChange={(e) => setLotNumber(e.target.value)}
+                onChange={(e) => setLotNumber(e.target.value.replace(/\D+/g, ''))}
                 placeholder="Ej. 18"
-                className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
                 style={cardStyle}
               />
             </div>
