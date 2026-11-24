@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "test": "node --test tests/qrEncoder.test.js",
+    "test": "node --test tests/qrEncoder.test.js tests/serviceSearchMatcher.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

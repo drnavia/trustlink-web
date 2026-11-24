@@ -7,7 +7,7 @@
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Search,
   ShieldCheck,
@@ -22,6 +22,7 @@ import {
   Building2,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
+import { getSearchSuggestions } from '../../utils/serviceSearchMatcher';
 
 /** Rubros frecuentes mostrados como chips de selección rápida en el buscador del Hero. */
 const POPULAR_SERVICES = [
@@ -125,6 +126,9 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
     sessionStorage.setItem('trustlink_initial_service_query', serviceName);
   };
 
+  // Sugerencias inteligentes por síntoma/problema cotidiano (ej. "pérdida de agua" -> Plomero)
+  const symptomSuggestions = useMemo(() => getSearchSuggestions(searchTerm), [searchTerm]);
+
   return (
     <section className="max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-12 space-y-8">
       {/* Sección Hero: propuesta de valor principal, buscador rápido y botones de cuenta */}
@@ -167,7 +171,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
                     setSelectedService('');
                   }
                 }}
-                placeholder="¿Qué servicio necesitás? Ej: electricista, piletero, gasista..."
+                placeholder="¿Qué necesitás resolver? Ej: pérdida de agua, salta la térmica, piletero..."
                 className="w-full pl-10 pr-4 py-3 rounded-xl text-sm border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
                 style={innerStyle}
               />
@@ -182,6 +186,23 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
               <ArrowRight size={16} />
             </button>
           </div>
+
+          {/* Sugerencias inteligentes por síntoma/necesidad mientras el usuario tipea */}
+          {symptomSuggestions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold text-emerald-300">Sugerencias:</span>
+              {symptomSuggestions.map((sug) => (
+                <button
+                  key={sug.label}
+                  type="button"
+                  onClick={() => handleQuickServiceClick(sug.targetSpecialty)}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 cursor-pointer"
+                >
+                  {sug.label} → <strong>{sug.targetSpecialty}</strong>
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Chips de atajo para rubros populares */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">

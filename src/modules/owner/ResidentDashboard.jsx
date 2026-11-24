@@ -46,6 +46,8 @@ import {
   Zap,
   RotateCcw,
   MapPin,
+  Clock,
+  HelpCircle,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -56,6 +58,10 @@ import {
   ReputationThermometer,
 } from '../../components/HomeProtectedBadge';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
+import {
+  matchesProviderQuery,
+  getSearchSuggestions,
+} from '../../utils/serviceSearchMatcher';
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
@@ -238,11 +244,22 @@ export default function ResidentDashboard({ onNavigate }) {
   const [onlyVerifiedMembers, setOnlyVerifiedMembers] = useState(false);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [onlyAvailableToday, setOnlyAvailableToday] = useState(false);
+  const [onlyEmergencies, setOnlyEmergencies] = useState(false);
   const [togglingFavoriteUserId, setTogglingFavoriteUserId] = useState(null);
   const [directorySortBy, setDirectorySortBy] = useState('featured');
   const [reviewsModalProvider, setReviewsModalProvider] = useState(null);
   const [providerReviewsList, setProviderReviewsList] = useState([]);
   const [loadingProviderReviews, setLoadingProviderReviews] = useState(false);
+  const [reviewFilterTag, setReviewFilterTag] = useState('all');
+  const [reviewFilterMinStars, setReviewFilterMinStars] = useState(0);
+
+  // Modal de Preguntas y Respuestas públicas (Q&A estilo ficha de producto)
+  const [qaModalProvider, setQaModalProvider] = useState(null);
+  const [qaQuestionsList, setQaQuestionsList] = useState([]);
+  const [loadingQaQuestions, setLoadingQaQuestions] = useState(false);
+  const [newQaText, setNewQaText] = useState('');
+  const [submittingQa, setSubmittingQa] = useState(false);
+  const [qaFeedback, setQaFeedback] = useState({ type: '', text: '' });
 
   // Solicitudes / coordinación de visita del residente
   const [myVisits, setMyVisits] = useState([]);
@@ -527,13 +544,16 @@ export default function ResidentDashboard({ onNavigate }) {
     return combined;
   }, [providers]);
 
-  // Aplica filtros de especialidad, Socio Verificado, Favoritos, Disponible hoy, búsqueda y ordenamiento
+  // Sugerencias de búsqueda por síntoma/problema en tiempo real en el directorio
+  const directorySearchSuggestions = useMemo(
+    () => getSearchSuggestions(searchTerm),
+    [searchTerm]
+  );
+
+  // Aplica filtros de especialidad, Socio Verificado, Favoritos, Disponible hoy, Urgencias 24h, búsqueda por síntomas y ordenamiento
   const filteredProviders = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
     const list = providers.filter((p) => {
-      const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
       const specialty = String(p.specialty || '').toLowerCase();
-      const email = String(p.email || '').toLowerCase();
 
       const matchesSpecialty =
         selectedSpecialty === 'Todos' ||
@@ -542,18 +562,15 @@ export default function ResidentDashboard({ onNavigate }) {
       const matchesMember = !onlyVerifiedMembers || Boolean(p.is_verified_member);
       const matchesFavorite = !onlyFavorites || Boolean(p.is_favorite);
       const matchesAvailableToday = !onlyAvailableToday || Boolean(p.available_today);
-
-      const matchesQuery =
-        !query ||
-        fullName.includes(query) ||
-        specialty.includes(query) ||
-        email.includes(query);
+      const matchesEmergencies = !onlyEmergencies || Boolean(p.accepts_emergencies);
+      const matchesQuery = matchesProviderQuery(p, searchTerm);
 
       return (
         matchesSpecialty &&
         matchesMember &&
         matchesFavorite &&
         matchesAvailableToday &&
+        matchesEmergencies &&
         matchesQuery
       );
     });
@@ -581,8 +598,82 @@ export default function ResidentDashboard({ onNavigate }) {
     onlyVerifiedMembers,
     onlyFavorites,
     onlyAvailableToday,
+    onlyEmergencies,
     directorySortBy,
   ]);
+
+  /**
+   * Abre el modal de Preguntas y Respuestas públicas (Q&A) de un prestador y carga
+   * el historial comunitario desde `GET /api/v1/providers/:providerUserId/questions`.
+   *
+   * @param {Object} provider - Prestador seleccionado en el directorio.
+   * @returns {Promise<void>}
+   */
+  const handleOpenProviderQa = async (provider) => {
+    const providerUserId = Number(provider?.user_id);
+    if (!providerUserId) return;
+    setQaModalProvider(provider);
+    setQaQuestionsList([]);
+    setNewQaText('');
+    setQaFeedback({ type: '', text: '' });
+    setLoadingQaQuestions(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/providers/${providerUserId}/questions`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setQaQuestionsList(data.questions || []);
+      }
+    } catch (error) {
+      console.error('Error al consultar Q&A del prestador:', error);
+    } finally {
+      setLoadingQaQuestions(false);
+    }
+  };
+
+  /**
+   * Publica una nueva pregunta pública en la ficha del prestador abierto en el modal Q&A.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario Q&A.
+   * @returns {Promise<void>}
+   */
+  const handleSubmitPublicQuestion = async (e) => {
+    e.preventDefault();
+    if (!qaModalProvider) return;
+    const providerUserId = Number(qaModalProvider.user_id);
+    const cleanQ = newQaText.trim();
+    if (cleanQ.length < 5) {
+      setQaFeedback({ type: 'error', text: 'Escribí al menos 5 caracteres para tu consulta.' });
+      return;
+    }
+    setSubmittingQa(true);
+    setQaFeedback({ type: '', text: '' });
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/providers/${providerUserId}/questions`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ question: cleanQ }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setNewQaText('');
+        setQaFeedback({
+          type: 'success',
+          text: data.message || 'Pregunta publicada. Cuando responda el prestador quedará visible.',
+        });
+        await handleOpenProviderQa(qaModalProvider);
+        fetchVerifiedProviders();
+      } else {
+        setQaFeedback({ type: 'error', text: data.error || 'No se pudo publicar la pregunta.' });
+      }
+    } catch (error) {
+      console.error('Error al publicar pregunta pública:', error);
+      setQaFeedback({ type: 'error', text: 'Error de conexión al enviar tu consulta.' });
+    } finally {
+      setSubmittingQa(false);
+    }
+  };
 
   /**
    * Alterna un prestador en "Mis prestadores de confianza" (favoritos) con actualización optimista
@@ -681,6 +772,8 @@ export default function ResidentDashboard({ onNavigate }) {
     const pid = Number(provider.provider_id || provider.id);
     setReviewsModalProvider(provider);
     setProviderReviewsList([]);
+    setReviewFilterTag('all');
+    setReviewFilterMinStars(0);
     setLoadingProviderReviews(true);
     try {
       const res = await fetch(`${API_BASE}/api/v1/reviews/provider/${pid}`, {
@@ -1419,7 +1512,7 @@ export default function ResidentDashboard({ onNavigate }) {
                   type="text"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por nombre o especialidad..."
+                  placeholder="Buscar por rubro, nombre o problema (ej: pérdida de agua)..."
                   className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
                   style={innerStyle}
                 />
@@ -1453,7 +1546,38 @@ export default function ResidentDashboard({ onNavigate }) {
           {/* Sello UX Hogar Protegido TrustLink (3 garantías antes de contratar) */}
           <HomeProtectedBadge variant="compact" />
 
-          {/* Barra de filtros: chips de especialidades, Favoritos, Disponible hoy, Socio Verificado y ordenamiento */}
+          {/* Sugerencias inteligentes cuando el residente busca por síntoma o problema */}
+          {directorySearchSuggestions.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="font-semibold text-emerald-300">Rubros sugeridos:</span>
+              {directorySearchSuggestions.map((sug) => (
+                <button
+                  key={sug.label}
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedSpecialty(
+                      availableSpecialties.find(
+                        (s) => s.toLowerCase() === sug.targetSpecialty.toLowerCase()
+                      ) || 'Todos'
+                    );
+                    if (
+                      !availableSpecialties.some(
+                        (s) => s.toLowerCase() === sug.targetSpecialty.toLowerCase()
+                      )
+                    ) {
+                      setSearchTerm(sug.targetSpecialty);
+                    }
+                  }}
+                  className="px-2.5 py-0.5 rounded-full font-semibold border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 cursor-pointer"
+                >
+                  {sug.label} → <strong>{sug.targetSpecialty}</strong>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Barra de filtros: chips de especialidades, Favoritos, Disponible hoy, Urgencias 24h, Socio Verificado y ordenamiento */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
             <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap">
               {availableSpecialties.map((spec) => {
@@ -1503,6 +1627,20 @@ export default function ResidentDashboard({ onNavigate }) {
               >
                 <Zap size={12} />
                 <span>Disponible hoy</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setOnlyEmergencies((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                  onlyEmergencies
+                    ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={onlyEmergencies ? undefined : innerStyle}
+              >
+                <AlertCircle size={12} />
+                <span>Urgencias 24h</span>
               </button>
 
               <button
@@ -1580,8 +1718,28 @@ export default function ResidentDashboard({ onNavigate }) {
                 const hasExpiredDocs = Boolean(provider.has_expired_docs);
                 const isFavorite = Boolean(provider.is_favorite);
                 const availableToday = Boolean(provider.available_today);
+                const acceptsEmergencies = Boolean(provider.accepts_emergencies);
                 const communityActivityCount = Number(provider.community_activity_count || 0);
                 const topTags = Array.isArray(provider.top_tags) ? provider.top_tags : [];
+                const paymentMethods = Array.isArray(provider.accepted_payment_methods)
+                  ? provider.accepted_payment_methods
+                  : [];
+                const quotePolicyLabel =
+                  provider.quote_visit_policy === 'sin_cargo'
+                    ? 'Presupuesto sin cargo'
+                    : provider.quote_visit_policy === 'arancelada'
+                    ? 'Visita técnica arancelada'
+                    : null;
+                const invoiceLabel =
+                  provider.invoice_type === 'factura_a'
+                    ? 'Factura A'
+                    : provider.invoice_type === 'factura_c'
+                    ? 'Factura C'
+                    : provider.invoice_type === 'ambas'
+                    ? 'Factura A / C'
+                    : provider.invoice_type === 'sin_factura'
+                    ? 'Recibo común'
+                    : null;
 
                 return (
                   <article
@@ -1592,7 +1750,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     style={innerStyle}
                   >
                     <div className="space-y-3">
-                      {/* Insignias de especialidad, membresía, disponibilidad hoy, favorito y calificación */}
+                      {/* Insignias de especialidad, membresía, urgencias 24h, disponibilidad hoy, favorito y calificación */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
@@ -1602,6 +1760,12 @@ export default function ResidentDashboard({ onNavigate }) {
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
                               <Award size={11} className="text-amber-300 shrink-0" />
                               <span>{membershipBadgeLabel}</span>
+                            </span>
+                          )}
+                          {acceptsEmergencies && !hasExpiredDocs && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-400/50 bg-rose-500/15 text-rose-200">
+                              <AlertCircle size={10} className="shrink-0" />
+                              <span>Urgencias 24h</span>
                             </span>
                           )}
                           {!hasExpiredDocs && (
@@ -1648,9 +1812,9 @@ export default function ResidentDashboard({ onNavigate }) {
                         </div>
                       </div>
 
-                      {/* Identidad, prueba social hiper-local en tu barrio y acceso a reseñas */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
+                      {/* Identidad, métricas y accesos a Reseñas y Preguntas Públicas (Q&A) */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
                           <h3 className="text-sm font-bold">{fullName}</h3>
                           <p className="text-xs opacity-75 mt-0.5">
                             {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
@@ -1658,32 +1822,86 @@ export default function ResidentDashboard({ onNavigate }) {
                               ? ` · ${provider.vehicles.length} vehículo(s)`
                               : ''}
                           </p>
+                          {provider.service_bio && (
+                            <p className="text-[11px] opacity-85 mt-1 line-clamp-2">
+                              {provider.service_bio}
+                            </p>
+                          )}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenProviderReviews(provider)}
-                          className="text-[11px] font-bold underline underline-offset-2 opacity-85 hover:opacity-100 cursor-pointer shrink-0"
-                        >
-                          Ver reseñas{Number(provider.reviews_count || 0) > 0 ? ` (${provider.reviews_count})` : ''}
-                        </button>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenProviderReviews(provider)}
+                            className="text-[11px] font-bold underline underline-offset-2 opacity-85 hover:opacity-100 cursor-pointer"
+                          >
+                            Ver reseñas{Number(provider.reviews_count || 0) > 0 ? ` (${provider.reviews_count})` : ''}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenProviderQa(provider)}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
+                          >
+                            <HelpCircle size={11} />
+                            <span>
+                              Preguntas{Number(provider.public_questions_count || 0) > 0 ? ` (${provider.public_questions_count})` : ''}
+                            </span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* Termómetro de reputación (5 barras) + prueba social hiper-local + top micro-tags */}
+                      {/* Termómetro de reputación + tiempo de respuesta + actividad en tu barrio + ficha comercial */}
                       <div
                         className="rounded-xl p-3 text-xs space-y-2 border border-white/10"
                         style={cardStyle}
                       >
                         <ReputationThermometer reputation={provider.reputation} compact />
 
-                        {communityActivityCount > 0 && (
-                          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-300">
-                            <MapPin size={12} className="shrink-0" />
-                            <span>
-                              {communityActivityCount}{' '}
-                              {communityActivityCount === 1
-                                ? 'servicio/ingreso verificado en tu barrio'
-                                : 'servicios/ingresos verificados en tu barrio'}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                          {provider.response_label && (
+                            <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
+                              <Clock size={11} className="shrink-0" />
+                              <span>{provider.response_label}</span>
                             </span>
+                          )}
+                          {communityActivityCount > 0 && (
+                            <span className="inline-flex items-center gap-1 font-bold text-emerald-300">
+                              <MapPin size={11} className="shrink-0" />
+                              <span>
+                                {communityActivityCount}{' '}
+                                {communityActivityCount === 1
+                                  ? 'servicio/ingreso en tu barrio'
+                                  : 'servicios/ingresos en tu barrio'}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+
+                        {(quotePolicyLabel || invoiceLabel || paymentMethods.length > 0) && (
+                          <div className="flex flex-wrap gap-1 text-[10px]">
+                            {quotePolicyLabel && (
+                              <span
+                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-90"
+                                style={innerStyle}
+                              >
+                                {quotePolicyLabel}
+                              </span>
+                            )}
+                            {invoiceLabel && (
+                              <span
+                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-90"
+                                style={innerStyle}
+                              >
+                                {invoiceLabel}
+                              </span>
+                            )}
+                            {paymentMethods.length > 0 && (
+                              <span
+                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-85 capitalize"
+                                style={innerStyle}
+                              >
+                                Pagos: {paymentMethods.join(', ')}
+                              </span>
+                            )}
                           </div>
                         )}
 
@@ -1692,8 +1910,7 @@ export default function ResidentDashboard({ onNavigate }) {
                             {topTags.map((t) => (
                               <span
                                 key={t.tag}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-white/15 opacity-90"
-                                style={innerStyle}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                               >
                                 {t.tag} · {t.count}
                               </span>
@@ -3244,8 +3461,155 @@ export default function ResidentDashboard({ onNavigate }) {
         </div>
       )}
 
-      {/* Modal: Reseñas verificadas del prestador */}
-      {reviewsModalProvider && (
+      {/* Modal: Reseñas verificadas del prestador (con filtros por micro-tag y estrellas) */}
+      {reviewsModalProvider && (() => {
+        const filteredModalReviews = providerReviewsList.filter((rev) => {
+          const matchesStars =
+            reviewFilterMinStars === 0
+              ? true
+              : reviewFilterMinStars === -3
+              ? Number(rev.rating || 0) <= 3
+              : Number(rev.rating || 0) >= reviewFilterMinStars;
+          const matchesTag =
+            reviewFilterTag === 'all' ||
+            (Array.isArray(rev.tags) && rev.tags.includes(reviewFilterTag));
+          return matchesStars && matchesTag;
+        });
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+            <div
+              className="w-full max-w-lg rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs max-h-[85vh] overflow-y-auto"
+              style={cardStyle}
+            >
+              <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                    Reputación Verificada
+                  </p>
+                  <h3 className="text-base font-black mt-0.5">
+                    {reviewsModalProvider.first_name} {reviewsModalProvider.last_name} · ★{' '}
+                    {Number(reviewsModalProvider.rating_avg || 0).toFixed(1)}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReviewsModalProvider(null)}
+                  className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Filtros rápidos del modal de reseñas (estrellas + micro-tags) */}
+              {!loadingProviderReviews && providerReviewsList.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { val: 0, label: `Todas (${providerReviewsList.length})` },
+                      { val: 5, label: '5 ★' },
+                      { val: 4, label: '4 ★ o más' },
+                      { val: -3, label: '3 ★ o menos' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.val}
+                        type="button"
+                        onClick={() => setReviewFilterMinStars(opt.val)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border cursor-pointer ${
+                          reviewFilterMinStars === opt.val
+                            ? 'border-amber-400/70 bg-amber-500/20 text-amber-200'
+                            : 'border-white/15 opacity-75 hover:opacity-100'
+                        }`}
+                        style={reviewFilterMinStars === opt.val ? undefined : innerStyle}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setReviewFilterTag('all')}
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${
+                        reviewFilterTag === 'all'
+                          ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                          : 'border-white/15 opacity-75 hover:opacity-100'
+                      }`}
+                      style={reviewFilterTag === 'all' ? undefined : innerStyle}
+                    >
+                      Todos los tags
+                    </button>
+                    {REVIEW_MICRO_TAGS.map((tag) => (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => setReviewFilterTag(tag)}
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border cursor-pointer ${
+                          reviewFilterTag === tag
+                            ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                            : 'border-white/15 opacity-75 hover:opacity-100'
+                        }`}
+                        style={reviewFilterTag === tag ? undefined : innerStyle}
+                      >
+                        {tag}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Listado filtrado de reseñas verificadas dejadas por otros residentes */}
+              {loadingProviderReviews ? (
+                <p className="py-6 text-center opacity-75">Cargando reseñas verificadas...</p>
+              ) : filteredModalReviews.length === 0 ? (
+                <div className="p-5 rounded-xl border border-white/10 text-center opacity-75" style={innerStyle}>
+                  {providerReviewsList.length === 0
+                    ? 'Este prestador aún no tiene reseñas escritas publicadas.'
+                    : 'No hay reseñas que coincidan con el filtro seleccionado.'}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {filteredModalReviews.map((rev) => (
+                    <div
+                      key={rev.id}
+                      className="p-3.5 rounded-xl border border-white/10 space-y-1"
+                      style={innerStyle}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-bold">
+                          {rev.owner_name ||
+                            `${rev.owner_first_name || rev.first_name || ''} ${rev.owner_last_name || rev.last_name || ''}`.trim() ||
+                            'Residente Verificado'}
+                        </span>
+                        <span className="font-bold text-amber-300">
+                          {'★'.repeat(Number(rev.rating || 5))} ({rev.rating}/5)
+                        </span>
+                      </div>
+                      {Array.isArray(rev.tags) && rev.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1 pt-0.5">
+                          {rev.tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {rev.comment && <p className="opacity-85 italic">&ldquo;{rev.comment}&rdquo;</p>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Preguntas y Respuestas públicas de la comunidad (Q&A estilo ficha de producto) */}
+      {qaModalProvider && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
           <div
             className="w-full max-w-lg rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs max-h-[85vh] overflow-y-auto"
@@ -3253,63 +3617,99 @@ export default function ResidentDashboard({ onNavigate }) {
           >
             <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
               <div>
-                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                  Reputación Verificada
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sky-300">
+                  Preguntas y Respuestas Públicas
                 </p>
                 <h3 className="text-base font-black mt-0.5">
-                  {reviewsModalProvider.first_name} {reviewsModalProvider.last_name} · ★{' '}
-                  {Number(reviewsModalProvider.rating_avg || 0).toFixed(1)}
+                  {qaModalProvider.first_name} {qaModalProvider.last_name} ·{' '}
+                  {qaModalProvider.specialty || 'Prestador Verificado'}
                 </h3>
+                {qaModalProvider.response_label && (
+                  <p className="text-[11px] text-sky-300 mt-0.5">{qaModalProvider.response_label}</p>
+                )}
               </div>
               <button
                 type="button"
-                onClick={() => setReviewsModalProvider(null)}
+                onClick={() => setQaModalProvider(null)}
                 className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Listado de reseñas verificadas dejadas por otros residentes */}
-            {loadingProviderReviews ? (
-              <p className="py-6 text-center opacity-75">Cargando reseñas verificadas...</p>
-            ) : providerReviewsList.length === 0 ? (
+            {/* Formulario para publicar una pregunta pública visible para toda la comunidad */}
+            <form onSubmit={handleSubmitPublicQuestion} className="space-y-2">
+              <label className="block font-semibold opacity-85">
+                Hacé una consulta pública antes de pedir visita:
+              </label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  maxLength={400}
+                  value={newQaText}
+                  onChange={(e) => setNewQaText(e.target.value)}
+                  placeholder="Ej: ¿Trabajás sábados? ¿Hacés mantenimiento de aires inverter?"
+                  className="flex-1 px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                  style={innerStyle}
+                />
+                <button
+                  type="submit"
+                  disabled={submittingQa}
+                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {submittingQa ? 'Enviando...' : 'Preguntar'}
+                </button>
+              </div>
+              {qaFeedback.text && (
+                <div
+                  className={`rounded-xl p-2.5 border ${
+                    qaFeedback.type === 'success'
+                      ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                      : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+                  }`}
+                >
+                  {qaFeedback.text}
+                </div>
+              )}
+            </form>
+
+            {/* Historial de preguntas y respuestas comunitarias del prestador */}
+            {loadingQaQuestions ? (
+              <p className="py-6 text-center opacity-75">Cargando preguntas de la comunidad...</p>
+            ) : qaQuestionsList.length === 0 ? (
               <div className="p-5 rounded-xl border border-white/10 text-center opacity-75" style={innerStyle}>
-                Este prestador aún no tiene reseñas escritas publicadas.
+                Todavía no hay preguntas publicadas para este prestador. ¡Hacé la primera consulta!
               </div>
             ) : (
               <div className="space-y-2.5">
-                {providerReviewsList.map((rev) => (
-                  <div
-                    key={rev.id}
-                    className="p-3.5 rounded-xl border border-white/10 space-y-1"
-                    style={innerStyle}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold">
-                        {rev.owner_name ||
-                          `${rev.owner_first_name || rev.first_name || ''} ${rev.owner_last_name || rev.last_name || ''}`.trim() ||
-                          'Residente Verificado'}
-                      </span>
-                      <span className="font-bold text-amber-300">
-                        {'★'.repeat(Number(rev.rating || 5))} ({rev.rating}/5)
-                      </span>
-                    </div>
-                    {Array.isArray(rev.tags) && rev.tags.length > 0 && (
-                      <div className="flex flex-wrap gap-1 pt-0.5">
-                        {rev.tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
-                          >
-                            {tag}
-                          </span>
-                        ))}
+                {qaQuestionsList.map((q) => {
+                  const asker =
+                    `${q.asked_by_first_name || ''} ${q.asked_by_last_name || ''}`.trim() ||
+                    'Residente';
+                  return (
+                    <div
+                      key={q.id}
+                      className="p-3.5 rounded-xl border border-white/10 space-y-2"
+                      style={innerStyle}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold">
+                          <span className="opacity-70">{asker}:</span> {q.question}
+                        </p>
                       </div>
-                    )}
-                    {rev.comment && <p className="opacity-85 italic">&ldquo;{rev.comment}&rdquo;</p>}
-                  </div>
-                ))}
+                      {q.answer ? (
+                        <div className="rounded-lg p-2.5 bg-emerald-950/35 border border-emerald-800/40 text-emerald-200">
+                          <strong>Respuesta del prestador:</strong> {q.answer}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] opacity-65 italic">
+                          Pendiente de respuesta del prestador.
+                        </p>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

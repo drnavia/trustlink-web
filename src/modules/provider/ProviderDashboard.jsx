@@ -211,7 +211,7 @@ export default function ProviderDashboard() {
   // Navegación principal por pasos: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  // Estado global del perfil del prestador, membresía Socio Verificado y mensajes de feedback
+  // Estado global del perfil del prestador, membresía Socio Verificado, ficha comercial y Q&A
   const [profileData, setProfileData] = useState({
     providers: [],
     vehicles: [],
@@ -219,12 +219,34 @@ export default function ProviderDashboard() {
     expiry_alerts: [],
     membership: null,
     membership_plans: [],
+    reputation: null,
+    response_stats: null,
+    commercial_profile: null,
+    public_questions: [],
   });
   const [showMembershipPlans, setShowMembershipPlans] = useState(false);
   const [subscribingPlan, setSubscribingPlan] = useState('');
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Ficha comercial rápida y Urgencias 24h (Fase 5.2)
+  const [showCommercialEditor, setShowCommercialEditor] = useState(false);
+  const [commAcceptsEmergencies, setCommAcceptsEmergencies] = useState(false);
+  const [commQuotePolicy, setCommQuotePolicy] = useState('consultar');
+  const [commInvoiceType, setCommInvoiceType] = useState('consultar');
+  const [commPaymentMethods, setCommPaymentMethods] = useState([
+    'efectivo',
+    'transferencia',
+    'mercadopago',
+  ]);
+  const [commServiceBio, setCommServiceBio] = useState('');
+  const [savingCommercial, setSavingCommercial] = useState(false);
+
+  // Preguntas públicas de la comunidad (Q&A estilo ficha de producto)
+  const [showQaPanel, setShowQaPanel] = useState(false);
+  const [qaAnswerDrafts, setQaAnswerDrafts] = useState({});
+  const [answeringQuestionId, setAnsweringQuestionId] = useState(null);
 
   // Paso 1: Credenciales — alta de documentación de compliance (Antecedentes / ART)
   const [showDocForm, setShowDocForm] = useState(false);
@@ -356,6 +378,13 @@ export default function ProviderDashboard() {
       });
       const data = await response.json();
       if (response.ok) {
+        const comm = data.commercial_profile || {
+          accepts_emergencies: false,
+          quote_visit_policy: 'consultar',
+          invoice_type: 'consultar',
+          accepted_payment_methods: ['efectivo', 'transferencia', 'mercadopago'],
+          service_bio: '',
+        };
         setProfileData({
           providers: data.providers || [],
           vehicles: data.vehicles || [],
@@ -364,7 +393,19 @@ export default function ProviderDashboard() {
           membership: data.membership || null,
           membership_plans: data.membership_plans || [],
           reputation: data.reputation || null,
+          response_stats: data.response_stats || null,
+          commercial_profile: comm,
+          public_questions: data.public_questions || [],
         });
+        setCommAcceptsEmergencies(Boolean(comm.accepts_emergencies));
+        setCommQuotePolicy(comm.quote_visit_policy || 'consultar');
+        setCommInvoiceType(comm.invoice_type || 'consultar');
+        setCommPaymentMethods(
+          Array.isArray(comm.accepted_payment_methods)
+            ? comm.accepted_payment_methods
+            : ['efectivo', 'transferencia', 'mercadopago']
+        );
+        setCommServiceBio(comm.service_bio || '');
       } else {
         setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
       }
@@ -373,6 +414,97 @@ export default function ProviderDashboard() {
       setErrorMsg('Error de conexión con el servidor backend.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  /**
+   * Alterna un medio de pago aceptado en el editor de ficha comercial del prestador.
+   * @param {string} method - Clave del medio de pago (`efectivo`, `transferencia`, `mercadopago`, `tarjeta`).
+   */
+  const handleToggleCommPaymentMethod = (method) => {
+    setCommPaymentMethods((prev) =>
+      prev.includes(method) ? prev.filter((m) => m !== method) : [...prev, method]
+    );
+  };
+
+  /**
+   * Guarda la ficha comercial rápida y disponibilidad de urgencias 24h mediante
+   * `PATCH /api/v1/providers/commercial-profile`.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
+  const handleSaveCommercialProfile = async (e) => {
+    e.preventDefault();
+    setSavingCommercial(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/commercial-profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          accepts_emergencies: commAcceptsEmergencies,
+          quote_visit_policy: commQuotePolicy,
+          invoice_type: commInvoiceType,
+          accepted_payment_methods: commPaymentMethods,
+          service_bio: commServiceBio,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(
+          data.message || 'Ficha comercial y urgencias 24h actualizadas correctamente.'
+        );
+        setShowCommercialEditor(false);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la ficha comercial.');
+      }
+    } catch (error) {
+      console.error('Error al guardar ficha comercial:', error);
+      setErrorMsg('Error de conexión al guardar la ficha comercial.');
+    } finally {
+      setSavingCommercial(false);
+    }
+  };
+
+  /**
+   * Publica la respuesta del prestador a una pregunta pública de la comunidad (Q&A)
+   * mediante `PATCH /api/v1/providers/questions/:questionId/answer`.
+   * @param {number|string} questionId - Identificador de la pregunta a responder.
+   * @returns {Promise<void>}
+   */
+  const handleAnswerPublicQuestion = async (questionId) => {
+    const answerText = String(qaAnswerDrafts[questionId] || '').trim();
+    if (answerText.length < 2) return;
+    setAnsweringQuestionId(questionId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/questions/${questionId}/answer`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ answer: answerText }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Respuesta publicada en tu ficha pública.');
+        setQaAnswerDrafts((prev) => ({ ...prev, [questionId]: '' }));
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo publicar la respuesta.');
+      }
+    } catch (error) {
+      console.error('Error al responder pregunta pública:', error);
+      setErrorMsg('Error de conexión al guardar la respuesta.');
+    } finally {
+      setAnsweringQuestionId(null);
     }
   };
 
@@ -1596,6 +1728,12 @@ export default function ProviderDashboard() {
                 <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
                   Reclamos: <strong>{profileData.reputation.disputes_count ?? 0}</strong>
                 </span>
+                {profileData.reputation.response_label && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sky-500/35 bg-sky-500/10 text-sky-200 font-semibold">
+                    <Clock size={11} className="shrink-0" />
+                    {profileData.reputation.response_label}
+                  </span>
+                )}
               </div>
 
               {Array.isArray(profileData.reputation.top_tags) &&
@@ -1619,6 +1757,244 @@ export default function ProviderDashboard() {
               )}
             </div>
           </div>
+
+          {/* Accesos rápidos de conversión: Ficha Comercial / Urgencias 24h y Q&A comunitario */}
+          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
+                Urgencias 24h:{' '}
+                <strong className={commAcceptsEmergencies ? 'text-emerald-300' : 'opacity-75'}>
+                  {commAcceptsEmergencies ? 'Activado' : 'No'}
+                </strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
+                Presupuesto:{' '}
+                <strong>
+                  {commQuotePolicy === 'sin_cargo'
+                    ? 'Sin cargo'
+                    : commQuotePolicy === 'arancelada'
+                    ? 'Visita arancelada'
+                    : 'A consultar'}
+                </strong>
+              </span>
+              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
+                Factura:{' '}
+                <strong>
+                  {commInvoiceType === 'factura_a'
+                    ? 'Factura A'
+                    : commInvoiceType === 'factura_c'
+                    ? 'Factura C'
+                    : commInvoiceType === 'ambas'
+                    ? 'Factura A / C'
+                    : commInvoiceType === 'sin_factura'
+                    ? 'Recibo / Sin factura'
+                    : 'A consultar'}
+                </strong>
+              </span>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCommercialEditor((prev) => !prev)}
+                className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                style={innerStyle}
+              >
+                {showCommercialEditor ? 'Ocultar Ficha Comercial' : 'Editar Ficha Comercial'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowQaPanel((prev) => !prev)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                style={innerStyle}
+              >
+                <MessageSquare size={12} />
+                <span>
+                  Preguntas ({Array.isArray(profileData.public_questions) ? profileData.public_questions.length : 0})
+                </span>
+                {Array.isArray(profileData.public_questions) &&
+                  profileData.public_questions.some((q) => !q.answer) && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 border border-amber-400/45 text-amber-200">
+                      {profileData.public_questions.filter((q) => !q.answer).length} nueva(s)
+                    </span>
+                  )}
+              </button>
+            </div>
+          </div>
+
+          {/* Editor desplegable de Ficha Comercial rápida y Urgencias 24h */}
+          {showCommercialEditor && (
+            <form
+              onSubmit={handleSaveCommercialProfile}
+              className="rounded-xl p-3.5 border border-white/10 space-y-3"
+              style={innerStyle}
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <label className="flex items-center gap-2 p-2.5 rounded-xl border border-white/15 cursor-pointer" style={cardStyle}>
+                  <input
+                    type="checkbox"
+                    checked={commAcceptsEmergencies}
+                    onChange={(e) => setCommAcceptsEmergencies(e.target.checked)}
+                    className="accent-emerald-500"
+                  />
+                  <span className="font-bold">Atiendo Urgencias 24h</span>
+                </label>
+
+                <select
+                  value={commQuotePolicy}
+                  onChange={(e) => setCommQuotePolicy(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                >
+                  <option value="consultar">Presupuesto: A consultar</option>
+                  <option value="sin_cargo">Presupuesto sin cargo</option>
+                  <option value="arancelada">Visita técnica arancelada</option>
+                </select>
+
+                <select
+                  value={commInvoiceType}
+                  onChange={(e) => setCommInvoiceType(e.target.value)}
+                  className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                >
+                  <option value="consultar">Facturación: A consultar</option>
+                  <option value="factura_c">Emito Factura C</option>
+                  <option value="factura_a">Emito Factura A</option>
+                  <option value="ambas">Emito Factura A y C</option>
+                  <option value="sin_factura">Recibo común</option>
+                </select>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-semibold opacity-80">Medios de pago:</span>
+                {[
+                  { id: 'efectivo', label: 'Efectivo' },
+                  { id: 'transferencia', label: 'Transferencia' },
+                  { id: 'mercadopago', label: 'Mercado Pago' },
+                  { id: 'tarjeta', label: 'Tarjeta' },
+                ].map((pm) => {
+                  const active = commPaymentMethods.includes(pm.id);
+                  return (
+                    <button
+                      key={pm.id}
+                      type="button"
+                      onClick={() => handleToggleCommPaymentMethod(pm.id)}
+                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer ${
+                        active
+                          ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                          : 'border-white/15 opacity-70 hover:opacity-100'
+                      }`}
+                      style={active ? undefined : cardStyle}
+                    >
+                      {active ? '✓ ' : '+ '}
+                      {pm.label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <textarea
+                rows={2}
+                maxLength={400}
+                value={commServiceBio}
+                onChange={(e) => setCommServiceBio(e.target.value)}
+                placeholder="Breve resumen visible en el directorio (ej: 12 años de experiencia, trabajos con garantía, zonas que cubrís...)"
+                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                style={cardStyle}
+              />
+
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCommercialEditor(false)}
+                  className="px-3 py-1.5 rounded-xl border border-white/15 font-bold cursor-pointer"
+                  style={cardStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCommercial}
+                  className="px-4 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {savingCommercial ? 'Guardando...' : 'Guardar Ficha Comercial'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Panel desplegable de Preguntas Públicas de la Comunidad (Q&A) */}
+          {showQaPanel && (
+            <div
+              className="rounded-xl p-3.5 border border-white/10 space-y-2.5"
+              style={innerStyle}
+            >
+              <p className="font-bold">Preguntas públicas de residentes (Q&amp;A)</p>
+              {!Array.isArray(profileData.public_questions) ||
+              profileData.public_questions.length === 0 ? (
+                <p className="opacity-75">
+                  Todavía no recibiste preguntas públicas en tu ficha del directorio.
+                </p>
+              ) : (
+                <div className="space-y-2.5">
+                  {profileData.public_questions.map((q) => {
+                    const asker =
+                      `${q.asked_by_first_name || ''} ${q.asked_by_last_name || ''}`.trim() ||
+                      'Residente';
+                    return (
+                      <div
+                        key={q.id}
+                        className="p-3 rounded-xl border border-white/10 space-y-2"
+                        style={cardStyle}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="font-bold">{asker}:</span>{' '}
+                            <span className="opacity-90">{q.question}</span>
+                          </div>
+                          <span className="text-[10px] opacity-65 shrink-0">
+                            {formatDateShort(q.created_at)}
+                          </span>
+                        </div>
+                        {q.answer ? (
+                          <p className="text-emerald-300 bg-emerald-950/35 border border-emerald-800/40 rounded-lg px-2.5 py-1.5">
+                            <strong>Tu respuesta:</strong> {q.answer}
+                          </p>
+                        ) : (
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="text"
+                              value={qaAnswerDrafts[q.id] || ''}
+                              onChange={(e) =>
+                                setQaAnswerDrafts((prev) => ({
+                                  ...prev,
+                                  [q.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Escribí una respuesta pública clara para toda la comunidad..."
+                              className="flex-1 px-3 py-1.5 rounded-xl border border-white/15 text-xs"
+                              style={innerStyle}
+                            />
+                            <button
+                              type="button"
+                              disabled={answeringQuestionId === q.id}
+                              onClick={() => handleAnswerPublicQuestion(q.id)}
+                              className="px-3.5 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50 shrink-0"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              {answeringQuestionId === q.id ? 'Publicando...' : 'Responder'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
