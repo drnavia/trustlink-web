@@ -82,8 +82,28 @@ const SYSTEM_ENDPOINTS_CATALOG = [
     module: 'Comunidades',
     auth: 'Bearer JWT',
     roles: 'superadmin',
-    summary: 'Lista con paginación y da de alta barrios/comunidades habilitados en la red.',
+    summary: 'Lista con paginación y da de alta barrios/comunidades con plan B2B y consumo mensual QR.',
     testable: false
+  },
+  {
+    id: 'external-countries-billing',
+    method: 'PATCH',
+    path: '/api/v1/external/countries/:id/billing',
+    module: 'Licenciamiento B2B',
+    auth: 'Bearer JWT',
+    roles: 'superadmin',
+    summary: 'Actualiza plan comercial, estado (trial/active/grace/suspended), vigencia y cuota mensual QR.',
+    testable: false
+  },
+  {
+    id: 'external-my-community-billing',
+    method: 'GET',
+    path: '/api/v1/external/my-community/billing',
+    module: 'Licenciamiento B2B',
+    auth: 'Bearer JWT',
+    roles: 'admin / superadmin',
+    summary: 'Consulta el plan B2B vigente, vencimiento y consumo mensual de validaciones QR de una comunidad.',
+    testable: true
   },
   {
     id: 'external-integrations',
@@ -221,6 +241,14 @@ export default function SystemHealthDashboard() {
   const [editCountryCity, setEditCountryCity] = useState('');
   const [editCountryProvince, setEditCountryProvince] = useState('');
   const [savingCountryId, setSavingCountryId] = useState(null);
+
+  // Licenciamiento B2B por comunidad
+  const [b2bPlans, setB2bPlans] = useState([]);
+  const [editingBillingCountryId, setEditingBillingCountryId] = useState(null);
+  const [billingPlanDraft, setBillingPlanDraft] = useState('pilot');
+  const [billingStatusDraft, setBillingStatusDraft] = useState('active');
+  const [billingQuotaDraft, setBillingQuotaDraft] = useState('');
+  const [savingBillingCountryId, setSavingBillingCountryId] = useState(null);
 
   // Integraciones / Claves API por comunidad
   const [integrations, setIntegrations] = useState([]);
@@ -406,6 +434,9 @@ export default function SystemHealthDashboard() {
       if (res.ok) {
         const list = data.countries || [];
         setCountries(list);
+        if (Array.isArray(data.b2b_plans)) {
+          setB2bPlans(data.b2b_plans);
+        }
         if (!selectedCountryForKey && list.length > 0) {
           setSelectedCountryForKey(String(list[0].id));
         }
@@ -675,6 +706,74 @@ export default function SystemHealthDashboard() {
     } finally {
       setSavingCountryId(null);
     }
+  };
+
+  const startEditingCountryBilling = (country) => {
+    setEditingBillingCountryId(country.id);
+    setBillingPlanDraft(country.plan_code || 'pilot');
+    setBillingStatusDraft(country.billing_status || 'active');
+    setBillingQuotaDraft(
+      country.monthly_pass_quota !== null && country.monthly_pass_quota !== undefined
+        ? String(country.monthly_pass_quota)
+        : ''
+    );
+  };
+
+  const handleSaveCountryBilling = async (countryId, overridePayload = null) => {
+    setSavingBillingCountryId(countryId);
+    setCountryFeedback(null);
+    try {
+      const payload = overridePayload || {
+        plan_code: billingPlanDraft,
+        billing_status: billingStatusDraft,
+        monthly_pass_quota: billingQuotaDraft.trim() === '' ? null : Number(billingQuotaDraft),
+      };
+      const res = await fetch(`${API_BASE}/api/v1/external/countries/${countryId}/billing`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCountryFeedback({
+          type: 'success',
+          message: data.message || 'Licencia B2B actualizada.',
+        });
+        setEditingBillingCountryId(null);
+        await Promise.all([
+          fetchAllCountriesForSelector(),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
+          fetchSystemHealth(),
+        ]);
+      } else {
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo actualizar la licencia B2B.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al actualizar licencia B2B:', error);
+      setCountryFeedback({ type: 'error', message: 'Error de conexión al guardar la licencia B2B.' });
+    } finally {
+      setSavingBillingCountryId(null);
+    }
+  };
+
+  const getB2BBillingBadge = (billingStatus) => {
+    const st = String(billingStatus || 'active').toLowerCase();
+    if (st === 'suspended') {
+      return { label: 'Suspendida', cls: 'bg-rose-950 text-rose-300 border-rose-800' };
+    }
+    if (st === 'grace') {
+      return { label: 'Gracia', cls: 'bg-amber-950 text-amber-300 border-amber-700' };
+    }
+    if (st === 'trial') {
+      return { label: 'Prueba', cls: 'bg-sky-950 text-sky-300 border-sky-800' };
+    }
+    return { label: 'B2B Activa', cls: 'bg-emerald-950 text-emerald-300 border-emerald-800' };
   };
 
   const handleToggleCountry = async (country) => {
@@ -1483,6 +1582,7 @@ export default function SystemHealthDashboard() {
                         <th className="py-2.5 px-3 font-semibold">ID</th>
                         <th className="py-2.5 px-3 font-semibold">Barrio</th>
                         <th className="py-2.5 px-3 font-semibold">Ubicación</th>
+                        <th className="py-2.5 px-3 font-semibold">Licencia B2B / QR mes</th>
                         <th className="py-2.5 px-3 font-semibold">Claves</th>
                         <th className="py-2.5 px-3 font-semibold">Estado</th>
                         <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
@@ -1491,6 +1591,13 @@ export default function SystemHealthDashboard() {
                     <tbody className="divide-y divide-black/15">
                       {countries.map((c) => {
                         const isEditing = editingCountryId === c.id;
+                        const isEditingBilling = editingBillingCountryId === c.id;
+                        const billingBadge = getB2BBillingBadge(c.billing_status);
+                        const monthlyUsed = Number(c.monthly_qr_used ?? 0);
+                        const monthlyQuota =
+                          c.monthly_pass_quota !== null && c.monthly_pass_quota !== undefined
+                            ? Number(c.monthly_pass_quota)
+                            : null;
                         const locationSummary =
                           [c.city, c.province, c.postal_code].filter(Boolean).join(', ') || '-';
                         return (
@@ -1548,6 +1655,94 @@ export default function SystemHealthDashboard() {
                                 locationSummary
                               )}
                             </td>
+                            <td className="py-2.5 px-3">
+                              {isEditingBilling ? (
+                                <div className="space-y-1.5 min-w-[200px]">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <select
+                                      value={billingPlanDraft}
+                                      onChange={(e) => setBillingPlanDraft(e.target.value)}
+                                      className="px-2 py-1 rounded-lg border border-white/15 text-[11px]"
+                                      style={cardStyle}
+                                    >
+                                      {(b2bPlans.length > 0
+                                        ? b2bPlans
+                                        : [
+                                            { code: 'pilot', name: 'Piloto' },
+                                            { code: 'starter', name: 'Esencial' },
+                                            { code: 'pro', name: 'Country Pro' },
+                                            { code: 'enterprise', name: 'Enterprise' },
+                                          ]
+                                      ).map((pl) => (
+                                        <option key={pl.code} value={pl.code}>
+                                          {pl.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <select
+                                      value={billingStatusDraft}
+                                      onChange={(e) => setBillingStatusDraft(e.target.value)}
+                                      className="px-2 py-1 rounded-lg border border-white/15 text-[11px]"
+                                      style={cardStyle}
+                                    >
+                                      <option value="active">Activa</option>
+                                      <option value="trial">Prueba</option>
+                                      <option value="grace">Gracia</option>
+                                      <option value="suspended">Suspendida</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      value={billingQuotaDraft}
+                                      onChange={(e) => setBillingQuotaDraft(e.target.value)}
+                                      placeholder="Cuota QR (vacío=∞)"
+                                      className="w-full px-2 py-1 rounded-lg border border-white/15 text-[11px]"
+                                      style={cardStyle}
+                                    />
+                                    <button
+                                      type="button"
+                                      disabled={savingBillingCountryId === c.id}
+                                      onClick={() => handleSaveCountryBilling(c.id)}
+                                      className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                                    >
+                                      OK
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBillingCountryId(null)}
+                                      className="px-1.5 py-1 rounded-lg border border-white/15 text-[11px] cursor-pointer"
+                                      style={cardStyle}
+                                    >
+                                      <X size={11} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    <span
+                                      className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-white/15"
+                                      style={cardStyle}
+                                    >
+                                      {c.plan_name || c.plan_code || 'Piloto'}
+                                    </span>
+                                    <span
+                                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${billingBadge.cls}`}
+                                    >
+                                      {billingBadge.label}
+                                    </span>
+                                  </div>
+                                  <div className="text-[11px] opacity-80 font-mono">
+                                    QR mes: {monthlyUsed} / {monthlyQuota ? monthlyQuota : '∞'}
+                                    {c.subscription_ends_at
+                                      ? ` · vto ${new Date(c.subscription_ends_at).toLocaleDateString('es-AR')}`
+                                      : ''}
+                                  </div>
+                                </div>
+                              )}
+                            </td>
                             <td className="py-2.5 px-3 font-mono">{c.active_keys_count ?? 0}</td>
                             <td className="py-2.5 px-3">
                               {c.is_active ? (
@@ -1584,7 +1779,29 @@ export default function SystemHealthDashboard() {
                                   </button>
                                 </div>
                               ) : (
-                                <div className="inline-flex items-center gap-1.5">
+                                <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => startEditingCountryBilling(c)}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-200 cursor-pointer"
+                                  >
+                                    Licencia
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={savingBillingCountryId === c.id}
+                                    onClick={() =>
+                                      handleSaveCountryBilling(c.id, {
+                                        billing_status: 'active',
+                                        extend_days: 30,
+                                      })
+                                    }
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                    style={cardStyle}
+                                    title="Extender licencia B2B +30 días"
+                                  >
+                                    +30d
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => startEditingCountry(c)}

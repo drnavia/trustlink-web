@@ -45,6 +45,7 @@ export default function LocalAdminView() {
   const [suspensions, setSuspensions] = useState([]);
   const [expiryAlerts, setExpiryAlerts] = useState([]);
   const [expirySummary, setExpirySummary] = useState({ total: 0, expired: 0, expiring_soon: 0 });
+  const [communityBilling, setCommunityBilling] = useState(null);
   const [selectedCountryId, setSelectedCountryId] = useState(
     user?.country_id ? String(user.country_id) : '1'
   );
@@ -64,11 +65,14 @@ export default function LocalAdminView() {
       setLoading(true);
       try {
         const query = isSuperadmin && countryFilter ? `?country_id=${countryFilter}` : '';
-        const [res, alertsRes] = await Promise.all([
+        const [res, alertsRes, billingRes] = await Promise.all([
           fetch(`${API_BASE}/api/v1/providers/local-suspensions${query}`, {
             headers: getAuthHeaders(),
           }),
           fetch(`${API_BASE}/api/v1/providers/expiry-alerts?days=30`, {
+            headers: getAuthHeaders(),
+          }).catch(() => null),
+          fetch(`${API_BASE}/api/v1/external/my-community/billing${query}`, {
             headers: getAuthHeaders(),
           }).catch(() => null),
         ]);
@@ -96,6 +100,12 @@ export default function LocalAdminView() {
           setExpirySummary(
             alertsData.summary || { total: 0, expired: 0, expiring_soon: 0 }
           );
+        }
+        if (billingRes && billingRes.ok) {
+          const billingData = await billingRes.json();
+          setCommunityBilling(billingData.community || null);
+        } else {
+          setCommunityBilling(null);
         }
       } catch (error) {
         console.error('Error al cargar reportes locales:', error);
@@ -239,6 +249,97 @@ export default function LocalAdminView() {
           {feedback.type === 'success' ? <CheckCircle2 size={15} /> : <AlertCircle size={15} />}
           <span>{feedback.message}</span>
         </div>
+      )}
+
+      {/* Tarjeta de estado de Licencia B2B de la comunidad (solo lectura) */}
+      {communityBilling && (
+        <section
+          className="border border-white/10 p-5 rounded-2xl space-y-3 text-xs"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl border border-white/15 text-emerald-400" style={innerStyle}>
+                <Building2 size={16} />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-bold">
+                    Licencia B2B · {communityBilling.name}
+                  </span>
+                  <span
+                    className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-white/15"
+                    style={innerStyle}
+                  >
+                    {communityBilling.plan_name || communityBilling.plan_code}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                      communityBilling.billing_status === 'suspended'
+                        ? 'bg-rose-950 text-rose-300 border-rose-800'
+                        : communityBilling.billing_status === 'grace'
+                        ? 'bg-amber-950 text-amber-300 border-amber-700'
+                        : communityBilling.billing_status === 'trial'
+                        ? 'bg-sky-950 text-sky-300 border-sky-800'
+                        : 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                    }`}
+                  >
+                    {communityBilling.billing_status === 'suspended'
+                      ? 'Suspendida'
+                      : communityBilling.billing_status === 'grace'
+                      ? 'Período de gracia'
+                      : communityBilling.billing_status === 'trial'
+                      ? 'Prueba'
+                      : 'Activa'}
+                  </span>
+                </div>
+                <p className="opacity-75 mt-0.5">
+                  Claves API activas: <strong>{communityBilling.active_keys_count ?? 0}</strong>
+                  {' · '}
+                  Vigencia:{' '}
+                  <strong>
+                    {communityBilling.subscription_ends_at
+                      ? new Date(communityBilling.subscription_ends_at).toLocaleDateString('es-AR')
+                      : 'Sin vencimiento fijo'}
+                  </strong>
+                </p>
+              </div>
+            </div>
+
+            <div
+              className="px-3.5 py-2 rounded-xl border border-white/15 text-right shrink-0"
+              style={innerStyle}
+            >
+              <div className="text-[10px] uppercase tracking-wider opacity-70">
+                Validaciones QR del mes
+              </div>
+              <div className="text-sm font-black font-mono">
+                {communityBilling.monthly_qr_used ?? 0} /{' '}
+                {communityBilling.monthly_pass_quota ? communityBilling.monthly_pass_quota : '∞'}
+              </div>
+            </div>
+          </div>
+
+          {typeof communityBilling.usage_percent === 'number' && (
+            <div className="space-y-1">
+              <div className="h-2 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
+                <div
+                  className={`h-full transition-all ${
+                    communityBilling.usage_percent >= 90
+                      ? 'bg-rose-500'
+                      : communityBilling.usage_percent >= 75
+                      ? 'bg-amber-500'
+                      : 'bg-emerald-500'
+                  }`}
+                  style={{ width: `${communityBilling.usage_percent}%` }}
+                />
+              </div>
+              <p className="text-[11px] opacity-75">
+                Consumo mensual: {communityBilling.usage_percent}% de la cuota contratada.
+              </p>
+            </div>
+          )}
+        </section>
       )}
 
       {/* Zona 4: Formulario de reporte / suspensión local */}
