@@ -1,9 +1,14 @@
 /**
  * @file AdminComplianceView.jsx
- * @description Panel de control central para que el equipo de Operaciones audite
- * y apruebe/rechace el compliance de los prestadores registrados en la red,
- * gestione la membresía "Socio Verificado" y medie reclamos post-servicio,
- * con aplicación explícita de Zona 4 (tarjetas principales) y Zona 5 (cajas internas).
+ * @description Panel centralizado de Operaciones TrustLink para auditar prestadores y mediar
+ * reclamos post-servicio, con diseño agrupado por persona (`user_id`):
+ * - Agrupa múltiples especialidades bajo una sola identidad (evita duplicar DNI/email/membresía).
+ * - Muestra semáforo de vigencia y fecha de vencimiento de Antecedentes Penales y Póliza ART.
+ * - Jerarquía visual limpia: acción primaria `Aprobar`, `Aprobar todas` en lote, `Rechazar/Revocar`
+ *   discreto con confirmación en 2 clics y gestión única de membresía "Socio Verificado" por persona.
+ * - Dos pestañas superiores (`Auditoría de Prestadores` | `Reclamos y Garantía`) y selector de vista
+ *   entre tarjetas agrupadas y tabla compacta para escalar a grandes nóminas.
+ * Respeta Zona 4 (tarjetas principales) y Zona 5 (cajas internas) de `BrandingContext`.
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
 
@@ -19,6 +24,10 @@ import {
   Search,
   X,
   Award,
+  LayoutGrid,
+  List,
+  CheckCheck,
+  Calendar,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -26,14 +35,13 @@ import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
-  ITEM_CARD_CLASS,
   FIELD_INPUT_CLASS,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
 /**
  * Prioridad de ordenamiento visual por estado de compliance para mostrar
- * primero a los prestadores pendientes de auditoría.
+ * primero a las especialidades y personas pendientes de auditoría.
  */
 const STATUS_PRIORITY = {
   pending: 0,
@@ -43,9 +51,72 @@ const STATUS_PRIORITY = {
 };
 
 /**
- * Vista de auditoría de compliance de prestadores y mediación de reclamos post-servicio.
- * Permite filtrar prestadores, validar antecedentes/ART, activar o revocar la membresía
- * Socio Verificado y resolver o desestimar reclamos abiertos sobre contratos.
+ * Evalúa la fecha de vencimiento de un documento (Antecedentes o ART) y devuelve
+ * su etiqueta formateada en `es-AR` y clases de semáforo visual (vigente, por vencer, vencido).
+ *
+ * @param {string|null|undefined} expiryDate - Fecha ISO o timestamp de vencimiento.
+ * @returns {{ label: string, badgeClass: string, isExpired: boolean }}
+ */
+function getDocExpiryMeta(expiryDate) {
+  if (!expiryDate) {
+    return {
+      label: 'Sin vencimiento',
+      badgeClass: 'border-white/15 bg-black/20 opacity-75',
+      isExpired: false,
+    };
+  }
+  const parsed = new Date(expiryDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return {
+      label: 'Sin vencimiento',
+      badgeClass: 'border-white/15 bg-black/20 opacity-75',
+      isExpired: false,
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const formatted = parsed.toLocaleDateString('es-AR');
+
+  if (diffDays < 0) {
+    return {
+      label: `Vencido · ${formatted}`,
+      badgeClass: 'border-rose-500/50 bg-rose-950/60 text-rose-200',
+      isExpired: true,
+    };
+  }
+  if (diffDays <= 30) {
+    return {
+      label: `Por vencer · ${formatted}`,
+      badgeClass: 'border-amber-500/50 bg-amber-950/50 text-amber-200',
+      isExpired: false,
+    };
+  }
+  return {
+    label: `Vigente · ${formatted}`,
+    badgeClass: 'border-emerald-500/40 bg-emerald-950/40 text-emerald-200',
+    isExpired: false,
+  };
+}
+
+/**
+ * Formatea una fecha corta en formato `DD/MM/YYYY` para vencimiento de membresías.
+ *
+ * @param {string|null|undefined} value - Fecha ISO o timestamp.
+ * @returns {string} Fecha legible o cadena vacía.
+ */
+function formatShortDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('es-AR');
+}
+
+/**
+ * Vista centralizada de auditoría de compliance de prestadores (agrupada por persona)
+ * y mediación de reclamos post-servicio para el rol `superadmin`.
  *
  * @returns {JSX.Element} Panel administrativo de compliance y reclamos.
  */
@@ -63,49 +134,165 @@ export default function AdminComplianceView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
-  // Estados de prestadores, acciones de compliance/membresía en curso y reclamos post-servicio
+  // Pestaña activa ('compliance' | 'disputes') y modo de visualización ('cards' | 'table')
+  const [activeTab, setActiveTab] = useState('compliance');
+  const [viewMode, setViewMode] = useState('cards');
+
+  // Datos crudos desde la API y estados de acciones en curso
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
+  const [bulkApprovingUserId, setBulkApprovingUserId] = useState(null);
+  const [confirmRejectProviderId, setConfirmRejectProviderId] = useState(null);
   const [updatingMembershipUserId, setUpdatingMembershipUserId] = useState(null);
+
+  // Estados de reclamos post-servicio
   const [disputes, setDisputes] = useState([]);
   const [resolutionDrafts, setResolutionDrafts] = useState({});
   const [resolvingDisputeId, setResolvingDisputeId] = useState(null);
 
-  // Estados de mensajes de feedback y filtros locales del listado
+  // Mensajes de feedback operativo y filtros de búsqueda/estado
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
-  // Calcula contadores por estado para alimentar los chips de filtro rápido
-  const statusCounts = useMemo(() => {
-    const counts = { all: providers.length, pending: 0, approved: 0, rejected: 0, sin_perfil: 0 };
-    providers.forEach((p) => {
-      const st = String(p.status || 'sin_perfil').toLowerCase();
-      if (st in counts) counts[st] += 1;
-      else counts.sin_perfil += 1;
-    });
-    return counts;
-  }, [providers]);
+  /**
+   * Agrupa las filas de `GET /api/v1/providers/all` por identidad única de persona (`user_id`),
+   * consolidando sus especialidades, estado prioritario, documentos principales y membresía
+   * para evitar tarjetas duplicadas y repetición de botones comerciales.
+   */
+  const groupedPeople = useMemo(() => {
+    const byUser = new Map();
 
-  // Filtra prestadores por estado y término de búsqueda (nombre, DNI, correo o rubro) ordenando por prioridad
-  const filteredProviders = useMemo(() => {
-    const q = searchTerm.trim().toLowerCase();
-    return [...providers]
-      .filter((p) => {
-        const st = String(p.status || 'sin_perfil').toLowerCase();
-        const matchesStatus = statusFilter === 'all' || st === statusFilter;
-        const haystack = `${p.first_name || ''} ${p.last_name || ''} ${p.dni || ''} ${p.email || ''} ${p.specialty || ''}`.toLowerCase();
-        const matchesQuery = !q || haystack.includes(q);
-        return matchesStatus && matchesQuery;
+    for (const row of providers) {
+      const key = row.user_id ? `u-${row.user_id}` : `e-${row.email || row.provider_id}`;
+      const status = String(row.status || 'sin_perfil').toLowerCase();
+
+      if (!byUser.has(key)) {
+        byUser.set(key, {
+          user_key: key,
+          user_id: row.user_id,
+          first_name: row.first_name || '',
+          last_name: row.last_name || '',
+          full_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email || 'Prestador',
+          dni: row.dni || '-',
+          email: row.email || '',
+          is_verified_member: Boolean(row.is_verified_member),
+          membership_tier: row.membership_tier || null,
+          membership_ends_at: row.membership_ends_at || null,
+          specialties: [],
+        });
+      }
+
+      const person = byUser.get(key);
+      if (row.provider_id) {
+        person.specialties.push({
+          provider_id: row.provider_id,
+          specialty: row.specialty || 'Sin especialidad',
+          status,
+          criminal_record_url: row.criminal_record_url || null,
+          criminal_record_expiry: row.criminal_record_expiry || null,
+          insurance_policy_url: row.insurance_policy_url || row.art_insurance_url || null,
+          insurance_expiry: row.insurance_expiry || null,
+        });
+      }
+    }
+
+    // Ordenar especialidades internas y calcular resumen operativo de cada persona
+    return Array.from(byUser.values())
+      .map((person) => {
+        const sortedSpecs = [...person.specialties].sort(
+          (a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9)
+        );
+        const pendingSpecs = sortedSpecs.filter((s) => s.status === 'pending');
+        const approvedSpecs = sortedSpecs.filter((s) => s.status === 'approved');
+        const rejectedSpecs = sortedSpecs.filter((s) => s.status === 'rejected');
+
+        // Estado consolidado de la persona para filtros y ordenamiento prioritario
+        let primaryStatus = 'sin_perfil';
+        if (pendingSpecs.length > 0) primaryStatus = 'pending';
+        else if (approvedSpecs.length > 0) primaryStatus = 'approved';
+        else if (rejectedSpecs.length > 0) primaryStatus = 'rejected';
+
+        // Documento representativo (primer registro con URL/fecha cargada)
+        const docCriminal =
+          sortedSpecs.find((s) => s.criminal_record_url || s.criminal_record_expiry) ||
+          sortedSpecs[0] ||
+          null;
+        const docInsurance =
+          sortedSpecs.find((s) => s.insurance_policy_url || s.insurance_expiry) ||
+          sortedSpecs[0] ||
+          null;
+
+        return {
+          ...person,
+          specialties: sortedSpecs,
+          pendingCount: pendingSpecs.length,
+          approvedCount: approvedSpecs.length,
+          rejectedCount: rejectedSpecs.length,
+          primaryStatus,
+          criminal_record_url: docCriminal?.criminal_record_url || null,
+          criminal_record_expiry: docCriminal?.criminal_record_expiry || null,
+          insurance_policy_url: docInsurance?.insurance_policy_url || null,
+          insurance_expiry: docInsurance?.insurance_expiry || null,
+        };
       })
       .sort((a, b) => {
-        const pa = STATUS_PRIORITY[String(a.status || 'sin_perfil').toLowerCase()] ?? 9;
-        const pb = STATUS_PRIORITY[String(b.status || 'sin_perfil').toLowerCase()] ?? 9;
-        return pa - pb;
+        const pa = STATUS_PRIORITY[a.primaryStatus] ?? 9;
+        const pb = STATUS_PRIORITY[b.primaryStatus] ?? 9;
+        if (pa !== pb) return pa - pb;
+        return a.full_name.localeCompare(b.full_name, 'es');
       });
-  }, [providers, searchTerm, statusFilter]);
+  }, [providers]);
+
+  // Métricas reales separando personas únicas vs. especialidades totales y por estado
+  const auditSummary = useMemo(() => {
+    const counts = {
+      totalPeople: groupedPeople.length,
+      totalSpecialties: 0,
+      all: groupedPeople.length,
+      pending: 0,
+      approved: 0,
+      rejected: 0,
+      sin_perfil: 0,
+      totalPendingSpecs: 0,
+    };
+
+    groupedPeople.forEach((person) => {
+      counts.totalSpecialties += person.specialties.length;
+      counts.totalPendingSpecs += person.pendingCount;
+      if (person.pendingCount > 0) counts.pending += 1;
+      if (person.approvedCount > 0) counts.approved += 1;
+      if (person.rejectedCount > 0) counts.rejected += 1;
+      if (person.specialties.length === 0) counts.sin_perfil += 1;
+    });
+
+    return counts;
+  }, [groupedPeople]);
+
+  // Conteo de reclamos abiertos o en revisión para el badge de la pestaña de Reclamos
+  const openDisputesCount = useMemo(
+    () => disputes.filter((d) => d.status === 'open' || d.status === 'in_review').length,
+    [disputes]
+  );
+
+  // Filtra personas por estado de compliance y búsqueda libre (nombre, DNI, email o cualquiera de sus rubros)
+  const filteredPeople = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return groupedPeople.filter((person) => {
+      let matchesStatus = true;
+      if (statusFilter === 'pending') matchesStatus = person.pendingCount > 0;
+      else if (statusFilter === 'approved') matchesStatus = person.approvedCount > 0;
+      else if (statusFilter === 'rejected') matchesStatus = person.rejectedCount > 0;
+      else if (statusFilter === 'sin_perfil') matchesStatus = person.specialties.length === 0;
+
+      const specsText = person.specialties.map((s) => s.specialty).join(' ');
+      const haystack = `${person.full_name} ${person.dni} ${person.email} ${specsText}`.toLowerCase();
+      const matchesQuery = !q || haystack.includes(q);
+      return matchesStatus && matchesQuery;
+    });
+  }, [groupedPeople, searchTerm, statusFilter]);
 
   /**
    * Consulta al backend el listado completo de prestadores y sus documentos de compliance.
@@ -164,15 +351,16 @@ export default function AdminComplianceView() {
   }, []);
 
   /**
-   * Actualiza el estado de compliance de un prestador ('approved' o 'rejected')
+   * Actualiza el estado de compliance de una especialidad puntual ('approved' o 'rejected')
    * y recarga el listado tras confirmar la operación.
    *
-   * @param {number|string} providerId - Identificador del perfil de prestador.
+   * @param {number|string} providerId - Identificador del perfil/especialidad de prestador.
    * @param {'approved'|'rejected'} newStatus - Nuevo estado de auditoría a aplicar.
    * @returns {Promise<void>}
    */
   const handleUpdateStatus = async (providerId, newStatus) => {
     setUpdatingId(providerId);
+    setConfirmRejectProviderId(null);
     setErrorMsg('');
     setSuccessMsg('');
 
@@ -190,7 +378,11 @@ export default function AdminComplianceView() {
       });
       const data = await response.json();
       if (response.ok) {
-        setSuccessMsg(`Estado de compliance actualizado a "${newStatus}".`);
+        setSuccessMsg(
+          newStatus === 'approved'
+            ? 'Especialidad aprobada correctamente.'
+            : 'Especialidad rechazada / revocada correctamente.'
+        );
         await fetchAllProviders();
       } else {
         setErrorMsg(data.error || 'No se pudo actualizar el estado de compliance.');
@@ -204,10 +396,57 @@ export default function AdminComplianceView() {
   };
 
   /**
-   * Gestiona la membresía "Socio Verificado" de un prestador (activar, extender o revocar)
-   * mediante el endpoint de billing y sincroniza el listado.
+   * Aprueba en lote todas las especialidades pendientes de una misma persona (`user_id`),
+   * agilizando la auditoría cuando el prestador comparte la misma documentación vigente.
    *
-   * @param {number|string} userId - Identificador del usuario prestador.
+   * @param {Object} person - Objeto agrupado del prestador.
+   * @returns {Promise<void>}
+   */
+  const handleApproveAllForPerson = async (person) => {
+    const pendingIds = person.specialties
+      .filter((s) => s.status === 'pending')
+      .map((s) => s.provider_id);
+    if (pendingIds.length === 0) return;
+
+    setBulkApprovingUserId(person.user_id || person.user_key);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const token = localStorage.getItem('trustlink_token') || '';
+      const responses = await Promise.all(
+        pendingIds.map((pid) =>
+          fetch(`${API_BASE}/api/v1/providers/compliance`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ provider_id: pid, status: 'approved' }),
+          })
+        )
+      );
+      const allOk = responses.every((r) => r.ok);
+      if (allOk) {
+        setSuccessMsg(
+          `Se aprobaron ${pendingIds.length} especialidades pendientes de ${person.full_name}.`
+        );
+      } else {
+        setErrorMsg('Algunas especialidades no pudieron aprobarse. Revisá el estado actualizado.');
+      }
+      await fetchAllProviders();
+    } catch (error) {
+      console.error('Error en aprobación en lote:', error);
+      setErrorMsg('Error de conexión al aprobar especialidades en lote.');
+    } finally {
+      setBulkApprovingUserId(null);
+    }
+  };
+
+  /**
+   * Gestiona la membresía "Socio Verificado" a nivel persona (`userId`)
+   * para activar, extender 30 días o revocar el beneficio en el directorio.
+   *
+   * @param {number|string} userId - Identificador único del usuario prestador.
    * @param {'activate'|'extend'|'cancel'} action - Acción de membresía a ejecutar.
    * @param {number} [days=30] - Cantidad de días de vigencia para activación o extensión.
    * @returns {Promise<void>}
@@ -286,43 +525,153 @@ export default function AdminComplianceView() {
     }
   };
 
+  /**
+   * Renderiza los botones de acción de una especialidad individual aplicando jerarquía clara:
+   * `Aprobar` sólido solo cuando aplica; `Rechazar/Revocar` discreto outline con confirmación en 2 clics.
+   *
+   * @param {Object} spec - Especialidad perteneciente a una persona.
+   * @returns {JSX.Element}
+   */
+  const renderSpecialtyActions = (spec) => {
+    const isBusy = updatingId === spec.provider_id;
+    const isConfirmingReject = confirmRejectProviderId === spec.provider_id;
+
+    return (
+      <div className="flex items-center gap-1.5 shrink-0">
+        {spec.status !== 'approved' && (
+          <button
+            type="button"
+            onClick={() => handleUpdateStatus(spec.provider_id, 'approved')}
+            disabled={isBusy}
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+          >
+            <CheckCircle2 size={12} /> Aprobar
+          </button>
+        )}
+
+        {spec.status !== 'rejected' && (
+          isConfirmingReject ? (
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleUpdateStatus(spec.provider_id, 'rejected')}
+                disabled={isBusy}
+                className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+              >
+                Confirmar
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRejectProviderId(null)}
+                className="px-2 py-1 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
+                style={cardStyle}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRejectProviderId(spec.provider_id)}
+              disabled={isBusy}
+              className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+            >
+              <XCircle size={12} /> {spec.status === 'approved' ? 'Revocar' : 'Rechazar'}
+            </button>
+          )
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Zona 4: Encabezado Compliance Prestadores */}
+      {/* Encabezado ejecutivo con métricas reales (personas vs especialidades) y pestañas */}
       <section
-        className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
+        className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-sm space-y-4"
         style={cardStyle}
       >
-        <div className="flex items-center gap-3">
-          <div className="p-3 rounded-xl border border-white/15 text-emerald-400" style={innerStyle}>
-            <UserCheck size={22} />
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-3 rounded-xl border border-white/15 text-emerald-400" style={innerStyle}>
+              <UserCheck size={22} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black">Compliance y Operaciones</h2>
+              <p className="text-xs opacity-80 mt-0.5">
+                Auditoría consolidada por prestador, vigencia documental, membresías y mediación de reclamos.
+              </p>
+            </div>
           </div>
-          <div>
-            <h2 className="text-xl font-black text-white">
-              Compliance Prestadores
-            </h2>
-            <p className="text-xs opacity-80 mt-0.5">
-              Certificación y auditoría de prestadores en la red.
-            </p>
+
+          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+            <span
+              className="text-xs font-bold px-3 py-2 rounded-xl border border-white/15"
+              style={innerStyle}
+            >
+              {auditSummary.totalPeople} prestador(es) · {auditSummary.totalSpecialties} rubro(s)
+            </span>
+            {auditSummary.totalPendingSpecs > 0 && (
+              <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/45 bg-amber-500/15 text-amber-200">
+                {auditSummary.totalPendingSpecs} pendiente(s)
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                fetchAllProviders();
+                fetchDisputes();
+              }}
+              disabled={loading}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer transition-opacity hover:opacity-90"
+              style={innerStyle}
+            >
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+              Actualizar
+            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2.5 self-start md:self-auto">
-          <span
-            className="text-xs font-bold px-3.5 py-2 rounded-xl border border-white/15"
-            style={innerStyle}
-          >
-            {providers.length} prestador(es)
-          </span>
+        {/* Pestañas superiores: separa Compliance de Reclamos para eliminar scroll vacío */}
+        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
           <button
             type="button"
-            onClick={fetchAllProviders}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer transition-opacity hover:opacity-90"
-            style={innerStyle}
+            onClick={() => setActiveTab('compliance')}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              activeTab === 'compliance'
+                ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+                : 'border-white/15 opacity-80 hover:opacity-100'
+            }`}
+            style={activeTab === 'compliance' ? undefined : innerStyle}
           >
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-            Actualizar
+            <ShieldCheck size={14} />
+            <span>Auditoría de Prestadores</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+              {auditSummary.totalPeople}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('disputes')}
+            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+              activeTab === 'disputes'
+                ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+                : 'border-white/15 opacity-80 hover:opacity-100'
+            }`}
+            style={activeTab === 'disputes' ? undefined : innerStyle}
+          >
+            <AlertCircle size={14} className={openDisputesCount > 0 ? 'text-rose-300' : ''} />
+            <span>Reclamos y Garantía</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                openDisputesCount > 0
+                  ? 'bg-rose-500/80 text-white'
+                  : 'bg-black/25'
+              }`}
+            >
+              {disputes.length}
+            </span>
           </button>
         </div>
       </section>
@@ -342,357 +691,607 @@ export default function AdminComplianceView() {
         </div>
       )}
 
-      {/* Zona 4: Listado de prestadores con búsqueda, filtros y acciones de auditoría */}
-      <section
-        className={SECTION_CARD_CLASS}
-        style={cardStyle}
-      >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3.5">
-          <div className="flex items-center gap-2">
-            <ShieldCheck size={17} className="text-emerald-400 shrink-0" />
-            <h3 className="text-sm font-bold">Prestadores registrados</h3>
-            <span className="text-xs opacity-70">({filteredProviders.length})</span>
-          </div>
+      {/* PESTAÑA 1: AUDITORÍA CONSOLIDADA POR PERSONA */}
+      {activeTab === 'compliance' && (
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          {/* Barra superior: título, buscador y selector Tarjetas vs Tabla */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3.5">
+            <div className="flex items-center gap-2">
+              <ShieldCheck size={17} className="text-emerald-400 shrink-0" />
+              <h3 className="text-sm font-bold">Prestadores agrupados por identidad</h3>
+              <span className="text-xs opacity-70">({filteredPeople.length})</span>
+            </div>
 
-          {/* Buscador por nombre, DNI, correo o especialidad */}
-          <div className="relative w-full md:w-72">
-            <Search
-              size={14}
-              className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-            />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Buscar por nombre, DNI o rubro..."
-              className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
-              style={innerStyle}
-            />
-            {searchTerm && (
-              <button
-                type="button"
-                onClick={() => setSearchTerm('')}
-                aria-label="Limpiar búsqueda"
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
-              >
-                <X size={13} />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Filtros rápidos por estado (Pendientes primero) */}
-        <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
-          {[
-            { id: 'all', label: 'Todos', count: statusCounts.all },
-            { id: 'pending', label: 'Pendientes', count: statusCounts.pending },
-            { id: 'approved', label: 'Aprobados', count: statusCounts.approved },
-            { id: 'rejected', label: 'Rechazados', count: statusCounts.rejected },
-            { id: 'sin_perfil', label: 'Sin perfil', count: statusCounts.sin_perfil },
-          ].map((chip) => {
-            const active = statusFilter === chip.id;
-            return (
-              <button
-                key={chip.id}
-                type="button"
-                onClick={() => setStatusFilter(chip.id)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1.5 ${
-                  active
-                    ? 'bg-emerald-600 text-white border-transparent shadow-sm'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
-                }`}
-                style={active ? undefined : innerStyle}
-              >
-                <span>{chip.label}</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/25">
-                  {chip.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Estado de carga, estado vacío o grilla de tarjetas de prestadores */}
-        {loading ? (
-          <div
-            className="text-center py-10 rounded-xl border border-white/10 text-xs"
-            style={innerStyle}
-          >
-            Cargando prestadores desde PostgreSQL...
-          </div>
-        ) : filteredProviders.length === 0 ? (
-          <div
-            className="text-center py-10 rounded-xl border border-white/10 text-xs opacity-80"
-            style={innerStyle}
-          >
-            No hay prestadores que coincidan con el filtro seleccionado.
-          </div>
-        ) : (
-          <div className={ITEMS_GRID_CLASS}>
-            {filteredProviders.map((p) => {
-              const rowKey = p.provider_id || p.user_id || p.email;
-              const targetProviderId = p.provider_id;
-              const currentStatus = p.status || 'sin_perfil';
-              const statusMeta = getUnifiedStatusMeta(currentStatus, 'compliance');
-
-              return (
-                <div
-                  key={rowKey}
-                  className={ITEM_CARD_CLASS}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Buscador por nombre, DNI, correo o especialidad */}
+              <div className="relative flex-1 md:w-72">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por nombre, DNI, email o rubro..."
+                  className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
                   style={innerStyle}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    aria-label="Limpiar búsqueda"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Selector de vista: Tarjetas agrupadas o Tabla compacta */}
+              <div
+                className="inline-flex items-center p-0.5 rounded-xl border border-white/15"
+                style={innerStyle}
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cards')}
+                  title="Vista tarjetas agrupadas"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
+                    viewMode === 'cards' ? 'bg-emerald-600 text-white' : 'opacity-75 hover:opacity-100'
+                  }`}
                 >
-                  <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-sm font-bold">
-                        {p.first_name} {p.last_name}
-                      </span>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {p.is_verified_member && (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
-                            <Award size={10} /> Socio
-                          </span>
-                        )}
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${statusMeta.cls}`}
-                        >
-                          {statusMeta.label}
-                        </span>
-                      </div>
-                    </div>
-                    <div>
-                      <span
-                        className="inline-block text-[11px] font-bold px-2.5 py-0.5 rounded-lg border border-white/15"
-                        style={cardStyle}
-                      >
-                        {p.specialty || 'Sin especialidad cargada'}
-                      </span>
-                    </div>
-
-                    <p className="opacity-80">
-                      DNI: <strong className="font-mono">{p.dni || '-'}</strong> · Email:{' '}
-                      <span>{p.email}</span>
-                    </p>
-
-                    {/* Enlaces de verificación documental: Antecedentes penales y Póliza ART */}
-                    <div className="flex flex-wrap items-center gap-2 pt-1">
-                      {p.criminal_record_url ? (
-                        <a
-                          href={p.criminal_record_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold hover:opacity-90"
-                          style={cardStyle}
-                        >
-                          <FileText size={12} className="text-sky-400" /> Ver Antecedentes
-                        </a>
-                      ) : (
-                        <span
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-75"
-                          style={cardStyle}
-                        >
-                          <FileText size={12} /> Sin Antecedentes
-                        </span>
-                      )}
-
-                      {p.insurance_policy_url || p.art_insurance_url ? (
-                        <a
-                          href={p.insurance_policy_url || p.art_insurance_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold hover:opacity-90"
-                          style={cardStyle}
-                        >
-                          <FileText size={12} className="text-emerald-400" /> Ver Póliza ART
-                        </a>
-                      ) : (
-                        <span
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 opacity-75"
-                          style={cardStyle}
-                        >
-                          <FileText size={12} /> Sin Póliza ART
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Controles de membresía Socio Verificado y aprobación/rechazo de compliance */}
-                  {targetProviderId ? (
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10 shrink-0">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {p.user_id && !p.is_verified_member && (
-                          <button
-                            type="button"
-                            onClick={() => handleManageMembership(p.user_id, 'activate', 30)}
-                            disabled={updatingMembershipUserId === p.user_id}
-                            className="bg-amber-600/90 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
-                          >
-                            <Award size={12} /> Activar Socio (30d)
-                          </button>
-                        )}
-                        {p.user_id && p.is_verified_member && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => handleManageMembership(p.user_id, 'extend', 30)}
-                              disabled={updatingMembershipUserId === p.user_id}
-                              className="bg-amber-600/80 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
-                            >
-                              <Award size={12} /> +30d
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleManageMembership(p.user_id, 'cancel')}
-                              disabled={updatingMembershipUserId === p.user_id}
-                              className="border border-white/15 hover:opacity-90 font-bold px-2.5 py-1.5 rounded-xl text-[11px] inline-flex items-center gap-1 transition-opacity cursor-pointer disabled:opacity-45"
-                              style={cardStyle}
-                            >
-                              Revocar Socio
-                            </button>
-                          </>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateStatus(targetProviderId, 'approved')}
-                          disabled={updatingId === targetProviderId || currentStatus === 'approved'}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
-                        >
-                          <CheckCircle2 size={14} /> Aprobar
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleUpdateStatus(targetProviderId, 'rejected')}
-                          disabled={updatingId === targetProviderId || currentStatus === 'rejected'}
-                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-45"
-                        >
-                          <XCircle size={14} /> Rechazar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="pt-3 border-t border-white/10">
-                      <span className="text-[11px] opacity-75 italic">
-                        Aún no completó perfil de compliance
-                      </span>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* Zona 4: Reclamos y Garantía Post-Servicio */}
-      <section className={SECTION_CARD_CLASS} style={cardStyle}>
-        <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
-          <div className="flex items-center gap-2">
-            <AlertCircle size={17} className="text-amber-400 shrink-0" />
-            <div>
-              <h3 className="text-sm font-bold">
-                Reclamos y Garantía Post-Servicio ({disputes.length})
-              </h3>
-              <p className="text-[11px] opacity-75">
-                Mediación centralizada de Operaciones TrustLink sobre contratos con reclamo abierto.
-              </p>
+                  <LayoutGrid size={13} /> Tarjetas
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('table')}
+                  title="Vista tabla compacta"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
+                    viewMode === 'table' ? 'bg-emerald-600 text-white' : 'opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  <List size={13} /> Tabla
+                </button>
+              </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={fetchDisputes}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
-            style={innerStyle}
-          >
-            <RefreshCw size={12} /> Actualizar
-          </button>
-        </div>
 
-        {/* Listado de reclamos post-servicio registrados */}
-        {disputes.length === 0 ? (
-          <div
-            className="text-center py-6 rounded-xl border border-white/10 text-xs opacity-75"
-            style={innerStyle}
-          >
-            No hay reclamos post-servicio registrados en la plataforma.
-          </div>
-        ) : (
-          <div className={ITEMS_GRID_CLASS}>
-            {disputes.map((d) => {
-              const isOpen = d.status === 'open' || d.status === 'in_review';
+          {/* Filtros rápidos por estado de auditoría (conteo por personas) */}
+          <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
+            {[
+              { id: 'all', label: 'Todos', count: auditSummary.all },
+              { id: 'pending', label: 'Con pendientes', count: auditSummary.pending },
+              { id: 'approved', label: 'Con aprobados', count: auditSummary.approved },
+              { id: 'rejected', label: 'Con rechazados', count: auditSummary.rejected },
+              { id: 'sin_perfil', label: 'Sin perfil', count: auditSummary.sin_perfil },
+            ].map((chip) => {
+              const active = statusFilter === chip.id;
               return (
-                <div key={d.id} className={ITEM_CARD_CLASS} style={innerStyle}>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-bold">
-                        Reclamo #{d.id} · Contrato #{d.contract_id}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
-                          isOpen
-                            ? 'bg-rose-950/70 text-rose-200 border-rose-700'
-                            : d.status === 'resolved'
-                            ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700'
-                            : 'bg-slate-800 text-slate-300 border-slate-700'
-                        }`}
-                      >
-                        {d.status}
-                      </span>
-                    </div>
-                    <p className="text-xs font-semibold text-amber-300">{d.reason}</p>
-                    <p className="text-xs opacity-85">{d.details}</p>
-                    <p className="text-[11px] opacity-75">
-                      Residente: <strong>{d.owner_name}</strong> · Prestador:{' '}
-                      <strong>{d.provider_name}</strong> ({d.provider_specialty})
-                    </p>
-                    {d.resolution_notes && (
-                      <p className="text-[11px] text-emerald-300 pt-1">
-                        Resolución: {d.resolution_notes}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Controles de mediación para reclamos abiertos o en revisión */}
-                  {isOpen && (
-                    <div className="pt-3 border-t border-white/10 space-y-2">
-                      <input
-                        type="text"
-                        value={resolutionDrafts[d.id] || ''}
-                        onChange={(e) =>
-                          setResolutionDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))
-                        }
-                        placeholder="Nota de resolución o acuerdo alcanzado..."
-                        className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
-                        style={cardStyle}
-                      />
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          disabled={resolvingDisputeId === d.id}
-                          onClick={() => handleResolveDispute(d.id, 'resolved')}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
-                        >
-                          Resolver
-                        </button>
-                        <button
-                          type="button"
-                          disabled={resolvingDisputeId === d.id}
-                          onClick={() => handleResolveDispute(d.id, 'rejected')}
-                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
-                        >
-                          Desestimar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => setStatusFilter(chip.id)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1.5 ${
+                    active
+                      ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+                      : 'border-white/15 opacity-80 hover:opacity-100'
+                  }`}
+                  style={active ? undefined : innerStyle}
+                >
+                  <span>{chip.label}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                    {chip.count}
+                  </span>
+                </button>
               );
             })}
           </div>
-        )}
-      </section>
+
+          {/* Estado de carga, vacío o listado según vista seleccionada */}
+          {loading ? (
+            <div
+              className="text-center py-10 rounded-xl border border-white/10 text-xs"
+              style={innerStyle}
+            >
+              Cargando prestadores desde PostgreSQL...
+            </div>
+          ) : filteredPeople.length === 0 ? (
+            <div
+              className="text-center py-10 rounded-xl border border-white/10 text-xs opacity-80"
+              style={innerStyle}
+            >
+              No hay prestadores que coincidan con el filtro seleccionado.
+            </div>
+          ) : viewMode === 'cards' ? (
+            /* VISTA A: TARJETAS CONSOLIDADAS POR PERSONA (1 tarjeta = 1 persona) */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              {filteredPeople.map((person) => {
+                const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
+                const artMeta = getDocExpiryMeta(person.insurance_expiry);
+                const isBulkApproving = bulkApprovingUserId === (person.user_id || person.user_key);
+                const hasProfile = person.specialties.length > 0;
+
+                return (
+                  <article
+                    key={person.user_key}
+                    className="rounded-xl p-4 sm:p-5 border border-white/10 space-y-3.5 text-xs"
+                    style={innerStyle}
+                  >
+                    {/* Cabecera de persona: Identidad + Membresía única + Resumen de rubros */}
+                    <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-white/10">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-black truncate">{person.full_name}</h4>
+                          {person.is_verified_member && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
+                              <Award size={10} /> Socio
+                              {person.membership_ends_at
+                                ? ` · hasta ${formatShortDate(person.membership_ends_at)}`
+                                : ''}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] opacity-80 truncate">
+                          DNI <strong className="font-mono">{person.dni}</strong> · {person.email}
+                        </p>
+                      </div>
+
+                      {/* Acción comercial única por persona (estilo outline discreto, separada del compliance) */}
+                      {person.user_id && hasProfile && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {!person.is_verified_member ? (
+                            <button
+                              type="button"
+                              onClick={() => handleManageMembership(person.user_id, 'activate', 30)}
+                              disabled={updatingMembershipUserId === person.user_id}
+                              className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+                            >
+                              <Award size={11} /> Socio 30d
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleManageMembership(person.user_id, 'extend', 30)}
+                                disabled={updatingMembershipUserId === person.user_id}
+                                className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2 py-1 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+                              >
+                                +30d
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleManageMembership(person.user_id, 'cancel')}
+                                disabled={updatingMembershipUserId === person.user_id}
+                                className="border border-white/15 hover:opacity-90 font-semibold px-2 py-1 rounded-lg text-[11px] opacity-80 cursor-pointer disabled:opacity-45"
+                                style={cardStyle}
+                              >
+                                Revocar Socio
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Documentación personal consolidada con semáforo de vencimiento visible */}
+                    {hasProfile ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Antecedentes penales */}
+                        <div
+                          className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
+                          style={cardStyle}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-[11px] inline-flex items-center gap-1">
+                              <FileText size={12} className="text-sky-400 shrink-0" />
+                              Antecedentes
+                            </span>
+                            {person.criminal_record_url ? (
+                              <a
+                                href={person.criminal_record_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-bold text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                              >
+                                Abrir PDF
+                              </a>
+                            ) : (
+                              <span className="text-[10px] opacity-60">Sin archivo</span>
+                            )}
+                          </div>
+                          <div
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
+                          >
+                            <Calendar size={10} className="shrink-0" />
+                            <span>{criminalMeta.label}</span>
+                          </div>
+                        </div>
+
+                        {/* Póliza ART / Seguro */}
+                        <div
+                          className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
+                          style={cardStyle}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-bold text-[11px] inline-flex items-center gap-1">
+                              <FileText size={12} className="text-emerald-400 shrink-0" />
+                              Póliza ART
+                            </span>
+                            {person.insurance_policy_url ? (
+                              <a
+                                href={person.insurance_policy_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] font-bold text-emerald-300 underline underline-offset-2 hover:text-emerald-200"
+                              >
+                                Abrir PDF
+                              </a>
+                            ) : (
+                              <span className="text-[10px] opacity-60">Sin archivo</span>
+                            )}
+                          </div>
+                          <div
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${artMeta.badgeClass}`}
+                          >
+                            <Calendar size={10} className="shrink-0" />
+                            <span>{artMeta.label}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        className="rounded-xl p-3 border border-white/10 flex items-center justify-between gap-2"
+                        style={cardStyle}
+                      >
+                        <span className="opacity-75 italic">
+                          Cuenta registrada como prestador — aún no cargó documentación ni especialidades.
+                        </span>
+                        <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-slate-600 bg-slate-800/70 text-slate-300 shrink-0">
+                          Sin perfil
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Sub-lista de especialidades de la persona con aprobación individual o en lote */}
+                    {hasProfile && (
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-bold uppercase tracking-wider opacity-75">
+                            Especialidades ({person.specialties.length})
+                          </span>
+                          {person.pendingCount >= 2 && (
+                            <button
+                              type="button"
+                              disabled={isBulkApproving}
+                              onClick={() => handleApproveAllForPerson(person)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-50"
+                            >
+                              <CheckCheck size={12} />
+                              {isBulkApproving
+                                ? 'Aprobando...'
+                                : `Aprobar todas (${person.pendingCount})`}
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="space-y-1.5">
+                          {person.specialties.map((spec) => {
+                            const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
+                            return (
+                              <div
+                                key={spec.provider_id}
+                                className="rounded-xl px-3 py-2 border border-white/10 flex flex-wrap items-center justify-between gap-2"
+                                style={cardStyle}
+                              >
+                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                  <span className="font-bold text-xs truncate">
+                                    {spec.specialty}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                  >
+                                    {statusMeta.label}
+                                  </span>
+                                </div>
+                                {renderSpecialtyActions(spec)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            /* VISTA B: TABLA COMPACTA AGRUPADA POR PERSONA (ideal para nóminas grandes) */
+            <div className="overflow-x-auto rounded-xl border border-white/10" style={innerStyle}>
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-white/10 opacity-75 text-[11px] uppercase">
+                    <th className="py-2.5 px-3">Prestador</th>
+                    <th className="py-2.5 px-3">Documentación / Vigencia</th>
+                    <th className="py-2.5 px-3">Especialidades y Auditoría</th>
+                    <th className="py-2.5 px-3 text-right">Socio</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {filteredPeople.map((person) => {
+                    const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
+                    const artMeta = getDocExpiryMeta(person.insurance_expiry);
+                    const hasProfile = person.specialties.length > 0;
+                    const isBulkApproving =
+                      bulkApprovingUserId === (person.user_id || person.user_key);
+
+                    return (
+                      <tr key={person.user_key} className="align-top hover:bg-white/5">
+                        <td className="py-3 px-3">
+                          <div className="font-bold text-xs">{person.full_name}</div>
+                          <div className="text-[11px] opacity-75 font-mono">DNI {person.dni}</div>
+                          <div className="text-[11px] opacity-70 truncate max-w-44">
+                            {person.email}
+                          </div>
+                        </td>
+
+                        <td className="py-3 px-3 space-y-1.5">
+                          {hasProfile ? (
+                            <>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {person.criminal_record_url ? (
+                                  <a
+                                    href={person.criminal_record_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[11px] font-bold text-sky-300 underline"
+                                  >
+                                    Antec.
+                                  </a>
+                                ) : (
+                                  <span className="text-[11px] opacity-60">Sin Antec.</span>
+                                )}
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
+                                >
+                                  {criminalMeta.label}
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {person.insurance_policy_url ? (
+                                  <a
+                                    href={person.insurance_policy_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-[11px] font-bold text-emerald-300 underline"
+                                  >
+                                    ART
+                                  </a>
+                                ) : (
+                                  <span className="text-[11px] opacity-60">Sin ART</span>
+                                )}
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${artMeta.badgeClass}`}
+                                >
+                                  {artMeta.label}
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <span className="text-[11px] opacity-65 italic">Sin perfil</span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 space-y-1.5">
+                          {hasProfile ? (
+                            <>
+                              {person.pendingCount >= 2 && (
+                                <button
+                                  type="button"
+                                  disabled={isBulkApproving}
+                                  onClick={() => handleApproveAllForPerson(person)}
+                                  className="mb-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                >
+                                  <CheckCheck size={11} /> Aprobar todas ({person.pendingCount})
+                                </button>
+                              )}
+                              {person.specialties.map((spec) => {
+                                const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
+                                return (
+                                  <div
+                                    key={spec.provider_id}
+                                    className="flex flex-wrap items-center justify-between gap-2 py-1 border-b border-white/5 last:border-b-0"
+                                  >
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="font-semibold">{spec.specialty}</span>
+                                      <span
+                                        className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                      >
+                                        {statusMeta.label}
+                                      </span>
+                                    </div>
+                                    {renderSpecialtyActions(spec)}
+                                  </div>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            <span className="text-[11px] opacity-65 italic">
+                              Aún sin especialidades
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-3 text-right">
+                          {person.user_id && hasProfile ? (
+                            <div className="inline-flex flex-col items-end gap-1">
+                              {person.is_verified_member ? (
+                                <>
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
+                                    <Award size={10} /> Activo
+                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleManageMembership(person.user_id, 'extend', 30)
+                                      }
+                                      disabled={updatingMembershipUserId === person.user_id}
+                                      className="border border-amber-400/50 text-amber-200 px-2 py-0.5 rounded text-[10px] font-bold cursor-pointer"
+                                    >
+                                      +30d
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleManageMembership(person.user_id, 'cancel')
+                                      }
+                                      disabled={updatingMembershipUserId === person.user_id}
+                                      className="border border-white/15 px-2 py-0.5 rounded text-[10px] opacity-80 cursor-pointer"
+                                    >
+                                      Revocar
+                                    </button>
+                                  </div>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleManageMembership(person.user_id, 'activate', 30)
+                                  }
+                                  disabled={updatingMembershipUserId === person.user_id}
+                                  className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2.5 py-1 rounded-lg text-[10px] inline-flex items-center gap-1 cursor-pointer"
+                                >
+                                  <Award size={10} /> Socio 30d
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="opacity-50">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PESTAÑA 2: RECLAMOS Y GARANTÍA POST-SERVICIO */}
+      {activeTab === 'disputes' && (
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2">
+              <AlertCircle size={17} className="text-amber-400 shrink-0" />
+              <div>
+                <h3 className="text-sm font-bold">
+                  Reclamos y Garantía Post-Servicio ({disputes.length})
+                </h3>
+                <p className="text-[11px] opacity-75">
+                  Mediación centralizada de Operaciones TrustLink sobre contratos con reclamo abierto.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={fetchDisputes}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
+              style={innerStyle}
+            >
+              <RefreshCw size={12} /> Actualizar
+            </button>
+          </div>
+
+          {disputes.length === 0 ? (
+            <div
+              className="text-center py-8 rounded-xl border border-white/10 text-xs opacity-75"
+              style={innerStyle}
+            >
+              No hay reclamos post-servicio registrados en la plataforma.
+            </div>
+          ) : (
+            <div className={ITEMS_GRID_CLASS}>
+              {disputes.map((d) => {
+                const isOpen = d.status === 'open' || d.status === 'in_review';
+                return (
+                  <div
+                    key={d.id}
+                    className="rounded-xl p-4 sm:p-5 border border-white/10 flex flex-col justify-between gap-3 h-full text-xs"
+                    style={innerStyle}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold">
+                          Reclamo #{d.id} · Contrato #{d.contract_id}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                            isOpen
+                              ? 'bg-rose-950/70 text-rose-200 border-rose-700'
+                              : d.status === 'resolved'
+                              ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700'
+                              : 'bg-slate-800 text-slate-300 border-slate-700'
+                          }`}
+                        >
+                          {d.status}
+                        </span>
+                      </div>
+                      <p className="text-xs font-semibold text-amber-300">{d.reason}</p>
+                      <p className="text-xs opacity-85">{d.details}</p>
+                      <p className="text-[11px] opacity-75">
+                        Residente: <strong>{d.owner_name}</strong> · Prestador:{' '}
+                        <strong>{d.provider_name}</strong> ({d.provider_specialty})
+                      </p>
+                      {d.resolution_notes && (
+                        <p className="text-[11px] text-emerald-300 pt-1">
+                          Resolución: {d.resolution_notes}
+                        </p>
+                      )}
+                    </div>
+
+                    {isOpen && (
+                      <div className="pt-3 border-t border-white/10 space-y-2">
+                        <input
+                          type="text"
+                          value={resolutionDrafts[d.id] || ''}
+                          onChange={(e) =>
+                            setResolutionDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))
+                          }
+                          placeholder="Nota de resolución o acuerdo alcanzado..."
+                          className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
+                          style={cardStyle}
+                        />
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={resolvingDisputeId === d.id}
+                            onClick={() => handleResolveDispute(d.id, 'resolved')}
+                            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            Resolver
+                          </button>
+                          <button
+                            type="button"
+                            disabled={resolvingDisputeId === d.id}
+                            onClick={() => handleResolveDispute(d.id, 'rejected')}
+                            className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                          >
+                            Desestimar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }
