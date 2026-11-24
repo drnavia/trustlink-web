@@ -56,6 +56,9 @@ export default function AdminComplianceView() {
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
   const [updatingMembershipUserId, setUpdatingMembershipUserId] = useState(null);
+  const [disputes, setDisputes] = useState([]);
+  const [resolutionDrafts, setResolutionDrafts] = useState({});
+  const [resolvingDisputeId, setResolvingDisputeId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -112,8 +115,25 @@ export default function AdminComplianceView() {
     }
   };
 
+  const fetchDisputes = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/disputes`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setDisputes(data.disputes || []);
+      }
+    } catch (error) {
+      console.error('Error al consultar reclamos post-servicio:', error);
+    }
+  };
+
   useEffect(() => {
     fetchAllProviders();
+    fetchDisputes();
   }, []);
 
   const handleUpdateStatus = async (providerId, newStatus) => {
@@ -177,6 +197,40 @@ export default function AdminComplianceView() {
       setErrorMsg('Error de conexión al gestionar la membresía.');
     } finally {
       setUpdatingMembershipUserId(null);
+    }
+  };
+
+  const handleResolveDispute = async (disputeId, status) => {
+    const notes = String(resolutionDrafts[disputeId] || '').trim();
+    if (!notes) {
+      setErrorMsg('Escribí una nota de resolución antes de cerrar o desestimar el reclamo.');
+      return;
+    }
+    setResolvingDisputeId(disputeId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/disputes/${disputeId}/resolve`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify({ status, resolution_notes: notes }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || `Reclamo #${disputeId} actualizado.`);
+        setResolutionDrafts((prev) => ({ ...prev, [disputeId]: '' }));
+        await fetchDisputes();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar el reclamo.');
+      }
+    } catch (error) {
+      console.error('Error al resolver reclamo:', error);
+      setErrorMsg('Error de conexión al resolver el reclamo.');
+    } finally {
+      setResolvingDisputeId(null);
     }
   };
 
@@ -466,6 +520,112 @@ export default function AdminComplianceView() {
                       <span className="text-[11px] opacity-75 italic">
                         Aún no completó perfil de compliance
                       </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Zona 4: Reclamos y Garantía Post-Servicio */}
+      <section className={SECTION_CARD_CLASS} style={cardStyle}>
+        <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle size={17} className="text-amber-400 shrink-0" />
+            <div>
+              <h3 className="text-sm font-bold">
+                Reclamos y Garantía Post-Servicio ({disputes.length})
+              </h3>
+              <p className="text-[11px] opacity-75">
+                Mediación centralizada de Operaciones TrustLink sobre contratos con reclamo abierto.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={fetchDisputes}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
+            style={innerStyle}
+          >
+            <RefreshCw size={12} /> Actualizar
+          </button>
+        </div>
+
+        {disputes.length === 0 ? (
+          <div
+            className="text-center py-6 rounded-xl border border-white/10 text-xs opacity-75"
+            style={innerStyle}
+          >
+            No hay reclamos post-servicio registrados en la plataforma.
+          </div>
+        ) : (
+          <div className={ITEMS_GRID_CLASS}>
+            {disputes.map((d) => {
+              const isOpen = d.status === 'open' || d.status === 'in_review';
+              return (
+                <div key={d.id} className={ITEM_CARD_CLASS} style={innerStyle}>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-bold">
+                        Reclamo #{d.id} · Contrato #{d.contract_id}
+                      </span>
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                          isOpen
+                            ? 'bg-rose-950/70 text-rose-200 border-rose-700'
+                            : d.status === 'resolved'
+                            ? 'bg-emerald-950/70 text-emerald-200 border-emerald-700'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        {d.status}
+                      </span>
+                    </div>
+                    <p className="text-xs font-semibold text-amber-300">{d.reason}</p>
+                    <p className="text-xs opacity-85">{d.details}</p>
+                    <p className="text-[11px] opacity-75">
+                      Residente: <strong>{d.owner_name}</strong> · Prestador:{' '}
+                      <strong>{d.provider_name}</strong> ({d.provider_specialty})
+                    </p>
+                    {d.resolution_notes && (
+                      <p className="text-[11px] text-emerald-300 pt-1">
+                        Resolución: {d.resolution_notes}
+                      </p>
+                    )}
+                  </div>
+
+                  {isOpen && (
+                    <div className="pt-3 border-t border-white/10 space-y-2">
+                      <input
+                        type="text"
+                        value={resolutionDrafts[d.id] || ''}
+                        onChange={(e) =>
+                          setResolutionDrafts((prev) => ({ ...prev, [d.id]: e.target.value }))
+                        }
+                        placeholder="Nota de resolución o acuerdo alcanzado..."
+                        className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
+                        style={cardStyle}
+                      />
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          disabled={resolvingDisputeId === d.id}
+                          onClick={() => handleResolveDispute(d.id, 'resolved')}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                        >
+                          Resolver
+                        </button>
+                        <button
+                          type="button"
+                          disabled={resolvingDisputeId === d.id}
+                          onClick={() => handleResolveDispute(d.id, 'rejected')}
+                          className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs cursor-pointer disabled:opacity-50"
+                        >
+                          Desestimar
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>

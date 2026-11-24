@@ -30,11 +30,14 @@ import {
   Save,
   Share2,
   Award,
+  FileText,
+  Printer,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
@@ -212,10 +215,17 @@ export default function ResidentDashboard({ onNavigate }) {
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passListFeedback, setPassListFeedback] = useState({ type: '', text: '' });
 
-  // Contratos / Pagos
+  // Contratos / Pagos / Conformidad / Comprobante / Reclamos
   const [contracts, setContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
   const [payingContractId, setPayingContractId] = useState(null);
+  const [completingContractId, setCompletingContractId] = useState(null);
+  const [loadingReceiptId, setLoadingReceiptId] = useState(null);
+  const [receiptModalData, setReceiptModalData] = useState(null);
+  const [disputeModalContract, setDisputeModalContract] = useState(null);
+  const [disputeReason, setDisputeReason] = useState('Trabajo incompleto o con fallas');
+  const [disputeDetails, setDisputeDetails] = useState('');
+  const [submittingDispute, setSubmittingDispute] = useState(false);
   const [paymentFeedback, setPaymentFeedback] = useState({ type: '', text: '' });
 
   // Reseñas y reputación cruzada
@@ -750,6 +760,97 @@ export default function ResidentDashboard({ onNavigate }) {
       });
     } finally {
       setPayingContractId(null);
+    }
+  };
+
+  const handleCompleteContract = async (contractId) => {
+    setCompletingContractId(contractId);
+    setPaymentFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/complete`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ completion_notes: 'Conformidad registrada desde Portal Residente' }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPaymentFeedback({
+          type: 'success',
+          text: data.message || `Conformidad registrada para el contrato #${contractId}.`,
+        });
+        await Promise.all([fetchContractsData(), fetchReviewsData()]);
+      } else {
+        setPaymentFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo registrar la conformidad del servicio.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al dar conformidad al contrato:', error);
+      setPaymentFeedback({ type: 'error', text: 'Error de conexión al registrar conformidad.' });
+    } finally {
+      setCompletingContractId(null);
+    }
+  };
+
+  const handleOpenReceipt = async (contractId) => {
+    setLoadingReceiptId(contractId);
+    setPaymentFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/receipt`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok && data.receipt) {
+        setReceiptModalData(data.receipt);
+      } else {
+        setPaymentFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo cargar el comprobante del servicio.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al consultar comprobante:', error);
+      setPaymentFeedback({ type: 'error', text: 'Error de conexión al generar el comprobante.' });
+    } finally {
+      setLoadingReceiptId(null);
+    }
+  };
+
+  const handleSubmitDispute = async (e) => {
+    e.preventDefault();
+    if (!disputeModalContract || !disputeReason.trim() || !disputeDetails.trim()) return;
+    setSubmittingDispute(true);
+    setPaymentFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/${disputeModalContract.id}/dispute`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          reason: disputeReason.trim(),
+          details: disputeDetails.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPaymentFeedback({
+          type: 'success',
+          text: data.message || 'Reclamo registrado correctamente para revisión de Operaciones.',
+        });
+        setDisputeModalContract(null);
+        setDisputeDetails('');
+        await fetchContractsData();
+      } else {
+        setPaymentFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo registrar el reclamo.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al registrar reclamo:', error);
+      setPaymentFeedback({ type: 'error', text: 'Error de conexión al enviar el reclamo.' });
+    } finally {
+      setSubmittingDispute(false);
     }
   };
 
@@ -1560,6 +1661,9 @@ export default function ResidentDashboard({ onNavigate }) {
                 const feeAmount = Number((totalAmount * 0.07).toFixed(2));
                 const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
                 const isPending = String(contract.status || '').toLowerCase() === 'pending';
+                const isInProgress = String(contract.status || '').toLowerCase() === 'in_progress';
+                const isCompleted = String(contract.status || '').toLowerCase() === 'completed';
+                const hasOpenDispute = Number(contract.open_disputes_count || 0) > 0;
                 const statusMeta = getUnifiedStatusMeta(contract.status, 'contract');
 
                 return (
@@ -1574,15 +1678,27 @@ export default function ResidentDashboard({ onNavigate }) {
                           Contrato #{contract.id} ·{' '}
                           {contract.provider_name || `Prestador #${contract.provider_id}`}
                         </span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
-                        >
-                          {statusMeta.label}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {hasOpenDispute && (
+                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
+                              Reclamo abierto
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                          >
+                            {statusMeta.label}
+                          </span>
+                        </div>
                       </div>
 
                       {contract.description && (
                         <p className="text-xs opacity-85">{contract.description}</p>
+                      )}
+                      {contract.completed_at && (
+                        <p className="text-[11px] text-emerald-300/90">
+                          Conformidad registrada el {formatDateTimeAR(contract.completed_at)}
+                        </p>
                       )}
                     </div>
 
@@ -1604,19 +1720,75 @@ export default function ResidentDashboard({ onNavigate }) {
                         </div>
                       </div>
 
-                      {isPending && (
-                        <button
-                          type="button"
-                          disabled={payingContractId === contract.id}
-                          onClick={() => handlePayContract(contract.id)}
-                          className="w-full py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          {payingContractId === contract.id
-                            ? 'Procesando pago...'
-                            : 'Confirmar y Pagar'}
-                        </button>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {isPending && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={payingContractId === contract.id}
+                              onClick={() => handlePayContract(contract.id)}
+                              className="flex-1 py-2 px-3 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              {payingContractId === contract.id
+                                ? 'Procesando pago...'
+                                : 'Confirmar y Pagar'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={completingContractId === contract.id}
+                              onClick={() => handleCompleteContract(contract.id)}
+                              className="py-2 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
+                              style={cardStyle}
+                              title="Registrar conformidad si abonaste en efectivo o acuerdo directo"
+                            >
+                              {completingContractId === contract.id ? 'Guardando...' : 'Conformidad (Efectivo)'}
+                            </button>
+                          </>
+                        )}
+
+                        {isInProgress && (
+                          <button
+                            type="button"
+                            disabled={completingContractId === contract.id}
+                            onClick={() => handleCompleteContract(contract.id)}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <CheckCircle2 size={13} />
+                            {completingContractId === contract.id ? 'Registrando...' : 'Dar Conformidad'}
+                          </button>
+                        )}
+
+                        {(isInProgress || isCompleted) && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={loadingReceiptId === contract.id}
+                              onClick={() => handleOpenReceipt(contract.id)}
+                              className="inline-flex items-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
+                              style={cardStyle}
+                            >
+                              <FileText size={13} className="text-emerald-400" />
+                              {loadingReceiptId === contract.id ? 'Cargando...' : 'Comprobante'}
+                            </button>
+                            {!hasOpenDispute && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDisputeModalContract(contract);
+                                  setDisputeReason('Trabajo incompleto o con fallas');
+                                  setDisputeDetails('');
+                                }}
+                                className="inline-flex items-center gap-1.5 py-2 px-3 rounded-xl text-xs font-bold border border-rose-800/60 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer"
+                              >
+                                <AlertCircle size={13} />
+                                Reclamo
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -2316,6 +2488,193 @@ export default function ResidentDashboard({ onNavigate }) {
                 >
                   <Save size={13} />
                   {savingPassEdit ? 'Guardando...' : 'Guardar Cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Comprobante del Hogar */}
+      {receiptModalData && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-xl rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs max-h-[90vh] overflow-y-auto"
+            style={cardStyle}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                  Comprobante del Hogar · {receiptModalData.receipt_code}
+                </p>
+                <h3 className="text-base font-black mt-0.5">
+                  Contrato #{receiptModalData.contract?.id} · {receiptModalData.provider?.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptModalData(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
+                <p className="font-bold text-emerald-300">Comunidad y Destino</p>
+                <p>{receiptModalData.community?.name}</p>
+                <p className="opacity-80">Titular: {receiptModalData.resident?.name}</p>
+                <p className="opacity-80">
+                  Destino:{' '}
+                  {[
+                    receiptModalData.resident?.fraction,
+                    receiptModalData.resident?.lot ? `Lote ${receiptModalData.resident.lot}` : '',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || '—'}
+                </p>
+              </div>
+              <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
+                <p className="font-bold text-emerald-300">Prestador y Compliance</p>
+                <p>
+                  {receiptModalData.provider?.name} ({receiptModalData.provider?.specialty})
+                </p>
+                <p className="opacity-80">
+                  DNI: {receiptModalData.provider?.dni || '—'} · Compliance:{' '}
+                  {receiptModalData.provider?.compliance_status}
+                </p>
+                <p className="opacity-80">
+                  ART vto:{' '}
+                  {receiptModalData.provider?.insurance_expiry
+                    ? new Date(receiptModalData.provider.insurance_expiry).toLocaleDateString('es-AR')
+                    : 'Sin fecha'}
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-white/10 space-y-1.5" style={innerStyle}>
+              <p className="font-bold">Servicio y Conformidad</p>
+              <p className="opacity-90">{receiptModalData.contract?.description}</p>
+              <p className="opacity-80">
+                Estado: <strong>{receiptModalData.contract?.status}</strong>
+                {receiptModalData.contract?.completed_at
+                  ? ` · Conformidad: ${formatDateTimeAR(receiptModalData.contract.completed_at)}`
+                  : ''}
+              </p>
+              {receiptModalData.access_pass && (
+                <p className="opacity-80 font-mono">
+                  Pase QR #{receiptModalData.access_pass.id}:{' '}
+                  {receiptModalData.access_pass.qr_token_masked} ({receiptModalData.access_pass.status})
+                </p>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
+              <div className="flex justify-between">
+                <span className="opacity-75">Monto acordado:</span>
+                <span className="font-bold font-mono">
+                  ${Number(receiptModalData.payment?.total_amount || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="opacity-75">Comisión TrustLink:</span>
+                <span className="font-mono">
+                  ${Number(receiptModalData.payment?.platform_fee || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="opacity-75">Neto prestador:</span>
+                <span className="font-bold font-mono text-emerald-400">
+                  ${Number(receiptModalData.payment?.provider_payout || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setReceiptModalData(null)}
+                className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                style={innerStyle}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => printServiceReceipt(receiptModalData)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Printer size={14} /> Imprimir / Guardar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Abrir Reclamo / Garantía Post-Servicio */}
+      {disputeModalContract && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold">
+                Reclamo / Garantía · Contrato #{disputeModalContract.id}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDisputeModalContract(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmitDispute} className="space-y-3">
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Motivo del reclamo</label>
+                <select
+                  value={disputeReason}
+                  onChange={(e) => setDisputeReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                >
+                  <option value="Trabajo incompleto o con fallas">Trabajo incompleto o con fallas</option>
+                  <option value="Garantía post-servicio sin respuesta">Garantía post-servicio sin respuesta</option>
+                  <option value="Diferencia en monto o alcance acordado">Diferencia en monto o alcance acordado</option>
+                  <option value="Daño material o incumplimiento en domicilio">Daño material o incumplimiento en domicilio</option>
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1 opacity-85">Detalle del caso</label>
+                <textarea
+                  rows={4}
+                  required
+                  value={disputeDetails}
+                  onChange={(e) => setDisputeDetails(e.target.value)}
+                  placeholder="Describí qué ocurrió para que Operaciones TrustLink medie y resuelva el reclamo..."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                  style={innerStyle}
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setDisputeModalContract(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDispute || !disputeDetails.trim()}
+                  className="px-4 py-2 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-500 cursor-pointer disabled:opacity-50"
+                >
+                  {submittingDispute ? 'Enviando...' : 'Registrar Reclamo'}
                 </button>
               </div>
             </form>
