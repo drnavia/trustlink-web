@@ -6,7 +6,7 @@
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ShieldCheck,
   CheckCircle2,
@@ -15,6 +15,8 @@ import {
   UserCheck,
   AlertCircle,
   RefreshCw,
+  Search,
+  X,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -23,8 +25,16 @@ import {
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
   ITEM_CARD_CLASS,
+  FIELD_INPUT_CLASS,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
+
+const STATUS_PRIORITY = {
+  pending: 0,
+  approved: 1,
+  rejected: 2,
+  sin_perfil: 3,
+};
 
 /* const API_BASE = 'http://localhost:4000'; */
 
@@ -46,6 +56,35 @@ export default function AdminComplianceView() {
   const [updatingId, setUpdatingId] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  const statusCounts = useMemo(() => {
+    const counts = { all: providers.length, pending: 0, approved: 0, rejected: 0, sin_perfil: 0 };
+    providers.forEach((p) => {
+      const st = String(p.status || 'sin_perfil').toLowerCase();
+      if (st in counts) counts[st] += 1;
+      else counts.sin_perfil += 1;
+    });
+    return counts;
+  }, [providers]);
+
+  const filteredProviders = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    return [...providers]
+      .filter((p) => {
+        const st = String(p.status || 'sin_perfil').toLowerCase();
+        const matchesStatus = statusFilter === 'all' || st === statusFilter;
+        const haystack = `${p.first_name || ''} ${p.last_name || ''} ${p.dni || ''} ${p.email || ''} ${p.specialty || ''}`.toLowerCase();
+        const matchesQuery = !q || haystack.includes(q);
+        return matchesStatus && matchesQuery;
+      })
+      .sort((a, b) => {
+        const pa = STATUS_PRIORITY[String(a.status || 'sin_perfil').toLowerCase()] ?? 9;
+        const pb = STATUS_PRIORITY[String(b.status || 'sin_perfil').toLowerCase()] ?? 9;
+        return pa - pb;
+      });
+  }, [providers, searchTerm, statusFilter]);
 
   const fetchAllProviders = async () => {
     setLoading(true);
@@ -167,11 +206,68 @@ export default function AdminComplianceView() {
         className={SECTION_CARD_CLASS}
         style={cardStyle}
       >
-        <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
-          <h3 className="text-sm font-bold flex items-center gap-2">
-            <ShieldCheck size={17} className="text-emerald-400" /> Prestadores registrados
-          </h3>
-          <span className="text-xs opacity-80">{providers.length} registro(s)</span>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3.5">
+          <div className="flex items-center gap-2">
+            <ShieldCheck size={17} className="text-emerald-400 shrink-0" />
+            <h3 className="text-sm font-bold">Prestadores registrados</h3>
+            <span className="text-xs opacity-70">({filteredProviders.length})</span>
+          </div>
+
+          <div className="relative w-full md:w-72">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+            />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Buscar por nombre, DNI o rubro..."
+              className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
+              style={innerStyle}
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Filtros rápidos por estado (Pendientes primero) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
+          {[
+            { id: 'all', label: 'Todos', count: statusCounts.all },
+            { id: 'pending', label: 'Pendientes', count: statusCounts.pending },
+            { id: 'approved', label: 'Aprobados', count: statusCounts.approved },
+            { id: 'rejected', label: 'Rechazados', count: statusCounts.rejected },
+            { id: 'sin_perfil', label: 'Sin perfil', count: statusCounts.sin_perfil },
+          ].map((chip) => {
+            const active = statusFilter === chip.id;
+            return (
+              <button
+                key={chip.id}
+                type="button"
+                onClick={() => setStatusFilter(chip.id)}
+                className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1.5 ${
+                  active
+                    ? 'bg-emerald-600 text-white border-transparent shadow-sm'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={active ? undefined : innerStyle}
+              >
+                <span>{chip.label}</span>
+                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-black/25">
+                  {chip.count}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {loading ? (
@@ -181,16 +277,16 @@ export default function AdminComplianceView() {
           >
             Cargando prestadores desde PostgreSQL...
           </div>
-        ) : providers.length === 0 ? (
+        ) : filteredProviders.length === 0 ? (
           <div
             className="text-center py-10 rounded-xl border border-white/10 text-xs opacity-80"
             style={innerStyle}
           >
-            No hay prestadores registrados en la red todavía.
+            No hay prestadores que coincidan con el filtro seleccionado.
           </div>
         ) : (
           <div className={ITEMS_GRID_CLASS}>
-            {providers.map((p) => {
+            {filteredProviders.map((p) => {
               const rowKey = p.provider_id || p.user_id || p.email;
               const targetProviderId = p.provider_id;
               const currentStatus = p.status || 'sin_perfil';

@@ -22,6 +22,7 @@ import {
   Users,
   Palette,
   Activity,
+  ChevronDown,
 } from 'lucide-react';
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
@@ -50,6 +51,14 @@ const VALID_VIEWS = new Set([
   'provider',
   'payments',
   'security',
+  'admin',
+  'local_admin',
+  'users_master',
+  'branding_master',
+  'health',
+]);
+
+const MASTER_VIEWS = new Set([
   'admin',
   'local_admin',
   'users_master',
@@ -135,7 +144,9 @@ function MainAppContent() {
     if (readInitialQrTokenFromUrl() && canSeeSecurity) return 'security';
     return hashView || getDefaultAuthenticatedView(user);
   });
-  const [masterModeOpen, setMasterModeOpen] = useState(false);
+  const [masterModeOpen, setMasterModeOpen] = useState(() =>
+    MASTER_VIEWS.has(readViewFromHash())
+  );
 
   const setCurrentView = useCallback((nextOrUpdater) => {
     setCurrentViewState((prev) => {
@@ -210,6 +221,13 @@ function MainAppContent() {
       });
     }
   }, [isAuthenticated, user, initialQrToken, canSeeSecurity, canSeeResident, canSeeProvider, setCurrentView]);
+
+  // Abre automáticamente la sub-barra de Modo Maestro al navegar a una vista de gobernanza
+  useEffect(() => {
+    if (isAuthenticated && isSuperadmin && MASTER_VIEWS.has(currentView)) {
+      setMasterModeOpen(true);
+    }
+  }, [isAuthenticated, isSuperadmin, currentView]);
 
   // Cierra sesión y vuelve a la vista pública
   const handleLogout = () => {
@@ -353,11 +371,11 @@ function MainAppContent() {
             </div>
           </div>
 
-          {/* Módulos: scroll horizontal en celular, wrap limpio en escritorio */}
+          {/* Módulos: una sola línea limpia en escritorio y scroll horizontal en celular */}
           {isAuthenticated && (
             <nav
               aria-label="Navegación principal"
-              className="flex items-center gap-1.5 overflow-x-auto md:flex-wrap py-0.5 md:py-0"
+              className="flex items-center gap-1.5 overflow-x-auto flex-nowrap py-0.5 md:py-0"
             >
               {canSeeResident && (
                 <button
@@ -365,8 +383,9 @@ function MainAppContent() {
                   onClick={() => setCurrentView('resident')}
                   className={navBtnClass(currentView === 'resident')}
                   style={navBtnStyle(currentView === 'resident')}
+                  title="Portal Residente"
                 >
-                  <Home size={13} /> Portal Residente
+                  <Home size={13} /> {isSuperadmin ? 'Residente' : 'Portal Residente'}
                 </button>
               )}
 
@@ -376,8 +395,9 @@ function MainAppContent() {
                   onClick={() => setCurrentView('provider')}
                   className={navBtnClass(currentView === 'provider')}
                   style={navBtnStyle(currentView === 'provider')}
+                  title="Portal Prestador"
                 >
-                  <Wrench size={13} /> Portal Prestador
+                  <Wrench size={13} /> {isSuperadmin ? 'Prestador' : 'Portal Prestador'}
                 </button>
               )}
 
@@ -387,8 +407,9 @@ function MainAppContent() {
                   onClick={() => setCurrentView('payments')}
                   className={navBtnClass(currentView === 'payments')}
                   style={navBtnStyle(currentView === 'payments')}
+                  title="Pagos y Reseñas"
                 >
-                  <CreditCard size={13} /> Pagos y Reseñas
+                  <CreditCard size={13} /> {isSuperadmin ? 'Pagos' : 'Pagos y Reseñas'}
                 </button>
               )}
 
@@ -398,8 +419,9 @@ function MainAppContent() {
                   onClick={() => setCurrentView('security')}
                   className={navBtnClass(currentView === 'security')}
                   style={navBtnStyle(currentView === 'security')}
+                  title="Consola Garita"
                 >
-                  <QrCode size={13} /> Consola Garita
+                  <QrCode size={13} /> {isSuperadmin ? 'Garita' : 'Consola Garita'}
                 </button>
               )}
 
@@ -420,20 +442,19 @@ function MainAppContent() {
                 <button
                   type="button"
                   onClick={() => setMasterModeOpen((prev) => !prev)}
+                  aria-expanded={masterModeOpen}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
-                    masterModeOpen ||
-                    [
-                      'admin',
-                      'local_admin',
-                      'users_master',
-                      'branding_master',
-                      'health',
-                    ].includes(currentView)
+                    masterModeOpen || MASTER_VIEWS.has(currentView)
                       ? 'bg-purple-700 text-white border-purple-400 shadow-md'
                       : 'bg-purple-950/80 text-purple-200 border-purple-700/70 hover:bg-purple-900'
                   }`}
                 >
-                  <Layers size={13} /> Modo Maestro
+                  <Layers size={13} />
+                  <span>Modo Maestro</span>
+                  <ChevronDown
+                    size={13}
+                    className={`transition-transform ${masterModeOpen ? 'rotate-180' : ''}`}
+                  />
                 </button>
               )}
             </nav>
