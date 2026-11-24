@@ -32,6 +32,7 @@ import {
 import { useAuth } from './AuthContext';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
+import { PAGE_SHELL_CLASS } from '../../config/uiTokens';
 
 function formatDestinationPreview(fractionType, fractionNumber, lotNumber) {
   const cleanLot = String(lotNumber || '').trim();
@@ -461,7 +462,7 @@ export default function AccountView({ onNavigate }) {
     'w-full px-3.5 py-2.5 rounded-xl border border-white/20 text-xs focus:outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-500/25 transition-colors';
 
   return (
-    <div className="max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+    <div className={PAGE_SHELL_CLASS}>
       {/* Encabezado de Cuenta */}
       <section
         className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"

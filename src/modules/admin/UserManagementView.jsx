@@ -222,10 +222,10 @@ export default function UserManagementView() {
   };
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6 font-sans">
+    <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans">
       {/* Zona 4: Encabezado Cuentas Privilegiadas */}
       <section
-        className="border border-black/20 p-6 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+        className="border border-white/10 p-5 sm:p-6 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4"
         style={cardStyle}
       >
         <div className="flex items-center gap-3">

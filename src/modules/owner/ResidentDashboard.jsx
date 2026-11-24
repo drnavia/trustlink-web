@@ -22,7 +22,6 @@ import {
   CreditCard,
   MessageSquare,
   Users,
-  ArrowRight,
   RefreshCw,
   Send,
   Calendar,
@@ -35,6 +34,15 @@ import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import {
+  PAGE_SHELL_CLASS,
+  SECTION_CARD_CLASS,
+  ITEMS_GRID_CLASS,
+  ITEM_CARD_CLASS,
+  FIELD_INPUT_CLASS,
+  formatDateTimeAR,
+  getUnifiedStatusMeta,
+} from '../../config/uiTokens';
 
 const QUICK_SPECIALTIES = [
   'Todos',
@@ -99,23 +107,6 @@ const buildPassWhatsAppUrl = (passItem) => {
     `Vigencia: ${formatLocalDateTime(passItem?.start_time)} a ${formatLocalDateTime(passItem?.end_time)}\n` +
     (gateLink ? `Enlace directo para garita: ${gateLink}` : `Token QR: ${passItem?.qr_token || ''}`);
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
-};
-
-const getPassStatusBadge = (status) => {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'pending') {
-    return 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60';
-  }
-  if (normalized === 'used') {
-    return 'bg-sky-950/80 text-sky-300 border-sky-700/60';
-  }
-  if (normalized === 'expired') {
-    return 'bg-amber-950/80 text-amber-300 border-amber-700/60';
-  }
-  if (normalized === 'cancelled') {
-    return 'bg-rose-950/80 text-rose-300 border-rose-700/60';
-  }
-  return 'bg-slate-800 text-slate-300 border-slate-700';
 };
 
 const getVisitStatusMeta = (visit) => {
@@ -821,7 +812,7 @@ export default function ResidentDashboard({ onNavigate }) {
       id: 'payments',
       stepNumber: 4,
       label: 'Visitas y Pagos',
-      count: pendingContractsCount,
+      count: contracts.length,
       icon: CreditCard,
     },
     {
@@ -834,9 +825,9 @@ export default function ResidentDashboard({ onNavigate }) {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+    <div className={PAGE_SHELL_CLASS}>
       <div
-        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         style={cardStyle}
       >
         <div className="space-y-1">
@@ -853,17 +844,32 @@ export default function ResidentDashboard({ onNavigate }) {
           </p>
         </div>
 
-        {onNavigate && (
+        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+          {pendingContractsCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setActiveStep('payments')}
+              className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-950/50 text-amber-200 cursor-pointer hover:opacity-90"
+            >
+              {pendingContractsCount} pago(s) pendiente(s)
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => onNavigate('payments')}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer self-start sm:self-auto"
+            onClick={() => {
+              fetchVerifiedProviders();
+              fetchMyVisits();
+              fetchMyPasses();
+              fetchContractsData();
+              fetchReviewsData();
+            }}
+            className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
             style={innerStyle}
+            title="Actualizar información del portal"
           >
-            <span>Vista completa Pagos y Reseñas</span>
-            <ArrowRight size={14} />
+            <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
           </button>
-        )}
+        </div>
       </div>
 
       {/* Selector de pasos alineado */}
@@ -902,87 +908,82 @@ export default function ResidentDashboard({ onNavigate }) {
 
       {/* PASO 1: PRESTADORES */}
       {activeStep === 'providers' && (
-        <section className="space-y-4">
-          <div
-            className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-4"
-            style={cardStyle}
-          >
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <div>
-                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                  <Users size={18} className="text-emerald-400 shrink-0" />
-                  <span>Directorio de Prestadores Verificados</span>
-                </h2>
-                <p className="text-xs opacity-75">
-                  Consultá si ya lo contactaste, revisá el estado de confirmación y pasá a Visitas o Pases QR.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative flex-1 md:w-72">
-                  <Search
-                    size={15}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                  />
-                  <input
-                    type="text"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Buscar por nombre o especialidad..."
-                    className="w-full pl-9 pr-8 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
-                    style={innerStyle}
-                  />
-                  {searchTerm && (
-                    <button
-                      type="button"
-                      onClick={() => setSearchTerm('')}
-                      aria-label="Limpiar búsqueda"
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    fetchVerifiedProviders();
-                    fetchMyVisits();
-                  }}
-                  className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
-                  style={innerStyle}
-                  title="Actualizar directorio y visitas"
-                >
-                  <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
-                </button>
-              </div>
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <Users size={18} className="text-emerald-400 shrink-0" />
+                <span>Directorio de Prestadores Verificados</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Consultá si ya lo contactaste, revisá el estado de confirmación y pasá a Visitas o Pases QR.
+              </p>
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
-              {availableSpecialties.map((spec) => {
-                const active = selectedSpecialty === spec;
-                return (
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 md:w-72">
+                <Search
+                  size={15}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Buscar por nombre o especialidad..."
+                  className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
+                  style={innerStyle}
+                />
+                {searchTerm && (
                   <button
-                    key={spec}
                     type="button"
-                    onClick={() => setSelectedSpecialty(spec)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
-                      active
-                        ? 'text-white border-transparent shadow-sm'
-                        : 'border-slate-700/70 opacity-80 hover:opacity-100'
-                    }`}
-                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                    onClick={() => setSearchTerm('')}
+                    aria-label="Limpiar búsqueda"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
                   >
-                    {spec}
+                    <X size={14} />
                   </button>
-                );
-              })}
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  fetchVerifiedProviders();
+                  fetchMyVisits();
+                }}
+                className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
+                style={innerStyle}
+                title="Actualizar directorio y visitas"
+              >
+                <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
+              </button>
             </div>
           </div>
 
+          <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
+            {availableSpecialties.map((spec) => {
+              const active = selectedSpecialty === spec;
+              return (
+                <button
+                  key={spec}
+                  type="button"
+                  onClick={() => setSelectedSpecialty(spec)}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
+                    active
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'border-white/15 opacity-80 hover:opacity-100'
+                  }`}
+                  style={active ? { backgroundColor: primaryColor } : innerStyle}
+                >
+                  {spec}
+                </button>
+              );
+            })}
+          </div>
+
           {providersError && (
-            <div className="rounded-2xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
+            <div className="rounded-xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0" />
               <span>{providersError}</span>
             </div>
@@ -990,15 +991,15 @@ export default function ResidentDashboard({ onNavigate }) {
 
           {loadingProviders ? (
             <div
-              className="rounded-2xl p-10 border border-slate-800/80 text-center text-xs opacity-75"
-              style={cardStyle}
+              className="rounded-xl p-8 border border-white/10 text-center text-xs opacity-75"
+              style={innerStyle}
             >
               Cargando prestadores verificados...
             </div>
           ) : filteredProviders.length === 0 ? (
             <div
-              className="rounded-2xl p-10 border border-slate-800/80 text-center space-y-2"
-              style={cardStyle}
+              className="rounded-xl p-8 border border-white/10 text-center space-y-2"
+              style={innerStyle}
             >
               <p className="text-sm font-bold">No se encontraron prestadores con ese filtro</p>
               <p className="text-xs opacity-75">
@@ -1006,7 +1007,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className={ITEMS_GRID_CLASS}>
               {filteredProviders.map((provider) => {
                 const providerId = Number(provider.provider_id || provider.id);
                 const fullName =
@@ -1021,8 +1022,8 @@ export default function ResidentDashboard({ onNavigate }) {
                 return (
                   <article
                     key={providerId}
-                    className="rounded-2xl p-5 border border-slate-800/80 shadow-sm flex flex-col justify-between gap-4"
-                    style={cardStyle}
+                    className={ITEM_CARD_CLASS}
+                    style={innerStyle}
                   >
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
@@ -1037,7 +1038,7 @@ export default function ResidentDashboard({ onNavigate }) {
                       </div>
 
                       <div>
-                        <h3 className="text-base font-bold">{fullName}</h3>
+                        <h3 className="text-sm font-bold">{fullName}</h3>
                         <p className="text-xs opacity-75 mt-0.5">
                           {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
                         </p>
@@ -1045,8 +1046,8 @@ export default function ResidentDashboard({ onNavigate }) {
 
                       {/* Estado limpio de contacto y confirmación */}
                       <div
-                        className="rounded-xl p-3 text-xs space-y-2 border border-slate-800/60"
-                        style={innerStyle}
+                        className="rounded-xl p-3 text-xs space-y-1.5 border border-white/10"
+                        style={cardStyle}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-semibold opacity-80">Estado de visita:</span>
@@ -1063,13 +1064,13 @@ export default function ResidentDashboard({ onNavigate }) {
                     </div>
 
                     {/* Acciones: Solicitar Visita / Ir a 2. Visitas + Generar QR */}
-                    <div className="pt-2 border-t border-slate-800/70 flex flex-wrap items-center justify-between gap-2">
+                    <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
                       {activeVisit ? (
                         <button
                           type="button"
                           onClick={() => setActiveStep('visits')}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
-                          style={innerStyle}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                          style={cardStyle}
                         >
                           <Calendar size={13} className="text-emerald-400" />
                           <span>Ir a 2. Visitas</span>
@@ -1078,8 +1079,8 @@ export default function ResidentDashboard({ onNavigate }) {
                         <button
                           type="button"
                           onClick={() => openVisitModalForProvider(provider)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-bold border border-slate-700/80 transition-opacity hover:opacity-90 cursor-pointer"
-                          style={innerStyle}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                          style={cardStyle}
                         >
                           <MessageSquare size={13} />
                           <span>Solicitar Visita</span>
@@ -1095,7 +1096,7 @@ export default function ResidentDashboard({ onNavigate }) {
                             preferredDate: activeVisit?.preferred_date,
                           })
                         }
-                        className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
                         style={{ backgroundColor: primaryColor }}
                       >
                         <QrCode size={14} />
@@ -1112,10 +1113,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
       {/* PASO 2: VISITAS — CONFIRMACIÓN BIDIRECCIONAL Y SEGUIMIENTO */}
       {activeStep === 'visits' && (
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1130,7 +1128,7 @@ export default function ResidentDashboard({ onNavigate }) {
             <button
               type="button"
               onClick={fetchMyVisits}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 cursor-pointer self-start sm:self-auto"
+              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer self-start sm:self-auto"
               style={innerStyle}
             >
               <RefreshCw size={14} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
@@ -1141,7 +1139,7 @@ export default function ResidentDashboard({ onNavigate }) {
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas...</p>
           ) : myVisits.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60 space-y-2"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10 space-y-2"
               style={innerStyle}
             >
               <p className="font-bold">Todavía no coordinaste visitas con prestadores.</p>
@@ -1155,7 +1153,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </button>
             </div>
           ) : (
-            <div className="space-y-3.5">
+            <div className={ITEMS_GRID_CLASS}>
               {myVisits.map((visit) => {
                 const meta = getVisitStatusMeta(visit);
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
@@ -1171,78 +1169,84 @@ export default function ResidentDashboard({ onNavigate }) {
                 return (
                   <article
                     key={visit.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-sm">
-                          Visita #{visit.id} · {visit.provider_name || `Prestador #${visit.provider_id}`}
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-sm">
+                            Visita #{visit.id} · {visit.provider_name || `Prestador #${visit.provider_id}`}
+                          </span>
+                          <p className="opacity-80 mt-0.5">
+                            Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
+                            Horario: {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${meta.badgeClass}`}
+                        >
+                          {meta.label}
                         </span>
-                        <p className="opacity-80 mt-0.5">
-                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
-                          Horario propuesto: {visit.preferred_date || 'A convenir'}
-                        </p>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${meta.badgeClass}`}
-                      >
-                        {meta.label}
-                      </span>
+
+                      {msgs.length > 0 && (
+                        <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto">
+                          {msgs.map((m, idx) => (
+                            <p key={m.id || idx} className="text-xs">
+                              <strong className="uppercase text-[10px] opacity-75 mr-1.5">
+                                {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
+                              </strong>
+                              <span>{m.text}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
-                    {msgs.length > 0 && (
-                      <div className="rounded-lg p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
-                        {msgs.map((m, idx) => (
-                          <p key={m.id || idx} className="text-xs">
-                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
-                              {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
-                            </strong>
-                            <span>{m.text}</span>
-                          </p>
-                        ))}
+                    <div className="pt-3 border-t border-white/10 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={followupDrafts[visit.id] || ''}
+                          onChange={(e) =>
+                            setFollowupDrafts((prev) => ({
+                              ...prev,
+                              [visit.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Escribí un mensaje para coordinar horario..."
+                          className={`flex-1 ${FIELD_INPUT_CLASS}`}
+                          style={cardStyle}
+                        />
+
+                        <button
+                          type="button"
+                          disabled={sendingFollowupId === visit.id}
+                          onClick={() => handleSendFollowupMessage(visit.id)}
+                          className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer shrink-0"
+                          style={cardStyle}
+                        >
+                          <Send size={13} /> Enviar
+                        </button>
                       </div>
-                    )}
 
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                      <input
-                        type="text"
-                        value={followupDrafts[visit.id] || ''}
-                        onChange={(e) =>
-                          setFollowupDrafts((prev) => ({
-                            ...prev,
-                            [visit.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Escribí un mensaje para coordinar horario..."
-                        className="flex-1 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                        style={cardStyle}
-                      />
-
-                      <button
-                        type="button"
-                        disabled={sendingFollowupId === visit.id}
-                        onClick={() => handleSendFollowupMessage(visit.id)}
-                        className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-700/80 cursor-pointer"
-                        style={cardStyle}
-                      >
-                        <Send size={13} /> Enviar
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openQrModalForProvider(matchedProvider, {
-                            fraction: visit.fraction_number,
-                            lot: visit.lot_number,
-                            preferredDate: visit.preferred_date,
-                          })
-                        }
-                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        <QrCode size={14} /> Emitir Pase QR
-                      </button>
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openQrModalForProvider(matchedProvider, {
+                              fraction: visit.fraction_number,
+                              lot: visit.lot_number,
+                              preferredDate: visit.preferred_date,
+                            })
+                          }
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <QrCode size={14} /> Emitir Pase QR
+                        </button>
+                      </div>
                     </div>
                   </article>
                 );
@@ -1254,10 +1258,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
       {/* PASO 3: PASES QR EMITIDOS */}
       {activeStep === 'passes' && (
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1265,7 +1266,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 <span>Mis Pases QR Emitidos</span>
               </h2>
               <p className="text-xs opacity-75">
-                Consultá el estado de tus autorizaciones, copiá el token o cancelá pases pendientes.
+                Consultá el estado de tus autorizaciones, compartí el QR vigente o cancelá pases pendientes.
               </p>
             </div>
 
@@ -1278,7 +1279,7 @@ export default function ResidentDashboard({ onNavigate }) {
                   setPassesPage(1);
                 }}
                 placeholder="Buscar por prestador, lote o token..."
-                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                className={`w-full sm:w-64 ${FIELD_INPUT_CLASS}`}
                 style={innerStyle}
               />
               <select
@@ -1287,11 +1288,11 @@ export default function ResidentDashboard({ onNavigate }) {
                   setPassStatusFilter(e.target.value);
                   setPassesPage(1);
                 }}
-                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                className={FIELD_INPUT_CLASS}
                 style={innerStyle}
               >
                 <option value="all">Todos los estados</option>
-                <option value="pending">Pendiente</option>
+                <option value="pending">Vigente</option>
                 <option value="used">Utilizado</option>
                 <option value="expired">Vencido</option>
                 <option value="cancelled">Cancelado</option>
@@ -1320,124 +1321,136 @@ export default function ResidentDashboard({ onNavigate }) {
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR...</p>
           ) : paginatedPasses.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
               style={innerStyle}
             >
               No hay pases QR que coincidan con el filtro seleccionado.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className={ITEMS_GRID_CLASS}>
               {paginatedPasses.map((item) => {
                 const isPending = String(item.status || '').toLowerCase() === 'pending';
+                const statusMeta = getUnifiedStatusMeta(item.status, 'pass');
                 return (
                   <div
                     key={item.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold">
-                        Pase #{item.id} · {item.provider_name || `Prestador #${item.provider_id}`}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${getPassStatusBadge(
-                          item.status
-                        )}`}
-                      >
-                        {item.status}
-                      </span>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold">
+                          Pase #{item.id} · {item.provider_name || `Prestador #${item.provider_id}`}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      </div>
+
+                      <p className="text-xs opacity-80">
+                        Destino: {item.fraction_number || 'Sin fracción'} /{' '}
+                        {item.lot_number || 'Sin lote'}
+                      </p>
+                      <p className="text-xs opacity-80 flex items-center gap-1.5">
+                        <Car size={12} className="text-sky-400 shrink-0" />
+                        <span>Acceso: {item.vehicle_plate || 'Ingreso peatonal'}</span>
+                      </p>
+                      {Array.isArray(item.authorized_employees) && item.authorized_employees.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                          <span className="text-[11px] font-semibold opacity-80 inline-flex items-center gap-1">
+                            <Users size={11} className="text-emerald-400 shrink-0" /> Cuadrilla:
+                          </span>
+                          {item.authorized_employees.map((emp) => (
+                            <span
+                              key={emp.id || emp.dni || emp.full_name}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
+                            >
+                              {emp.full_name}
+                              {emp.dni ? ` · DNI ${emp.dni}` : ''}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-[11px] opacity-75">
+                        Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
+                        {formatLocalDateTime(item.end_time)}
+                      </p>
                     </div>
 
-                    <p className="text-xs opacity-80">
-                      Destino: {item.fraction_number || 'Sin fracción'} /{' '}
-                      {item.lot_number || 'Sin lote'}
-                    </p>
-                    <p className="text-xs opacity-80 flex items-center gap-1.5">
-                      <Car size={12} className="text-sky-400 shrink-0" />
-                      <span>Acceso: {item.vehicle_plate || 'Ingreso peatonal'}</span>
-                    </p>
-                    {Array.isArray(item.authorized_employees) && item.authorized_employees.length > 0 && (
-                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                        <span className="text-[11px] font-semibold opacity-80 inline-flex items-center gap-1">
-                          <Users size={11} className="text-emerald-400 shrink-0" /> Cuadrilla:
-                        </span>
-                        {item.authorized_employees.map((emp) => (
-                          <span
-                            key={emp.id || emp.dni || emp.full_name}
-                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
-                          >
-                            {emp.full_name}
-                            {emp.dni ? ` · DNI ${emp.dni}` : ''}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[11px] opacity-75">
-                      Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
-                      {formatLocalDateTime(item.end_time)}
-                    </p>
-
-                    {item.qr_token && (
-                      <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
-                        <code className="text-[11px] truncate">{item.qr_token}</code>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyToken(item.qr_token, item.id)}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                          >
-                            {copiedTokenId === item.id ? (
+                    <div className="space-y-2.5 pt-2 border-t border-white/10">
+                      {item.qr_token && (
+                        <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10">
+                          <code className="text-[11px] truncate opacity-85">{item.qr_token}</code>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleCopyToken(item.qr_token, item.id)}
+                              className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                            >
+                              {copiedTokenId === item.id ? (
+                                <>
+                                  <Check size={12} className="text-emerald-400" /> Copiado
+                                </>
+                              ) : (
+                                <>
+                                  <Copy size={12} /> Copiar
+                                </>
+                              )}
+                            </button>
+                            {isPending && (
                               <>
-                                <Check size={12} className="text-emerald-400" /> Copiado
-                              </>
-                            ) : (
-                              <>
-                                <Copy size={12} /> Copiar
+                                <button
+                                  type="button"
+                                  onClick={() => setViewingQrPass(item)}
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                                  title="Mostrar código QR escaneable"
+                                >
+                                  <QrCode size={12} /> Ver QR
+                                </button>
+                                <a
+                                  href={buildPassWhatsAppUrl(item)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-emerald-700/90 hover:bg-emerald-600 text-white"
+                                  title="Compartir pase QR y cuadrilla por WhatsApp"
+                                >
+                                  <Share2 size={12} /> WhatsApp
+                                </a>
                               </>
                             )}
+                          </div>
+                        </div>
+                      )}
+
+                      {isPending ? (
+                        <div className="flex items-center justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => openEditPassModal(item)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
+                          >
+                            <Edit3 size={13} />
+                            Editar pase
                           </button>
                           <button
                             type="button"
-                            onClick={() => setViewingQrPass(item)}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                            title="Mostrar código QR escaneable"
+                            disabled={cancellingPassId === item.id}
+                            onClick={() => handleCancelPass(item.id)}
+                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-300 hover:text-rose-200 cursor-pointer disabled:opacity-50"
                           >
-                            <QrCode size={12} /> Ver QR
+                            <Ban size={13} />
+                            {cancellingPassId === item.id ? 'Cancelando...' : 'Cancelar pase'}
                           </button>
-                          <a
-                            href={buildPassWhatsAppUrl(item)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-emerald-700/90 hover:bg-emerald-600 text-white"
-                            title="Compartir pase QR y cuadrilla por WhatsApp"
-                          >
-                            <Share2 size={12} /> WhatsApp
-                          </a>
                         </div>
-                      </div>
-                    )}
-
-                    {isPending && (
-                      <div className="pt-1 flex items-center justify-end gap-3">
-                        <button
-                          type="button"
-                          onClick={() => openEditPassModal(item)}
-                          className="inline-flex items-center gap-1 text-xs font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
-                        >
-                          <Edit3 size={13} />
-                          Editar pase
-                        </button>
-                        <button
-                          type="button"
-                          disabled={cancellingPassId === item.id}
-                          onClick={() => handleCancelPass(item.id)}
-                          className="inline-flex items-center gap-1 text-xs font-bold text-rose-300 hover:text-rose-200 cursor-pointer disabled:opacity-50"
-                        >
-                          <Ban size={13} />
-                          {cancellingPassId === item.id ? 'Cancelando...' : 'Cancelar pase'}
-                        </button>
-                      </div>
-                    )}
+                      ) : (
+                        <div className="flex items-center justify-between text-[11px] opacity-65">
+                          <span>Pase histórico ({statusMeta.label.toLowerCase()})</span>
+                          <span>Solo consulta</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1477,10 +1490,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
       {/* PASO 4: VISITAS Y PAGOS */}
       {activeStep === 'payments' && (
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div>
             <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
               <CreditCard size={18} className="text-emerald-400 shrink-0" />
@@ -1507,70 +1517,76 @@ export default function ResidentDashboard({ onNavigate }) {
             <p className="text-xs opacity-75 py-8 text-center">Cargando contratos y pagos...</p>
           ) : contracts.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
               style={innerStyle}
             >
-              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 3 o abrir la
-              vista completa de Pagos y Reseñas.
+              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 3 o abrir Pagos y Reseñas en el menú superior.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className={ITEMS_GRID_CLASS}>
               {contracts.map((contract) => {
                 const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
                 const feeAmount = Number((totalAmount * 0.07).toFixed(2));
                 const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
                 const isPending = String(contract.status || '').toLowerCase() === 'pending';
+                const statusMeta = getUnifiedStatusMeta(contract.status, 'contract');
 
                 return (
                   <div
                     key={contract.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-3"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-bold">
-                        Contrato #{contract.id} ·{' '}
-                        {contract.provider_name || `Prestador #${contract.provider_id}`}
-                      </span>
-                      <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-slate-700">
-                        {contract.status}
-                      </span>
-                    </div>
-
-                    {contract.description && (
-                      <p className="text-xs opacity-85">{contract.description}</p>
-                    )}
-
-                    <div className="text-xs space-y-1 pt-2 border-t border-slate-800/70">
-                      <div className="flex justify-between">
-                        <span className="opacity-75">Monto acordado:</span>
-                        <span className="font-bold">${totalAmount.toLocaleString('es-AR')}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-75">Comisión TrustLink (7%):</span>
-                        <span>${feeAmount.toLocaleString('es-AR')}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="opacity-75">Neto prestador (93%):</span>
-                        <span className="font-semibold text-emerald-400">
-                          ${payoutAmount.toLocaleString('es-AR')}
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-bold">
+                          Contrato #{contract.id} ·{' '}
+                          {contract.provider_name || `Prestador #${contract.provider_id}`}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                        >
+                          {statusMeta.label}
                         </span>
                       </div>
+
+                      {contract.description && (
+                        <p className="text-xs opacity-85">{contract.description}</p>
+                      )}
                     </div>
 
-                    {isPending && (
-                      <button
-                        type="button"
-                        disabled={payingContractId === contract.id}
-                        onClick={() => handlePayContract(contract.id)}
-                        className="w-full py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        {payingContractId === contract.id
-                          ? 'Procesando pago...'
-                          : 'Confirmar y Pagar'}
-                      </button>
-                    )}
+                    <div className="space-y-3 pt-2 border-t border-white/10">
+                      <div className="text-xs space-y-1">
+                        <div className="flex justify-between">
+                          <span className="opacity-75">Monto acordado:</span>
+                          <span className="font-bold font-mono">${totalAmount.toLocaleString('es-AR')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-75">Comisión TrustLink (7%):</span>
+                          <span className="font-mono">${feeAmount.toLocaleString('es-AR')}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="opacity-75">Neto prestador (93%):</span>
+                          <span className="font-semibold font-mono text-emerald-400">
+                            ${payoutAmount.toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                      </div>
+
+                      {isPending && (
+                        <button
+                          type="button"
+                          disabled={payingContractId === contract.id}
+                          onClick={() => handlePayContract(contract.id)}
+                          className="w-full py-2 rounded-xl text-xs font-bold text-white transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          {payingContractId === contract.id
+                            ? 'Procesando pago...'
+                            : 'Confirmar y Pagar'}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -1581,10 +1597,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
       {/* PASO 5: RESEÑAS */}
       {activeStep === 'reviews' && (
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div>
             <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
               <MessageSquare size={18} className="text-emerald-400 shrink-0" />
@@ -1611,48 +1624,58 @@ export default function ResidentDashboard({ onNavigate }) {
             <p className="text-xs opacity-75 py-8 text-center">Cargando reseñas...</p>
           ) : reviewContracts.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/60"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
               style={innerStyle}
             >
               Todavía no tenés contratos habilitados para calificar.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className={ITEMS_GRID_CLASS}>
               {reviewContracts.map((item) => {
                 const cid = item.contract_id ?? item.id;
                 const providerDisplay =
                   `${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
                   item.provider_name ||
                   `Prestador #${item.provider_id}`;
-                const statusDisplay = item.contract_status || item.status || 'pending';
+                const statusMeta = getUnifiedStatusMeta(
+                  item.contract_status || item.status || 'pending',
+                  'contract'
+                );
                 const alreadyRatedProvider = Boolean(item.provider_review_rating);
 
                 return (
                   <div
                     key={cid}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-3"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="text-xs font-bold">
-                        Servicio #{cid} · {providerDisplay}
-                      </span>
-                      <span className="text-[11px] opacity-75">Estado: {statusDisplay}</span>
+                    <div className="space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-sm font-bold">
+                          Servicio #{cid} · {providerDisplay}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                        >
+                          {statusMeta.label}
+                        </span>
+                      </div>
+
+                      {item.description && <p className="text-xs opacity-80">{item.description}</p>}
+
+                      {item.owner_review_rating && (
+                        <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                          <span className="font-bold text-emerald-300">
+                            Reseña del prestador: ★ {item.owner_review_rating}/5
+                          </span>
+                          {item.owner_review_comment && (
+                            <p className="opacity-85 mt-0.5">“{item.owner_review_comment}”</p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
-                    {item.description && <p className="text-xs opacity-80">{item.description}</p>}
-
-                    {item.owner_review_rating && (
-                      <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
-                        <span className="font-bold text-emerald-300">
-                          Reseña del prestador: ★ {item.owner_review_rating}/5
-                        </span>
-                        {item.owner_review_comment && (
-                          <p className="opacity-85 mt-0.5">“{item.owner_review_comment}”</p>
-                        )}
-                      </div>
-                    )}
-
+                    <div className="pt-2 border-t border-white/10">
                     {alreadyRatedProvider ? (
                       <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
                         <span className="font-bold text-emerald-300">
@@ -1707,6 +1730,7 @@ export default function ResidentDashboard({ onNavigate }) {
                         </button>
                       </div>
                     )}
+                    </div>
                   </div>
                 );
               })}

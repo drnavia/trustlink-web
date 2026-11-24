@@ -253,13 +253,13 @@ function MainAppContent() {
     >
       {/* ZONA 1: Barra de Navegación Superior (Adaptable Web y Celular) */}
       <header
-        className="border-b border-black/20 px-3 py-2.5 md:px-6 md:py-3 sticky top-0 z-40 shadow-lg"
+        className="border-b border-black/20 px-4 sm:px-6 py-2.5 md:py-3 sticky top-0 z-40 shadow-lg"
         style={{
           backgroundColor: brand?.menuBgColor || '#020617',
           color: brand?.menuTextColor || '#E2E8F0',
         }}
       >
-        <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
+        <div className="max-w-6xl w-full mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
           {/* Fila superior en móvil / Izquierda en web: Marca + Identidad del Usuario Logueado */}
           <div className="flex items-center justify-between gap-2 min-w-0">
             {/* Marca / Logo */}
@@ -510,13 +510,13 @@ function MainAppContent() {
       {/* ZONA 2: Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
       {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
-          className="border-b border-black/20 px-3 py-2 md:px-6"
+          className="border-b border-black/20 px-4 sm:px-6 py-2"
           style={{
             backgroundColor: brand?.submenuBgColor || '#090D16',
             color: brand?.submenuTextColor || '#CBD5E1',
           }}
         >
-          <div className="max-w-7xl mx-auto flex items-center justify-between gap-3 overflow-x-auto md:flex-wrap text-xs">
+          <div className="max-w-6xl w-full mx-auto flex items-center justify-between gap-3 overflow-x-auto md:flex-wrap text-xs">
             <span className="font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
               <Layers size={13} /> Gobernanza Central Superadmin
             </span>

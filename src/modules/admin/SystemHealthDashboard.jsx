@@ -1030,11 +1030,11 @@ export default function SystemHealthDashboard() {
     allCountriesOptions.length > 0 ? allCountriesOptions : countries;
 
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-6xl mx-auto space-y-6">
+    <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 flex-1">
+      <main className="space-y-6">
         {/* Cabecera con selector de pestañas: Resumen, Endpoints y Auditoría */}
         <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+          className="border border-white/10 p-5 sm:p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4"
           style={cardStyle}
         >
           <div className="flex items-center gap-3.5">

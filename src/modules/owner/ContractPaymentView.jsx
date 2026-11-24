@@ -23,7 +23,14 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
+import {
+  PAGE_SHELL_CLASS,
+  SECTION_CARD_CLASS,
+  ITEMS_GRID_CLASS,
+  ITEM_CARD_CLASS,
+  getUnifiedStatusMeta,
+} from '../../config/uiTokens';
 
 /* const API_BASE = 'http://localhost:4000'; */
 const PLATFORM_FEE_RATE = 0.07;
@@ -279,11 +286,11 @@ export default function ContractPaymentView({ onViewChange }) {
     'text-[11px] font-semibold px-3 py-1 rounded-full border border-white/15 shrink-0';
 
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-6xl mx-auto space-y-6">
+    <div className={`${PAGE_SHELL_CLASS} flex-1`}>
+      <main className="space-y-6">
         {/* Bloque 1: Presupuesto y Orden de Pago */}
         <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          className={SECTION_CARD_CLASS}
           style={cardStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
@@ -365,7 +372,7 @@ export default function ContractPaymentView({ onViewChange }) {
               )}
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className={ITEMS_GRID_CLASS}>
               {contracts.map((contract) => {
                 const agreed = Number(contract.agreed_amount || 0);
                 const platformFee = Number((agreed * PLATFORM_FEE_RATE).toFixed(2));
@@ -374,61 +381,63 @@ export default function ContractPaymentView({ onViewChange }) {
                   contract.provider_name ||
                   `${contract.first_name || ''} ${contract.last_name || ''}`.trim() ||
                   'Prestador Verificado';
+                const statusMeta = getUnifiedStatusMeta(contract.status, 'contract');
 
                 return (
                   <div
                     key={contract.id}
-                    className="p-4 rounded-xl border border-black/20 space-y-3 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <div>
-                        <span className="font-mono font-bold text-emerald-400">
-                          Contrato #{contract.id}
-                        </span>{' '}
-                        · <span className="font-bold">{providerName}</span>{' '}
-                        <span className="opacity-75">({contract.specialty || 'Servicio'})</span>
-                        <p className="opacity-80 mt-1">{contract.description}</p>
+                    <div className="space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <span className="font-mono font-bold text-emerald-400">
+                            Contrato #{contract.id}
+                          </span>{' '}
+                          · <span className="font-bold text-sm">{providerName}</span>{' '}
+                          <span className="opacity-75">({contract.specialty || 'Servicio'})</span>
+                          <p className="opacity-80 mt-1">{contract.description}</p>
+                        </div>
+                        <span
+                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                        >
+                          {statusMeta.label}
+                        </span>
                       </div>
-                      <span
-                        className="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-white/15 self-start"
-                        style={cardStyle}
-                      >
-                        Estado: {contract.status}
-                      </span>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                        <div
+                          className="p-2.5 rounded-lg border border-white/10"
+                          style={cardStyle}
+                        >
+                          <div className="text-[10px] opacity-75">Acordado (100%)</div>
+                          <div className="font-mono font-bold text-xs mt-0.5">
+                            ${agreed.toLocaleString('es-AR')}
+                          </div>
+                        </div>
+                        <div
+                          className="p-2.5 rounded-lg border border-white/10"
+                          style={cardStyle}
+                        >
+                          <div className="text-[10px] opacity-75">Comisión (7%)</div>
+                          <div className="font-mono font-bold text-xs text-amber-300 mt-0.5">
+                            ${platformFee.toLocaleString('es-AR')}
+                          </div>
+                        </div>
+                        <div
+                          className="p-2.5 rounded-lg border border-white/10"
+                          style={cardStyle}
+                        >
+                          <div className="text-[10px] opacity-75">Neto (93%)</div>
+                          <div className="font-mono font-bold text-xs text-emerald-300 mt-0.5">
+                            ${providerPayout.toLocaleString('es-AR')}
+                          </div>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                      <div
-                        className="p-3 rounded-lg border border-white/10"
-                        style={cardStyle}
-                      >
-                        <div className="text-[10px] opacity-75">Monto Acordado (100%)</div>
-                        <div className="font-mono font-bold text-sm mt-0.5">
-                          ${agreed.toLocaleString('es-AR')}
-                        </div>
-                      </div>
-                      <div
-                        className="p-3 rounded-lg border border-white/10"
-                        style={cardStyle}
-                      >
-                        <div className="text-[10px] opacity-75">Comisión TrustLink (7%)</div>
-                        <div className="font-mono font-bold text-sm text-amber-300 mt-0.5">
-                          ${platformFee.toLocaleString('es-AR')}
-                        </div>
-                      </div>
-                      <div
-                        className="p-3 rounded-lg border border-white/10"
-                        style={cardStyle}
-                      >
-                        <div className="text-[10px] opacity-75">Neto Prestador (93%)</div>
-                        <div className="font-mono font-bold text-sm text-emerald-300 mt-0.5">
-                          ${providerPayout.toLocaleString('es-AR')}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-end pt-1">
+                    <div className="flex justify-end pt-2 border-t border-white/10">
                       <button
                         type="button"
                         disabled={payingId === contract.id}
@@ -523,7 +532,7 @@ export default function ContractPaymentView({ onViewChange }) {
 
         {/* Bloque 2: Reseñas y Reputación Cruzada */}
         <section
-          className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-5"
+          className={SECTION_CARD_CLASS}
           style={cardStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-black/20 pb-4">
@@ -576,7 +585,7 @@ export default function ContractPaymentView({ onViewChange }) {
               Aún no tenés contratos registrados para emitir o consultar reseñas.
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className={ITEMS_GRID_CLASS}>
               {reviewContracts.map((item) => {
                 const currentDraftRating = ratingDrafts[item.contract_id] || 5;
                 const currentDraftComment = commentDrafts[item.contract_id] || '';
@@ -588,7 +597,7 @@ export default function ContractPaymentView({ onViewChange }) {
                 return (
                   <div
                     key={item.contract_id}
-                    className="p-4 rounded-xl border border-black/20 space-y-2.5 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">

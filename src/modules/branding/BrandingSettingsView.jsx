@@ -469,10 +469,10 @@ export default function BrandingSettingsView() {
     (formState.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle;
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 font-sans">
+    <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans">
       <form
         onSubmit={handleSave}
-        className="w-full p-6 md:p-8 rounded-2xl border border-black/20 space-y-6"
+        className="w-full p-5 sm:p-6 md:p-8 rounded-2xl border border-white/10 shadow-sm space-y-6"
         style={cardStyle}
       >
         {/* Encabezado */}

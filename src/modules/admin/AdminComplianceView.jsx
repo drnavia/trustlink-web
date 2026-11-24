@@ -17,7 +17,14 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
+import {
+  PAGE_SHELL_CLASS,
+  SECTION_CARD_CLASS,
+  ITEMS_GRID_CLASS,
+  ITEM_CARD_CLASS,
+  getUnifiedStatusMeta,
+} from '../../config/uiTokens';
 
 /* const API_BASE = 'http://localhost:4000'; */
 
@@ -101,10 +108,10 @@ export default function AdminComplianceView() {
   };
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6">
+    <div className={PAGE_SHELL_CLASS}>
       {/* Zona 4: Encabezado Compliance Prestadores */}
       <section
-        className="p-6 rounded-2xl border border-black/20 flex flex-col md:flex-row md:items-center justify-between gap-4"
+        className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4"
         style={cardStyle}
       >
         <div className="flex items-center gap-3">
@@ -157,10 +164,10 @@ export default function AdminComplianceView() {
 
       {/* Zona 4: Listado de Prestadores */}
       <section
-        className="p-6 rounded-2xl border border-black/20 space-y-4"
+        className={SECTION_CARD_CLASS}
         style={cardStyle}
       >
-        <div className="flex items-center justify-between border-b border-black/20 pb-3.5">
+        <div className="flex items-center justify-between border-b border-white/10 pb-3.5">
           <h3 className="text-sm font-bold flex items-center gap-2">
             <ShieldCheck size={17} className="text-emerald-400" /> Prestadores registrados
           </h3>
@@ -169,52 +176,49 @@ export default function AdminComplianceView() {
 
         {loading ? (
           <div
-            className="text-center py-10 rounded-xl border border-black/20 text-xs"
+            className="text-center py-10 rounded-xl border border-white/10 text-xs"
             style={innerStyle}
           >
             Cargando prestadores desde PostgreSQL...
           </div>
         ) : providers.length === 0 ? (
           <div
-            className="text-center py-10 rounded-xl border border-black/20 text-xs opacity-80"
+            className="text-center py-10 rounded-xl border border-white/10 text-xs opacity-80"
             style={innerStyle}
           >
             No hay prestadores registrados en la red todavía.
           </div>
         ) : (
-          <div className="space-y-3.5">
+          <div className={ITEMS_GRID_CLASS}>
             {providers.map((p) => {
               const rowKey = p.provider_id || p.user_id || p.email;
               const targetProviderId = p.provider_id;
               const currentStatus = p.status || 'sin_perfil';
+              const statusMeta = getUnifiedStatusMeta(currentStatus, 'compliance');
 
               return (
                 <div
                   key={rowKey}
-                  className="p-4 rounded-xl border border-black/20 flex flex-col lg:flex-row lg:items-center justify-between gap-4 text-xs"
+                  className={ITEM_CARD_CLASS}
                   style={innerStyle}
                 >
                   <div className="space-y-1.5">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="text-sm font-bold">
                         {p.first_name} {p.last_name}
                       </span>
                       <span
-                        className="text-[11px] font-bold px-2.5 py-0.5 rounded-lg border border-white/15"
+                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    <div>
+                      <span
+                        className="inline-block text-[11px] font-bold px-2.5 py-0.5 rounded-lg border border-white/15"
                         style={cardStyle}
                       >
                         {p.specialty || 'Sin especialidad cargada'}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
-                          currentStatus === 'approved'
-                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700'
-                            : currentStatus === 'rejected'
-                            ? 'bg-rose-950/80 text-rose-300 border-rose-700'
-                            : 'bg-amber-950/80 text-amber-300 border-amber-700'
-                        }`}
-                      >
-                        {currentStatus}
                       </span>
                     </div>
 
@@ -265,7 +269,7 @@ export default function AdminComplianceView() {
                   </div>
 
                   {targetProviderId ? (
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-white/10 shrink-0">
                       <button
                         type="button"
                         onClick={() => handleUpdateStatus(targetProviderId, 'approved')}
@@ -285,9 +289,11 @@ export default function AdminComplianceView() {
                       </button>
                     </div>
                   ) : (
-                    <span className="text-[11px] opacity-75 italic">
-                      Aún no completó perfil de compliance
-                    </span>
+                    <div className="pt-3 border-t border-white/10">
+                      <span className="text-[11px] opacity-75 italic">
+                        Aún no completó perfil de compliance
+                      </span>
+                    </div>
                   )}
                 </div>
               );

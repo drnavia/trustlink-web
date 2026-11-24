@@ -25,7 +25,8 @@ import {
   Flashlight,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
+import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
 
 /* const API_BASE = 'http://localhost:4000'; */
 
@@ -349,11 +350,11 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     details;
 
   return (
-    <div className="p-6 md:p-8 flex-1">
-      <main className="max-w-4xl mx-auto space-y-6">
+    <div className={`${PAGE_SHELL_CLASS} flex-1`}>
+      <main className="space-y-6">
         {/* Tarjeta principal con ícono sobrio alineado a la izquierda del título */}
         <section
-          className="border border-black/20 p-6 md:p-8 rounded-2xl shadow-sm space-y-6"
+          className={`${SECTION_CARD_CLASS} md:p-8 space-y-6`}
           style={cardStyle}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

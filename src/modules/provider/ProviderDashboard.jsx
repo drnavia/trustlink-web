@@ -39,6 +39,14 @@ import {
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import {
+  PAGE_SHELL_CLASS,
+  SECTION_CARD_CLASS,
+  ITEMS_GRID_CLASS,
+  ITEM_CARD_CLASS,
+  formatDateTimeAR,
+  getUnifiedStatusMeta,
+} from '../../config/uiTokens';
 
 const PASSES_PER_PAGE = 6;
 
@@ -105,23 +113,6 @@ function toDateInputValue(dateStr) {
   const parsed = new Date(dateStr);
   if (Number.isNaN(parsed.getTime())) return '';
   return parsed.toISOString().slice(0, 10);
-}
-
-function getPassStatusBadge(status) {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'pending') {
-    return 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60';
-  }
-  if (normalized === 'used') {
-    return 'bg-sky-950/80 text-sky-300 border-sky-700/60';
-  }
-  if (normalized === 'expired') {
-    return 'bg-amber-950/80 text-amber-300 border-amber-700/60';
-  }
-  if (normalized === 'cancelled') {
-    return 'bg-rose-950/80 text-rose-300 border-rose-700/60';
-  }
-  return 'bg-slate-800 text-slate-300 border-slate-700';
 }
 
 function getPassStatusLabel(status) {
@@ -1105,10 +1096,10 @@ export default function ProviderDashboard() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6">
+    <div className={PAGE_SHELL_CLASS}>
       {/* Cabecera principal alineada estéticamente con Portal Residente */}
       <div
-        className="rounded-2xl p-5 sm:p-6 border border-slate-800/80 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         style={cardStyle}
       >
         <div className="space-y-1">
@@ -1274,9 +1265,9 @@ export default function ProviderDashboard() {
         </div>
       ) : activeStep === 'credentials' ? (
         /* 1. CREDENCIALES */
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        <div className={ITEMS_GRID_CLASS}>
           <section
-            className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
+            className={`${SECTION_CARD_CLASS} h-full`}
             style={cardStyle}
           >
             <div className="flex items-center justify-between gap-3">
@@ -2355,13 +2346,13 @@ export default function ProviderDashboard() {
               Sin bloques registrados todavía. Las visitas confirmadas o pases QR emitidos también se reflejarán aquí automáticamente.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className={ITEMS_GRID_CLASS}>
               {scheduleBlocks.map((blk) => {
                 const isManualBlock = !blk.source_ref;
                 return (
                   <div
                     key={blk.id}
-                    className="p-4 rounded-xl border border-slate-800/70 space-y-2 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -2429,7 +2420,7 @@ export default function ProviderDashboard() {
               Todavía no tenés solicitudes de visita pendientes de coordinación.
             </div>
           ) : (
-            <div className="space-y-3.5">
+            <div className={ITEMS_GRID_CLASS}>
               {incomingVisits.map((visit) => {
                 const statusLower = String(visit.status || '').toLowerCase();
                 const isConfirmed = statusLower === 'confirmed';
@@ -2438,7 +2429,7 @@ export default function ProviderDashboard() {
                 return (
                   <article
                     key={visit.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-3 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -2448,7 +2439,7 @@ export default function ProviderDashboard() {
                         </span>
                         <p className="opacity-80 mt-0.5">
                           Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
-                          Horario propuesto: {visit.preferred_date || 'A convenir'}
+                          Horario: {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
                         </p>
                       </div>
                       <span
@@ -2606,18 +2597,19 @@ export default function ProviderDashboard() {
               No hay pases QR registrados para tu perfil con los filtros actuales.
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className={ITEMS_GRID_CLASS}>
               {paginatedPasses.map((passItem) => {
                 const ownerLabel =
                   `${passItem.owner_first_name || ''} ${passItem.owner_last_name || ''}`.trim() ||
                   passItem.authorized_by ||
                   'Residente';
                 const plateLabel = passItem.vehicle_plate || passItem.plate || 'Ingreso peatonal';
+                const statusMeta = getUnifiedStatusMeta(passItem.status, 'pass');
 
                 return (
                   <article
                     key={passItem.id}
-                    className="rounded-xl p-4 border border-slate-800/70 space-y-2.5 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -2626,11 +2618,9 @@ export default function ProviderDashboard() {
                         <p className="opacity-80 mt-0.5">Autorizó: {ownerLabel}</p>
                       </div>
                       <span
-                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${getPassStatusBadge(
-                          passItem.status
-                        )}`}
+                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
                       >
-                        {getPassStatusLabel(passItem.status)}
+                        {statusMeta.label}
                       </span>
                     </div>
 
@@ -2769,29 +2759,35 @@ export default function ProviderDashboard() {
               Aún no tenés contratos asignados en tu historial.
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className={ITEMS_GRID_CLASS}>
               {reviewContracts.map((item) => {
                 const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
                 const commentDraft = ownerCommentDrafts[item.contract_id] || '';
                 const alreadyRatedOwner = Boolean(item.owner_review_id);
+                const statusMeta = getUnifiedStatusMeta(
+                  item.contract_status || item.status,
+                  'contract'
+                );
 
                 return (
                   <div
                     key={item.contract_id}
-                    className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
+                    className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold">
+                        <span className="font-bold text-sm">
                           Contrato #{item.contract_id} ·{' '}
                           {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
                             item.owner_name ||
                             'Residente Verificado'}
                         </span>
                       </div>
-                      <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700">
-                        {item.contract_status || item.status}
+                      <span
+                        className={`uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                      >
+                        {statusMeta.label}
                       </span>
                     </div>
 

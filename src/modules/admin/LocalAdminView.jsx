@@ -20,7 +20,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
+import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
 
 /* const API_BASE = 'http://localhost:4000'; */
 
@@ -197,10 +198,10 @@ export default function LocalAdminView() {
   };
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 md:px-8 py-6 space-y-6 font-sans">
+    <div className={`${PAGE_SHELL_CLASS} font-sans`}>
       {/* Zona 4: Encabezado Vista Admin Barrio */}
       <section
-        className="border border-black/20 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4"
+        className="border border-white/10 p-5 sm:p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm"
         style={cardStyle}
       >
         <div className="flex items-center gap-3">
@@ -242,7 +243,7 @@ export default function LocalAdminView() {
 
       {/* Zona 4: Formulario de reporte / suspensión local */}
       <section
-        className="border border-black/20 p-6 rounded-2xl space-y-4"
+        className={SECTION_CARD_CLASS}
         style={cardStyle}
       >
         <div className="flex items-center gap-2">
