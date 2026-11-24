@@ -160,10 +160,10 @@ export default function AccountView({ onNavigate }) {
 
       if (res.ok && data.account) {
         hydrateForm(data.account);
-        updateUser(data.account);
+        updateUser(data.account, data.token || null);
         setFeedback({
           type: 'success',
-          text: data.message || 'Perfil, ubicación y portales actualizados correctamente.',
+          text: data.message || 'Perfil, rol por defecto y ubicación actualizados correctamente.',
         });
       } else {
         setFeedback({
@@ -197,10 +197,10 @@ export default function AccountView({ onNavigate }) {
       if (res.ok && data.account) {
         const merged = { ...(account || {}), ...data.account };
         hydrateForm(merged);
-        updateUser(merged);
+        updateUser(merged, data.token || null);
         setFeedback({
           type: 'success',
-          text: data.message || 'Portal principal actualizado correctamente.',
+          text: data.message || 'Rol y portal principal actualizado correctamente.',
         });
       } else {
         setFeedback({
@@ -263,17 +263,17 @@ export default function AccountView({ onNavigate }) {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.account) {
         hydrateForm(data.account);
-        updateUser(data.account);
+        updateUser(data.account, data.token || null);
         setFeedback({
           type: 'success',
           text:
             portalKey === 'provider'
               ? nextProvider
                 ? 'Portal Prestador habilitado. Ya podés acceder desde la barra superior.'
-                : 'Portal Prestador desactivado en tu cuenta.'
+                : 'Portal Prestador desactivado: tu cuenta opera ahora solo como Residente y dejás de figurar en el directorio sin perder tu historial.'
               : nextResident
               ? 'Portal Residente habilitado. Ya podés coordinar visitas y emitir pases QR.'
-              : 'Portal Residente desactivado en tu cuenta.',
+              : 'Portal Residente desactivado: tu cuenta opera ahora solo como Prestador.',
         });
       } else {
         setFeedback({
@@ -291,7 +291,18 @@ export default function AccountView({ onNavigate }) {
 
   const activePrimary = account?.primary_portal || user?.primary_portal || 'resident';
   const baseRole = (account?.role || user?.role || '').toLowerCase();
+  const isPrivilegedRole = ['superadmin', 'admin', 'security'].includes(baseRole);
   const isDualActive = canUseResident && canUseProvider;
+  const accountModeBadge = isDualActive
+    ? 'Identidad Dual Activa'
+    : canUseProvider && !canUseResident
+    ? 'Solo Prestador'
+    : 'Solo Residente';
+  const defaultRoleLabel = isPrivilegedRole
+    ? baseRole.toUpperCase()
+    : activePrimary === 'provider'
+    ? 'Prestador'
+    : 'Residente';
   const destinationPreview = formatDestinationPreview(fractionType, fractionNumber, lotNumber);
 
   return (
@@ -311,15 +322,19 @@ export default function AccountView({ onNavigate }) {
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-black tracking-tight">Mi Cuenta &amp; Identidad Dual</h1>
-              {isDualActive && (
-                <span className="text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                  Identidad Dual Activa
-                </span>
-              )}
+              <span
+                className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${
+                  isDualActive
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-sky-500/15 text-sky-300 border-sky-500/30'
+                }`}
+              >
+                {accountModeBadge}
+              </span>
             </div>
             <p className="text-xs opacity-80 truncate">
-              {account?.email || user?.email || '—'} · DNI: {account?.dni || '—'} · Rol base:{' '}
-              <span className="font-mono font-bold uppercase">{baseRole || '—'}</span>
+              {account?.email || user?.email || '—'} · DNI: {account?.dni || '—'} · Rol por defecto:{' '}
+              <span className="font-mono font-bold uppercase">{defaultRoleLabel}</span>
             </p>
           </div>
         </div>
@@ -424,9 +439,14 @@ export default function AccountView({ onNavigate }) {
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
                     type="button"
-                    disabled={savingProfile}
+                    disabled={savingProfile || (canUseResident && !canUseProvider && !isPrivilegedRole)}
                     onClick={() => handleQuickTogglePortal('resident')}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
+                    title={
+                      canUseResident && !canUseProvider && !isPrivilegedRole
+                        ? 'Activá Portal Prestador primero si querés dejar de usar Portal Residente.'
+                        : undefined
+                    }
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed"
                     style={cardStyle}
                   >
                     {canUseResident ? 'Desactivar' : 'Activar Portal Residente'}
@@ -510,9 +530,14 @@ export default function AccountView({ onNavigate }) {
                 <div className="flex flex-wrap items-center gap-2 pt-1">
                   <button
                     type="button"
-                    disabled={savingProfile}
+                    disabled={savingProfile || (canUseProvider && !canUseResident && !isPrivilegedRole)}
                     onClick={() => handleQuickTogglePortal('provider')}
-                    className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-50"
+                    title={
+                      canUseProvider && !canUseResident && !isPrivilegedRole
+                        ? 'Activá Portal Residente primero si querés dejar de ofrecer servicios como Prestador.'
+                        : undefined
+                    }
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-45 disabled:cursor-not-allowed"
                     style={cardStyle}
                   >
                     {canUseProvider ? 'Desactivar' : 'Activar Portal Prestador'}

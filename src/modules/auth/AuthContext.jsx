@@ -5,7 +5,7 @@
  * @location /trustlink-web/src/modules/auth/AuthContext.jsx
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '../../config/api';
 
 const AuthContext = createContext(null);
@@ -28,14 +28,22 @@ export const AuthProvider = ({ children }) => {
   );
   const loading = false;
 
+  const lastSyncedTokenRef = useRef(null);
+
   const logout = useCallback(() => {
     localStorage.removeItem('trustlink_token');
     localStorage.removeItem('trustlink_user');
+    lastSyncedTokenRef.current = null;
     setToken(null);
     setUser(null);
   }, []);
 
-  const updateUser = useCallback((partialOrFullUser) => {
+  const updateUser = useCallback((partialOrFullUser, nextToken = null) => {
+    if (nextToken && typeof nextToken === 'string') {
+      localStorage.setItem('trustlink_token', nextToken);
+      lastSyncedTokenRef.current = nextToken;
+      setToken(nextToken);
+    }
     if (!partialOrFullUser) return;
     setUser((prev) => {
       const merged = { ...(prev || {}), ...partialOrFullUser };
@@ -70,7 +78,8 @@ export const AuthProvider = ({ children }) => {
   );
 
   useEffect(() => {
-    if (token) {
+    if (token && lastSyncedTokenRef.current !== token) {
+      lastSyncedTokenRef.current = token;
       refreshAccount(token);
     }
   }, [token, refreshAccount]);

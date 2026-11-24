@@ -84,19 +84,22 @@ function MainAppContent() {
   const isSuperadmin = userRole === 'superadmin';
   const isLocalAdmin = userRole === 'admin';
 
-  // Permisos de módulos según rol base + capacidades duales de Mi Cuenta
+  // Permisos de módulos según capacidades reales de la cuenta (can_use_resident / can_use_provider)
+  // manteniendo compatibilidad con sesiones previas y acceso total para superadmin.
   const canSeeResident =
     isSuperadmin ||
-    userRole === 'owner' ||
-    userRole === 'family' ||
-    userRole === 'resident' ||
-    Boolean(user?.can_use_resident);
+    (user?.can_use_resident !== undefined
+      ? Boolean(user.can_use_resident)
+      : userRole === 'owner' || userRole === 'family' || userRole === 'resident');
   const canSeeProvider =
-    isSuperadmin || userRole === 'provider' || Boolean(user?.can_use_provider);
+    isSuperadmin ||
+    (user?.can_use_provider !== undefined
+      ? Boolean(user.can_use_provider)
+      : userRole === 'provider');
   const canSeePayments = canSeeResident;
   const canSeeSecurity = isSuperadmin || userRole === 'security';
 
-  // Vista activa inicial según rol base y Portal Principal configurable
+  // Vista activa inicial según rol privilegiado o portales habilitados + Portal Principal configurable
   const getDefaultAuthenticatedView = (targetUser) => {
     const normalized = String(targetUser?.role || '').toLowerCase();
     if (normalized === 'security') return 'security';
@@ -105,19 +108,20 @@ function MainAppContent() {
     const preferred = String(targetUser?.primary_portal || '').toLowerCase();
     const hasProvider =
       normalized === 'superadmin' ||
-      normalized === 'provider' ||
-      Boolean(targetUser?.can_use_provider);
+      (targetUser?.can_use_provider !== undefined
+        ? Boolean(targetUser.can_use_provider)
+        : normalized === 'provider');
     const hasResident =
       normalized === 'superadmin' ||
-      normalized === 'owner' ||
-      normalized === 'family' ||
-      normalized === 'resident' ||
-      Boolean(targetUser?.can_use_resident);
+      (targetUser?.can_use_resident !== undefined
+        ? Boolean(targetUser.can_use_resident)
+        : ['owner', 'family', 'resident'].includes(normalized));
 
     if (preferred === 'provider' && hasProvider) return 'provider';
     if (preferred === 'resident' && hasResident) return 'resident';
-    if (normalized === 'provider') return 'provider';
-    return 'resident';
+    if (hasProvider && !hasResident) return 'provider';
+    if (hasResident) return 'resident';
+    return 'account';
   };
 
   const [initialQrToken, setInitialQrToken] = useState(() => readInitialQrTokenFromUrl());
@@ -138,8 +142,9 @@ function MainAppContent() {
       const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
       if (typeof window !== 'undefined' && next && VALID_VIEWS.has(next)) {
         const targetHash = `#${next}`;
-        if (window.location.hash !== targetHash) {
-          window.history.pushState({ view: next }, '', `${window.location.pathname}${window.location.search}${targetHash}`);
+        const cleanPath = '/';
+        if (window.location.hash !== targetHash || window.location.pathname !== cleanPath) {
+          window.history.pushState({ view: next }, '', `${cleanPath}${window.location.search}${targetHash}`);
         }
       }
       return next;
@@ -182,13 +187,20 @@ function MainAppContent() {
     } else if (initialQrToken && canSeeSecurity) {
       setCurrentView('security');
     } else {
-      setCurrentViewState((prev) =>
-        prev === 'landing' || prev === 'login' || prev === 'register'
-          ? getDefaultAuthenticatedView(user)
-          : prev
-      );
+      setCurrentViewState((prev) => {
+        if (prev === 'landing' || prev === 'login' || prev === 'register') {
+          return getDefaultAuthenticatedView(user);
+        }
+        if ((prev === 'resident' || prev === 'payments') && !canSeeResident) {
+          return getDefaultAuthenticatedView(user);
+        }
+        if (prev === 'provider' && !canSeeProvider) {
+          return getDefaultAuthenticatedView(user);
+        }
+        return prev;
+      });
     }
-  }, [isAuthenticated, user, initialQrToken, canSeeSecurity, setCurrentView]);
+  }, [isAuthenticated, user, initialQrToken, canSeeSecurity, canSeeResident, canSeeProvider, setCurrentView]);
 
   // Cierra sesión y vuelve a la vista pública
   const handleLogout = () => {
