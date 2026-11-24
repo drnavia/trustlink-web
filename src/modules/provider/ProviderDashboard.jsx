@@ -160,7 +160,12 @@ export default function ProviderDashboard() {
   // Orden riguroso: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  const [profileData, setProfileData] = useState({ providers: [], vehicles: [], employees: [] });
+  const [profileData, setProfileData] = useState({
+    providers: [],
+    vehicles: [],
+    employees: [],
+    expiry_alerts: [],
+  });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -283,6 +288,7 @@ export default function ProviderDashboard() {
           providers: data.providers || [],
           vehicles: data.vehicles || [],
           employees: data.employees || [],
+          expiry_alerts: data.expiry_alerts || [],
         });
       } else {
         setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
@@ -1195,6 +1201,66 @@ export default function ProviderDashboard() {
         <div className="rounded-2xl p-4 border border-emerald-700/70 bg-emerald-950/50 text-emerald-200 text-xs flex items-center gap-2">
           <CheckCircle2 size={16} className="shrink-0" />
           <span>{successMsg}</span>
+        </div>
+      )}
+
+      {/* Banner proactivo de alertas de vencimiento documental (≤ 30 días o vencidos) */}
+      {!loading && Array.isArray(profileData.expiry_alerts) && profileData.expiry_alerts.length > 0 && (
+        <div
+          className={`rounded-2xl p-4 border space-y-2.5 text-xs ${
+            profileData.expiry_alerts.some((a) => a.severity === 'expired')
+              ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
+              : 'border-amber-700/80 bg-amber-950/35 text-amber-100'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertCircle
+                size={16}
+                className={
+                  profileData.expiry_alerts.some((a) => a.severity === 'expired')
+                    ? 'text-rose-400 shrink-0'
+                    : 'text-amber-400 shrink-0'
+                }
+              />
+              <span>
+                Atención documental: tenés {profileData.expiry_alerts.length} alerta(s) de vencimiento
+              </span>
+            </div>
+            <span className="text-[11px] opacity-80">
+              Renovalos antes del vencimiento para evitar demoras en garita
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {profileData.expiry_alerts.slice(0, 6).map((alert) => {
+              const isExpired = alert.severity === 'expired';
+              return (
+                <div
+                  key={alert.id}
+                  className="p-2.5 rounded-xl bg-black/25 border border-white/10 flex items-center justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{alert.title}</p>
+                    <p className="text-[11px] opacity-80 truncate">
+                      {isExpired
+                        ? `Vencido hace ${Math.abs(alert.days_remaining)} día(s)`
+                        : alert.days_remaining === 0
+                        ? 'Vence hoy'
+                        : `Vence en ${alert.days_remaining} día(s)`}{' '}
+                      ({alert.expiry_date})
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep(alert.target_step || 'credentials')}
+                    className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
+                  >
+                    Renovar
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -2580,6 +2646,23 @@ export default function ProviderDashboard() {
                         <Car size={13} className="text-sky-400 shrink-0" />
                         <span>Acceso: {plateLabel}</span>
                       </p>
+                      {Array.isArray(passItem.authorized_employees) &&
+                        passItem.authorized_employees.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold">
+                              <Users size={12} className="text-emerald-400 shrink-0" /> Cuadrilla:
+                            </span>
+                            {passItem.authorized_employees.map((emp) => (
+                              <span
+                                key={emp.id || emp.dni || emp.full_name}
+                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
+                              >
+                                {emp.full_name}
+                                {emp.dni ? ` · DNI ${emp.dni}` : ''}
+                              </span>
+                            ))}
+                          </div>
+                        )}
                       <p className="flex items-center gap-1.5 text-[11px] opacity-75">
                         <Calendar size={13} className="text-amber-400 shrink-0" />
                         <span>

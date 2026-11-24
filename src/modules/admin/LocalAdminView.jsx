@@ -15,6 +15,8 @@ import {
   AlertCircle,
   RefreshCw,
   Unlock,
+  Clock,
+  MessageCircle,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
@@ -40,6 +42,8 @@ export default function LocalAdminView() {
   const [countries, setCountries] = useState([]);
   const [providers, setProviders] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
+  const [expiryAlerts, setExpiryAlerts] = useState([]);
+  const [expirySummary, setExpirySummary] = useState({ total: 0, expired: 0, expiring_soon: 0 });
   const [selectedCountryId, setSelectedCountryId] = useState(
     user?.country_id ? String(user.country_id) : '1'
   );
@@ -59,9 +63,14 @@ export default function LocalAdminView() {
       setLoading(true);
       try {
         const query = isSuperadmin && countryFilter ? `?country_id=${countryFilter}` : '';
-        const res = await fetch(`${API_BASE}/api/v1/providers/local-suspensions${query}`, {
-          headers: getAuthHeaders(),
-        });
+        const [res, alertsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/v1/providers/local-suspensions${query}`, {
+            headers: getAuthHeaders(),
+          }),
+          fetch(`${API_BASE}/api/v1/providers/expiry-alerts?days=30`, {
+            headers: getAuthHeaders(),
+          }).catch(() => null),
+        ]);
         const data = await res.json();
         if (res.ok) {
           const loadedCountries = data.countries || [];
@@ -80,6 +89,13 @@ export default function LocalAdminView() {
             setSelectedProviderId((prev) => prev || String(loadedProviders[0].provider_id));
           }
         }
+        if (alertsRes && alertsRes.ok) {
+          const alertsData = await alertsRes.json();
+          setExpiryAlerts(alertsData.alerts || []);
+          setExpirySummary(
+            alertsData.summary || { total: 0, expired: 0, expiring_soon: 0 }
+          );
+        }
       } catch (error) {
         console.error('Error al cargar reportes locales:', error);
       } finally {
@@ -88,6 +104,18 @@ export default function LocalAdminView() {
     },
     [isSuperadmin]
   );
+
+  const buildExpiryWhatsAppUrl = (alert) => {
+    const digits = String(alert.provider_phone || '').replace(/\D/g, '');
+    const statusText =
+      alert.severity === 'expired'
+        ? `venció el ${alert.expiry_date}`
+        : `vence en ${alert.days_remaining} día(s) (${alert.expiry_date})`;
+    const text =
+      `Hola ${alert.provider_name || ''}, te escribimos desde la Administración TrustLink: ` +
+      `tu documentación "${alert.title}" ${statusText}. Por favor actualizala en tu Portal Prestador para mantener el ingreso habilitado en garita.`;
+    return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
+  };
 
   useEffect(() => {
     fetchLocalData(user?.country_id ? String(user.country_id) : '1');
@@ -281,6 +309,90 @@ export default function LocalAdminView() {
             </button>
           </div>
         </form>
+      </section>
+
+      {/* Zona 4: Alertas proactivas de vencimiento documental */}
+      <section
+        className="border border-black/20 p-6 rounded-2xl space-y-4"
+        style={cardStyle}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Clock size={17} className="text-amber-400" />
+            <div>
+              <h3 className="text-sm font-bold">
+                Alertas de Vencimiento Documental (ART, Antecedentes, Seguros y Cuadrilla)
+              </h3>
+              <p className="text-[11px] opacity-75">
+                Vencidos y próximos a vencer en los próximos 30 días para gestión preventiva.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] font-bold">
+            <span className="px-2.5 py-1 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
+              {expirySummary.expired} vencido(s)
+            </span>
+            <span className="px-2.5 py-1 rounded-full border border-amber-700/70 bg-amber-950/60 text-amber-200">
+              {expirySummary.expiring_soon} por vencer
+            </span>
+          </div>
+        </div>
+
+        {expiryAlerts.length === 0 ? (
+          <div
+            className="text-center py-5 rounded-xl border border-black/20 text-xs opacity-80"
+            style={innerStyle}
+          >
+            Toda la documentación con fecha cargada se encuentra vigente (+30 días).
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+            {expiryAlerts.slice(0, 10).map((alert) => {
+              const isExpired = alert.severity === 'expired';
+              return (
+                <div
+                  key={alert.id}
+                  className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${
+                    isExpired
+                      ? 'border-rose-800/70 bg-rose-950/35'
+                      : 'border-amber-800/70 bg-amber-950/30'
+                  }`}
+                >
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold">{alert.title}</span>
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                          isExpired
+                            ? 'bg-rose-950 text-rose-300 border-rose-700'
+                            : 'bg-amber-950 text-amber-300 border-amber-700'
+                        }`}
+                      >
+                        {isExpired
+                          ? `Vencido (${Math.abs(alert.days_remaining)}d)`
+                          : alert.days_remaining === 0
+                          ? 'Vence hoy'
+                          : `Vence en ${alert.days_remaining}d`}
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-80 truncate">
+                      {alert.subtitle} · Fecha: {alert.expiry_date}
+                    </p>
+                  </div>
+                  <a
+                    href={buildExpiryWhatsAppUrl(alert)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white shrink-0"
+                    title="Enviar recordatorio de renovación por WhatsApp"
+                  >
+                    <MessageCircle size={12} /> Avisar
+                  </a>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Zona 4: Listado de suspensiones locales */}

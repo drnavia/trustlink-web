@@ -29,6 +29,7 @@ import {
   Car,
   Edit3,
   Save,
+  Share2,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -67,6 +68,37 @@ const formatLocalDateTime = (value) => {
     hour: '2-digit',
     minute: '2-digit',
   });
+};
+
+const getCrewArtBadge = (expiryDate) => {
+  if (!expiryDate) return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
+  const parsed = new Date(expiryDate);
+  if (Number.isNaN(parsed.getTime())) return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { label: 'ART vencida', cls: 'bg-rose-950/80 text-rose-300 border-rose-700/60' };
+  if (diffDays <= 30) return { label: `ART vence en ${diffDays}d`, cls: 'bg-amber-950/80 text-amber-300 border-amber-700/60' };
+  return { label: 'ART vigente', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' };
+};
+
+const buildPassWhatsAppUrl = (passItem) => {
+  const digits = String(passItem?.provider_phone || '').replace(/\D/g, '');
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
+  const gateLink = passItem?.qr_token ? `${origin}/?qr_token=${encodeURIComponent(passItem.qr_token)}` : '';
+  const crew = Array.isArray(passItem?.authorized_employees) ? passItem.authorized_employees : [];
+  const crewLine =
+    crew.length > 0
+      ? `\nCuadrilla autorizada: ${crew.map((e) => `${e.full_name}${e.dni ? ` (DNI ${e.dni})` : ''}`).join(', ')}`
+      : '';
+  const message =
+    `Hola${passItem?.provider_name ? ` ${passItem.provider_name}` : ''}, te comparto tu Pase QR TrustLink #${passItem?.id || ''}.\n` +
+    `Destino: ${passItem?.fraction_number || 'N/A'} / Lote ${passItem?.lot_number || '—'}\n` +
+    `Acceso: ${passItem?.vehicle_plate || 'Ingreso peatonal'}${crewLine}\n` +
+    `Vigencia: ${formatLocalDateTime(passItem?.start_time)} a ${formatLocalDateTime(passItem?.end_time)}\n` +
+    (gateLink ? `Enlace directo para garita: ${gateLink}` : `Token QR: ${passItem?.qr_token || ''}`);
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 };
 
 const getPassStatusBadge = (status) => {
@@ -158,6 +190,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [selectedVehiclePlate, setSelectedVehiclePlate] = useState('');
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
   const [startTime, setStartTime] = useState(() =>
     toLocalDateTimeInput(new Date(Date.now() - 10 * 60 * 1000))
   );
@@ -172,6 +205,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const [viewingQrPass, setViewingQrPass] = useState(null);
   const [editingPass, setEditingPass] = useState(null);
   const [editPassPlate, setEditPassPlate] = useState('');
+  const [editPassEmployeeIds, setEditPassEmployeeIds] = useState([]);
   const [editPassStart, setEditPassStart] = useState('');
   const [editPassEnd, setEditPassEnd] = useState('');
   const [savingPassEdit, setSavingPassEdit] = useState(false);
@@ -476,6 +510,7 @@ export default function ResidentDashboard({ onNavigate }) {
     setLotNumber(prefill.lot ?? user?.lot_number ?? '');
     const providerVehicles = Array.isArray(provider?.vehicles) ? provider.vehicles : [];
     setSelectedVehiclePlate(providerVehicles[0]?.plate || '');
+    setSelectedEmployeeIds([]);
     const baseStart = prefill.preferredDate
       ? new Date(prefill.preferredDate)
       : new Date(Date.now() - 10 * 60 * 1000);
@@ -487,9 +522,25 @@ export default function ResidentDashboard({ onNavigate }) {
     setPassFeedback({ type: '', text: '', qrToken: '' });
   };
 
+  const toggleCreateEmployeeId = (empId) => {
+    setSelectedEmployeeIds((prev) =>
+      prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
+    );
+  };
+
+  const toggleEditEmployeeId = (empId) => {
+    setEditPassEmployeeIds((prev) =>
+      prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
+    );
+  };
+
   const openEditPassModal = (passItem) => {
     setEditingPass(passItem);
     setEditPassPlate(passItem.vehicle_plate || '');
+    const currentCrew = Array.isArray(passItem.authorized_employees)
+      ? passItem.authorized_employees.map((e) => Number(e.id)).filter(Boolean)
+      : [];
+    setEditPassEmployeeIds(currentCrew);
     const parsedStart = passItem.start_time ? new Date(passItem.start_time) : new Date();
     const parsedEnd = passItem.end_time ? new Date(passItem.end_time) : new Date(Date.now() + 4 * 3600000);
     setEditPassStart(toLocalDateTimeInput(Number.isNaN(parsedStart.getTime()) ? new Date() : parsedStart));
@@ -510,6 +561,7 @@ export default function ResidentDashboard({ onNavigate }) {
           fraction_number: user?.fraction_number || null,
           lot_number: user?.lot_number || null,
           vehicle_plate: editPassPlate.trim() ? editPassPlate.trim().toUpperCase() : null,
+          employee_ids: editPassEmployeeIds,
           start_time: new Date(editPassStart).toISOString(),
           end_time: new Date(editPassEnd).toISOString(),
         }),
@@ -565,6 +617,7 @@ export default function ResidentDashboard({ onNavigate }) {
           fraction_number: fractionNumber.trim() || null,
           lot_number: lotNumber.trim() || null,
           vehicle_plate: selectedVehiclePlate.trim() ? selectedVehiclePlate.trim().toUpperCase() : null,
+          employee_ids: selectedEmployeeIds,
           start_time: new Date(startTime).toISOString(),
           end_time: new Date(endTime).toISOString(),
         }),
@@ -1303,6 +1356,22 @@ export default function ResidentDashboard({ onNavigate }) {
                       <Car size={12} className="text-sky-400 shrink-0" />
                       <span>Acceso: {item.vehicle_plate || 'Ingreso peatonal'}</span>
                     </p>
+                    {Array.isArray(item.authorized_employees) && item.authorized_employees.length > 0 && (
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span className="text-[11px] font-semibold opacity-80 inline-flex items-center gap-1">
+                          <Users size={11} className="text-emerald-400 shrink-0" /> Cuadrilla:
+                        </span>
+                        {item.authorized_employees.map((emp) => (
+                          <span
+                            key={emp.id || emp.dni || emp.full_name}
+                            className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
+                          >
+                            {emp.full_name}
+                            {emp.dni ? ` · DNI ${emp.dni}` : ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-[11px] opacity-75">
                       Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
                       {formatLocalDateTime(item.end_time)}
@@ -1335,6 +1404,15 @@ export default function ResidentDashboard({ onNavigate }) {
                           >
                             <QrCode size={12} /> Ver QR
                           </button>
+                          <a
+                            href={buildPassWhatsAppUrl(item)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-emerald-700/90 hover:bg-emerald-600 text-white"
+                            title="Compartir pase QR y cuadrilla por WhatsApp"
+                          >
+                            <Share2 size={12} /> WhatsApp
+                          </a>
                         </div>
                       </div>
                     )}
@@ -1848,6 +1926,47 @@ export default function ResidentDashboard({ onNavigate }) {
                 )}
               </div>
 
+              {Array.isArray(qrModalProvider.employees) && qrModalProvider.employees.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="block font-semibold opacity-85">
+                    Cuadrilla / Ayudantes que acompañan (opcional)
+                  </label>
+                  <div
+                    className="rounded-xl p-2.5 border border-slate-700/80 max-h-36 overflow-y-auto space-y-1.5"
+                    style={innerStyle}
+                  >
+                    {qrModalProvider.employees.map((emp) => {
+                      const checked = selectedEmployeeIds.includes(emp.id);
+                      const art = getCrewArtBadge(emp.insurance_expiry);
+                      return (
+                        <label
+                          key={emp.id}
+                          className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-black/20 cursor-pointer"
+                        >
+                          <span className="flex items-center gap-2 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleCreateEmployeeId(emp.id)}
+                              className="rounded border-slate-600 accent-emerald-500"
+                            />
+                            <span className="truncate font-semibold">
+                              {emp.full_name}
+                              {emp.dni ? ` (DNI ${emp.dni})` : ''}
+                            </span>
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${art.cls}`}
+                          >
+                            {art.label}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
                 <input
@@ -1958,6 +2077,28 @@ export default function ResidentDashboard({ onNavigate }) {
 
             <QrCodeDisplay token={viewingQrPass.qr_token} size={200} />
 
+            {Array.isArray(viewingQrPass.authorized_employees) &&
+              viewingQrPass.authorized_employees.length > 0 && (
+                <div
+                  className="rounded-xl p-3 border border-slate-700/60 space-y-1.5"
+                  style={innerStyle}
+                >
+                  <span className="block text-[10px] font-bold uppercase opacity-75">
+                    Cuadrilla autorizada en este pase ({viewingQrPass.authorized_employees.length})
+                  </span>
+                  <div className="space-y-1">
+                    {viewingQrPass.authorized_employees.map((emp) => (
+                      <div key={emp.id || emp.dni || emp.full_name} className="flex items-center justify-between gap-2">
+                        <span className="font-semibold">
+                          {emp.full_name} {emp.dni ? `· DNI ${emp.dni}` : ''}
+                        </span>
+                        <span className="text-[10px] opacity-75">{emp.role_label || 'Ayudante'}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
             <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
               <span className="block text-[10px] font-bold uppercase opacity-75">Token QR</span>
               <code className="block font-mono text-[11px] break-all select-all">
@@ -1965,7 +2106,15 @@ export default function ResidentDashboard({ onNavigate }) {
               </code>
             </div>
 
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-2">
+              <a
+                href={buildPassWhatsAppUrl(viewingQrPass)}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                <Share2 size={13} /> Compartir por WhatsApp
+              </a>
               <button
                 type="button"
                 onClick={() => setViewingQrPass(null)}
@@ -2011,6 +2160,59 @@ export default function ResidentDashboard({ onNavigate }) {
                   style={innerStyle}
                 />
               </div>
+
+              {(() => {
+                const matchedProvider = providers.find(
+                  (p) =>
+                    Number(p.provider_id || p.id) === Number(editingPass.provider_id) ||
+                    (Array.isArray(p.provider_ids) &&
+                      p.provider_ids.map(Number).includes(Number(editingPass.provider_id)))
+                );
+                const empList = Array.isArray(matchedProvider?.employees)
+                  ? matchedProvider.employees
+                  : [];
+                if (empList.length === 0) return null;
+                return (
+                  <div className="space-y-1.5">
+                    <label className="block font-semibold opacity-85">
+                      Cuadrilla / Ayudantes autorizados
+                    </label>
+                    <div
+                      className="rounded-xl p-2.5 border border-slate-700/80 max-h-36 overflow-y-auto space-y-1.5"
+                      style={innerStyle}
+                    >
+                      {empList.map((emp) => {
+                        const checked = editPassEmployeeIds.includes(Number(emp.id));
+                        const art = getCrewArtBadge(emp.insurance_expiry);
+                        return (
+                          <label
+                            key={emp.id}
+                            className="flex items-center justify-between gap-2 p-1.5 rounded-lg hover:bg-black/20 cursor-pointer"
+                          >
+                            <span className="flex items-center gap-2 min-w-0">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleEditEmployeeId(Number(emp.id))}
+                                className="rounded border-slate-600 accent-emerald-500"
+                              />
+                              <span className="truncate font-semibold">
+                                {emp.full_name}
+                                {emp.dni ? ` (DNI ${emp.dni})` : ''}
+                              </span>
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${art.cls}`}
+                            >
+                              {art.label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Válido desde</label>

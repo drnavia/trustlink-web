@@ -19,7 +19,10 @@ import {
   Clock,
   Camera,
   CameraOff,
-  AlertCircle
+  AlertCircle,
+  Users,
+  MessageCircle,
+  Flashlight,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
@@ -66,6 +69,38 @@ function normalizeScannedToken(rawValue) {
   return trimmed;
 }
 
+function getCrewArtStatus(expiryDate) {
+  if (!expiryDate) return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
+  const parsed = new Date(expiryDate);
+  if (Number.isNaN(parsed.getTime())) {
+    return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+  const diffDays = Math.ceil((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays < 0) return { label: 'ART vencida', cls: 'bg-rose-950/80 text-rose-300 border-rose-700/60' };
+  if (diffDays <= 30) return { label: `ART vence en ${diffDays}d`, cls: 'bg-amber-950/80 text-amber-300 border-amber-700/60' };
+  return { label: 'ART vigente', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' };
+}
+
+function buildGateArrivalWhatsAppUrl(details, vehicleInfo) {
+  const digits = String(details?.owner_phone || '').replace(/\D/g, '');
+  const crew = Array.isArray(details?.authorized_employees) ? details.authorized_employees : [];
+  const crewText =
+    crew.length > 0
+      ? `\nCuadrilla ingresante: ${crew.map((e) => `${e.full_name}${e.dni ? ` (DNI ${e.dni})` : ''}`).join(', ')}`
+      : '';
+  const plateText = vehicleInfo?.plate || details?.vehicle_plate || 'Ingreso peatonal';
+  const destino = [details?.fraction_number, details?.lot_number].filter(Boolean).join(' / ') || 'su lote';
+  const msg =
+    `Aviso de Garita TrustLink: ingresó ${details?.provider_name || 'el prestador autorizado'}` +
+    `${details?.specialty ? ` (${details.specialty})` : ''} hacia ${destino}.\n` +
+    `Vehículo/Acceso: ${plateText}${crewText}\n` +
+    `Pase QR #${details?.pass_id || ''} validado correctamente.`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
+}
+
 export default function SecurityScanner({ initialToken = '', onClearInitialToken }) {
   const { brand } = useBranding();
 
@@ -93,6 +128,8 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
   const [cameraStarting, setCameraStarting] = useState(false);
   const [cameraError, setCameraError] = useState('');
   const [detectorSupported, setDetectorSupported] = useState(false);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
@@ -112,6 +149,8 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
+    setTorchOn(false);
+    setTorchSupported(false);
     setCameraActive(false);
     setCameraStarting(false);
   }, []);
@@ -202,6 +241,59 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     }
   }, [initialToken, verifyTokenValue, onClearInitialToken]);
 
+  // Adjunta el stream al <video> ya montado y activa el bucle BarcodeDetector al abrir la cámara
+  useEffect(() => {
+    if (!cameraActive || !streamRef.current || !videoRef.current) return undefined;
+
+    const videoEl = videoRef.current;
+    videoEl.srcObject = streamRef.current;
+    videoEl.play().catch(() => {});
+
+    if (detectorRef.current) {
+      scanIntervalRef.current = setInterval(async () => {
+        if (!videoRef.current || videoRef.current.readyState < 2 || !detectorRef.current) {
+          return;
+        }
+        try {
+          const barcodes = await detectorRef.current.detect(videoRef.current);
+          if (Array.isArray(barcodes) && barcodes.length > 0 && barcodes[0]?.rawValue) {
+            const detectedToken = normalizeScannedToken(barcodes[0].rawValue);
+            if (detectedToken) {
+              stopCameraScanner();
+              setQrToken(detectedToken);
+              verifyTokenValue(detectedToken);
+            }
+          }
+        } catch {
+          // Ignora frames intermedios no decodificables
+        }
+      }, 300);
+    } else {
+      setCameraError(
+        'Cámara abierta. Este navegador no expone BarcodeDetector nativo: escaneá con la cámara nativa del teléfono (abre el enlace directo) o pegá el token abajo.'
+      );
+    }
+
+    return () => {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+    };
+  }, [cameraActive, stopCameraScanner, verifyTokenValue]);
+
+  const toggleTorch = async () => {
+    const track = streamRef.current?.getVideoTracks?.()[0];
+    if (!track || typeof track.applyConstraints !== 'function') return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: next }] });
+      setTorchOn(next);
+    } catch {
+      setTorchSupported(false);
+    }
+  };
+
   const startCameraScanner = async () => {
     setCameraError('');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -221,37 +313,10 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
       });
 
       streamRef.current = stream;
+      const track = stream.getVideoTracks()[0];
+      const caps = typeof track?.getCapabilities === 'function' ? track.getCapabilities() : null;
+      setTorchSupported(Boolean(caps?.torch));
       setCameraActive(true);
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play().catch(() => {});
-      }
-
-      if (detectorRef.current && videoRef.current) {
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || videoRef.current.readyState < 2 || !detectorRef.current) {
-            return;
-          }
-          try {
-            const barcodes = await detectorRef.current.detect(videoRef.current);
-            if (Array.isArray(barcodes) && barcodes.length > 0 && barcodes[0]?.rawValue) {
-              const detectedToken = normalizeScannedToken(barcodes[0].rawValue);
-              if (detectedToken) {
-                stopCameraScanner();
-                setQrToken(detectedToken);
-                verifyTokenValue(detectedToken);
-              }
-            }
-          } catch {
-            // Ignora frames intermedios no decodificables
-          }
-        }, 350);
-      } else {
-        setCameraError(
-          'Cámara abierta. Si tu navegador no lee códigos QR en vivo automáticamente, ingresá el token en el campo de abajo.'
-        );
-      }
     } catch (err) {
       console.error('Error al acceder a la cámara:', err);
       setCameraError(
@@ -336,14 +401,27 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
               className="p-4 rounded-2xl border border-white/15 space-y-3"
               style={innerStyle}
             >
-              <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center justify-between gap-2 text-xs flex-wrap">
                 <span className="font-bold flex items-center gap-1.5">
                   <Camera size={14} className="text-emerald-400" />
                   Cámara activa — Apuntá hacia el código QR
                 </span>
-                <span className="text-[11px] font-mono opacity-75">
-                  {detectorSupported ? 'Detección QR automática' : 'Vista previa de cámara'}
-                </span>
+                <div className="flex items-center gap-2">
+                  {torchSupported && (
+                    <button
+                      type="button"
+                      onClick={toggleTorch}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-bold cursor-pointer"
+                      style={cardStyle}
+                    >
+                      <Flashlight size={12} className={torchOn ? 'text-amber-300' : 'opacity-70'} />
+                      {torchOn ? 'Apagar luz' : 'Linterna'}
+                    </button>
+                  )}
+                  <span className="text-[11px] font-mono opacity-75">
+                    {detectorSupported ? 'Detección QR automática' : 'Vista previa de cámara'}
+                  </span>
+                </div>
               </div>
               <div className="relative rounded-xl overflow-hidden bg-black aspect-video max-h-72 mx-auto w-full flex items-center justify-center border border-white/10">
                 <video
@@ -352,6 +430,10 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
                   muted
                   className="w-full h-full object-cover"
                 />
+                {/* Retícula guía de escaneo QR */}
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="w-40 h-40 sm:w-48 sm:h-48 rounded-2xl border-2 border-emerald-400/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.35)]" />
+                </div>
               </div>
             </div>
           )}
@@ -492,6 +574,63 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
                           Vigencia: {formatDateTime(details.start_time)} —{' '}
                           {formatDateTime(details.end_time)}
                         </span>
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Bloque Cuadrilla / Ayudantes Autorizados en el Pase */}
+                  <div
+                    className="md:col-span-2 p-4 rounded-xl border border-white/15 space-y-2.5"
+                    style={cardStyle}
+                  >
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                        <Users size={13} /> Cuadrilla / Ayudantes Autorizados (
+                        {Array.isArray(details.authorized_employees)
+                          ? details.authorized_employees.length
+                          : 0}
+                        )
+                      </p>
+                      <a
+                        href={buildGateArrivalWhatsAppUrl(details, vehicleInfo)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                      >
+                        <MessageCircle size={13} />
+                        Avisar arribo al Residente por WhatsApp
+                      </a>
+                    </div>
+
+                    {Array.isArray(details.authorized_employees) &&
+                    details.authorized_employees.length > 0 ? (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {details.authorized_employees.map((emp) => {
+                          const art = getCrewArtStatus(emp.insurance_expiry);
+                          return (
+                            <div
+                              key={emp.id || emp.dni || emp.full_name}
+                              className="p-2.5 rounded-lg border border-white/10 flex items-center justify-between gap-2"
+                              style={innerStyle}
+                            >
+                              <div className="min-w-0">
+                                <p className="font-bold truncate">{emp.full_name}</p>
+                                <p className="text-[11px] opacity-80">
+                                  DNI: {emp.dni || 'No declarado'} · {emp.role_label || 'Ayudante'}
+                                </p>
+                              </div>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${art.cls}`}
+                              >
+                                {art.label}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-xs opacity-75">
+                        Solo titular autorizado (sin ayudantes declarados en este pase).
                       </p>
                     )}
                   </div>
