@@ -338,7 +338,7 @@ function MainAppContent() {
                 <img
                   src={brand.logoUrl}
                   alt={displayBrandName}
-                  className="h-8 w-auto max-w-[110px] object-contain rounded-lg shrink-0"
+                  className="h-8 w-auto max-w-27.5 object-contain rounded-lg shrink-0"
                 />
               ) : (
                 <div
@@ -351,7 +351,7 @@ function MainAppContent() {
 
               <div className="leading-tight min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="font-black text-sm md:text-base tracking-tight truncate max-w-[115px] sm:max-w-none">
+                  <span className="font-black text-sm md:text-base tracking-tight truncate max-w-28.75 sm:max-w-none">
                     {displayBrandName}
                   </span>
                   <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-black/25 font-semibold border border-white/15">
@@ -371,7 +371,7 @@ function MainAppContent() {
                   <button
                     type="button"
                     onClick={() => setCurrentView('account')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold max-w-[155px] cursor-pointer transition-all ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold max-w-38.75 cursor-pointer transition-all ${
                       currentView === 'account'
                         ? 'bg-emerald-600 text-white border border-emerald-400 shadow-sm'
                         : 'bg-slate-900/90 border border-emerald-500/30 text-emerald-300 hover:bg-slate-800'

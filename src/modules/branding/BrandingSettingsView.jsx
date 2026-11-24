@@ -524,7 +524,7 @@ export default function BrandingSettingsView() {
             value={value}
             onChange={(e) => updateColorField(field, e.target.value)}
             placeholder="#000000"
-            className="w-[74px] border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono uppercase focus:outline-none"
+            className="w-18.5 border border-white/15 rounded px-1.5 py-0.5 text-[11px] font-mono uppercase focus:outline-none"
             style={innerStyle}
           />
         </div>
@@ -709,7 +709,7 @@ export default function BrandingSettingsView() {
                 )}
               </div>
 
-              <span className="text-[10px] opacity-75 truncate max-w-[160px]">
+              <span className="text-[10px] opacity-75 truncate max-w-40">
                 {formState.logoFileName
                   ? formState.logoFileName
                   : formState.logoUrl
@@ -837,7 +837,7 @@ export default function BrandingSettingsView() {
                     <img
                       src={formState.logoUrl}
                       alt={previewTitle}
-                      className="h-8 w-auto max-w-[96px] object-contain rounded"
+                      className="h-8 w-auto max-w-24 object-contain rounded"
                     />
                   ) : (
                     <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">

@@ -1918,7 +1918,7 @@ export default function SystemHealthDashboard() {
                             {/* Celda de licencia B2B: editor en línea (plan, estado, cuota) o resumen */}
                             <td className="py-2.5 px-3">
                               {isEditingBilling ? (
-                                <div className="space-y-1.5 min-w-[200px]">
+                                <div className="space-y-1.5 min-w-50">
                                   <div className="grid grid-cols-2 gap-1.5">
                                     <select
                                       value={billingPlanDraft}

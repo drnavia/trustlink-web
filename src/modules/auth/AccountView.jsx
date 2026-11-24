@@ -926,7 +926,7 @@ export default function AccountView({ onNavigate }) {
 
               {showResidentialFields && (
                 <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5 flex items-center gap-1">
+                  <label className="text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5 flex items-center gap-1">
                     <Building2 size={12} /> Comunidad / Barrio
                   </label>
                   <select
