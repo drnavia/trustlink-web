@@ -166,7 +166,6 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             >
               <option value="owner">Propietario / Residente</option>
               <option value="provider">Prestador de Servicios</option>
-              <option value="security">Seguridad / Garita</option>
             </select>
           </div>
 

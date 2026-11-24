@@ -35,6 +35,7 @@ export default function UserManagementView() {
   };
 
   const [usersList, setUsersList] = useState([]);
+  const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -59,8 +60,31 @@ export default function UserManagementView() {
     email: '',
     password: '',
     role: 'admin',
+    country_id: '',
     is_active: true,
   });
+
+  const fetchCountries = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/external/countries?page=1&limit=100`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.countries)) {
+        setCountries(data.countries);
+        if (data.countries.length > 0) {
+          setFormData((prev) => ({
+            ...prev,
+            country_id: prev.country_id || data.countries[0].id,
+          }));
+        }
+      }
+    } catch (err) {
+      console.warn('No se pudieron cargar comunidades:', err);
+    }
+  };
 
   const fetchPrivilegedUsers = async () => {
     setLoading(true);
@@ -88,6 +112,7 @@ export default function UserManagementView() {
 
   useEffect(() => {
     fetchPrivilegedUsers();
+    fetchCountries();
   }, []);
 
   const handleCreateUser = async (e) => {
@@ -141,6 +166,7 @@ export default function UserManagementView() {
       email: u.email || '',
       password: '',
       role: u.role || 'admin',
+      country_id: u.country_id ? String(u.country_id) : '',
       is_active: Boolean(u.is_active),
     });
     setErrorMsg('');
@@ -160,6 +186,7 @@ export default function UserManagementView() {
       dni: editForm.dni,
       email: editForm.email,
       role: editForm.role,
+      country_id: editForm.role === 'superadmin' ? null : editForm.country_id ? Number(editForm.country_id) : null,
       is_active: editForm.is_active,
     };
     if (editForm.password.trim()) {
@@ -244,7 +271,7 @@ export default function UserManagementView() {
           style={cardStyle}
         >
           <h3 className="text-sm font-bold flex items-center gap-2 text-emerald-400">
-            <UserPlus size={16} /> Registrar nuevo administrador
+            <UserPlus size={16} /> Registrar cuenta privilegiada / garita
           </h3>
 
           <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
@@ -259,9 +286,30 @@ export default function UserManagementView() {
                 style={innerStyle}
               >
                 <option value="admin">Administrador Operativo (Admin)</option>
+                <option value="security">Seguridad / Garita (Security)</option>
                 <option value="superadmin">Superadministrador Global (Superadmin)</option>
               </select>
             </div>
+
+            {formData.role !== 'superadmin' && countries.length > 0 && (
+              <div>
+                <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
+                  Comunidad / Barrio
+                </label>
+                <select
+                  value={formData.country_id}
+                  onChange={(e) => setFormData({ ...formData, country_id: Number(e.target.value) })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-white/15 text-xs"
+                  style={innerStyle}
+                >
+                  {countries.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      #{c.id} · {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -390,6 +438,8 @@ export default function UserManagementView() {
                         className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase ${
                           u.role === 'superadmin'
                             ? 'bg-purple-950/90 text-purple-200 border border-purple-700'
+                            : u.role === 'security'
+                            ? 'bg-amber-950/90 text-amber-200 border border-amber-700'
                             : 'bg-sky-950/90 text-sky-200 border border-sky-700'
                         }`}
                       >
@@ -398,6 +448,7 @@ export default function UserManagementView() {
                     </div>
                     <p className="opacity-80 truncate">
                       {u.email} · DNI: {u.dni || '-'}
+                      {u.country_name ? ` · ${u.country_name}` : ''}
                     </p>
                   </div>
 
@@ -493,10 +544,30 @@ export default function UserManagementView() {
                     style={innerStyle}
                   >
                     <option value="admin">admin</option>
+                    <option value="security">security</option>
                     <option value="superadmin">superadmin</option>
                   </select>
                 </div>
               </div>
+
+              {editForm.role !== 'superadmin' && countries.length > 0 && (
+                <div>
+                  <label className="block font-bold uppercase opacity-80 mb-1">Comunidad / Barrio</label>
+                  <select
+                    value={editForm.country_id}
+                    onChange={(e) => setEditForm({ ...editForm, country_id: e.target.value })}
+                    className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                  >
+                    <option value="">Sin comunidad</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        #{c.id} · {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold uppercase opacity-80 mb-1">Correo</label>
