@@ -1,7 +1,8 @@
 /**
  * @file LandingHome.jsx
  * @description Vista pública de bienvenida (/) para TrustLink.
- * Incorpora propuesta de valor comercial directa, buscador rápido de servicios/rubros
+ * Incorpora la narrativa comercial consolidada (Océano Azul, propuesta de valor por actor,
+ * compliance centralizado y eliminación del "efecto portón"), buscador rápido de servicios/rubros
  * con atajos por especialidad y accesos claros a Iniciar Sesión o Registrarse,
  * delegando el footer único al orquestador principal (App.jsx).
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
@@ -17,6 +18,9 @@ import {
   CheckCircle2,
   Wrench,
   Sparkles,
+  Home,
+  Briefcase,
+  Building2,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
@@ -24,8 +28,45 @@ const POPULAR_SERVICES = [
   'Electricista',
   'Gasista',
   'Plomero',
+  'Piletero',
   'Jardinería',
   'Aire Acondicionado',
+];
+
+const ACTOR_BENEFITS = [
+  {
+    id: 'resident',
+    icon: Home,
+    badge: 'Residentes',
+    title: 'Contratá sin depender de WhatsApp',
+    points: [
+      'Directorio verificado con DNI, antecedentes y ART/seguro vigentes.',
+      'Pases QR en segundos con destino, franja horaria y ayudantes declarados.',
+      'Historial del hogar con acuerdos claros y reseñas de vecinos reales.',
+    ],
+  },
+  {
+    id: 'provider',
+    icon: Briefcase,
+    badge: 'Prestadores',
+    title: 'Terminá con el "efecto portón"',
+    points: [
+      'Una sola verificación centralizada válida para operar en toda la red.',
+      'Flota vehicular y cuadrilla precargadas para evitar demoras en garita.',
+      'Insignia de confianza y reputación acumulable frente a perfiles informales.',
+    ],
+  },
+  {
+    id: 'community',
+    icon: Building2,
+    badge: 'Barrios y Garitas',
+    title: 'Accesos ágiles sin auditar antecedentes',
+    points: [
+      'Validación instantánea vía Consola Garita o API Universal por comunidad.',
+      'Trazabilidad auditable de cada ingreso autorizado o denegado.',
+      'Autonomía para aplicar suspensiones operativas locales cuando haga falta.',
+    ],
+  },
 ];
 
 export default function LandingHome({ onGoLogin, onGoRegister }) {
@@ -72,20 +113,19 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         style={cardStyle}
       >
         <div className="space-y-3 max-w-3xl">
-          <div
-            className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-          >
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
             <Sparkles size={13} />
-            <span>Servicios Verificados y Accesos Ágiles</span>
+            <span>Red Transversal de Servicios Verificados y Accesos QR</span>
           </div>
 
           <h1 className="text-2xl sm:text-4xl md:text-5xl font-black tracking-tight leading-tight">
-            Profesionales de confianza para tu comunidad
+            Servicios verificados y accesos sin fricción para tu comunidad
           </h1>
 
           <p className="text-sm sm:text-base opacity-80 leading-relaxed max-w-2xl">
-            Encontrá prestadores verificados, generá pases QR en segundos y gestioná tus servicios
-            con conformidad y calificación cruzada en un solo lugar.
+            Dejá atrás las recomendaciones anárquicas por WhatsApp y las demoras en garita.
+            Conectamos residentes, prestadores con documentación auditada y barrios cerrados con
+            pases QR inteligentes y reputación cruzada.
           </p>
         </div>
 
@@ -106,7 +146,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
                     setSelectedService('');
                   }
                 }}
-                placeholder="¿Qué servicio necesitás? Ej: electricista, plomero, gasista..."
+                placeholder="¿Qué servicio necesitás? Ej: electricista, piletero, gasista..."
                 className="w-full pl-10 pr-4 py-3 rounded-xl text-sm border border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-emerald-500/60"
                 style={innerStyle}
               />
@@ -169,7 +209,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         </div>
       </div>
 
-      {/* Bloques Modulares de Valor (3 Pilares Clave) */}
+      {/* Bloques Modulares de Valor (3 Pilares Core) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
           className="rounded-2xl p-5 border border-slate-800/80 space-y-2.5"
@@ -181,9 +221,10 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           >
             <ShieldCheck size={19} className="text-emerald-400" />
           </div>
-          <h2 className="text-base font-bold">Prestadores Verificados</h2>
+          <h2 className="text-base font-bold">Compliance Centralizado</h2>
           <p className="text-xs opacity-80 leading-relaxed">
-            Perfiles con documentación y habilitaciones revisadas para contratar con tranquilidad.
+            DNI, antecedentes penales, póliza ART o accidentes personales, vehículos y cuadrilla
+            auditados por TrustLink para operar con respaldo en toda la red.
           </p>
         </div>
 
@@ -197,9 +238,10 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           >
             <QrCode size={19} className="text-emerald-400" />
           </div>
-          <h2 className="text-base font-bold">Pases QR Ágiles</h2>
+          <h2 className="text-base font-bold">Pases QR y API para Garitas</h2>
           <p className="text-xs opacity-80 leading-relaxed">
-            Generá pases claros con vigencia y destino para agilizar el ingreso en el acceso.
+            Emití pases digitales con vigencia horaria, destino, patente y ayudantes adjuntos. La
+            garita valida identidad y habilitación en segundos.
           </p>
         </div>
 
@@ -213,10 +255,55 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           >
             <Star size={19} className="text-emerald-400" />
           </div>
-          <h2 className="text-base font-bold">Pagos y Reseñas Reales</h2>
+          <h2 className="text-base font-bold">Reputación Cruzada Real</h2>
           <p className="text-xs opacity-80 leading-relaxed">
-            Confirmá el trabajo realizado, registrá el pago y calificá la experiencia de ambos lados.
+            Coordiná la visita dentro de la app, acordá el trabajo in situ, registrá conformidad y
+            calificá la experiencia de ambos lados (residente ↔ prestador).
           </p>
+        </div>
+      </div>
+
+      {/* Propuesta de valor segmentada por actor */}
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <h2 className="text-lg sm:text-xl font-black tracking-tight">
+            Una misma red, valor concreto para cada actor
+          </h2>
+          <p className="text-xs sm:text-sm opacity-75">
+            A diferencia de los sistemas cerrados de expensas, TrustLink conecta la economía de
+            servicios con el control de accesos sin sobrecargar a la administración.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {ACTOR_BENEFITS.map((actor) => {
+            const Icon = actor.icon;
+            return (
+              <div
+                key={actor.id}
+                className="rounded-2xl p-5 border border-slate-800/80 space-y-3"
+                style={cardStyle}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                    <Icon size={12} />
+                    <span>{actor.badge}</span>
+                  </span>
+                </div>
+
+                <h3 className="text-sm sm:text-base font-bold leading-snug">{actor.title}</h3>
+
+                <ul className="space-y-2 text-xs opacity-85 leading-relaxed">
+                  {actor.points.map((point) => (
+                    <li key={point} className="flex items-start gap-2">
+                      <CheckCircle2 size={14} className="text-emerald-400 shrink-0 mt-0.5" />
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -228,11 +315,11 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         <div className="flex flex-wrap items-center gap-4 opacity-90">
           <span className="inline-flex items-center gap-1.5">
             <CheckCircle2 size={14} className="text-emerald-400" />
-            <span>Para residentes, prestadores y barrios</span>
+            <span>Identidad dual: operá como residente y/o prestador</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Wrench size={14} className="text-emerald-400" />
-            <span>Acuerdos claros y reputación cruzada</span>
+            <span>Cumplimiento auditable y trazabilidad en garita</span>
           </span>
         </div>
 
