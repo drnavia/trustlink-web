@@ -34,6 +34,7 @@ import {
   MapPin,
   Trash2,
   Clock,
+  Users,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -159,7 +160,7 @@ export default function ProviderDashboard() {
   // Orden riguroso: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  const [profileData, setProfileData] = useState({ providers: [], vehicles: [] });
+  const [profileData, setProfileData] = useState({ providers: [], vehicles: [], employees: [] });
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
@@ -208,6 +209,25 @@ export default function ProviderDashboard() {
   const [editVehInsuranceFrom, setEditVehInsuranceFrom] = useState('');
   const [editVehInsuranceExpiry, setEditVehInsuranceExpiry] = useState('');
   const [updatingVehicle, setUpdatingVehicle] = useState(false);
+
+  // 2b. Ayudantes / Cuadrilla
+  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [empFullName, setEmpFullName] = useState('');
+  const [empDni, setEmpDni] = useState('');
+  const [empPhone, setEmpPhone] = useState('');
+  const [empRoleLabel, setEmpRoleLabel] = useState('Ayudante');
+  const [empInsuranceUrl, setEmpInsuranceUrl] = useState('');
+  const [empInsuranceExpiry, setEmpInsuranceExpiry] = useState('');
+  const [savingEmployee, setSavingEmployee] = useState(false);
+
+  const [editingEmployeeId, setEditingEmployeeId] = useState(null);
+  const [editEmpFullName, setEditEmpFullName] = useState('');
+  const [editEmpDni, setEditEmpDni] = useState('');
+  const [editEmpPhone, setEditEmpPhone] = useState('');
+  const [editEmpRoleLabel, setEditEmpRoleLabel] = useState('Ayudante');
+  const [editEmpInsuranceUrl, setEditEmpInsuranceUrl] = useState('');
+  const [editEmpInsuranceExpiry, setEditEmpInsuranceExpiry] = useState('');
+  const [updatingEmployee, setUpdatingEmployee] = useState(false);
 
   // 3. Agenda
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
@@ -262,6 +282,7 @@ export default function ProviderDashboard() {
         setProfileData({
           providers: data.providers || [],
           vehicles: data.vehicles || [],
+          employees: data.employees || [],
         });
       } else {
         setErrorMsg(data.error || 'No se pudo cargar el perfil del prestador.');
@@ -741,6 +762,114 @@ export default function ProviderDashboard() {
       setErrorMsg('Error de conexión al actualizar el vehículo.');
     } finally {
       setUpdatingVehicle(false);
+    }
+  };
+
+  const handleAddEmployee = async (e) => {
+    e.preventDefault();
+    setSavingEmployee(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/employees`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          full_name: empFullName.trim(),
+          dni: empDni.trim(),
+          phone: empPhone.trim() || null,
+          role_label: empRoleLabel.trim() || 'Ayudante',
+          insurance_policy_url: empInsuranceUrl.trim() || null,
+          insurance_expiry: empInsuranceExpiry || null,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Ayudante agregado a tu cuadrilla.');
+        setEmpFullName('');
+        setEmpDni('');
+        setEmpPhone('');
+        setEmpRoleLabel('Ayudante');
+        setEmpInsuranceUrl('');
+        setEmpInsuranceExpiry('');
+        setShowEmployeeForm(false);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo registrar el ayudante.');
+      }
+    } catch (error) {
+      console.error('Error al registrar ayudante:', error);
+      setErrorMsg('Error de conexión al registrar el ayudante.');
+    } finally {
+      setSavingEmployee(false);
+    }
+  };
+
+  const startEditingEmployee = (emp) => {
+    setEditingEmployeeId(emp.id);
+    setEditEmpFullName(emp.full_name || '');
+    setEditEmpDni(emp.dni || '');
+    setEditEmpPhone(emp.phone || '');
+    setEditEmpRoleLabel(emp.role_label || 'Ayudante');
+    setEditEmpInsuranceUrl(emp.insurance_policy_url || '');
+    setEditEmpInsuranceExpiry(toDateInputValue(emp.insurance_expiry));
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  const handleSaveEmployeeEdit = async (empId) => {
+    setUpdatingEmployee(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/employees/${empId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          full_name: editEmpFullName.trim(),
+          dni: editEmpDni.trim(),
+          phone: editEmpPhone.trim() || null,
+          role_label: editEmpRoleLabel.trim() || 'Ayudante',
+          insurance_policy_url: editEmpInsuranceUrl.trim() || null,
+          insurance_expiry: editEmpInsuranceExpiry || null,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Ayudante actualizado correctamente.');
+        setEditingEmployeeId(null);
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar el ayudante.');
+      }
+    } catch (error) {
+      console.error('Error al actualizar ayudante:', error);
+      setErrorMsg('Error de conexión al actualizar el ayudante.');
+    } finally {
+      setUpdatingEmployee(false);
+    }
+  };
+
+  const handleDeleteEmployee = async (empId) => {
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/employees/${empId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (response.ok) {
+        setSuccessMsg('Ayudante eliminado de tu cuadrilla.');
+        await fetchProviderProfile();
+      }
+    } catch (error) {
+      console.error('Error al eliminar ayudante:', error);
     }
   };
 
@@ -1784,6 +1913,279 @@ export default function ProviderDashboard() {
                 );
               })
             )}
+          </div>
+
+          {/* Subsección: Ayudantes y Cuadrilla Habilitada */}
+          <div className="pt-4 border-t border-slate-800/80 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Users size={17} className="text-sky-400 shrink-0" />
+                  <span>Ayudantes y Cuadrilla Habilitada</span>
+                </h3>
+                <p className="text-xs opacity-75">
+                  Declará a los ayudantes que te acompañan en obras o mantenimientos con DNI y seguro ART.
+                </p>
+              </div>
+              <div className="flex items-center gap-2.5 self-start sm:self-auto">
+                <span className={listCounterBadgeClass} style={innerStyle}>
+                  {(profileData.employees || []).length} ayudante(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowEmployeeForm((prev) => !prev)}
+                  className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer shadow-sm"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {showEmployeeForm ? <X size={14} /> : <Plus size={14} />}
+                  {showEmployeeForm ? 'Cerrar' : 'Agregar Ayudante'}
+                </button>
+              </div>
+            </div>
+
+            {showEmployeeForm && (
+              <form
+                onSubmit={handleAddEmployee}
+                className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
+                style={innerStyle}
+              >
+                <p className="font-bold">Nuevo Ayudante / Integrante</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    required
+                    value={empFullName}
+                    onChange={(e) => setEmpFullName(e.target.value)}
+                    placeholder="Nombre y Apellido"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="text"
+                    required
+                    value={empDni}
+                    onChange={(e) => setEmpDni(e.target.value)}
+                    placeholder="DNI (ej: 38123456)"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="text"
+                    value={empRoleLabel}
+                    onChange={(e) => setEmpRoleLabel(e.target.value)}
+                    placeholder="Rol (ej: Oficial, Ayudante)"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                    style={cardStyle}
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <input
+                    type="text"
+                    value={empPhone}
+                    onChange={(e) => setEmpPhone(e.target.value)}
+                    placeholder="Teléfono (opcional)"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="url"
+                    value={empInsuranceUrl}
+                    onChange={(e) => setEmpInsuranceUrl(e.target.value)}
+                    placeholder="URL Póliza ART / Seguro (opcional)"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                    style={cardStyle}
+                  />
+                  <input
+                    type="date"
+                    value={empInsuranceExpiry}
+                    onChange={(e) => setEmpInsuranceExpiry(e.target.value)}
+                    title="Vencimiento de ART / Seguro"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                    style={cardStyle}
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={savingEmployee}
+                    className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    <Plus size={14} /> {savingEmployee ? 'Registrando...' : 'Registrar Ayudante'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {(profileData.employees || []).length === 0 ? (
+                <div
+                  className="md:col-span-2 p-6 rounded-xl border border-slate-800/70 text-xs opacity-75 text-center"
+                  style={innerStyle}
+                >
+                  Sin ayudantes registrados en tu cuadrilla.
+                </div>
+              ) : (
+                (profileData.employees || []).map((emp) => {
+                  const isEditingEmp = editingEmployeeId === emp.id;
+                  const insVal = getValidityStatus(emp.insurance_expiry);
+
+                  return (
+                    <div
+                      key={emp.id}
+                      className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
+                      style={innerStyle}
+                    >
+                      {isEditingEmp ? (
+                        <div className="space-y-2.5">
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              value={editEmpFullName}
+                              onChange={(e) => setEditEmpFullName(e.target.value)}
+                              placeholder="Nombre y Apellido"
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                            <input
+                              type="text"
+                              value={editEmpDni}
+                              onChange={(e) => setEditEmpDni(e.target.value)}
+                              placeholder="DNI"
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                              style={cardStyle}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="text"
+                              value={editEmpRoleLabel}
+                              onChange={(e) => setEditEmpRoleLabel(e.target.value)}
+                              placeholder="Rol"
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                            <input
+                              type="text"
+                              value={editEmpPhone}
+                              onChange={(e) => setEditEmpPhone(e.target.value)}
+                              placeholder="Teléfono"
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              type="url"
+                              value={editEmpInsuranceUrl}
+                              onChange={(e) => setEditEmpInsuranceUrl(e.target.value)}
+                              placeholder="URL Póliza ART"
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                            <input
+                              type="date"
+                              value={editEmpInsuranceExpiry}
+                              onChange={(e) => setEditEmpInsuranceExpiry(e.target.value)}
+                              className="w-full px-2.5 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                          </div>
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setEditingEmployeeId(null)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <X size={12} /> Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={updatingEmployee}
+                              onClick={() => handleSaveEmployeeEdit(emp.id)}
+                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              <Save size={12} /> {updatingEmployee ? 'Guardando...' : 'Guardar'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-sm">{emp.full_name}</span>
+                              <span
+                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
+                                style={cardStyle}
+                              >
+                                {emp.role_label || 'Ayudante'}
+                              </span>
+                              <span
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                  insVal.tone === 'success'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                    : insVal.tone === 'warning'
+                                    ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                                    : insVal.tone === 'danger'
+                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                                    : 'border-slate-700'
+                                }`}
+                                style={insVal.tone === 'neutral' ? cardStyle : undefined}
+                              >
+                                ART: {emp.insurance_policy_url ? insVal.label : 'Sin póliza'}
+                              </span>
+                            </div>
+                            <p className="opacity-80">
+                              DNI: <strong className="font-mono">{emp.dni || '-'}</strong>
+                              {emp.phone ? ` · Tel: ${emp.phone}` : ''}
+                            </p>
+                            {(emp.insurance_policy_url || emp.insurance_expiry) && (
+                              <p className="opacity-75 text-[11px]">
+                                Vence: {formatDateShort(emp.insurance_expiry)}
+                                {emp.insurance_policy_url && (
+                                  <>
+                                    {' · '}
+                                    <a
+                                      href={emp.insurance_policy_url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-sky-400 hover:underline font-semibold"
+                                    >
+                                      Ver póliza
+                                    </a>
+                                  </>
+                                )}
+                              </p>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditingEmployee(emp)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                            >
+                              <Edit3 size={12} /> Editar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteEmployee(emp.id)}
+                              className={rowActionBtnClass}
+                              style={cardStyle}
+                              title="Eliminar ayudante"
+                            >
+                              <Trash2 size={12} className="text-rose-400" />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
         </section>
       ) : activeStep === 'schedule' ? (

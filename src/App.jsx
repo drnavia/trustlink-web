@@ -6,7 +6,7 @@
  * @location /trustlink-web/src/App.jsx
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Home,
   Wrench,
@@ -27,19 +27,19 @@ import {
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
 import { AuthProvider, useAuth } from './modules/auth/AuthContext';
 
-import LandingHome from './modules/landing/LandingHome';
-import LoginView from './modules/auth/LoginView';
-import RegisterView from './modules/auth/RegisterView';
-import AccountView from './modules/auth/AccountView';
-import ResidentDashboard from './modules/owner/ResidentDashboard';
-import ProviderDashboard from './modules/provider/ProviderDashboard';
-import ContractPaymentView from './modules/owner/ContractPaymentView';
-import SecurityScanner from './modules/security/SecurityScanner';
-import AdminComplianceView from './modules/admin/AdminComplianceView';
-import LocalAdminView from './modules/admin/LocalAdminView';
-import UserManagementView from './modules/admin/UserManagementView';
-import BrandingSettingsView from './modules/branding/BrandingSettingsView';
-import SystemHealthDashboard from './modules/admin/SystemHealthDashboard';
+const LandingHome = lazy(() => import('./modules/landing/LandingHome'));
+const LoginView = lazy(() => import('./modules/auth/LoginView'));
+const RegisterView = lazy(() => import('./modules/auth/RegisterView'));
+const AccountView = lazy(() => import('./modules/auth/AccountView'));
+const ResidentDashboard = lazy(() => import('./modules/owner/ResidentDashboard'));
+const ProviderDashboard = lazy(() => import('./modules/provider/ProviderDashboard'));
+const ContractPaymentView = lazy(() => import('./modules/owner/ContractPaymentView'));
+const SecurityScanner = lazy(() => import('./modules/security/SecurityScanner'));
+const AdminComplianceView = lazy(() => import('./modules/admin/AdminComplianceView'));
+const LocalAdminView = lazy(() => import('./modules/admin/LocalAdminView'));
+const UserManagementView = lazy(() => import('./modules/admin/UserManagementView'));
+const BrandingSettingsView = lazy(() => import('./modules/branding/BrandingSettingsView'));
+const SystemHealthDashboard = lazy(() => import('./modules/admin/SystemHealthDashboard'));
 
 const VALID_VIEWS = new Set([
   'landing',
@@ -565,8 +565,15 @@ function MainAppContent() {
         </div>
       )}
 
-      {/* ZONA 3: Contenedor Principal de Vistas */}
+      {/* ZONA 3: Contenedor Principal de Vistas (carga diferida por módulo) */}
       <main className="flex-1 flex flex-col">
+        <Suspense
+          fallback={
+            <div className="flex-1 flex items-center justify-center p-10 text-xs opacity-75">
+              Cargando vista...
+            </div>
+          }
+        >
         {currentView === 'landing' && (
           <LandingHome
             onGoLogin={() => setCurrentView('login')}
@@ -621,6 +628,7 @@ function MainAppContent() {
         {isSuperadmin && currentView === 'health' && (
           <SystemHealthDashboard onNavigate={setCurrentView} />
         )}
+        </Suspense>
       </main>
 
       {/* ZONA 6: Footer Institucional Único */}
