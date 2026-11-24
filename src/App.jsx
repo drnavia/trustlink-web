@@ -28,6 +28,7 @@ import {
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
 import { AuthProvider, useAuth } from './modules/auth/AuthContext';
 
+// Carga diferida (code-splitting) de cada módulo para reducir el bundle inicial
 const LandingHome = lazy(() => import('./modules/landing/LandingHome'));
 const LoginView = lazy(() => import('./modules/auth/LoginView'));
 const RegisterView = lazy(() => import('./modules/auth/RegisterView'));
@@ -42,6 +43,7 @@ const UserManagementView = lazy(() => import('./modules/admin/UserManagementView
 const BrandingSettingsView = lazy(() => import('./modules/branding/BrandingSettingsView'));
 const SystemHealthDashboard = lazy(() => import('./modules/admin/SystemHealthDashboard'));
 
+// Conjunto de vistas permitidas para sincronización con el hash de la URL (#vista)
 const VALID_VIEWS = new Set([
   'landing',
   'login',
@@ -58,6 +60,7 @@ const VALID_VIEWS = new Set([
   'health',
 ]);
 
+// Subconjunto de vistas de gobernanza central que despliegan la barra de Modo Maestro
 const MASTER_VIEWS = new Set([
   'admin',
   'local_admin',
@@ -66,6 +69,11 @@ const MASTER_VIEWS = new Set([
   'health',
 ]);
 
+/**
+ * Lee un token de pase QR enviado en los query params iniciales (`?qr_token=` o `?token=`).
+ * Permite abrir enlaces directos de garita y pre-cargar el escáner tras autenticar.
+ * @returns {string} Token recortado o cadena vacía si no está presente.
+ */
 function readInitialQrTokenFromUrl() {
   if (typeof window === 'undefined') return '';
   try {
@@ -76,6 +84,10 @@ function readInitialQrTokenFromUrl() {
   }
 }
 
+/**
+ * Extrae y valida el identificador de vista presente en `window.location.hash` (ej. `#resident`).
+ * @returns {string} Identificador de vista válido según `VALID_VIEWS` o cadena vacía.
+ */
 function readViewFromHash() {
   if (typeof window === 'undefined') return '';
   const raw = String(window.location.hash || '').replace(/^#\/?/, '').trim();
@@ -84,11 +96,14 @@ function readViewFromHash() {
 
 /**
  * Contenido principal de la aplicación con acceso a BrandingContext y AuthContext.
+ * Orquesta los permisos por rol/portal, la navegación vía hash/History API,
+ * la barra superior adaptable, el sub-menú de Modo Maestro y la carga diferida de vistas.
  */
 function MainAppContent() {
   const { brand } = useBranding();
   const { user, isAuthenticated, logout } = useAuth();
 
+  // Normalización del rol base del usuario autenticado
   const userRole = user?.role ? String(user.role).toLowerCase() : 'guest';
   const isSuperadmin = userRole === 'superadmin';
   const isLocalAdmin = userRole === 'admin';
@@ -108,7 +123,12 @@ function MainAppContent() {
   const canSeePayments = canSeeResident;
   const canSeeSecurity = isSuperadmin || userRole === 'security';
 
-  // Vista activa inicial según rol privilegiado o portales habilitados + Portal Principal configurable
+  /**
+   * Resuelve la vista inicial por defecto de un usuario autenticado según rol privilegiado,
+   * portales habilitados (`can_use_resident` / `can_use_provider`) y preferencia `primary_portal`.
+   * @param {object|null} targetUser - Perfil de usuario recién autenticado o persistido.
+   * @returns {string} Identificador de la vista destino.
+   */
   const getDefaultAuthenticatedView = (targetUser) => {
     const normalized = String(targetUser?.role || '').toLowerCase();
     if (normalized === 'security') return 'security';
@@ -133,8 +153,10 @@ function MainAppContent() {
     return 'account';
   };
 
+  // Token QR inicial capturado desde la URL (si la garita abrió un enlace directo)
   const [initialQrToken, setInitialQrToken] = useState(() => readInitialQrTokenFromUrl());
 
+  // Vista activa inicial: prioriza login ante token QR sin sesión, consola garita si tiene permiso o hash válido
   const [currentView, setCurrentViewState] = useState(() => {
     const hashView = readViewFromHash();
     if (!isAuthenticated) {
@@ -144,10 +166,16 @@ function MainAppContent() {
     if (readInitialQrTokenFromUrl() && canSeeSecurity) return 'security';
     return hashView || getDefaultAuthenticatedView(user);
   });
+  // Estado desplegable de la sub-barra de Gobernanza Central (Modo Maestro)
   const [masterModeOpen, setMasterModeOpen] = useState(() =>
     MASTER_VIEWS.has(readViewFromHash())
   );
 
+  /**
+   * Cambia la vista activa y actualiza el historial del navegador normalizando el pathname a `/`
+   * y reflejando la ruta como hash (`/#<vista>`) sin provocar recargas.
+   * @param {string|((prev: string) => string)} nextOrUpdater - Nueva vista o función actualizadora.
+   */
   const setCurrentView = useCallback((nextOrUpdater) => {
     setCurrentViewState((prev) => {
       const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
@@ -162,6 +190,10 @@ function MainAppContent() {
     });
   }, []);
 
+  /**
+   * Limpia el token QR inicial tanto del estado React como de los query params de la URL
+   * para evitar re-validaciones accidentales al recargar o navegar.
+   */
   const clearInitialQrToken = useCallback(() => {
     setInitialQrToken('');
     if (typeof window !== 'undefined') {
@@ -181,8 +213,11 @@ function MainAppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Soporte para botón Atrás/Adelante del navegador vía hash
+  // Soporte para botón Atrás/Adelante del navegador vía evento popstate y hash
   useEffect(() => {
+    /**
+     * Sincroniza la vista activa y cualquier `?qr_token=` presente al navegar por el historial.
+     */
     const onPopState = () => {
       const tokenFromUrl = readInitialQrTokenFromUrl();
       if (tokenFromUrl) {
@@ -197,7 +232,7 @@ function MainAppContent() {
     return () => window.removeEventListener('popstate', onPopState);
   }, []);
 
-  // Sincroniza la vista cuando cambia la sesión (login / logout) o llega un ?qr_token=
+  // Sincroniza la vista cuando cambia la sesión (login / logout), llegan permisos nuevos o llega un ?qr_token=
   useEffect(() => {
     if (!isAuthenticated) {
       setCurrentViewState((prev) =>
@@ -229,7 +264,9 @@ function MainAppContent() {
     }
   }, [isAuthenticated, isSuperadmin, currentView]);
 
-  // Cierra sesión y vuelve a la vista pública
+  /**
+   * Cierra la sesión global, repliega el menú de Modo Maestro y regresa a la portada pública.
+   */
   const handleLogout = () => {
     logout();
     setMasterModeOpen(false);
@@ -250,7 +287,11 @@ function MainAppContent() {
     (brand?.brandSubtitle || 'Red de Confianza Residencial').trim() ||
     'Red de Confianza Residencial';
 
-  // Helper de estilo para botón de módulo activo/inactivo
+  /**
+   * Devuelve las clases Tailwind de un botón de navegación según si su vista está activa.
+   * @param {boolean} isActive - Indica si corresponde a la vista actual.
+   * @returns {string}
+   */
   const navBtnClass = (isActive) =>
     `inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
       isActive
@@ -258,6 +299,11 @@ function MainAppContent() {
         : 'bg-black/25 hover:bg-black/35 border border-white/15 opacity-90 hover:opacity-100'
     }`;
 
+  /**
+   * Devuelve el estilo inline del color de acento para resaltar el botón del módulo activo.
+   * @param {boolean} isActive - Indica si corresponde a la vista actual.
+   * @returns {React.CSSProperties|undefined}
+   */
   const navBtnStyle = (isActive) =>
     isActive ? { backgroundColor: brand?.accentColor || '#10B981' } : undefined;
 
@@ -616,6 +662,7 @@ function MainAppContent() {
             </div>
           }
         >
+        {/* Vistas públicas: portada, inicio de sesión y registro */}
         {currentView === 'landing' && (
           <LandingHome
             onGoLogin={() => setCurrentView('login')}
@@ -640,10 +687,12 @@ function MainAppContent() {
           />
         )}
 
+        {/* Vista de configuración de cuenta e identidad dual */}
         {isAuthenticated && currentView === 'account' && (
           <AccountView onNavigate={setCurrentView} />
         )}
 
+        {/* Portales operativos: Residente, Prestador, Pagos y Consola de Garita */}
         {currentView === 'resident' && (
           <ResidentDashboard onNavigate={setCurrentView} onViewChange={setCurrentView} />
         )}
@@ -659,6 +708,7 @@ function MainAppContent() {
           />
         )}
 
+        {/* Vistas administrativas y de gobernanza central (Modo Maestro / Admin Barrio) */}
         {isSuperadmin && currentView === 'admin' && <AdminComplianceView />}
 
         {(isSuperadmin || isLocalAdmin) && currentView === 'local_admin' && <LocalAdminView />}

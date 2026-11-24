@@ -1,8 +1,20 @@
 /**
  * @file ProviderDashboard.jsx
  * @description Portal del Prestador unificado estéticamente y en ritmo UX/UI con Portal Residente.
- * Secuencia operativa rigurosa de 6 pasos:
- * 1. Credenciales, 2. Flota Vehicular, 3. Agenda, 4. Visitas, 5. Pases QR y 6. Reseñas.
+ * Organiza la operación integral del prestador en una secuencia de 6 pasos:
+ * 1. Credenciales y Compliance: carga y edición del historial documental (antecedentes penales y póliza ART/seguro
+ *    con vigencias), alertas proactivas de vencimiento (≤ 30 días o vencidos con bloqueo en garita), gestión de
+ *    especialidades con visibilidad persistente en el directorio y suscripción/renovación de Membresía "Socio Verificado".
+ * 2. Flota Vehicular y Cuadrilla/Ayudantes: registro y edición de vehículos con seguro automotor y administración
+ *    completa de ayudantes (DNI, rol, contacto y vigencia de ART).
+ * 3. Agenda Online y Disponibilidad: alta y eliminación de bloqueos manuales (horarios no laborables o visitas
+ *    externas) integrados con franjas bloqueadas automáticamente por visitas y pases de TrustLink.
+ * 4. Solicitudes de Visita: revisión de pedidos entrantes de residentes, mensajería contextual y confirmación o
+ *    rechazo de disponibilidad sincronizado con la agenda.
+ * 5. Pases QR: listado paginado con búsqueda y filtros de estado, visualización de cuadrilla autorizada, copia de
+ *    token y modal con código QR escaneable en garita.
+ * 6. Ingresos, Contratos y Reseñas Cruzadas: resumen de ingresos netos estimados (93%), contratos con emisión de
+ *    comprobantes imprimibles, reseñas recibidas y calificación recíproca al residente.
  * @location /trustlink-web/src/modules/provider/ProviderDashboard.jsx
  */
 
@@ -50,8 +62,14 @@ import {
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
+/** Cantidad máxima de pases QR mostrados por página en la pestaña de Pases. */
 const PASSES_PER_PAGE = 6;
 
+/**
+ * Convierte un objeto `Date` al formato local `YYYY-MM-DDTHH:mm` requerido por inputs `datetime-local`.
+ * @param {Date} dateObj - Instancia de fecha/hora a formatear.
+ * @returns {string} Fecha y hora local formateada para controles HTML `datetime-local`.
+ */
 const toLocalDateTimeInput = (dateObj) => {
   const pad = (n) => String(n).padStart(2, '0');
   const y = dateObj.getFullYear();
@@ -62,6 +80,12 @@ const toLocalDateTimeInput = (dateObj) => {
   return `${y}-${m}-${d}T${hh}:${mm}`;
 };
 
+/**
+ * Evalúa la vigencia de una fecha de vencimiento documental respecto del día actual.
+ * Clasifica el estado en "Vencido" (< 0 días), "Por vencer" (≤ 30 días), "Vigente" (> 30 días) o "Sin fecha".
+ * @param {string|Date|null|undefined} expiryDateStr - Fecha de vencimiento a evaluar.
+ * @returns {{ label: string, tone: 'neutral'|'danger'|'warning'|'success' }} Etiqueta legible y tono semántico para badges.
+ */
 function getValidityStatus(expiryDateStr) {
   if (!expiryDateStr) {
     return { label: 'Sin fecha', tone: 'neutral' };
@@ -87,6 +111,11 @@ function getValidityStatus(expiryDateStr) {
   return { label: 'Vigente', tone: 'success' };
 }
 
+/**
+ * Formatea una fecha en formato corto localizado para Argentina (`es-AR`).
+ * @param {string|Date|null|undefined} dateStr - Valor de fecha a formatear.
+ * @returns {string} Fecha legible (`DD/MM/YYYY`) o `'Sin fecha'` si es inválida o vacía.
+ */
 function formatDateShort(dateStr) {
   if (!dateStr) return 'Sin fecha';
   const parsed = new Date(dateStr);
@@ -94,6 +123,11 @@ function formatDateShort(dateStr) {
   return parsed.toLocaleDateString('es-AR');
 }
 
+/**
+ * Formatea una fecha con hora en formato localizado `es-AR` (`DD/MM/YYYY, HH:mm`).
+ * @param {string|Date|null|undefined} value - Fecha/hora en formato ISO o instancia `Date`.
+ * @returns {string} Fecha y hora formateadas, `'—'` si está vacía o el valor original como texto si no es parseable.
+ */
 function formatDateTime(value) {
   if (!value) return '—';
   const date = new Date(value);
@@ -107,6 +141,11 @@ function formatDateTime(value) {
   });
 }
 
+/**
+ * Normaliza una fecha al formato `YYYY-MM-DD` esperado por inputs HTML `type="date"`.
+ * @param {string|Date|null|undefined} dateStr - Fecha en formato ISO, cadena prefijada `YYYY-MM-DD` o instancia `Date`.
+ * @returns {string} Fecha `YYYY-MM-DD` o cadena vacía si no es válida.
+ */
 function toDateInputValue(dateStr) {
   if (!dateStr) return '';
   if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
@@ -117,6 +156,11 @@ function toDateInputValue(dateStr) {
   return parsed.toISOString().slice(0, 10);
 }
 
+/**
+ * Traduce el estado técnico de un pase QR a una etiqueta descriptiva en español.
+ * @param {string|null|undefined} status - Código de estado (`pending`, `used`, `expired`, `cancelled`).
+ * @returns {string} Etiqueta legible para mostrar en encabezados y modales.
+ */
 function getPassStatusLabel(status) {
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') return 'Vigente / Pendiente';
@@ -126,6 +170,11 @@ function getPassStatusLabel(status) {
   return status || 'Sin estado';
 }
 
+/**
+ * Traduce el tipo de bloqueo de agenda del prestador a una etiqueta legible en español.
+ * @param {string|null|undefined} blockType - Código de tipo (`external_visit`, `trustlink_visit`, `trustlink_pass`, `unavailable`).
+ * @returns {string} Descripción legible del origen o naturaleza del bloqueo.
+ */
 function getBlockTypeLabel(blockType) {
   const t = String(blockType || '').toLowerCase();
   if (t === 'external_visit') return 'Visita Externa';
@@ -134,10 +183,18 @@ function getBlockTypeLabel(blockType) {
   return 'Horario No Laborable';
 }
 
+/**
+ * Componente principal del Portal Prestador.
+ * Centraliza la gestión de cumplimiento documental, membresía Socio Verificado, especialidades,
+ * flota vehicular, cuadrilla de ayudantes, agenda online, solicitudes de visita, pases QR,
+ * ingresos/comprobantes y reseñas cruzadas con residentes.
+ * @component
+ * @returns {JSX.Element} Interfaz completa del panel del prestador.
+ */
 export default function ProviderDashboard() {
   const { brand } = useBranding();
 
-  // Mismos tokens de superficie y acción primaria que ResidentDashboard
+  // Tokens visuales de acción primaria y superficies compartidos con Portal Residente
   const primaryColor = brand?.primaryActionColor || brand?.primaryColor || '#059669';
 
   const cardStyle = {
@@ -150,9 +207,10 @@ export default function ProviderDashboard() {
     color: brand?.innerTextColor || '#E2E8F0',
   };
 
-  // Orden riguroso: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
+  // Navegación principal por pasos: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
+  // Estado global del perfil del prestador, membresía Socio Verificado y mensajes de feedback
   const [profileData, setProfileData] = useState({
     providers: [],
     vehicles: [],
@@ -167,7 +225,7 @@ export default function ProviderDashboard() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
-  // 1. Credenciales
+  // Paso 1: Credenciales — alta de documentación de compliance (Antecedentes / ART)
   const [showDocForm, setShowDocForm] = useState(false);
   const [docType, setDocType] = useState('Antecedentes Penales');
   const [docUrl, setDocUrl] = useState('');
@@ -175,12 +233,14 @@ export default function ProviderDashboard() {
   const [docValidTo, setDocValidTo] = useState('');
   const [savingDoc, setSavingDoc] = useState(false);
 
+  // Paso 1: Edición inline de documentos existentes en el historial
   const [editingDocKey, setEditingDocKey] = useState(null);
   const [editDocUrl, setEditDocUrl] = useState('');
   const [editDocValidFrom, setEditDocValidFrom] = useState('');
   const [editDocValidTo, setEditDocValidTo] = useState('');
   const [updatingDoc, setUpdatingDoc] = useState(false);
 
+  // Paso 1: Alta, edición y control de visibilidad en directorio de especialidades
   const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
   const [newSpecialty, setNewSpecialty] = useState('');
   const [savingSpecialty, setSavingSpecialty] = useState(false);
@@ -189,7 +249,7 @@ export default function ProviderDashboard() {
   const [editSpecialtyName, setEditSpecialtyName] = useState('');
   const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
 
-  // 2. Flota Vehicular
+  // Paso 2: Flota Vehicular — formulario de alta de vehículos y seguro automotor
   const [showVehicleForm, setShowVehicleForm] = useState(false);
   const [vehType, setVehType] = useState('utilitario');
   const [vehBrand, setVehBrand] = useState('');
@@ -201,6 +261,7 @@ export default function ProviderDashboard() {
   const [vehInsuranceExpiry, setVehInsuranceExpiry] = useState('');
   const [savingVehicle, setSavingVehicle] = useState(false);
 
+  // Paso 2: Edición inline de vehículos y pólizas automotor existentes
   const [editingVehicleId, setEditingVehicleId] = useState(null);
   const [editVehType, setEditVehType] = useState('utilitario');
   const [editVehBrand, setEditVehBrand] = useState('');
@@ -212,7 +273,7 @@ export default function ProviderDashboard() {
   const [editVehInsuranceExpiry, setEditVehInsuranceExpiry] = useState('');
   const [updatingVehicle, setUpdatingVehicle] = useState(false);
 
-  // 2b. Ayudantes / Cuadrilla
+  // Paso 2b: Ayudantes / Cuadrilla — formulario de alta con DNI y cobertura ART
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [empFullName, setEmpFullName] = useState('');
   const [empDni, setEmpDni] = useState('');
@@ -222,6 +283,7 @@ export default function ProviderDashboard() {
   const [empInsuranceExpiry, setEmpInsuranceExpiry] = useState('');
   const [savingEmployee, setSavingEmployee] = useState(false);
 
+  // Paso 2b: Edición inline de ayudantes registrados en la cuadrilla
   const [editingEmployeeId, setEditingEmployeeId] = useState(null);
   const [editEmpFullName, setEditEmpFullName] = useState('');
   const [editEmpDni, setEditEmpDni] = useState('');
@@ -231,7 +293,7 @@ export default function ProviderDashboard() {
   const [editEmpInsuranceExpiry, setEditEmpInsuranceExpiry] = useState('');
   const [updatingEmployee, setUpdatingEmployee] = useState(false);
 
-  // 3. Agenda
+  // Paso 3: Agenda Online — listado de franjas ocupadas y alta de bloqueos manuales
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [blockType, setBlockType] = useState('unavailable');
@@ -244,13 +306,13 @@ export default function ProviderDashboard() {
   );
   const [savingBlock, setSavingBlock] = useState(false);
 
-  // 4. Visitas
+  // Paso 4: Solicitudes de Visita — pedidos entrantes y borradores de respuesta
   const [incomingVisits, setIncomingVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
   const [respondingVisitId, setRespondingVisitId] = useState(null);
 
-  // 5. Pases QR
+  // Paso 5: Pases QR — listado asignado, búsqueda, filtro por estado, paginación y modal de detalle
   const [assignedPasses, setAssignedPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
   const [passesError, setPassesError] = useState('');
@@ -260,7 +322,7 @@ export default function ProviderDashboard() {
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  // 6. Contratos, Ingresos y Reseñas
+  // Paso 6: Contratos, Ingresos netos (93%), comprobantes imprimibles y reseñas cruzadas
   const [providerContracts, setProviderContracts] = useState([]);
   const [providerEarningsSummary, setProviderEarningsSummary] = useState(null);
   const [loadingReceiptId, setLoadingReceiptId] = useState(null);
@@ -270,10 +332,19 @@ export default function ProviderDashboard() {
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
   const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
 
+  /**
+   * Construye las cabeceras HTTP de autorización con el token JWT persistido en `localStorage`.
+   * @returns {{ Authorization: string }} Cabecera Bearer para las solicitudes al backend.
+   */
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
+  /**
+   * Obtiene el perfil integral del prestador autenticado (`/api/v1/providers/me`),
+   * incluyendo especialidades, flota vehicular, ayudantes, alertas de vencimiento y membresía.
+   * @returns {Promise<void>}
+   */
   const fetchProviderProfile = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -303,6 +374,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Carga los bloques de agenda del prestador (manuales y generados por visitas o pases QR).
+   * @returns {Promise<void>}
+   */
   const fetchProviderSchedule = async () => {
     setLoadingSchedule(true);
     try {
@@ -321,6 +396,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Consulta las solicitudes de visita entrantes enviadas por residentes junto con su hilo de mensajes.
+   * @returns {Promise<void>}
+   */
   const fetchIncomingVisits = async () => {
     setLoadingVisits(true);
     try {
@@ -339,6 +418,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Recupera los pases QR asignados al prestador para validar su ingreso en garita.
+   * @returns {Promise<void>}
+   */
   const fetchAssignedPasses = async () => {
     setLoadingPasses(true);
     setPassesError('');
@@ -363,6 +446,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Obtiene el historial de contratos con reseñas cruzadas desde la perspectiva del prestador.
+   * @returns {Promise<void>}
+   */
   const fetchProviderReviewContracts = async () => {
     setLoadingReviews(true);
     try {
@@ -381,6 +468,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Consulta los contratos del prestador y el resumen financiero de ingresos netos (93%) y reclamos.
+   * @returns {Promise<void>}
+   */
   const fetchProviderContractsSummary = async () => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/contracts/provider`, {
@@ -397,6 +488,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Solicita los datos del comprobante de servicio de un contrato y dispara su impresión.
+   * @param {number|string} contractId - Identificador del contrato a imprimir.
+   * @returns {Promise<void>}
+   */
   const handlePrintProviderReceipt = async (contractId) => {
     setLoadingReceiptId(contractId);
     setErrorMsg('');
@@ -418,6 +514,7 @@ export default function ProviderDashboard() {
     }
   };
 
+  // Carga inicial paralela de todos los módulos del Portal Prestador al montar la vista
   useEffect(() => {
     fetchProviderProfile();
     fetchProviderSchedule();
@@ -427,6 +524,7 @@ export default function ProviderDashboard() {
     fetchProviderContractsSummary();
   }, []);
 
+  // Normaliza el historial documental combinando el arreglo estructurado `documents` y los campos legacy por perfil
   const documentHistory = useMemo(() => {
     const items = [];
     const profiles = profileData.providers || [];
@@ -485,10 +583,17 @@ export default function ProviderDashboard() {
     return items;
   }, [profileData.providers]);
 
+  // Cantidad de especialidades actualmente visibles para residentes en el directorio
   const activeSpecialtiesCount = useMemo(() => {
     return (profileData.providers || []).filter((p) => p.is_visible_in_directory !== false).length;
   }, [profileData.providers]);
 
+  /**
+   * Registra un nuevo documento de compliance (Antecedentes Penales o Póliza ART/Seguro)
+   * creando o actualizando el perfil base del prestador según exista previamente.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario documental.
+   * @returns {Promise<void>}
+   */
   const handleCreateDocument = async (e) => {
     e.preventDefault();
     setSavingDoc(true);
@@ -557,6 +662,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Activa el modo de edición inline para un documento del historial y precarga sus valores actuales.
+   * @param {{ key: string, url?: string, validFrom?: string|null, validTo?: string|null }} docItem - Ítem documental seleccionado.
+   */
   const startEditingDocument = (docItem) => {
     setEditingDocKey(docItem.key);
     setEditDocUrl(docItem.url || '');
@@ -566,6 +675,11 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
   };
 
+  /**
+   * Persiste los cambios editados de URL y fechas de vigencia de un documento del historial vía PATCH.
+   * @param {{ profileId: number|string, field?: string, docType: string }} docItem - Ítem documental en edición.
+   * @returns {Promise<void>}
+   */
   const handleSaveDocumentEdit = async (docItem) => {
     setUpdatingDoc(true);
     setErrorMsg('');
@@ -625,6 +739,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Agrega una nueva especialidad/rubro al prestador reutilizando los enlaces documentales del perfil principal.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de especialidad.
+   * @returns {Promise<void>}
+   */
   const handleCreateSpecialty = async (e) => {
     e.preventDefault();
     if (!newSpecialty.trim()) return;
@@ -667,6 +786,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Guarda el nuevo nombre de una especialidad editada inline manteniendo sus referencias documentales.
+   * @param {Object} specialtyItem - Perfil de especialidad a actualizar.
+   * @returns {Promise<void>}
+   */
   const handleSaveSpecialtyEdit = async (specialtyItem) => {
     if (!editSpecialtyName.trim()) return;
 
@@ -705,6 +829,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Alterna de forma persistente en el backend la visibilidad de una especialidad en el directorio de residentes.
+   * @param {Object|number|string} specialtyItem - Objeto de especialidad o su identificador.
+   * @returns {Promise<void>}
+   */
   const toggleSpecialtyVisibility = async (specialtyItem) => {
     const targetId = typeof specialtyItem === 'object' ? specialtyItem.id : specialtyItem;
     const currentVisible =
@@ -736,6 +865,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Da de alta un nuevo vehículo en la flota habilitada del prestador junto con su póliza de seguro opcional.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de flota vehicular.
+   * @returns {Promise<void>}
+   */
   const handleAddVehicle = async (e) => {
     e.preventDefault();
     setSavingVehicle(true);
@@ -783,6 +917,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Habilita la edición inline de un vehículo y precarga sus datos técnicos y fechas de seguro.
+   * @param {Object} v - Registro del vehículo seleccionado.
+   */
   const startEditingVehicle = (v) => {
     setEditingVehicleId(v.id);
     setEditVehType(v.vehicle_type || 'utilitario');
@@ -797,6 +935,11 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
   };
 
+  /**
+   * Actualiza los datos de un vehículo y la vigencia de su seguro automotor mediante PATCH.
+   * @param {number|string} vehicleId - Identificador del vehículo a actualizar.
+   * @returns {Promise<void>}
+   */
   const handleSaveVehicleEdit = async (vehicleId) => {
     setUpdatingVehicle(true);
     setErrorMsg('');
@@ -835,6 +978,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Registra un nuevo ayudante o integrante en la cuadrilla del prestador con DNI, rol y póliza ART opcional.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de cuadrilla.
+   * @returns {Promise<void>}
+   */
   const handleAddEmployee = async (e) => {
     e.preventDefault();
     setSavingEmployee(true);
@@ -878,6 +1026,10 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Activa la edición inline de un ayudante de la cuadrilla y precarga sus datos y vencimiento de ART.
+   * @param {Object} emp - Integrante de cuadrilla seleccionado.
+   */
   const startEditingEmployee = (emp) => {
     setEditingEmployeeId(emp.id);
     setEditEmpFullName(emp.full_name || '');
@@ -890,6 +1042,11 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
   };
 
+  /**
+   * Persiste los cambios editados de un integrante de la cuadrilla mediante PATCH.
+   * @param {number|string} empId - Identificador del ayudante a actualizar.
+   * @returns {Promise<void>}
+   */
   const handleSaveEmployeeEdit = async (empId) => {
     setUpdatingEmployee(true);
     setErrorMsg('');
@@ -926,6 +1083,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Elimina a un ayudante de la cuadrilla habilitada del prestador y refresca el perfil.
+   * @param {number|string} empId - Identificador del ayudante a dar de baja.
+   * @returns {Promise<void>}
+   */
   const handleDeleteEmployee = async (empId) => {
     setErrorMsg('');
     setSuccessMsg('');
@@ -943,6 +1105,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Crea un bloqueo manual en la agenda online (horario no laborable o visita externa fuera de TrustLink).
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de bloqueo de agenda.
+   * @returns {Promise<void>}
+   */
   const handleCreateScheduleBlock = async (e) => {
     e.preventDefault();
     setSavingBlock(true);
@@ -979,6 +1146,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Elimina un bloqueo manual de la agenda online y recarga las franjas vigentes.
+   * @param {number|string} blockId - Identificador del bloque manual a eliminar.
+   * @returns {Promise<void>}
+   */
   const handleDeleteScheduleBlock = async (blockId) => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/schedule/blocks/${blockId}`, {
@@ -994,6 +1166,13 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Responde a una solicitud de visita entrante confirmando o rechazando disponibilidad,
+   * adjuntando opcionalmente un mensaje al hilo y resincronizando visitas y agenda.
+   * @param {number|string} visitId - Identificador de la solicitud de visita.
+   * @param {'confirm'|'decline'} action - Decisión operativa del prestador.
+   * @returns {Promise<void>}
+   */
   const handleRespondVisit = async (visitId, action) => {
     setRespondingVisitId(visitId);
     setErrorMsg('');
@@ -1028,6 +1207,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Suscribe o extiende la Membresía "Socio Verificado" según el código de plan elegido.
+   * @param {string} planCode - Código identificador del plan de membresía.
+   * @returns {Promise<void>}
+   */
   const handleSubscribeMembership = async (planCode) => {
     setSubscribingPlan(planCode);
     setErrorMsg('');
@@ -1057,6 +1241,12 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Copia al portapapeles el token de un pase QR y muestra confirmación visual temporal.
+   * @param {string} tokenValue - Cadena del token QR a copiar.
+   * @param {number|string} passId - Identificador del pase (o `'modal-pass'`) para el indicador de copiado.
+   * @returns {Promise<void>}
+   */
   const handleCopyToken = async (tokenValue, passId) => {
     if (!tokenValue) return;
     try {
@@ -1068,6 +1258,11 @@ export default function ProviderDashboard() {
     }
   };
 
+  /**
+   * Envía la calificación cruzada (estrellas y comentario opcional) del prestador hacia el residente de un contrato.
+   * @param {number|string} contractId - Identificador del contrato sobre el cual se emite la reseña.
+   * @returns {Promise<void>}
+   */
   const handleSubmitOwnerReview = async (contractId) => {
     const ratingVal = ownerRatingDrafts[contractId] || 5;
     const commentVal = (ownerCommentDrafts[contractId] || '').trim();
@@ -1103,6 +1298,7 @@ export default function ProviderDashboard() {
     }
   };
 
+  // Filtra los pases QR asignados por estado y coincidencia textual (residente, lote, patente, token o ID)
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
     return assignedPasses.filter((item) => {
@@ -1127,6 +1323,7 @@ export default function ProviderDashboard() {
     });
   }, [assignedPasses, passSearch, passStatusFilter]);
 
+  // Cálculo de paginación segura sobre la lista de pases filtrados
   const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
   const paginatedPasses = useMemo(() => {
     const safePage = Math.min(passPage, totalPassPages);
@@ -1134,6 +1331,7 @@ export default function ProviderDashboard() {
     return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
   }, [filteredPasses, passPage, totalPassPages]);
 
+  // Indicadores derivados para badges de navegación y resumen del encabezado
   const activePassesCount = assignedPasses.filter(
     (p) => String(p.status || '').toLowerCase() === 'pending'
   ).length;
@@ -1145,6 +1343,7 @@ export default function ProviderDashboard() {
   const primaryProfile = profileData.providers[0] || null;
   const profileStatus = primaryProfile?.status || 'Pendiente';
 
+  // Clases utilitarias compartidas para encabezados de listas, contadores y botones de fila
   const listHeaderTitleClass =
     'text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5';
   const listCounterBadgeClass =
@@ -1152,6 +1351,7 @@ export default function ProviderDashboard() {
   const rowActionBtnClass =
     'px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-90 shrink-0';
 
+  // Definición ordenada de los 6 pasos del Portal Prestador con iconos y contadores en vivo
   const steps = [
     {
       id: 'credentials',
@@ -1217,6 +1417,7 @@ export default function ProviderDashboard() {
           </p>
         </div>
 
+        {/* Insignia Socio Verificado, scoring promedio, estado del perfil y recarga manual */}
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
           {profileData.membership?.is_verified_member && (
             <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-400/50 bg-amber-500/15 text-amber-200 inline-flex items-center gap-1.5">
@@ -1289,6 +1490,7 @@ export default function ProviderDashboard() {
         })}
       </div>
 
+      {/* Alertas globales de feedback (errores y confirmaciones de operación) */}
       {errorMsg && (
         <div className="rounded-2xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
           <AlertCircle size={16} className="shrink-0" />
@@ -1417,6 +1619,7 @@ export default function ProviderDashboard() {
             </button>
           </div>
 
+          {/* Grilla desplegable de planes disponibles para activar o extender la membresía */}
           {showMembershipPlans && Array.isArray(profileData.membership_plans) && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-white/10">
               {profileData.membership_plans.map((plan) => {
@@ -1479,6 +1682,7 @@ export default function ProviderDashboard() {
         </div>
       )}
 
+      {/* Estado de carga inicial o vista activa correspondiente al paso seleccionado */}
       {loading ? (
         <div
           className="rounded-2xl p-10 border border-slate-800/80 text-center text-xs opacity-75 flex items-center justify-center gap-2"
@@ -1488,8 +1692,9 @@ export default function ProviderDashboard() {
           <span>Cargando información del prestador...</span>
         </div>
       ) : activeStep === 'credentials' ? (
-        /* 1. CREDENCIALES */
+        /* PASO 1: CREDENCIALES Y COMPLIANCE (Documentación personal + Especialidades) */
         <div className={ITEMS_GRID_CLASS}>
+          {/* Sección 1A: Documentación personal de compliance (Antecedentes Penales y ART) */}
           <section
             className={`${SECTION_CARD_CLASS} h-full`}
             style={cardStyle}
@@ -1515,6 +1720,7 @@ export default function ProviderDashboard() {
               </button>
             </div>
 
+            {/* Formulario desplegable de carga de nuevo documento de compliance */}
             {showDocForm && (
               <form
                 onSubmit={handleCreateDocument}
@@ -1585,6 +1791,7 @@ export default function ProviderDashboard() {
               </form>
             )}
 
+            {/* Encabezado y listado del historial documental con edición inline */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className={listHeaderTitleClass}>
                 <History size={13} className="opacity-80" /> HISTORIAL DOCUMENTAL
@@ -1716,6 +1923,7 @@ export default function ProviderDashboard() {
             </div>
           </section>
 
+          {/* Sección 1B: Gestión de especialidades y control de visibilidad en directorio */}
           <section
             className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
             style={cardStyle}
@@ -1741,6 +1949,7 @@ export default function ProviderDashboard() {
               </button>
             </div>
 
+            {/* Formulario desplegable para dar de alta una nueva especialidad */}
             {showSpecialtyForm && (
               <form
                 onSubmit={handleCreateSpecialty}
@@ -1770,6 +1979,7 @@ export default function ProviderDashboard() {
               </form>
             )}
 
+            {/* Listado de especialidades cargadas con visibilidad persistente y edición inline */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className={listHeaderTitleClass}>
                 <ShieldCheck size={13} className="opacity-80" /> ESPECIALIDADES CARGADAS
@@ -1889,11 +2099,12 @@ export default function ProviderDashboard() {
           </section>
         </div>
       ) : activeStep === 'vehicles' ? (
-        /* 2. FLOTA VEHICULAR */
+        /* PASO 2: FLOTA VEHICULAR Y CUADRILLA DE AYUDANTES */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
+          {/* Cabecera de Flota Vehicular Habilitada y acceso al alta */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1920,6 +2131,7 @@ export default function ProviderDashboard() {
             </div>
           </div>
 
+          {/* Formulario desplegable de alta de vehículo y póliza de seguro automotor */}
           {showVehicleForm && (
             <form
               onSubmit={handleAddVehicle}
@@ -2017,6 +2229,7 @@ export default function ProviderDashboard() {
             </form>
           )}
 
+          {/* Grilla de vehículos registrados con estado de seguro y edición inline */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {profileData.vehicles.length === 0 ? (
               <div
@@ -2225,6 +2438,7 @@ export default function ProviderDashboard() {
               </div>
             </div>
 
+            {/* Formulario desplegable de alta de ayudante con DNI y cobertura ART */}
             {showEmployeeForm && (
               <form
                 onSubmit={handleAddEmployee}
@@ -2299,6 +2513,7 @@ export default function ProviderDashboard() {
               </form>
             )}
 
+            {/* Grilla de ayudantes de la cuadrilla con estado ART, edición inline y baja */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(profileData.employees || []).length === 0 ? (
                 <div
@@ -2471,11 +2686,12 @@ export default function ProviderDashboard() {
           </div>
         </section>
       ) : activeStep === 'schedule' ? (
-        /* 3. AGENDA */
+        /* PASO 3: AGENDA ONLINE Y DISPONIBILIDAD */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
+          {/* Cabecera de Agenda Online y botón de actualización */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -2496,6 +2712,7 @@ export default function ProviderDashboard() {
             </button>
           </div>
 
+          {/* Formulario de creación de bloqueos manuales (no laborable / visita externa) */}
           <form
             onSubmit={handleCreateScheduleBlock}
             className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
@@ -2561,6 +2778,7 @@ export default function ProviderDashboard() {
             </div>
           </form>
 
+          {/* Grilla de bloques de agenda (manuales eliminables y automáticos de TrustLink) */}
           {loadingSchedule ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando agenda del prestador...</p>
           ) : scheduleBlocks.length === 0 ? (
@@ -2610,11 +2828,12 @@ export default function ProviderDashboard() {
           )}
         </section>
       ) : activeStep === 'visits' ? (
-        /* 4. VISITAS */
+        /* PASO 4: SOLICITUDES Y CONFIRMACIÓN DE VISITAS */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
+          {/* Cabecera de Solicitudes de Visita y botón de recarga */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -2635,6 +2854,7 @@ export default function ProviderDashboard() {
             </button>
           </div>
 
+          {/* Listado de visitas solicitadas por residentes */}
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
           ) : incomingVisits.length === 0 ? (
@@ -2684,6 +2904,7 @@ export default function ProviderDashboard() {
                       </span>
                     </div>
 
+                    {/* Hilo de mensajes intercambiados entre residente y prestador */}
                     {msgs.length > 0 && (
                       <div className="rounded-lg p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
                         {msgs.map((m, idx) => (
@@ -2697,6 +2918,7 @@ export default function ProviderDashboard() {
                       </div>
                     )}
 
+                    {/* Respuesta opcional al hilo y acciones para confirmar o rechazar la visita */}
                     <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
                       <input
                         type="text"
@@ -2743,11 +2965,12 @@ export default function ProviderDashboard() {
           )}
         </section>
       ) : activeStep === 'passes' ? (
-        /* 5. PASES QR */
+        /* PASO 5: PASES QR ASIGNADOS */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
+          {/* Cabecera de Pases QR con buscador, filtro de estado y recarga */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -2812,6 +3035,7 @@ export default function ProviderDashboard() {
             </div>
           )}
 
+          {/* Grilla paginada de tarjetas de pases QR con destino, acceso y cuadrilla autorizada */}
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
           ) : paginatedPasses.length === 0 ? (
@@ -2887,6 +3111,7 @@ export default function ProviderDashboard() {
                       </p>
                     </div>
 
+                    {/* Barra de token QR con copiado rápido y apertura de modal escaneable */}
                     {passItem.qr_token && (
                       <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
                         <code className="text-[11px] truncate">{passItem.qr_token}</code>
@@ -2924,6 +3149,7 @@ export default function ProviderDashboard() {
             </div>
           )}
 
+          {/* Controles de paginación para los pases QR filtrados */}
           {filteredPasses.length > PASSES_PER_PAGE && (
             <div className="flex items-center justify-between pt-2 text-xs">
               <span className="opacity-75">
@@ -2954,11 +3180,12 @@ export default function ProviderDashboard() {
           )}
         </section>
       ) : (
-        /* 6. RESEÑAS */
+        /* PASO 6: INGRESOS NETOS, CONTRATOS, COMPROBANTES Y RESEÑAS CRUZADAS */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
+          {/* Cabecera de Servicios Realizados y Reputación Cruzada */}
           <div className="flex items-center justify-between gap-2">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -3009,6 +3236,7 @@ export default function ProviderDashboard() {
                 </div>
               </div>
 
+              {/* Contratos recientes del prestador con liquidación neta y emisión de comprobante imprimible */}
               {providerContracts.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
                   {providerContracts.slice(0, 6).map((c) => {
@@ -3058,6 +3286,7 @@ export default function ProviderDashboard() {
             </div>
           )}
 
+          {/* Grilla de historial de servicios y calificaciones cruzadas */}
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando historial de servicios...</p>
           ) : reviewContracts.length === 0 ? (
@@ -3102,6 +3331,7 @@ export default function ProviderDashboard() {
 
                     <p className="opacity-85">{item.description}</p>
 
+                    {/* Reseña recibida del residente (si existe) y bloque de calificación al propietario */}
                     {item.provider_review_rating && (
                       <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
                         <span className="font-bold text-emerald-300">
@@ -3219,6 +3449,7 @@ export default function ProviderDashboard() {
               </p>
             </div>
 
+            {/* Código QR escaneable en garita y bloque de token copiable */}
             <QrCodeDisplay token={selectedPassModal.qr_token} size={200} />
 
             <div className="rounded-xl p-3 bg-black/30 border border-slate-700/60 space-y-2">

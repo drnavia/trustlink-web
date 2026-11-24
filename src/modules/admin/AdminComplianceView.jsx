@@ -2,6 +2,7 @@
  * @file AdminComplianceView.jsx
  * @description Panel de control central para que el equipo de Operaciones audite
  * y apruebe/rechace el compliance de los prestadores registrados en la red,
+ * gestione la membresía "Socio Verificado" y medie reclamos post-servicio,
  * con aplicación explícita de Zona 4 (tarjetas principales) y Zona 5 (cajas internas).
  * @location /trustlink-web/src/modules/admin/AdminComplianceView.jsx
  */
@@ -30,6 +31,10 @@ import {
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
+/**
+ * Prioridad de ordenamiento visual por estado de compliance para mostrar
+ * primero a los prestadores pendientes de auditoría.
+ */
 const STATUS_PRIORITY = {
   pending: 0,
   approved: 1,
@@ -37,11 +42,17 @@ const STATUS_PRIORITY = {
   sin_perfil: 3,
 };
 
-/* const API_BASE = 'http://localhost:4000'; */
-
+/**
+ * Vista de auditoría de compliance de prestadores y mediación de reclamos post-servicio.
+ * Permite filtrar prestadores, validar antecedentes/ART, activar o revocar la membresía
+ * Socio Verificado y resolver o desestimar reclamos abiertos sobre contratos.
+ *
+ * @returns {JSX.Element} Panel administrativo de compliance y reclamos.
+ */
 export default function AdminComplianceView() {
   const { brand } = useBranding();
 
+  // Estilos dinámicos de branding: Zona 4 (tarjetas principales) y Zona 5 (contenedores internos e inputs)
   const cardStyle = {
     backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
     color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
@@ -52,6 +63,7 @@ export default function AdminComplianceView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
+  // Estados de prestadores, acciones de compliance/membresía en curso y reclamos post-servicio
   const [providers, setProviders] = useState([]);
   const [loading, setLoading] = useState(false);
   const [updatingId, setUpdatingId] = useState(null);
@@ -59,11 +71,14 @@ export default function AdminComplianceView() {
   const [disputes, setDisputes] = useState([]);
   const [resolutionDrafts, setResolutionDrafts] = useState({});
   const [resolvingDisputeId, setResolvingDisputeId] = useState(null);
+
+  // Estados de mensajes de feedback y filtros locales del listado
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  // Calcula contadores por estado para alimentar los chips de filtro rápido
   const statusCounts = useMemo(() => {
     const counts = { all: providers.length, pending: 0, approved: 0, rejected: 0, sin_perfil: 0 };
     providers.forEach((p) => {
@@ -74,6 +89,7 @@ export default function AdminComplianceView() {
     return counts;
   }, [providers]);
 
+  // Filtra prestadores por estado y término de búsqueda (nombre, DNI, correo o rubro) ordenando por prioridad
   const filteredProviders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return [...providers]
@@ -91,6 +107,11 @@ export default function AdminComplianceView() {
       });
   }, [providers, searchTerm, statusFilter]);
 
+  /**
+   * Consulta al backend el listado completo de prestadores y sus documentos de compliance.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchAllProviders = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -115,6 +136,11 @@ export default function AdminComplianceView() {
     }
   };
 
+  /**
+   * Obtiene los reclamos post-servicio registrados en la plataforma para mediación centralizada.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchDisputes = async () => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/contracts/disputes`, {
@@ -131,11 +157,20 @@ export default function AdminComplianceView() {
     }
   };
 
+  // Carga inicial de prestadores y reclamos al montar la vista
   useEffect(() => {
     fetchAllProviders();
     fetchDisputes();
   }, []);
 
+  /**
+   * Actualiza el estado de compliance de un prestador ('approved' o 'rejected')
+   * y recarga el listado tras confirmar la operación.
+   *
+   * @param {number|string} providerId - Identificador del perfil de prestador.
+   * @param {'approved'|'rejected'} newStatus - Nuevo estado de auditoría a aplicar.
+   * @returns {Promise<void>}
+   */
   const handleUpdateStatus = async (providerId, newStatus) => {
     setUpdatingId(providerId);
     setErrorMsg('');
@@ -168,6 +203,15 @@ export default function AdminComplianceView() {
     }
   };
 
+  /**
+   * Gestiona la membresía "Socio Verificado" de un prestador (activar, extender o revocar)
+   * mediante el endpoint de billing y sincroniza el listado.
+   *
+   * @param {number|string} userId - Identificador del usuario prestador.
+   * @param {'activate'|'extend'|'cancel'} action - Acción de membresía a ejecutar.
+   * @param {number} [days=30] - Cantidad de días de vigencia para activación o extensión.
+   * @returns {Promise<void>}
+   */
   const handleManageMembership = async (userId, action, days = 30) => {
     setUpdatingMembershipUserId(userId);
     setErrorMsg('');
@@ -200,6 +244,14 @@ export default function AdminComplianceView() {
     }
   };
 
+  /**
+   * Resuelve o desestima un reclamo post-servicio exigiendo una nota de resolución obligatoria.
+   * Limpia el borrador de la nota y refresca los reclamos al finalizar.
+   *
+   * @param {number|string} disputeId - Identificador del reclamo a cerrar.
+   * @param {'resolved'|'rejected'} status - Resultado de la mediación.
+   * @returns {Promise<void>}
+   */
   const handleResolveDispute = async (disputeId, status) => {
     const notes = String(resolutionDrafts[disputeId] || '').trim();
     if (!notes) {
@@ -275,6 +327,7 @@ export default function AdminComplianceView() {
         </div>
       </section>
 
+      {/* Banners de feedback operativo (errores y confirmaciones) */}
       {errorMsg && (
         <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
           <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -289,7 +342,7 @@ export default function AdminComplianceView() {
         </div>
       )}
 
-      {/* Zona 4: Listado de Prestadores */}
+      {/* Zona 4: Listado de prestadores con búsqueda, filtros y acciones de auditoría */}
       <section
         className={SECTION_CARD_CLASS}
         style={cardStyle}
@@ -301,6 +354,7 @@ export default function AdminComplianceView() {
             <span className="text-xs opacity-70">({filteredProviders.length})</span>
           </div>
 
+          {/* Buscador por nombre, DNI, correo o especialidad */}
           <div className="relative w-full md:w-72">
             <Search
               size={14}
@@ -358,6 +412,7 @@ export default function AdminComplianceView() {
           })}
         </div>
 
+        {/* Estado de carga, estado vacío o grilla de tarjetas de prestadores */}
         {loading ? (
           <div
             className="text-center py-10 rounded-xl border border-white/10 text-xs"
@@ -418,6 +473,7 @@ export default function AdminComplianceView() {
                       <span>{p.email}</span>
                     </p>
 
+                    {/* Enlaces de verificación documental: Antecedentes penales y Póliza ART */}
                     <div className="flex flex-wrap items-center gap-2 pt-1">
                       {p.criminal_record_url ? (
                         <a
@@ -459,6 +515,7 @@ export default function AdminComplianceView() {
                     </div>
                   </div>
 
+                  {/* Controles de membresía Socio Verificado y aprobación/rechazo de compliance */}
                   {targetProviderId ? (
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/10 shrink-0">
                       <div className="flex flex-wrap items-center gap-1.5">
@@ -553,6 +610,7 @@ export default function AdminComplianceView() {
           </button>
         </div>
 
+        {/* Listado de reclamos post-servicio registrados */}
         {disputes.length === 0 ? (
           <div
             className="text-center py-6 rounded-xl border border-white/10 text-xs opacity-75"
@@ -596,6 +654,7 @@ export default function AdminComplianceView() {
                     )}
                   </div>
 
+                  {/* Controles de mediación para reclamos abiertos o en revisión */}
                   {isOpen && (
                     <div className="pt-3 border-t border-white/10 space-y-2">
                       <input

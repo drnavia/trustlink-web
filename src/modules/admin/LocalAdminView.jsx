@@ -1,8 +1,9 @@
 /**
  * @file LocalAdminView.jsx
  * @description Consola operativa para el rol 'admin' (administrador local de barrio/comunidad)
- * y supervisión de superadmin, con aplicación explícita de Zona 4 (tarjetas principales)
- * y Zona 5 (cajas/bloques internos e inputs) sin pisar el fondo de Zona 3.
+ * y supervisión de superadmin: permite consultar la licencia B2B local, gestionar reportes
+ * y suspensiones locales, monitorear alertas de vencimiento documental con aviso por WhatsApp
+ * y exportar listados a CSV, con aplicación explícita de Zona 4 y Zona 5 sin pisar Zona 3.
  * @location /trustlink-web/src/modules/admin/LocalAdminView.jsx
  */
 
@@ -25,13 +26,20 @@ import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
 import { downloadCsv } from '../../utils/csvExport';
 
-/* const API_BASE = 'http://localhost:4000'; */
-
+/**
+ * Consola local de administración de comunidad/barrio.
+ * Muestra el estado de la licencia B2B y cuota mensual de QR, habilita la creación y
+ * levantamiento de suspensiones locales de prestadores y expone alertas preventivas de
+ * vencimiento documental con recordatorio vía WhatsApp y exportación CSV.
+ *
+ * @returns {JSX.Element} Vista operativa de administración local.
+ */
 export default function LocalAdminView() {
   const { user } = useAuth();
   const { brand } = useBranding();
   const isSuperadmin = user?.role === 'superadmin';
 
+  // Estilos dinámicos de branding: Zona 4 (tarjetas principales) y Zona 5 (cajas internas e inputs)
   const cardStyle = {
     backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
     color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
@@ -42,12 +50,15 @@ export default function LocalAdminView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
+  // Datos cargados desde el backend: comunidades, prestadores, suspensiones, alertas documentales y licencia B2B
   const [countries, setCountries] = useState([]);
   const [providers, setProviders] = useState([]);
   const [suspensions, setSuspensions] = useState([]);
   const [expiryAlerts, setExpiryAlerts] = useState([]);
   const [expirySummary, setExpirySummary] = useState({ total: 0, expired: 0, expiring_soon: 0 });
   const [communityBilling, setCommunityBilling] = useState(null);
+
+  // Estados del formulario de suspensión local y feedback de operaciones
   const [selectedCountryId, setSelectedCountryId] = useState(
     user?.country_id ? String(user.country_id) : '1'
   );
@@ -58,10 +69,22 @@ export default function LocalAdminView() {
   const [liftingId, setLiftingId] = useState(null);
   const [feedback, setFeedback] = useState(null);
 
+  /**
+   * Construye el encabezado de autorización Bearer utilizando el JWT almacenado localmente.
+   *
+   * @returns {{ Authorization: string }} Cabeceras HTTP de autenticación.
+   */
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
+  /**
+   * Carga en paralelo las suspensiones locales, alertas de vencimiento documental (30 días)
+   * y el estado de la licencia B2B de la comunidad seleccionada (o asignada al admin local).
+   *
+   * @param {string|number} countryFilter - ID de comunidad usado como filtro cuando opera un superadmin.
+   * @returns {Promise<void>}
+   */
   const fetchLocalData = useCallback(
     async (countryFilter) => {
       setLoading(true);
@@ -96,6 +119,7 @@ export default function LocalAdminView() {
             setSelectedProviderId((prev) => prev || String(loadedProviders[0].provider_id));
           }
         }
+        // Actualiza alertas preventivas de documentación vencida o próxima a vencer
         if (alertsRes && alertsRes.ok) {
           const alertsData = await alertsRes.json();
           setExpiryAlerts(alertsData.alerts || []);
@@ -103,6 +127,7 @@ export default function LocalAdminView() {
             alertsData.summary || { total: 0, expired: 0, expiring_soon: 0 }
           );
         }
+        // Actualiza información de licencia B2B y cuota mensual de QR de la comunidad
         if (billingRes && billingRes.ok) {
           const billingData = await billingRes.json();
           setCommunityBilling(billingData.community || null);
@@ -118,6 +143,13 @@ export default function LocalAdminView() {
     [isSuperadmin]
   );
 
+  /**
+   * Construye un enlace directo de WhatsApp (`wa.me`) con mensaje prellenado para notificar
+   * al prestador sobre documentación vencida o próxima a vencer.
+   *
+   * @param {Object} alert - Objeto de alerta documental con teléfono, nombre, título y vencimiento.
+   * @returns {string} URL lista para abrir en WhatsApp.
+   */
   const buildExpiryWhatsAppUrl = (alert) => {
     const digits = String(alert.provider_phone || '').replace(/\D/g, '');
     const statusText =
@@ -130,10 +162,18 @@ export default function LocalAdminView() {
     return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
   };
 
+  // Carga inicial de datos locales según la comunidad asignada al usuario autenticado
   useEffect(() => {
     fetchLocalData(user?.country_id ? String(user.country_id) : '1');
   }, [fetchLocalData, user?.country_id]);
 
+  /**
+   * Registra un reporte o suspensión local de un prestador dentro de la comunidad seleccionada
+   * y recarga el panel al confirmar la operación.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleCreateSuspension = async (e) => {
     e.preventDefault();
     if (!selectedProviderId || !reason.trim()) return;
@@ -177,6 +217,13 @@ export default function LocalAdminView() {
     }
   };
 
+  /**
+   * Levanta una suspensión local activa para volver a habilitar el ingreso del prestador
+   * en la comunidad y refresca el historial.
+   *
+   * @param {number|string} id - Identificador del registro de suspensión local.
+   * @returns {Promise<void>}
+   */
   const handleLiftSuspension = async (id) => {
     setLiftingId(id);
     setFeedback(null);
@@ -240,6 +287,7 @@ export default function LocalAdminView() {
         </button>
       </section>
 
+      {/* Banner de feedback operativo (confirmación o error) */}
       {feedback && (
         <div
           className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
@@ -322,6 +370,7 @@ export default function LocalAdminView() {
             </div>
           </div>
 
+          {/* Barra de consumo mensual de cuota QR (verde <75%, ámbar >=75%, rojo >=90%) */}
           {typeof communityBilling.usage_percent === 'number' && (
             <div className="space-y-1">
               <div className="h-2 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
@@ -355,6 +404,7 @@ export default function LocalAdminView() {
         </div>
 
         <form onSubmit={handleCreateSuspension} className="grid grid-cols-1 md:grid-cols-12 gap-3">
+          {/* Selector de comunidad exclusivo para supervisión del rol superadmin */}
           {isSuperadmin && (
             <div className="md:col-span-3">
               <select
@@ -439,6 +489,7 @@ export default function LocalAdminView() {
             <span className="px-2.5 py-1 rounded-full border border-amber-700/70 bg-amber-950/60 text-amber-200">
               {expirySummary.expiring_soon} por vencer
             </span>
+            {/* Botón de exportación CSV de alertas documentales */}
             {expiryAlerts.length > 0 && (
               <button
                 type="button"
@@ -465,6 +516,7 @@ export default function LocalAdminView() {
           </div>
         </div>
 
+        {/* Estado vacío o grilla de hasta 10 alertas prioritarias con aviso por WhatsApp */}
         {expiryAlerts.length === 0 ? (
           <div
             className="text-center py-5 rounded-xl border border-black/20 text-xs opacity-80"
@@ -531,6 +583,7 @@ export default function LocalAdminView() {
           <h3 className="text-sm font-bold">
             Historial de reportes y suspensiones locales ({suspensions.length})
           </h3>
+          {/* Botón de exportación CSV del historial de suspensiones locales */}
           {suspensions.length > 0 && (
             <button
               type="button"
@@ -562,6 +615,7 @@ export default function LocalAdminView() {
           )}
         </div>
 
+        {/* Estados de carga, vacío o tabla interactiva de suspensiones locales */}
         {loading ? (
           <div
             className="text-center py-6 rounded-xl border border-black/20 text-xs"

@@ -18,6 +18,13 @@ import {
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 
+/**
+ * Vista de registro de nuevas cuentas (Propietario/Residente o Prestador de Servicios).
+ * Consulta las comunidades activas disponibles y normaliza los campos residenciales antes del envío.
+ * @param {object} props
+ * @param {() => void} [props.onRegisterSuccess] - Callback invocado tras completar el alta.
+ * @param {(view: string) => void} [props.onViewChange] - Navegador de vistas del contenedor principal.
+ */
 export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const { brand } = useBranding();
 
@@ -36,6 +43,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   // Color de acento / primario para botones y enlaces destacados
   const accentColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Estados del formulario: perfil/comunidad, datos personales, credenciales y ubicación residencial
   const [role, setRole] = useState('owner');
   const [countries, setCountries] = useState([]);
   const [countryId, setCountryId] = useState('');
@@ -52,6 +60,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Carga el catálogo de comunidades activas desde `/api/v1/auth/countries` y preselecciona la primera
   useEffect(() => {
     let mounted = true;
     fetch(`${API_BASE}/api/v1/auth/countries`)
@@ -70,6 +79,11 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
     };
   }, []);
 
+  /**
+   * Construye el payload normalizado y registra la cuenta en `/api/v1/auth/register`.
+   * Si el alta es exitosa, muestra confirmación y redirige automáticamente al inicio de sesión.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -105,6 +119,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
         setSuccessMsg(
           data.message || 'Cuenta creada correctamente. Ya podés iniciar sesión.'
         );
+        // Breve demora para que el usuario lea la confirmación antes de pasar al login
         setTimeout(() => {
           if (typeof onRegisterSuccess === 'function') {
             onRegisterSuccess();
@@ -176,6 +191,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
 
         {/* Formulario de registro */}
         <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+          {/* Selección de rol operativo y comunidad/barrio */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -212,6 +228,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
+          {/* Datos personales básicos: nombre y apellido */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -244,6 +261,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
+          {/* Identificación y teléfono de contacto */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -275,6 +293,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
+          {/* Credenciales de acceso */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -308,7 +327,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
-          {/* Sub-bloque interno (Zona 5) para datos residenciales normalizados */}
+          {/* Sub-bloque interno (Zona 5) para datos residenciales normalizados (campos condicionales por área y rol) */}
           <div
             className="p-4 rounded-xl border border-black/20 grid grid-cols-1 sm:grid-cols-3 gap-3"
             style={innerStyle}
@@ -333,6 +352,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
               </select>
             </div>
 
+            {/* Número de Manzana o Fracción: se habilita y exige solo si Tipo de Área es distinto de 'na' */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
                 N° {fractionType === 'manzana' ? 'Manzana' : 'Fracción'}
@@ -350,6 +370,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
               />
             </div>
 
+            {/* Número de Lote: obligatorio cuando el rol seleccionado es 'owner' */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
                 N° Lote {role === 'owner' ? '*' : ''}
@@ -367,6 +388,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           </div>
 
+          {/* Botón de envío del formulario */}
           <button
             type="submit"
             disabled={loading}

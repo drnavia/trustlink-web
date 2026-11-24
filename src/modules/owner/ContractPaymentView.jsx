@@ -1,8 +1,10 @@
 /**
  * @file ContractPaymentView.jsx
- * @description Vista de Pagos y Reseñas para residentes/propietarios, con desglose
- * financiero (Take Rate 7% / Neto Prestador 93%), contratación desde pases QR vigentes
- * y sección unificada "Reseñas y Reputación Cruzada" con cajas alineadas.
+ * @description Vista de Pagos, Contratos y Reseñas para residentes/propietarios:
+ * gestiona desglose financiero (Take Rate 7% / Neto Prestador 93%), checkout digital
+ * con Mercado Pago (real/sandbox) o modo piloto simulado, contratación desde pases QR
+ * vigentes, conformidad en efectivo o digital, comprobantes imprimibles, reclamos
+ * post-servicio y sección unificada "Reseñas y Reputación Cruzada".
  * @location /trustlink-web/src/modules/owner/ContractPaymentView.jsx
  */
 
@@ -36,13 +38,22 @@ import {
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
-/* const API_BASE = 'http://localhost:4000'; */
+/** Comisión de plataforma por defecto (7%) aplicada sobre el monto acordado. */
 const PLATFORM_FEE_RATE = 0.07;
 
+/**
+ * Vista integral de contratos, pagos, conformidad, comprobantes, reclamos y reseñas cruzadas
+ * para residentes/propietarios.
+ *
+ * @param {Object} props - Propiedades del componente.
+ * @param {(viewId: string) => void} [props.onViewChange] - Callback opcional para navegar a otras vistas (p. ej. directorio de prestadores).
+ * @returns {JSX.Element} Panel de pagos, contratos y reseñas del residente.
+ */
 export default function ContractPaymentView({ onViewChange }) {
   const { brand } = useBranding();
   const { user } = useAuth();
 
+  // Estilos dinámicos de branding: Zona 4 (tarjetas principales), Zona 5 (cajas internas) y acento principal
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
@@ -55,10 +66,13 @@ export default function ContractPaymentView({ onViewChange }) {
 
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Listados de contratos (pendientes de pago y completos), pases QR del residente y carga global
   const [contracts, setContracts] = useState([]);
   const [allContracts, setAllContracts] = useState([]);
   const [passes, setPasses] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Estados de acciones en curso, modales (comprobante y reclamo), feedback y configuración de pasarela
   const [payingId, setPayingId] = useState(null);
   const [completingId, setCompletingId] = useState(null);
   const [loadingReceiptId, setLoadingReceiptId] = useState(null);
@@ -88,10 +102,21 @@ export default function ContractPaymentView({ onViewChange }) {
   const [submittingContractId, setSubmittingContractId] = useState(null);
   const [reviewFeedback, setReviewFeedback] = useState(null);
 
+  /**
+   * Construye el encabezado de autorización Bearer utilizando el JWT de sesión vigente.
+   *
+   * @returns {{ Authorization: string }} Cabecera HTTP de autenticación.
+   */
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
+  /**
+   * Consulta en paralelo los contratos pendientes de pago (`/payments/pending`) y el
+   * historial completo de contratos (`/contracts`) para alimentar pagos, conformidad y reclamos.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchPendingContracts = useCallback(async () => {
     setLoading(true);
     try {
@@ -114,6 +139,12 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  /**
+   * Carga los pases QR emitidos por el residente y preselecciona el primer pase activo
+   * ('pending' o 'used') para agilizar la generación de órdenes de pago desde visitas.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchMyPasses = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/passes/my`, {
@@ -137,6 +168,11 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  /**
+   * Obtiene los contratos habilitados para la sección de reseñas y reputación cruzada.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchReviewContracts = useCallback(async () => {
     setLoadingReviews(true);
     try {
@@ -154,6 +190,12 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  /**
+   * Consulta la configuración activa de la pasarela de pagos (modo real/sandbox/piloto
+   * y porcentaje de comisión de plataforma). Mantiene valores por defecto seguros ante fallos.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchGatewayConfig = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/payments/config`, {
@@ -172,6 +214,11 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  /**
+   * Refresca en paralelo configuración de pasarela, contratos, pases QR y reseñas cruzadas.
+   *
+   * @returns {Promise<void>}
+   */
   const refreshAll = useCallback(async () => {
     await Promise.all([
       fetchGatewayConfig(),
@@ -181,11 +228,13 @@ export default function ContractPaymentView({ onViewChange }) {
     ]);
   }, [fetchGatewayConfig, fetchPendingContracts, fetchMyPasses, fetchReviewContracts]);
 
+  // Carga inicial completa al montar la vista
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
 
-  // Detecta retorno desde Mercado Pago Checkout Pro (?mp_status=approved|pending|rejected&contract_id=...)
+  // Detecta el retorno desde Mercado Pago Checkout Pro (?mp_status=approved|pending|rejected&contract_id=...),
+  // muestra el feedback correspondiente al residente y limpia los parámetros de la URL con history.replaceState.
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -223,8 +272,16 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  // Resuelve el pase QR actualmente seleccionado para el formulario de contratación desde visita
   const activePass = passes.find((p) => String(p.id) === String(selectedPassId)) || null;
 
+  /**
+   * Crea una nueva orden de contratación asociada a un pase QR de visita existente,
+   * validando descripción y monto mayor a cero antes de enviarla al backend.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleCreateContractFromVisit = async (e) => {
     e.preventDefault();
     const numericAmount = Number(agreedAmount);
@@ -281,6 +338,15 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  /**
+   * Inicia el pago digital de un contrato a través de Mercado Pago o pasarela simulada.
+   * Si el backend solicita redirección (`requires_redirect`), redirige al checkout externo;
+   * en modo simulado acredita de inmediato y refresca contratos y reseñas.
+   *
+   * @param {number|string} contractId - Identificador del contrato a abonar.
+   * @param {number} amount - Monto acordado a cobrar.
+   * @returns {Promise<void>}
+   */
   const handlePayContract = async (contractId, amount) => {
     setPayingId(contractId);
     setFeedback(null);
@@ -329,6 +395,13 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  /**
+   * Registra la conformidad del residente sobre un contrato (útil tanto para cierre por
+   * acuerdo en efectivo como para dar conformidad final a trabajos en curso) y actualiza vistas.
+   *
+   * @param {number|string} contractId - Identificador del contrato a marcar como conforme/completado.
+   * @returns {Promise<void>}
+   */
   const handleCompleteContract = async (contractId) => {
     setCompletingId(contractId);
     setFeedback(null);
@@ -359,6 +432,13 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  /**
+   * Obtiene el comprobante auditable del hogar para un contrato y abre el modal
+   * de visualización/impresión en PDF.
+   *
+   * @param {number|string} contractId - Identificador del contrato cuyo comprobante se consulta.
+   * @returns {Promise<void>}
+   */
   const handleOpenReceipt = async (contractId) => {
     setLoadingReceiptId(contractId);
     setFeedback(null);
@@ -380,6 +460,13 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  /**
+   * Registra un reclamo o solicitud de garantía post-servicio sobre el contrato activo
+   * en el modal para que sea mediado por el equipo de Operaciones.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de reclamo.
+   * @returns {Promise<void>}
+   */
   const handleSubmitDispute = async (e) => {
     e.preventDefault();
     if (!disputeModalContract || !disputeReason.trim() || !disputeDetails.trim()) return;
@@ -417,6 +504,13 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  /**
+   * Envía la calificación (1 a 5 estrellas) y comentario opcional del residente hacia el
+   * prestador de un contrato, actualizando la reputación en la red TrustLink.
+   *
+   * @param {number|string} contractId - Identificador del contrato a calificar.
+   * @returns {Promise<void>}
+   */
   const handleSubmitProviderReview = async (contractId) => {
     const selectedRating = ratingDrafts[contractId] || 5;
     const commentText = (commentDrafts[contractId] || '').trim();
@@ -462,6 +556,7 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  // Derivados de pasarela: tasa efectiva de comisión, etiqueta visual del entorno y clase de badge
   const effectiveFeeRate =
     Number(gatewayConfig.platform_fee_percent ?? 7) / 100 || PLATFORM_FEE_RATE;
   const gatewayBadgeLabel =
@@ -530,6 +625,7 @@ export default function ContractPaymentView({ onViewChange }) {
             </div>
           </div>
 
+          {/* Banner de feedback operativo (con enlace directo de respaldo a Mercado Pago si aplica) */}
           {feedback && (
             <div
               className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
@@ -555,6 +651,7 @@ export default function ContractPaymentView({ onViewChange }) {
             </div>
           )}
 
+          {/* Estado de carga, estado vacío o grilla de órdenes pendientes con desglose 100% / 7% / 93% */}
           {loading ? (
             <div className="text-center py-6 text-xs opacity-80">
               Consultando presupuestos y órdenes pendientes en PostgreSQL...
@@ -613,6 +710,7 @@ export default function ContractPaymentView({ onViewChange }) {
                         </span>
                       </div>
 
+                      {/* Desglose financiero transparente: total acordado, comisión plataforma y neto prestador */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
                         <div
                           className="p-2.5 rounded-lg border border-white/10"
@@ -644,6 +742,7 @@ export default function ContractPaymentView({ onViewChange }) {
                       </div>
                     </div>
 
+                    {/* Acciones de pago: conformidad por pago en efectivo o checkout digital */}
                     <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-white/10">
                       <button
                         type="button"
@@ -774,6 +873,7 @@ export default function ContractPaymentView({ onViewChange }) {
             </span>
           </div>
 
+          {/* Feedback del envío de calificación al prestador */}
           {reviewFeedback && (
             <div
               className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
@@ -791,6 +891,7 @@ export default function ContractPaymentView({ onViewChange }) {
             </div>
           )}
 
+          {/* Estado de carga, estado vacío o grilla de contratos para reseñas cruzadas */}
           {loadingReviews ? (
             <div className="text-center py-6 text-xs opacity-80">
               Cargando historial de contratos para reseñas cruzadas...
@@ -838,6 +939,7 @@ export default function ContractPaymentView({ onViewChange }) {
                       </span>
                     </div>
 
+                    {/* Calificación del residente al prestador (ya emitida o formulario interactivo de estrellas) */}
                     {alreadyRated ? (
                       <div className="p-3 rounded-lg border border-emerald-800/60 bg-emerald-950/30 flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold text-emerald-300">
@@ -997,6 +1099,7 @@ export default function ContractPaymentView({ onViewChange }) {
                         </p>
                       </div>
 
+                      {/* Acciones post-contratación: conformidad final, comprobante auditable y apertura de reclamo */}
                       <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
                         {st === 'in_progress' && (
                           <button
@@ -1050,6 +1153,7 @@ export default function ContractPaymentView({ onViewChange }) {
         </div>
       </main>
 
+      {/* Modal de visualización e impresión/PDF del Comprobante del Hogar */}
       {receiptModalData && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
           <div
@@ -1105,6 +1209,7 @@ export default function ContractPaymentView({ onViewChange }) {
         </div>
       )}
 
+      {/* Modal para registrar un Reclamo o solicitud de Garantía post-servicio */}
       {disputeModalContract && (
         <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
           <div

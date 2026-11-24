@@ -28,8 +28,6 @@ import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
 
-/* const API_BASE = 'http://localhost:4000'; */
-
 /**
  * Formatea una fecha/hora de forma segura para la consola de garita.
  * @param {string|null|undefined} isoValue
@@ -70,6 +68,12 @@ function normalizeScannedToken(rawValue) {
   return trimmed;
 }
 
+/**
+ * Evalúa la fecha de vencimiento de ART/seguro de un integrante de cuadrilla y devuelve
+ * la etiqueta legible y las clases Tailwind del badge semafórico (vencida / próxima a vencer / vigente).
+ * @param {string|null|undefined} expiryDate - Fecha de vencimiento en formato ISO o YYYY-MM-DD.
+ * @returns {{ label: string, cls: string }}
+ */
 function getCrewArtStatus(expiryDate) {
   if (!expiryDate) return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
   const parsed = new Date(expiryDate);
@@ -85,6 +89,13 @@ function getCrewArtStatus(expiryDate) {
   return { label: 'ART vigente', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' };
 }
 
+/**
+ * Construye una URL `wa.me` prellenada para avisar por WhatsApp al residente el arribo en garita,
+ * incluyendo prestador, especialidad, destino, patente/acceso peatonal, cuadrilla y número de pase.
+ * @param {object} details - Detalles del pase validado devueltos por el backend.
+ * @param {object} vehicleInfo - Información del vehículo asociado al pase (o fallback).
+ * @returns {string} Enlace listo para abrir WhatsApp en una nueva pestaña.
+ */
 function buildGateArrivalWhatsAppUrl(details, vehicleInfo) {
   const digits = String(details?.owner_phone || '').replace(/\D/g, '');
   const crew = Array.isArray(details?.authorized_employees) ? details.authorized_employees : [];
@@ -102,6 +113,13 @@ function buildGateArrivalWhatsAppUrl(details, vehicleInfo) {
   return `https://wa.me/${digits}?text=${encodeURIComponent(msg)}`;
 }
 
+/**
+ * Consola de Garita para validación de pases QR mediante cámara (`BarcodeDetector`),
+ * enlace directo con query param (`initialToken`) o ingreso manual/pistola lectora.
+ * @param {object} props
+ * @param {string} [props.initialToken=''] - Token QR inicial proveniente de la URL.
+ * @param {() => void} [props.onClearInitialToken] - Callback para limpiar el query param una vez consumido.
+ */
 export default function SecurityScanner({ initialToken = '', onClearInitialToken }) {
   const { brand } = useBranding();
 
@@ -120,6 +138,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
   // Color principal / de acento configurado en marca
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Estado del token actual, carga de validación y resultado de acceso devuelto por la API
   const [qrToken, setQrToken] = useState(initialToken || '');
   const [verifying, setVerifying] = useState(false);
   const [result, setResult] = useState(null);
@@ -132,12 +151,17 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
   const [torchSupported, setTorchSupported] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
 
+  // Referencias imperativas para el elemento <video>, MediaStream, intervalo de escaneo, detector y auto-verificación
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
   const detectorRef = useRef(null);
   const autoVerifiedInitialRef = useRef(false);
 
+  /**
+   * Detiene el bucle de lectura QR, apaga todas las pistas activas de cámara,
+   * desvincula el `<video>` y restablece el estado de cámara y linterna.
+   */
   const stopCameraScanner = useCallback(() => {
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
@@ -156,6 +180,11 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     setCameraStarting(false);
   }, []);
 
+  /**
+   * Normaliza el token QR y lo valida contra `POST /api/v1/passes/verify`,
+   * registrando en estado un resultado uniforme de acceso autorizado o denegado.
+   * @param {string} tokenToVerify - Token crudo o URL escaneada.
+   */
   const verifyTokenValue = useCallback(async (tokenToVerify) => {
     const cleanToken = normalizeScannedToken(tokenToVerify);
     if (!cleanToken) return;
@@ -201,9 +230,12 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     }
   }, []);
 
-  // Verifica soporte nativo de BarcodeDetector para QR en el navegador
+  // Verifica soporte nativo de BarcodeDetector para QR en el navegador y asegura apagado de cámara al desmontar
   useEffect(() => {
     let mounted = true;
+    /**
+     * Inicializa `window.BarcodeDetector` para formato `qr_code` si el navegador lo expone.
+     */
     const initDetector = async () => {
       if (typeof window !== 'undefined' && 'BarcodeDetector' in window) {
         try {
@@ -250,6 +282,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     videoEl.srcObject = streamRef.current;
     videoEl.play().catch(() => {});
 
+    // Si hay soporte nativo, inspecciona el frame de video cada 300 ms hasta decodificar un QR
     if (detectorRef.current) {
       scanIntervalRef.current = setInterval(async () => {
         if (!videoRef.current || videoRef.current.readyState < 2 || !detectorRef.current) {
@@ -283,6 +316,10 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     };
   }, [cameraActive, stopCameraScanner, verifyTokenValue]);
 
+  /**
+   * Enciende o apaga la linterna (flash) de la cámara activa usando `track.applyConstraints`.
+   * Si el dispositivo rechaza la restricción, oculta el control de linterna.
+   */
   const toggleTorch = async () => {
     const track = streamRef.current?.getVideoTracks?.()[0];
     if (!track || typeof track.applyConstraints !== 'function') return;
@@ -295,6 +332,10 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     }
   };
 
+  /**
+   * Solicita permiso de cámara trasera (`facingMode: 'environment'`), detecta soporte de linterna
+   * y habilita el visor en vivo; ante fallo o falta de soporte muestra mensaje orientativo.
+   */
   const startCameraScanner = async () => {
     setCameraError('');
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -329,6 +370,11 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     }
   };
 
+  /**
+   * Maneja el envío del formulario de validación manual o por pistola lectora de QR.
+   * Detiene la cámara si estaba abierta y dispara la verificación contra el backend.
+   * @param {React.FormEvent<HTMLFormElement>} [e]
+   */
   const handleVerifyPass = async (e) => {
     if (e) e.preventDefault();
     if (!qrToken.trim()) return;
@@ -336,6 +382,9 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     await verifyTokenValue(qrToken);
   };
 
+  /**
+   * Restablece el escáner completo: apaga cámara y limpia token, resultado y avisos de error.
+   */
   const handleClearScanner = () => {
     stopCameraScanner();
     setQrToken('');
@@ -343,6 +392,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
     setCameraError('');
   };
 
+  // Extracción segura de los detalles del pase y del vehículo principal para las tarjetas de resultado
   const details = result?.details || {};
   const vehicleInfo =
     details.vehicle ||
@@ -439,6 +489,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
             </div>
           )}
 
+          {/* Aviso de error o limitación de la cámara */}
           {cameraError && (
             <div className="flex items-center gap-2 bg-amber-950/50 border border-amber-800/80 text-amber-200 p-3.5 rounded-xl text-xs">
               <AlertCircle size={15} className="text-amber-400 shrink-0" />
@@ -493,7 +544,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
             </div>
           </form>
 
-          {/* Resultado de la validación en garita */}
+          {/* Resultado de la validación en garita (tarjeta verde autorizado / roja denegado) */}
           {result && (
             <div
               className={`p-5 rounded-2xl border space-y-4 text-xs ${
@@ -502,6 +553,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
                   : 'bg-rose-950/40 border-rose-800/80 text-rose-100'
               }`}
             >
+              {/* Encabezado de veredicto y código operativo retornado por el backend */}
               <div className="flex items-center justify-between gap-2 flex-wrap border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2.5">
                   {result.authorized ? (
@@ -520,6 +572,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
 
               <p className="text-xs opacity-90">{result.message}</p>
 
+              {/* Alerta específica cuando el rechazo responde a documentación de compliance vencida */}
               {!result.authorized &&
                 ['CRIMINAL_RECORD_EXPIRED', 'INSURANCE_EXPIRED', 'CREW_INSURANCE_EXPIRED'].includes(
                   result.code
@@ -536,6 +589,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
                   </div>
                 )}
 
+              {/* Detalle completo del acceso autorizado: prestador, vehículo/destino y cuadrilla */}
               {result.authorized && result.details && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
                   {/* Bloque Prestador */}

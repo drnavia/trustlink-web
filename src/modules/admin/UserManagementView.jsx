@@ -1,8 +1,9 @@
 /**
  * @file UserManagementView.jsx
  * @description Panel maestro para el rol 'superadmin' con alta, edición y control
- * de cuentas privilegiadas ('admin' y 'superadmin'), con aplicación explícita de
- * Zona 4 (tarjetas principales) y Zona 5 (cajas/bloques internos e inputs).
+ * de cuentas privilegiadas ('admin', 'security' y 'superadmin') y su asignación por
+ * comunidad/barrio, con aplicación explícita de Zona 4 (tarjetas principales) y Zona 5
+ * (cajas/bloques internos e inputs).
  * @location /trustlink-web/src/modules/admin/UserManagementView.jsx
  */
 
@@ -17,13 +18,19 @@ import {
   X,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
 
-/* const API_BASE = 'http://localhost:4000'; */
-
+/**
+ * Vista de gestión de cuentas privilegiadas del sistema (admin, security y superadmin).
+ * Permite dar de alta nuevos operadores con rol y comunidad asignada, listar cuentas
+ * existentes y editar sus datos, estado activo o contraseña desde un modal.
+ *
+ * @returns {JSX.Element} Panel de administración de cuentas privilegiadas.
+ */
 export default function UserManagementView() {
   const { brand } = useBranding();
 
+  // Estilos dinámicos de branding: Zona 4 (tarjetas principales) y Zona 5 (cajas internas e inputs)
   const cardStyle = {
     backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
     color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
@@ -34,6 +41,7 @@ export default function UserManagementView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
+  // Listado de usuarios privilegiados, catálogo de comunidades y estados de carga/feedback
   const [usersList, setUsersList] = useState([]);
   const [countries, setCountries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -64,6 +72,12 @@ export default function UserManagementView() {
     is_active: true,
   });
 
+  /**
+   * Obtiene el catálogo de comunidades/barrios disponibles para asociar cuentas locales
+   * ('admin' y 'security') y preselecciona la primera comunidad si el formulario no tiene una.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchCountries = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/countries?page=1&limit=100`, {
@@ -86,6 +100,11 @@ export default function UserManagementView() {
     }
   };
 
+  /**
+   * Consulta al backend el listado completo de cuentas privilegiadas registradas.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchPrivilegedUsers = async () => {
     setLoading(true);
     setErrorMsg('');
@@ -110,11 +129,20 @@ export default function UserManagementView() {
     }
   };
 
+  // Carga inicial de cuentas privilegiadas y comunidades al montar el panel
   useEffect(() => {
     fetchPrivilegedUsers();
     fetchCountries();
   }, []);
 
+  /**
+   * Envía el alta de una nueva cuenta privilegiada ('admin', 'security' o 'superadmin').
+   * Para 'superadmin' envía `country_id: null` por ser un rol de alcance global; luego
+   * limpia el formulario y refresca el listado.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de alta.
+   * @returns {Promise<void>}
+   */
   const handleCreateUser = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -157,6 +185,13 @@ export default function UserManagementView() {
     }
   };
 
+  /**
+   * Abre el modal de edición precargando los datos actuales del usuario seleccionado
+   * y dejando la contraseña vacía (solo se actualiza si el operador ingresa una nueva).
+   *
+   * @param {Object} u - Usuario privilegiado seleccionado para editar.
+   * @returns {void}
+   */
   const openEditModal = (u) => {
     setEditingUser(u);
     setEditForm({
@@ -173,6 +208,13 @@ export default function UserManagementView() {
     setSuccessMsg('');
   };
 
+  /**
+   * Persiste los cambios de una cuenta privilegiada (datos personales, rol, comunidad,
+   * estado activo y contraseña opcional) vía PATCH y actualiza el listado.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario del modal.
+   * @returns {Promise<void>}
+   */
   const handleUpdateUser = async (e) => {
     e.preventDefault();
     if (!editingUser) return;
@@ -180,6 +222,7 @@ export default function UserManagementView() {
     setErrorMsg('');
     setSuccessMsg('');
 
+    // Arma el payload omitiendo country_id en superadmin e incluyendo password solo si se completó
     const payload = {
       first_name: editForm.first_name,
       last_name: editForm.last_name,
@@ -250,6 +293,7 @@ export default function UserManagementView() {
         </span>
       </section>
 
+      {/* Banners de error y confirmación de alta/edición */}
       {errorMsg && (
         <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
           <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -291,6 +335,7 @@ export default function UserManagementView() {
               </select>
             </div>
 
+            {/* Selector de comunidad visible solo para roles con alcance de barrio (admin/security) */}
             {formData.role !== 'superadmin' && countries.length > 0 && (
               <div>
                 <label className="block font-bold uppercase tracking-wider opacity-80 mb-1">
@@ -407,6 +452,7 @@ export default function UserManagementView() {
             <Users size={16} /> Cuentas con privilegios activos ({usersList.length})
           </h3>
 
+          {/* Estado de carga, estado vacío o listado de tarjetas con rol, estado y botón de edición */}
           {loading && usersList.length === 0 ? (
             <div
               className="p-6 rounded-xl border border-black/20 text-center text-xs"
@@ -479,7 +525,7 @@ export default function UserManagementView() {
         </section>
       </div>
 
-      {/* Modal de Edición */}
+      {/* Modal de Edición de Cuenta Privilegiada (rol, comunidad, contraseña opcional y estado activo) */}
       {editingUser && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
           <div
@@ -550,6 +596,7 @@ export default function UserManagementView() {
                 </div>
               </div>
 
+              {/* Selector de comunidad en edición (omitido cuando el rol es superadmin) */}
               {editForm.role !== 'superadmin' && countries.length > 0 && (
                 <div>
                   <label className="block font-bold uppercase opacity-80 mb-1">Comunidad / Barrio</label>
@@ -595,6 +642,7 @@ export default function UserManagementView() {
                 />
               </div>
 
+              {/* Habilitación de cuenta y acciones de cierre/guardado del modal */}
               <label className="inline-flex items-center gap-2 font-bold cursor-pointer pt-1">
                 <input
                   type="checkbox"

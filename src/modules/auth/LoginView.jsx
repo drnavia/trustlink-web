@@ -12,6 +12,14 @@ import { useAuth } from './AuthContext';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 
+/**
+ * Vista de autenticación y recuperación de contraseña en tres modos:
+ * ingreso (`login`), solicitud de código (`forgot`) y definición de nueva contraseña (`reset`).
+ * @param {object} props
+ * @param {(user: object) => void} [props.onLoginSuccess] - Callback ejecutado tras autenticar con éxito.
+ * @param {(view: string) => void} [props.onViewChange] - Navegador de vistas del contenedor principal.
+ * @param {() => void} [props.onNavigateRegister] - Callback alternativo para abrir el registro.
+ */
 export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegister }) {
   const { login } = useAuth();
   const { brand } = useBranding();
@@ -31,6 +39,7 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
   // Color de acento / primario para botones y enlaces destacados
   const accentColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
+  // Estado del subflujo activo, campos del formulario y mensajes de retroalimentación
   const [mode, setMode] = useState('login'); // 'login' | 'forgot' | 'reset'
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,6 +49,11 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
   const [errorMsg, setErrorMsg] = useState('');
   const [infoMsg, setInfoMsg] = useState('');
 
+  /**
+   * Envía las credenciales al contexto de autenticación (`AuthContext.login`)
+   * y notifica a la aplicación principal para redirigir al portal correspondiente.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -68,6 +82,11 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
     }
   };
 
+  /**
+   * Solicita un código temporal de recuperación en `/api/v1/auth/forgot-password`.
+   * En entornos de desarrollo precarga `dev_reset_token` y avanza automáticamente al paso `reset`.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleRequestReset = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -100,6 +119,11 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
     }
   };
 
+  /**
+   * Confirma el código de recuperación y guarda la nueva contraseña en `/api/v1/auth/reset-password`.
+   * Si tiene éxito, limpia los campos sensibles y vuelve al formulario de inicio de sesión.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleConfirmReset = async (e) => {
     e.preventDefault();
     setErrorMsg('');
@@ -174,8 +198,11 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
           </div>
         )}
 
+        {/* Renderizado condicional del formulario según el modo activo: login, forgot o reset */}
         {mode === 'login' ? (
+          /* Bloque 1: Formulario de inicio de sesión estándar */
           <form onSubmit={handleSubmit} className="space-y-4 text-xs">
+            {/* Campo de correo electrónico */}
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
                 Correo Electrónico
@@ -197,6 +224,7 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
               </div>
             </div>
 
+            {/* Campo de contraseña y acceso directo al flujo de recuperación */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80">
@@ -232,6 +260,7 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
               </div>
             </div>
 
+            {/* Botón principal de envío de credenciales */}
             <button
               type="submit"
               disabled={loading}
@@ -252,6 +281,7 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
             </button>
           </form>
         ) : mode === 'forgot' ? (
+          /* Bloque 2: Formulario de solicitud de código de recuperación por correo */
           <form onSubmit={handleRequestReset} className="space-y-4 text-xs">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -307,6 +337,7 @@ export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegi
             </button>
           </form>
         ) : (
+          /* Bloque 3: Formulario de confirmación con código temporal y nueva contraseña */
           <form onSubmit={handleConfirmReset} className="space-y-4 text-xs">
             <div>
               <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">

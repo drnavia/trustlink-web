@@ -30,10 +30,12 @@ import {
   BRANDING_PRESETS,
 } from './BrandingContext';
 
+// Reglas de validación para colores HEX y carga de logo institucional
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 const ALLOWED_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg'];
 const MAX_FILE_SIZE_BYTES = 1024 * 1024; // 1 MB
 
+// Claves de presets oscuros (fila 1) y claros (fila 2) del selector rápido
 const DARK_PRESET_KEYS = [
   'default',
   'countryClub',
@@ -52,6 +54,7 @@ const LIGHT_PRESET_KEYS = [
   'cyanUrban',
 ];
 
+// Definición declarativa de las 6 zonas de color editables (fondo y tipografía)
 const ZONES_CONFIG = [
   {
     zone: 'ZONA 1',
@@ -92,16 +95,26 @@ const ZONES_CONFIG = [
 ];
 
 /**
- * Calcula la relación de contraste aproximada entre dos colores HEX.
+ * Calcula la relación de contraste WCAG 2.x entre dos colores HEX (`#RRGGBB`).
+ * Se utiliza para emitir avisos preventivos de legibilidad cuando alguna zona cae por debajo de 3:1.
+ * @param {string} hexA - Primer color en formato HEX de 6 dígitos.
+ * @param {string} hexB - Segundo color en formato HEX de 6 dígitos.
+ * @returns {number} Relación de contraste en el rango [1, 21] (retorna 4.5 si algún HEX es incompleto).
  */
 const getContrastRatio = (hexA, hexB) => {
   if (!HEX_REGEX.test(hexA) || !HEX_REGEX.test(hexB)) return 4.5;
 
+  /**
+   * Linealiza un canal sRGB (2 dígitos HEX) según la fórmula de luminancia relativa WCAG.
+   * @param {string} hexSlice - Par hexadecimal del canal R, G o B.
+   * @returns {number} Componente linealizado en [0, 1].
+   */
   const channelLuminance = (hexSlice) => {
     const c = parseInt(hexSlice, 16) / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   };
 
+  // Luminancia relativa ponderada para cada color (coeficientes Rec. 709 / WCAG)
   const lumA =
     0.2126 * channelLuminance(hexA.slice(1, 3)) +
     0.7152 * channelLuminance(hexA.slice(3, 5)) +
@@ -117,6 +130,10 @@ const getContrastRatio = (hexA, hexB) => {
   return (lighter + 0.05) / (darker + 0.05);
 };
 
+/**
+ * Panel maestro de configuración de colores, presets de piel, logo e identidad institucional.
+ * Permite previsualizar cambios en tiempo real sobre toda la aplicación y persistirlos en PostgreSQL.
+ */
 export default function BrandingSettingsView() {
   const {
     brand,
@@ -128,6 +145,7 @@ export default function BrandingSettingsView() {
     fetchBranding,
   } = useBranding();
 
+  // Estilos base de Zona 4 (tarjetas) y Zona 5 (cajas internas) reflejando el tema vivo
   const cardStyle = {
     backgroundColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
     color: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
@@ -138,6 +156,7 @@ export default function BrandingSettingsView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
+  // Estado controlado del formulario, preset activo y banderas de operación
   const [formState, setFormState] = useState({
     ...DEFAULT_BRANDING_CONFIG,
     logoFileName: '',
@@ -148,6 +167,7 @@ export default function BrandingSettingsView() {
   const [resetting, setResetting] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
+  // Sincroniza `formState` cada vez que el contexto `BrandingContext` carga o actualiza la configuración
   useEffect(() => {
     setFormState((prev) => ({
       ...prev,
@@ -189,11 +209,23 @@ export default function BrandingSettingsView() {
     brand.darkMode,
   ]);
 
+  /**
+   * Actualiza un campo textual de identidad del menú (`brandName`, `brandBadge`, `brandSubtitle`)
+   * y lo refleja inmediatamente en la vista previa global.
+   * @param {string} field - Nombre de la propiedad de identidad.
+   * @param {string} value - Nuevo valor escrito por el usuario.
+   */
   const updateIdentityField = (field, value) => {
     setFormState((prev) => ({ ...prev, [field]: value }));
     previewBranding({ [field]: value });
   };
 
+  /**
+   * Normaliza un valor HEX ingresado (agregando `#` y mayúsculas), marca el preset como `custom`
+   * y aplica la vista previa en vivo únicamente cuando el código cumple `#RRGGBB`.
+   * @param {string} field - Campo de color de zona en `formState`.
+   * @param {string} rawValue - Valor crudo del picker nativo o input HEX.
+   */
   const updateColorField = (field, rawValue) => {
     let cleaned = rawValue.trim().toUpperCase();
     if (cleaned && !cleaned.startsWith('#')) {
@@ -209,6 +241,7 @@ export default function BrandingSettingsView() {
   /**
    * Alterna entre la variante dark y light explícita del preset activo
    * (o usa el preset por defecto si se habían editado colores sueltos).
+   * @param {boolean} checked - `true` para modo oscuro, `false` para modo claro.
    */
   const handleDarkModeToggle = (checked) => {
     const targetMode = checked ? 'dark' : 'light';
@@ -225,6 +258,11 @@ export default function BrandingSettingsView() {
     }));
   };
 
+  /**
+   * Aplica inmediatamente uno de los 12 presets del catálogo usando su modo por defecto
+   * y sincroniza todos los controles de color del formulario.
+   * @param {string} presetKey - Clave del preset dentro de `BRANDING_PRESETS`.
+   */
   const handleApplyPreset = (presetKey) => {
     const presetObj = BRANDING_PRESETS[presetKey];
     if (!presetObj) return;
@@ -237,6 +275,11 @@ export default function BrandingSettingsView() {
     }));
   };
 
+  /**
+   * Valida tipo MIME/extensión (SVG, PNG, JPG) y tamaño máximo (1 MB) del archivo elegido,
+   * lo convierte a Data URL mediante `FileReader` y lo aplica en la vista previa en vivo.
+   * @param {React.ChangeEvent<HTMLInputElement>} e
+   */
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -280,6 +323,9 @@ export default function BrandingSettingsView() {
     reader.readAsDataURL(file);
   };
 
+  /**
+   * Quita el logo personalizado para volver al emblema por defecto en el formulario y vista previa.
+   */
   const handleRemoveLogo = () => {
     setFeedback({ type: '', text: '' });
     setFormState((prev) => ({
@@ -290,6 +336,11 @@ export default function BrandingSettingsView() {
     previewBranding({ logoUrl: null });
   };
 
+  /**
+   * Valida que los 12 colores de las 6 zonas tengan formato HEX válido y persiste
+   * toda la configuración en PostgreSQL vía `BrandingContext.saveBranding`.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleSave = async (e) => {
     e.preventDefault();
     setFeedback({ type: '', text: '' });
@@ -343,6 +394,9 @@ export default function BrandingSettingsView() {
     }
   };
 
+  /**
+   * Restaura la apariencia a los valores institucionales por defecto y guarda el reseteo en el servidor.
+   */
   const handleReset = async () => {
     setFeedback({ type: '', text: '' });
     setResetting(true);
@@ -368,16 +422,25 @@ export default function BrandingSettingsView() {
     }
   };
 
+  /**
+   * Descarta los cambios previsualizados localmente recargando la última configuración persistida.
+   */
   const handleDiscardPreview = async () => {
     setFeedback({ type: '', text: '' });
     setSelectedPresetKey('default');
     await fetchBranding();
   };
 
+  // Bandera de alerta WCAG: se activa si al menos una zona tiene relación de contraste inferior a 3:1
   const hasLowContrastWarning = ZONES_CONFIG.some(
     (z) => getContrastRatio(formState[z.bgField], formState[z.textField]) < 3
   );
 
+  /**
+   * Renderiza una tarjeta clickeable de preset rápido con su etiqueta de grupo y 4 muestras de color.
+   * @param {string} presetKey - Clave del preset en `BRANDING_PRESETS`.
+   * @returns {JSX.Element|null}
+   */
   const renderPresetCard = (presetKey) => {
     const preset = BRANDING_PRESETS[presetKey];
     if (!preset) return null;
@@ -430,6 +493,12 @@ export default function BrandingSettingsView() {
     );
   };
 
+  /**
+   * Renderiza un control compacto de color compuesto por selector nativo y campo HEX sincronizados.
+   * @param {string} label - Etiqueta visible ('Fondo' | 'Tipografía').
+   * @param {string} field - Nombre de la propiedad de color en `formState`.
+   * @returns {JSX.Element}
+   */
   const renderCompactColorInput = (label, field) => {
     const value = formState[field];
     const isValid = HEX_REGEX.test(value);
@@ -463,6 +532,7 @@ export default function BrandingSettingsView() {
     );
   };
 
+  // Textos efectivos para la maqueta en vivo (con fallback a valores por defecto si están vacíos)
   const previewTitle = (formState.brandName || '').trim() || DEFAULT_BRANDING_CONFIG.brandName;
   const previewBadge = (formState.brandBadge || '').trim() || DEFAULT_BRANDING_CONFIG.brandBadge;
   const previewSubtitle =
@@ -578,6 +648,7 @@ export default function BrandingSettingsView() {
 
         {/* 2. Fila Intermedia: Logo con vista previa directa + Identidad del Menú */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Tarjeta de carga y vista previa del logo institucional */}
           <div
             className="lg:col-span-5 border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
             style={innerStyle}
@@ -648,6 +719,7 @@ export default function BrandingSettingsView() {
             </div>
           </div>
 
+          {/* Tarjeta de campos de identidad textual del encabezado (nombre, badge y subtítulo) */}
           <div
             className="lg:col-span-7 border border-black/20 p-4 rounded-xl space-y-3"
             style={innerStyle}

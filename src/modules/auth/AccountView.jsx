@@ -34,6 +34,14 @@ import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS } from '../../config/uiTokens';
 
+/**
+ * Genera la vista previa legible del destino residencial que se imprimirá en los pases QR.
+ * Combina el tipo de área (Manzana / Fracción / N/A) con el número de lote.
+ * @param {string} fractionType - Tipo de área ('na' | 'manzana' | 'fraccion').
+ * @param {string|number} fractionNumber - Número de manzana o fracción.
+ * @param {string|number} lotNumber - Número de lote residencial.
+ * @returns {string} Cadena normalizada de destino para mostrar al usuario.
+ */
 function formatDestinationPreview(fractionType, fractionNumber, lotNumber) {
   const cleanLot = String(lotNumber || '').trim();
   const cleanFrac = String(fractionNumber || '').trim();
@@ -52,6 +60,15 @@ function formatDestinationPreview(fractionType, fractionNumber, lotNumber) {
   return areaPart === 'N/A' ? `Lote ${cleanLot}` : `${areaPart} · Lote ${cleanLot}`;
 }
 
+/**
+ * Interruptor accesible (`role="switch"`) para habilitar o deshabilitar un portal operativo.
+ * @param {object} props
+ * @param {boolean} props.checked - Estado actual del portal.
+ * @param {boolean} props.disabled - Deshabilita el control durante guardado o bloqueo de portal único.
+ * @param {() => void} props.onChange - Handler invocado al alternar el interruptor.
+ * @param {string} props.label - Etiqueta ARIA para lectores de pantalla.
+ * @param {string} props.title - Tooltip descriptivo del estado/restricción.
+ */
 function PortalSwitch({ checked, disabled, onChange, label, title }) {
   return (
     <button
@@ -77,13 +94,21 @@ function PortalSwitch({ checked, disabled, onChange, label, title }) {
   );
 }
 
+/**
+ * Vista "Mi Cuenta & Identidad Dual" para gestionar portales habilitados (Residente / Prestador),
+ * portal principal de ingreso, datos personales/domicilio normalizado y cambio de contraseña.
+ * @param {object} props
+ * @param {(view: string) => void} [props.onNavigate] - Navegador para abrir directamente un portal habilitado.
+ */
 export default function AccountView({ onNavigate }) {
   const { user, updateUser } = useAuth();
   const { brand } = useBranding();
 
+  // Referencias para hacer scroll suave y enfocar el lote durante la activación del Portal Residente
   const locationSectionRef = useRef(null);
   const lotInputRef = useRef(null);
 
+  // Estilos dinámicos de marca (Zonas 4 y 5 + color de acción primaria)
   const primaryColor = brand?.primaryActionColor || brand?.accentColor || '#059669';
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
@@ -94,6 +119,7 @@ export default function AccountView({ onNavigate }) {
     color: brand?.innerTextColor || '#E2E8F0',
   };
 
+  // Estado base de cuenta hidratada y catálogo de comunidades disponibles
   const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState(null);
   const [countries, setCountries] = useState([]);
@@ -120,15 +146,25 @@ export default function AccountView({ onNavigate }) {
   const [savingPassword, setSavingPassword] = useState(false);
   const [passwordFeedback, setPasswordFeedback] = useState({ type: '', text: '' });
 
+  // Estados de persistencia en curso y mensajes globales de la vista
   const [savingProfile, setSavingProfile] = useState(false);
   const [switchingPortal, setSwitchingPortal] = useState('');
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
+  /**
+   * Construye las cabeceras HTTP JSON autenticadas con el JWT almacenado en localStorage.
+   * @returns {Record<string, string>}
+   */
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
+  /**
+   * Sincroniza todos los estados controlados del formulario con el objeto de cuenta recibido del backend,
+   * normalizando campos numéricos de fracción/lote y cerrando el borrador de activación si ya es residente.
+   * @param {object|null} acc - Objeto `account` retornado por la API.
+   */
   const hydrateForm = useCallback((acc) => {
     if (!acc) return;
     setAccount(acc);
@@ -146,6 +182,10 @@ export default function AccountView({ onNavigate }) {
     }
   }, []);
 
+  /**
+   * Consulta `/api/v1/account/me` para cargar cuenta y lista de comunidades,
+   * hidratando el formulario y sincronizando el perfil en `AuthContext`.
+   */
   const fetchAccount = useCallback(async () => {
     setLoading(true);
     try {
@@ -176,12 +216,15 @@ export default function AccountView({ onNavigate }) {
     }
   }, [hydrateForm, updateUser]);
 
+  // Carga inicial de datos de cuenta al montar la vista
   useEffect(() => {
     fetchAccount();
   }, [fetchAccount]);
 
+  // Muestra el bloque de ubicación residencial solo si el usuario es residente o está activando el portal
   const showResidentialFields = canUseResident || activatingResidentDraft;
 
+  // Detección de cambios sin guardar (dirty state) comparando los campos actuales contra la última cuenta persistida
   const hasProfileChanges = useMemo(() => {
     if (!account) return false;
     const savedCountry = account.country_id ? String(account.country_id) : '';
@@ -213,6 +256,11 @@ export default function AccountView({ onNavigate }) {
     activatingResidentDraft,
   ]);
 
+  /**
+   * Persiste los cambios de perfil, domicilio normalizado y activación de portales vía `PATCH /api/v1/account/profile`.
+   * Actualiza tanto el formulario como `AuthContext` (incluyendo nuevo token si el backend lo emite).
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleSaveProfile = async (e) => {
     e.preventDefault();
     setSavingProfile(true);
@@ -271,6 +319,11 @@ export default function AccountView({ onNavigate }) {
     }
   };
 
+  /**
+   * Define cuál portal ('resident' | 'provider') se abrirá por defecto al iniciar sesión
+   * mediante `PATCH /api/v1/account/primary-portal`. Si falla por falta de domicilio, enfoca la sección residencial.
+   * @param {'resident'|'provider'} targetPortal
+   */
   const handleSetPrimaryPortal = async (targetPortal) => {
     setSwitchingPortal(targetPortal);
     setFeedback({ type: '', text: '' });
@@ -311,6 +364,10 @@ export default function AccountView({ onNavigate }) {
     }
   };
 
+  /**
+   * Despliega el flujo guiado de divulgación progresiva para que un Prestador cargue su domicilio
+   * y active el Portal Residente, desplazando la vista y enfocando el campo de lote.
+   */
   const openResidentActivationForm = () => {
     setActivatingResidentDraft(true);
     setFeedback({
@@ -323,6 +380,11 @@ export default function AccountView({ onNavigate }) {
     }, 60);
   };
 
+  /**
+   * Activa o desactiva rápidamente un portal operativo ('resident' | 'provider').
+   * Impide dejar la cuenta sin portales activos y redirige al formulario de domicilio si falta el lote.
+   * @param {'resident'|'provider'} portalKey
+   */
   const handleQuickTogglePortal = async (portalKey) => {
     if (portalKey === 'resident' && !canUseResident && !lotNumber.trim()) {
       openResidentActivationForm();
@@ -384,6 +446,11 @@ export default function AccountView({ onNavigate }) {
     }
   };
 
+  /**
+   * Valida localmente longitud mínima y coincidencia de la nueva contraseña,
+   * y actualiza la credencial del usuario en `PATCH /api/v1/account/password`.
+   * @param {React.FormEvent<HTMLFormElement>} e
+   */
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setPasswordFeedback({ type: '', text: '' });
@@ -439,6 +506,7 @@ export default function AccountView({ onNavigate }) {
     }
   };
 
+  // Valores derivados para insignias de identidad, vista previa de destino y bloqueos de portal único
   const activePrimary = account?.primary_portal || user?.primary_portal || 'resident';
   const baseRole = (account?.role || user?.role || '').toLowerCase();
   const isPrivilegedRole = ['superadmin', 'admin', 'security'].includes(baseRole);
@@ -455,6 +523,7 @@ export default function AccountView({ onNavigate }) {
     : 'Residente';
   const destinationPreview = formatDestinationPreview(fractionType, fractionNumber, lotNumber);
 
+  // Evitan desactivar el único portal operativo disponible en cuentas no privilegiadas
   const residentOnlyLock = canUseResident && !canUseProvider && !isPrivilegedRole;
   const providerOnlyLock = canUseProvider && !canUseResident && !isPrivilegedRole;
 
@@ -508,6 +577,7 @@ export default function AccountView({ onNavigate }) {
         </button>
       </section>
 
+      {/* Banner global de retroalimentación (éxito, información o error) */}
       {feedback.text && (
         <div
           className={`flex items-center gap-2 px-4 py-3 rounded-xl text-xs border ${
@@ -529,6 +599,7 @@ export default function AccountView({ onNavigate }) {
         </div>
       )}
 
+      {/* Estado de carga inicial antes de contar con el primer snapshot de cuenta */}
       {loading && !account ? (
         <div
           className="rounded-2xl p-10 text-center text-xs opacity-80 border border-slate-800/80"
@@ -809,6 +880,7 @@ export default function AccountView({ onNavigate }) {
               )}
             </div>
 
+            {/* Campos base de contacto y selector de comunidad (si aplica domicilio residencial) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5">
@@ -994,6 +1066,7 @@ export default function AccountView({ onNavigate }) {
               </div>
             )}
 
+            {/* CTA primario del formulario de perfil: habilitado únicamente cuando hay cambios pendientes */}
             <div className="flex items-center justify-end gap-3 pt-1">
               <button
                 type="submit"
@@ -1045,6 +1118,7 @@ export default function AccountView({ onNavigate }) {
               </button>
             </div>
 
+            {/* Credenciales verificadas de solo lectura (Correo y DNI) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div
                 className="rounded-xl p-3.5 border border-white/10 flex items-center gap-3"
@@ -1077,6 +1151,7 @@ export default function AccountView({ onNavigate }) {
               </div>
             </div>
 
+            {/* Formulario desplegable de cambio de contraseña */}
             {showPasswordForm && (
               <form
                 onSubmit={handleChangePassword}

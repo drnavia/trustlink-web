@@ -1,10 +1,16 @@
 /**
  * @file receiptPrinter.js
- * @description Genera una ventana limpia lista para imprimir o guardar en PDF
- * del Comprobante del Hogar emitido por GET /api/v1/contracts/:id/receipt.
+ * @description Genera y abre una ventana HTML limpia lista para imprimir o guardar en PDF
+ * del Comprobante del Hogar emitido por `GET /api/v1/contracts/:id/receipt`.
  * @location /trustlink-web/src/utils/receiptPrinter.js
  */
 
+/**
+ * Escapa caracteres especiales HTML para prevenir inyección (XSS) al interpolar
+ * datos dinámicos del comprobante dentro del documento imprimible.
+ * @param {*} value Valor a sanitizar.
+ * @returns {string} Texto seguro para insertar en nodos o atributos HTML.
+ */
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -14,6 +20,11 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Formatea una marca temporal completa (fecha y hora) en formato local argentino (`es-AR`).
+ * @param {string|number|Date|null|undefined} value Fecha/hora de entrada.
+ * @returns {string} Fecha y hora legibles o `—` cuando no existe valor.
+ */
 function formatDateAr(value) {
   if (!value) return '—';
   const d = new Date(value);
@@ -27,6 +38,12 @@ function formatDateAr(value) {
   });
 }
 
+/**
+ * Formatea únicamente la fecha (sin horario) en formato `es-AR`, utilizado para
+ * vigencias documentales de compliance (ART y antecedentes penales).
+ * @param {string|number|Date|null|undefined} value Fecha de vencimiento o registro.
+ * @returns {string} Fecha localizada o leyenda `'Sin fecha cargada'` si falta el dato.
+ */
 function formatDateOnlyAr(value) {
   if (!value) return 'Sin fecha cargada';
   const d = new Date(value);
@@ -34,11 +51,18 @@ function formatDateOnlyAr(value) {
   return d.toLocaleDateString('es-AR');
 }
 
+/**
+ * Construye el documento HTML autocontenido del Comprobante del Hogar y abre una ventana
+ * emergente que invoca automáticamente el diálogo de impresión del navegador (`window.print()`).
+ * @param {object} receipt Objeto de comprobante devuelto por el backend (contrato, comunidad, residente, prestador, pase, pago y disputas).
+ * @returns {boolean} `true` si se abrió y escribió la ventana de impresión; `false` si faltan datos o el navegador bloqueó el popup.
+ */
 export function printServiceReceipt(receipt) {
   if (!receipt || typeof window === 'undefined') return false;
   const win = window.open('', '_blank', 'width=840,height=920');
   if (!win) return false;
 
+  // Normalización defensiva de cada bloque del comprobante para evitar fallos ante campos opcionales.
   const contract = receipt.contract || {};
   const community = receipt.community || {};
   const resident = receipt.resident || {};
@@ -47,6 +71,8 @@ export function printServiceReceipt(receipt) {
   const payment = receipt.payment || {};
   const disputes = Array.isArray(receipt.disputes) ? receipt.disputes : [];
 
+  // Armado del documento HTML imprimible: estilos embebidos (@media print), cabecera institucional,
+  // bloques de partes y compliance, detalle del servicio, resumen financiero y reclamos opcionales.
   const html = `<!doctype html>
 <html lang="es">
 <head>
@@ -137,6 +163,7 @@ export function printServiceReceipt(receipt) {
 </body>
 </html>`;
 
+  // Inyección del HTML en la ventana emergente y cierre del stream para disparar `window.onload`.
   win.document.open();
   win.document.write(html);
   win.document.close();

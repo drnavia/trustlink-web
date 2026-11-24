@@ -8,8 +8,14 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { API_BASE } from '../../config/api';
 
+// Contexto React compartido para el estado de sesión y las acciones de autenticación
 const AuthContext = createContext(null);
 
+/**
+ * Lee y parsea el perfil del usuario almacenado en localStorage.
+ * Si el contenido está corrupto, limpia el almacenamiento para evitar sesiones inconsistentes.
+ * @returns {object|null} Objeto de usuario persistido o null si no existe o es inválido.
+ */
 function readStoredUser() {
   try {
     const raw = localStorage.getItem('trustlink_user');
@@ -21,15 +27,25 @@ function readStoredUser() {
   }
 }
 
+/**
+ * Proveedor global de autenticación que sincroniza token y perfil de usuario
+ * con localStorage y rehidrata la cuenta contra el backend al detectar un token nuevo.
+ * @param {{ children: React.ReactNode }} props
+ */
 export const AuthProvider = ({ children }) => {
+  // Hidratación inicial desde localStorage: solo se carga el usuario si existe un token vigente
   const [token, setToken] = useState(() => localStorage.getItem('trustlink_token') || null);
   const [user, setUser] = useState(() =>
     localStorage.getItem('trustlink_token') ? readStoredUser() : null
   );
   const loading = false;
 
+  // Evita sincronizar más de una vez el mismo token contra /api/v1/account/me
   const lastSyncedTokenRef = useRef(null);
 
+  /**
+   * Cierra la sesión limpiando credenciales en localStorage y restableciendo el estado en memoria.
+   */
   const logout = useCallback(() => {
     localStorage.removeItem('trustlink_token');
     localStorage.removeItem('trustlink_user');
@@ -38,6 +54,12 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   }, []);
 
+  /**
+   * Fusiona datos parciales o completos en el perfil de usuario activo y persiste en localStorage.
+   * Si se recibe un nuevo JWT (por ejemplo tras actualizar rol o portal), también rota el token.
+   * @param {object|null} partialOrFullUser - Campos actualizados del usuario.
+   * @param {string|null} [nextToken=null] - Nuevo token JWT opcional emitido por el backend.
+   */
   const updateUser = useCallback((partialOrFullUser, nextToken = null) => {
     if (nextToken && typeof nextToken === 'string') {
       localStorage.setItem('trustlink_token', nextToken);
@@ -52,6 +74,12 @@ export const AuthProvider = ({ children }) => {
     });
   }, []);
 
+  /**
+   * Consulta `/api/v1/account/me` para refrescar permisos, portales y datos del usuario.
+   * Cierra la sesión automáticamente si el backend responde 401 o 403.
+   * @param {string|null} [explicitToken=null] - Token explícito a utilizar en lugar del guardado.
+   * @returns {Promise<object|null>} Respuesta del servidor o null ante ausencia de token o error.
+   */
   const refreshAccount = useCallback(
     async (explicitToken = null) => {
       const activeToken = explicitToken || localStorage.getItem('trustlink_token');
@@ -77,6 +105,7 @@ export const AuthProvider = ({ children }) => {
     [logout, updateUser]
   );
 
+  // Sincroniza automáticamente la cuenta con el backend cada vez que cambia el token activo
   useEffect(() => {
     if (token && lastSyncedTokenRef.current !== token) {
       lastSyncedTokenRef.current = token;
@@ -84,6 +113,13 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token, refreshAccount]);
 
+  /**
+   * Autentica al usuario contra `/api/v1/auth/login`, persiste token y perfil en localStorage
+   * y limpia cualquier sesión previa si las credenciales fallan o ocurre un error de red.
+   * @param {string} email - Correo electrónico del usuario.
+   * @param {string} password - Contraseña en texto plano enviada por HTTPS/POST.
+   * @returns {Promise<{ ok: boolean, user?: object, token?: string, error?: string }>}
+   */
   const login = async (email, password) => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
@@ -135,4 +171,8 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
+/**
+ * Hook de acceso al contexto global de autenticación (usuario, token y acciones de sesión).
+ * @returns {object|null}
+ */
 export const useAuth = () => useContext(AuthContext);

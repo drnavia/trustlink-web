@@ -9,11 +9,10 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
 
-/* const API_BASE = 'http://localhost:4000'; */
-
-// 12 Presets (6 Dark en fila superior + 6 Light en fila inferior), cada uno con su par explícito dark/light
+// Catálogo de 12 presets de apariencia (6 Dark en fila superior + 6 Light en fila inferior),
+// cada uno definido con variantes explícitas `dark` y `light` para las Zonas 1 a 6.
 export const BRANDING_PRESETS = {
   // --- FILA 1: 6 PRESETS DARK ---
   default: {
@@ -488,7 +487,7 @@ export const BRANDING_PRESETS = {
   },
 };
 
-// Configuración inicial por defecto de TrustLink
+// Configuración inicial por defecto de TrustLink (identidad base + variante dark estándar)
 export const DEFAULT_BRANDING_CONFIG = {
   brandName: 'TrustLink',
   brandBadge: 'Community',
@@ -497,11 +496,14 @@ export const DEFAULT_BRANDING_CONFIG = {
   logoUrl: null,
 };
 
+// Contexto React compartido para consumir y mutar la configuración de marca blanca
 const BrandingContext = createContext(null);
 
 /**
- * Normaliza la estructura de /api/v1/branding al estado camelCase del frontend.
- * @param {Record<string, any>} raw
+ * Normaliza la estructura snake_case de `/api/v1/branding` (o parciales camelCase)
+ * al objeto de estado camelCase utilizado por los componentes del frontend.
+ * @param {Record<string, any>} [raw={}] - Registro recibido desde el backend o valores por defecto.
+ * @returns {object} Estado normalizado con identidad, colores de Zonas 1-6, logo y flag `darkMode`.
  */
 const mapBackendBrandingToState = (raw = {}) => {
   const resolvedBrandName =
@@ -559,7 +561,14 @@ const mapBackendBrandingToState = (raw = {}) => {
   };
 };
 
+/**
+ * Proveedor global de apariencia y marca blanca.
+ * Hidrata los valores desde `/api/v1/branding`, inyecta variables CSS (`--tl-*`) en `:root`
+ * y expone helpers para vista previa en vivo, aplicación de presets, persistencia y reseteo.
+ * @param {{ children: React.ReactNode }} props
+ */
 export const BrandingProvider = ({ children }) => {
+  // Estado activo de marca en memoria, defaults devueltos por el servidor y bandera de carga
   const [brand, setBrand] = useState({
     name: DEFAULT_BRANDING_CONFIG.brandName,
     countryName: `${DEFAULT_BRANDING_CONFIG.brandName} ${DEFAULT_BRANDING_CONFIG.brandBadge}`,
@@ -571,7 +580,8 @@ export const BrandingProvider = ({ children }) => {
   const [loadingBrand, setLoadingBrand] = useState(true);
 
   /**
-   * Consulta la configuración vigente desde el backend.
+   * Consulta la configuración vigente de apariencia desde `GET /api/v1/branding`
+   * y actualiza tanto el estado activo como los valores por defecto institucionales.
    */
   const fetchBranding = useCallback(async () => {
     setLoadingBrand(true);
@@ -598,13 +608,13 @@ export const BrandingProvider = ({ children }) => {
     }
   }, []);
 
+  // Carga inicial de la apariencia al montar el proveedor raíz
   useEffect(() => {
     fetchBranding();
   }, [fetchBranding]);
 
-  /**
-   * Expone las variables CSS de las Zonas 1 a 6 y sincroniza el atributo de tema.
-   */
+  // Efecto de sincronización DOM: expone las variables CSS (--tl-*) de Zonas 1 a 6,
+  // alterna la clase `.dark` y `data-theme`, y aplica el fondo/texto base al `document.body`.
   useEffect(() => {
     const root = document.documentElement;
     const isDark = Boolean(brand.darkMode);
@@ -622,6 +632,7 @@ export const BrandingProvider = ({ children }) => {
     const footerBg = brand.footerBgColor || DEFAULT_BRANDING_CONFIG.footerBgColor;
     const footerText = brand.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor;
 
+    // Inyección de custom properties CSS por zona para consumo transversal en la app
     root.style.setProperty('--tl-menu-bg', menuBg);
     root.style.setProperty('--tl-menu-text', menuText);
     root.style.setProperty('--tl-submenu-bg', submenuBg);
@@ -635,6 +646,7 @@ export const BrandingProvider = ({ children }) => {
     root.style.setProperty('--tl-footer-bg', footerBg);
     root.style.setProperty('--tl-footer-text', footerText);
 
+    // Sincronización de tema oscuro/claro en el elemento raíz y cuerpo del documento
     root.classList.toggle('dark', isDark);
     root.setAttribute('data-theme', isDark ? 'dark' : 'light');
 
@@ -657,7 +669,9 @@ export const BrandingProvider = ({ children }) => {
   ]);
 
   /**
-   * Actualiza localmente el estado de apariencia para vista previa en vivo.
+   * Actualiza localmente el estado de apariencia para vista previa en vivo sin persistir todavía.
+   * Recalcula automáticamente `name` y `countryName` cuando cambian `brandName` o `brandBadge`.
+   * @param {Record<string, any>} partial - Subconjunto de propiedades de marca modificadas.
    */
   const previewBranding = (partial) => {
     setBrand((prev) => {
@@ -680,8 +694,11 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Aplica un preset de piel en vivo (con su variante dark o light explícita),
+   * Aplica un preset de piel en vivo (con su variante `dark` o `light` explícita),
    * conservando logo e identidad del menú actuales.
+   * @param {string} presetKey - Clave del catálogo `BRANDING_PRESETS`.
+   * @param {'dark'|'light'|null} [overrideMode=null] - Modo forzado; si se omite usa `defaultMode` del preset.
+   * @returns {object} Configuración de colores de la variante aplicada.
    */
   const applyBrandingPreset = (presetKey, overrideMode = null) => {
     const selectedPreset = BRANDING_PRESETS[presetKey] || BRANDING_PRESETS.default;
@@ -697,7 +714,10 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Persiste los cambios de apariencia e identidad en PostgreSQL vía PUT /api/v1/branding.
+   * Persiste los cambios de apariencia e identidad en PostgreSQL vía `PUT /api/v1/branding`
+   * usando el token de sesión del superadmin y rehidrata el estado con la respuesta del servidor.
+   * @param {object} nextConfig - Configuración completa en formato camelCase.
+   * @returns {Promise<object>} Respuesta JSON del backend.
    */
   const saveBranding = async (nextConfig) => {
     const token = localStorage.getItem('trustlink_token') || '';
@@ -750,7 +770,8 @@ export const BrandingProvider = ({ children }) => {
   };
 
   /**
-   * Restaura todos los controles a los valores por defecto de TrustLink y los guarda.
+   * Restaura todos los controles a los valores por defecto de TrustLink y los persiste en backend.
+   * @returns {Promise<object>} Respuesta de `saveBranding`.
    */
   const resetBranding = async () => {
     const targetDefaults = defaults || DEFAULT_BRANDING_CONFIG;
@@ -776,6 +797,11 @@ export const BrandingProvider = ({ children }) => {
   );
 };
 
+/**
+ * Hook de acceso al contexto de marca blanca (`BrandingContext`).
+ * Lanza un error explícito si se invoca fuera de `<BrandingProvider>`.
+ * @returns {object}
+ */
 export const useBranding = () => {
   const context = useContext(BrandingContext);
   if (!context) {

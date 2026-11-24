@@ -1,10 +1,9 @@
 /**
  * @file LandingHome.jsx
- * @description Vista pública de bienvenida (/) para TrustLink.
- * Incorpora la narrativa comercial consolidada (Océano Azul, propuesta de valor por actor,
- * compliance centralizado y eliminación del "efecto portón"), buscador rápido de servicios/rubros
- * con atajos por especialidad y accesos claros a Iniciar Sesión o Registrarse,
- * delegando el footer único al orquestador principal (App.jsx).
+ * @description Vista pública de bienvenida (`/`) para TrustLink.
+ * Presenta la narrativa comercial consolidada (compliance centralizado, propuesta de valor por actor
+ * y eliminación del "efecto portón"), un buscador rápido de rubros con atajos predefinidos y los
+ * accesos a Iniciar Sesión o Registrarse, delegando el pie de página único a `App.jsx`.
  * @location /trustlink-web/src/modules/landing/LandingHome.jsx
  */
 
@@ -24,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 
+/** Rubros frecuentes mostrados como chips de selección rápida en el buscador del Hero. */
 const POPULAR_SERVICES = [
   'Electricista',
   'Gasista',
@@ -33,6 +33,10 @@ const POPULAR_SERVICES = [
   'Aire Acondicionado',
 ];
 
+/**
+ * Propuesta de valor comercial segmentada para los tres actores del ecosistema TrustLink:
+ * residentes, prestadores de servicios y administraciones/garitas de barrios cerrados.
+ */
 const ACTOR_BENEFITS = [
   {
     id: 'resident',
@@ -69,11 +73,19 @@ const ACTOR_BENEFITS = [
   },
 ];
 
+/**
+ * Componente de página inicial pública (Landing) con theming dinámico provisto por `BrandingContext`.
+ * @param {object} props Propiedades de navegación inyectadas por `App.jsx`.
+ * @param {() => void} props.onGoLogin Callback para navegar a la vista de inicio de sesión.
+ * @param {() => void} props.onGoRegister Callback para navegar a la vista de registro de cuenta.
+ * @returns {JSX.Element} Sección completa de bienvenida comercial y acceso rápido.
+ */
 export default function LandingHome({ onGoLogin, onGoRegister }) {
   const { brand } = useBranding();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedService, setSelectedService] = useState('');
 
+  // Estilos adaptables a la configuración de marca blanca activa (con paleta oscura por defecto).
   const primaryColor = brand?.primaryActionColor || '#059669';
 
   const cardStyle = {
@@ -86,8 +98,11 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
     color: brand?.innerTextColor || '#E2E8F0',
   };
 
-  // Guarda el filtro elegido en sessionStorage para aprovecharlo al ingresar
-  // y dirige al flujo de acceso/registro correspondiente.
+  /**
+   * Persiste en `sessionStorage` el servicio buscado para precargarlo tras la autenticación
+   * y redirige al flujo de inicio de sesión.
+   * @param {React.FormEvent<HTMLFormElement>} e Evento de envío del formulario de búsqueda.
+   */
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     const query = (searchTerm || selectedService || '').trim();
@@ -99,6 +114,11 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
     onGoLogin();
   };
 
+  /**
+   * Selecciona un rubro popular desde los chips de atajo, sincroniza el campo de búsqueda
+   * y guarda la preferencia en `sessionStorage` para el posterior ingreso del usuario.
+   * @param {string} serviceName Nombre del rubro seleccionado.
+   */
   const handleQuickServiceClick = (serviceName) => {
     setSelectedService(serviceName);
     setSearchTerm(serviceName);
@@ -107,11 +127,12 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
 
   return (
     <section className="max-w-6xl mx-auto px-4 sm:px-6 py-8 md:py-12 space-y-8">
-      {/* Hero + Buscador Rápido estilo Marketplace de Servicios */}
+      {/* Sección Hero: propuesta de valor principal, buscador rápido y botones de cuenta */}
       <div
         className="rounded-3xl p-6 sm:p-8 md:p-10 border border-slate-800/80 shadow-xl space-y-6"
         style={cardStyle}
       >
+        {/* Encabezado comercial e insignia de posicionamiento */}
         <div className="space-y-3 max-w-3xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
             <Sparkles size={13} />
@@ -129,7 +150,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           </p>
         </div>
 
-        {/* Barra de búsqueda rápida de servicios */}
+        {/* Formulario de búsqueda rápida de rubros con atajos seleccionables */}
         <form onSubmit={handleSearchSubmit} className="space-y-3">
           <div className="flex flex-col sm:flex-row gap-2.5">
             <div className="relative flex-1">
@@ -162,7 +183,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
             </button>
           </div>
 
-          {/* Chips de rubros frecuentes */}
+          {/* Chips de atajo para rubros populares */}
           <div className="flex flex-wrap items-center gap-1.5 pt-1">
             <span className="text-[11px] font-semibold opacity-70 mr-1">Rubros:</span>
             {POPULAR_SERVICES.map((service) => {
@@ -186,7 +207,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           </div>
         </form>
 
-        {/* Acciones principales de cuenta */}
+        {/* Acciones primarias de acceso y alta de cuenta */}
         <div className="flex flex-wrap items-center gap-3 pt-1">
           <button
             type="button"
@@ -209,7 +230,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         </div>
       </div>
 
-      {/* Bloques Modulares de Valor (3 Pilares Core) */}
+      {/* Sección de 3 pilares diferenciales: Compliance, Accesos QR/API y Reputación Cruzada */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div
           className="rounded-2xl p-5 border border-slate-800/80 space-y-2.5"
@@ -263,7 +284,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         </div>
       </div>
 
-      {/* Propuesta de valor segmentada por actor */}
+      {/* Sección de beneficios segmentados por perfil (Residentes, Prestadores y Barrios/Garitas) */}
       <div className="space-y-4">
         <div className="space-y-1">
           <h2 className="text-lg sm:text-xl font-black tracking-tight">
@@ -307,7 +328,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
         </div>
       </div>
 
-      {/* Cierre rápido de beneficios */}
+      {/* Banda de cierre con resumen de diferenciadores y acceso directo a la plataforma */}
       <div
         className="rounded-2xl px-5 py-4 border border-slate-800/80 flex flex-wrap items-center justify-between gap-3 text-xs"
         style={innerStyle}

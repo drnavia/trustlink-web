@@ -1,11 +1,16 @@
 /**
  * @file SystemHealthDashboard.jsx
- * @description Consola integral exclusiva para el rol 'superadmin' con tres pestañas:
- * 1) Resumen: estado del Backend, PostgreSQL y API Externa, comunidades (con carga completa para el selector),
- *    claves por comunidad, pases QR recientes con persistencia de 'expired' y sandbox externo.
- * 2) Endpoints: catálogo de endpoints del backend, requisitos de auth/roles, estado de configuración
- *    del entorno y prueba rápida en vivo.
- * 3) Auditoría: bitácora de intentos de validación de acceso y resumen/listado de transacciones.
+ * @description Consola integral exclusiva para el rol 'superadmin' organizada en tres pestañas:
+ * 1) Resumen: monitoreo en tiempo real del Backend, PostgreSQL y API Externa (con detalle técnico
+ *    desplegable); gestión CRUD paginada de Comunidades/Barrios privados con licenciamiento B2B
+ *    (planes, estado comercial, vigencia, extensión rápida +30d, cuota mensual QR y exportación CSV);
+ *    administración de Claves API por comunidad (creación, rotación, activación/revocación);
+ *    listado paginado de Pases QR recientes con persistencia de 'expired', copia de token y cancelación;
+ *    y Sandbox externo para validar tokens QR contra POST /api/v1/external/passes/verify.
+ * 2) Endpoints: tarjetas de configuración del entorno, catálogo filtrable de endpoints del backend
+ *    con requisitos de autenticación/roles y prueba rápida GET en vivo.
+ * 3) Auditoría: KPIs de acceso, bitácora paginada de validaciones de garita con exportación CSV,
+ *    y resumen/listado de contratos y transacciones financieras con exportación CSV.
  * @location /trustlink-web/src/modules/admin/SystemHealthDashboard.jsx
  */
 
@@ -40,12 +45,13 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { API_BASE } from '../../config/api';
 import { downloadCsv } from '../../utils/csvExport';
 
-/* const API_BASE = 'http://localhost:4000'; */
+// Zona horaria por defecto utilizada cuando el perfil del usuario no define una propia
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
 
+// Catálogo estático de referencia de los endpoints clave del backend y sus requisitos de acceso
 const SYSTEM_ENDPOINTS_CATALOG = [
   {
     id: 'health-root',
@@ -149,6 +155,14 @@ const SYSTEM_ENDPOINTS_CATALOG = [
   }
 ];
 
+/**
+ * Convierte una fecha/timestamp UTC (string ISO, SQL o epoch en ms) a milisegundos Unix.
+ * Prioriza `fallbackMs` si es un valor numérico válido y normaliza cadenas sin offset como UTC.
+ *
+ * @param {string|number|null|undefined} value - Fecha o marca de tiempo de entrada.
+ * @param {number|null} [fallbackMs=null] - Valor en milisegundos ya calculado por el backend.
+ * @returns {number|null} Timestamp en milisegundos o `null` si no se puede parsear.
+ */
 function parseUtcTimestampMs(value, fallbackMs = null) {
   if (fallbackMs !== null && fallbackMs !== undefined && !Number.isNaN(Number(fallbackMs))) {
     return Number(fallbackMs);
@@ -163,6 +177,15 @@ function parseUtcTimestampMs(value, fallbackMs = null) {
   return Number.isNaN(ms) ? null : ms;
 }
 
+/**
+ * Formatea una marca temporal UTC a formato legible local (`dd/mm hh:mm`, locale `es-AR`)
+ * aplicando la zona horaria indicada, con respaldo seguro ante zonas inválidas.
+ *
+ * @param {string|number|null|undefined} value - Valor de fecha/hora a formatear.
+ * @param {string} [timeZone=DEFAULT_TIMEZONE] - Identificador IANA de zona horaria.
+ * @param {number|null} [fallbackMs=null] - Timestamp en milisegundos alternativo.
+ * @returns {string} Fecha y hora formateadas o `'No especificado'`.
+ */
 function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
   const ms = parseUtcTimestampMs(value, fallbackMs);
   if (ms === null) return 'No especificado';
@@ -184,11 +207,20 @@ function formatDateTime(value, timeZone = DEFAULT_TIMEZONE, fallbackMs = null) {
   }
 }
 
+/**
+ * Panel principal de Salud, APIs, Comunidades B2B y Auditoría para usuarios `superadmin`.
+ * Centraliza monitoreo operativo, administración de barrios/licencias, gestión de API keys,
+ * control de pases QR, pruebas en sandbox y auditoría de accesos y transacciones.
+ *
+ * @returns {JSX.Element} Consola administrativa de salud y diagnóstico del sistema.
+ */
 export default function SystemHealthDashboard() {
+  // Contextos globales de marca y autenticación; zona horaria activa del usuario
   const { brand } = useBranding();
   const { user } = useAuth();
   const activeTimeZone = user?.timezone || user?.time_zone || DEFAULT_TIMEZONE;
 
+  // Estilos dinámicos de tarjetas principales y contenedores internos según branding activo
   const cardStyle = {
     backgroundColor: brand?.cardBgColor || '#020617',
     color: brand?.cardTextColor || '#F1F5F9',
@@ -199,9 +231,10 @@ export default function SystemHealthDashboard() {
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
+  // Pestaña activa de la consola ('health' | 'endpoints' | 'audit')
   const [activeTab, setActiveTab] = useState('health');
 
-  // Salud y diagnóstico
+  // Estado de salud, latencia HTTP y diagnóstico de backend y base de datos
   const [loadingStatus, setLoadingStatus] = useState(true);
   const [statusError, setStatusError] = useState('');
   const [healthHttpStatus, setHealthHttpStatus] = useState(null);
@@ -211,12 +244,12 @@ export default function SystemHealthDashboard() {
   const [diagnosticsData, setDiagnosticsData] = useState(null);
   const [showBackendDiagDetails, setShowBackendDiagDetails] = useState(false);
 
-  // Prueba rápida de endpoint desde la pestaña Endpoints
+  // Estado del filtro y prueba rápida en vivo desde la pestaña Endpoints
   const [endpointFilter, setEndpointFilter] = useState('');
   const [probingEndpointId, setProbingEndpointId] = useState(null);
   const [endpointProbeResult, setEndpointProbeResult] = useState(null);
 
-  // Comunidades (countries)
+  // Estado de listado, filtros, paginación y CRUD de Comunidades (countries)
   const [countries, setCountries] = useState([]);
   const [allCountriesOptions, setAllCountriesOptions] = useState([]);
   const [loadingCountries, setLoadingCountries] = useState(true);
@@ -228,6 +261,7 @@ export default function SystemHealthDashboard() {
   const [countryTotalPages, setCountryTotalPages] = useState(1);
   const [countryTotalCount, setCountryTotalCount] = useState(0);
 
+  // Campos del formulario de alta de nueva comunidad y feedback de acciones
   const [newCountryName, setNewCountryName] = useState('');
   const [newCountryAddress, setNewCountryAddress] = useState('');
   const [newCountryPostalCode, setNewCountryPostalCode] = useState('');
@@ -236,6 +270,7 @@ export default function SystemHealthDashboard() {
   const [creatingCountry, setCreatingCountry] = useState(false);
   const [countryFeedback, setCountryFeedback] = useState(null);
 
+  // Campos de edición en línea para los datos de una comunidad existente
   const [editingCountryId, setEditingCountryId] = useState(null);
   const [editCountryName, setEditCountryName] = useState('');
   const [editCountryAddress, setEditCountryAddress] = useState('');
@@ -244,7 +279,7 @@ export default function SystemHealthDashboard() {
   const [editCountryProvince, setEditCountryProvince] = useState('');
   const [savingCountryId, setSavingCountryId] = useState(null);
 
-  // Licenciamiento B2B por comunidad
+  // Estado de licenciamiento B2B y cuota mensual de validaciones QR por comunidad
   const [b2bPlans, setB2bPlans] = useState([]);
   const [editingBillingCountryId, setEditingBillingCountryId] = useState(null);
   const [billingPlanDraft, setBillingPlanDraft] = useState('pilot');
@@ -252,7 +287,7 @@ export default function SystemHealthDashboard() {
   const [billingQuotaDraft, setBillingQuotaDraft] = useState('');
   const [savingBillingCountryId, setSavingBillingCountryId] = useState(null);
 
-  // Integraciones / Claves API por comunidad
+  // Estado de Integraciones / Claves API por comunidad (alta, vista única y paginación)
   const [integrations, setIntegrations] = useState([]);
   const [loadingIntegrations, setLoadingIntegrations] = useState(true);
   const [selectedCountryForKey, setSelectedCountryForKey] = useState('');
@@ -265,7 +300,7 @@ export default function SystemHealthDashboard() {
   const [integrationsTotalPages, setIntegrationsTotalPages] = useState(1);
   const [integrationsTotalCount, setIntegrationsTotalCount] = useState(0);
 
-  // Pases QR recientes
+  // Estado de Pases QR recientes (filtros, paginación, copiado y cancelación)
   const [recentPasses, setRecentPasses] = useState([]);
   const [referenceNowMs, setReferenceNowMs] = useState(() => Date.now());
   const [loadingPasses, setLoadingPasses] = useState(true);
@@ -279,14 +314,14 @@ export default function SystemHealthDashboard() {
   const [copiedTokenId, setCopiedTokenId] = useState(null);
   const [cancellingPassId, setCancellingPassId] = useState(null);
 
-  // Sandbox endpoint externo
+  // Estado del Sandbox para probar POST /api/v1/external/passes/verify
   const [testQrToken, setTestQrToken] = useState('');
   const [testApiKey, setTestApiKey] = useState('');
   const [authMode, setAuthMode] = useState('api_key');
   const [testingEndpoint, setTestingEndpoint] = useState(false);
   const [sandboxResponse, setSandboxResponse] = useState(null);
 
-  // Auditoría (pestaña audit)
+  // Estado de la pestaña Auditoría: bitácora de garita, paginación y transacciones
   const [loadingAudit, setLoadingAudit] = useState(false);
   const [auditError, setAuditError] = useState('');
   const [auditSearch, setAuditSearch] = useState('');
@@ -309,10 +344,21 @@ export default function SystemHealthDashboard() {
   });
   const [recentTransactions, setRecentTransactions] = useState([]);
 
+  /**
+   * Genera el encabezado de autenticación Bearer JWT leyendo el token de sesión en `localStorage`.
+   *
+   * @returns {{ Authorization: string }} Cabeceras HTTP de autorización.
+   */
   const getAuthHeaders = () => ({
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`
   });
 
+  /**
+   * Consulta en paralelo `/health` y `/api/v1/external/status` para evaluar conectividad,
+   * latencia HTTP, estado de PostgreSQL y métricas globales del sistema.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchSystemHealth = async () => {
     setLoadingStatus(true);
     setStatusError('');
@@ -359,6 +405,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Ejecuta una prueba HTTP GET en vivo contra un endpoint habilitado del catálogo
+   * y almacena el código de estado, la latencia y la respuesta JSON para inspección.
+   *
+   * @param {{ id: string, path: string, auth: string }} ep - Definición del endpoint a probar.
+   * @returns {Promise<void>}
+   */
   const handleProbeEndpoint = async (ep) => {
     setProbingEndpointId(ep.id);
     setEndpointProbeResult(null);
@@ -396,6 +449,12 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Obtiene hasta 100 comunidades sin filtrar para poblar el selector completo
+   * al generar claves API y preselecciona la primera comunidad si no hay una elegida.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchAllCountriesForSelector = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/v1/external/countries?page=1&limit=100`, {
@@ -414,6 +473,16 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Consulta la lista paginada de comunidades aplicando búsqueda y filtro de estado,
+   * sincronizando además el catálogo de planes B2B disponibles y la paginación.
+   *
+   * @param {number} [pageToLoad=countryPage] - Página a solicitar.
+   * @param {string} [searchToLoad=countrySearch] - Texto de búsqueda por nombre/ubicación.
+   * @param {number} [limitToLoad=countryPageSize] - Cantidad de registros por página.
+   * @param {string} [statusToLoad=countryStatusFilter] - Filtro de estado (`all`, `active`, `inactive`).
+   * @returns {Promise<void>}
+   */
   const fetchCountries = async (
     pageToLoad = countryPage,
     searchToLoad = countrySearch,
@@ -457,6 +526,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Obtiene la página solicitada de integraciones (claves API por comunidad) desde el backend.
+   *
+   * @param {number} [pageToLoad=integrationsPage] - Número de página a consultar.
+   * @param {number} [limitToLoad=integrationsPageSize] - Cantidad de claves por página.
+   * @returns {Promise<void>}
+   */
   const fetchIntegrations = async (
     pageToLoad = integrationsPage,
     limitToLoad = integrationsPageSize
@@ -486,6 +562,16 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Consulta los pases QR recientes aplicando paginación, filtro de estado y texto de búsqueda,
+   * actualizando `referenceNowMs` para evaluar vigencias vencidas de forma consistente.
+   *
+   * @param {number} [pageToLoad=passPage] - Número de página a cargar.
+   * @param {string} [statusToLoad=passStatusFilter] - Estado solicitado (`all`, `pending`, `expired`, `used`, `cancelled`).
+   * @param {string} [searchToLoad=passSearch] - Filtro por prestador, barrio o token.
+   * @param {number} [limitToLoad=passPageSize] - Registros por página.
+   * @returns {Promise<void>}
+   */
   const fetchRecentPasses = async (
     pageToLoad = passPage,
     statusToLoad = passStatusFilter,
@@ -520,6 +606,16 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Obtiene el panorama de auditoría del sistema: métricas globales de accesos,
+   * bitácora paginada de validaciones de garita y resumen/listado de transacciones recientes.
+   *
+   * @param {number} [pageToLoad=auditPage] - Página de la bitácora de accesos.
+   * @param {string} [outcomeToLoad=auditOutcomeFilter] - Resultado a filtrar (`all`, `authorized`, `denied`).
+   * @param {string} [searchToLoad=auditSearch] - Búsqueda por motivo, barrio o token.
+   * @param {number} [limitToLoad=auditPageSize] - Eventos por página.
+   * @returns {Promise<void>}
+   */
   const fetchAuditOverview = async (
     pageToLoad = auditPage,
     outcomeToLoad = auditOutcomeFilter,
@@ -573,6 +669,7 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  // Carga inicial al montar el dashboard: salud, catálogo de comunidades, claves y pases recientes
   useEffect(() => {
     fetchSystemHealth();
     fetchAllCountriesForSelector();
@@ -582,6 +679,7 @@ export default function SystemHealthDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Carga diferida de la auditoría de accesos y transacciones al ingresar en la pestaña 'audit'
   useEffect(() => {
     if (activeTab === 'audit') {
       fetchAuditOverview(auditPage, auditOutcomeFilter, auditSearch, auditPageSize);
@@ -589,6 +687,12 @@ export default function SystemHealthDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  /**
+   * Refresca en paralelo todos los bloques de datos de la consola, incluyendo
+   * la auditoría si la pestaña `audit` se encuentra activa.
+   *
+   * @returns {Promise<void>}
+   */
   const handleRefreshAll = async () => {
     await Promise.all([
       fetchSystemHealth(),
@@ -602,6 +706,11 @@ export default function SystemHealthDashboard() {
     ]);
   };
 
+  /**
+   * Restablece los filtros de búsqueda y estado de comunidades y recarga desde la página 1.
+   *
+   * @returns {Promise<void>}
+   */
   const handleResetCountryFilters = async () => {
     setCountrySearch('');
     setCountryStatusFilter('all');
@@ -609,6 +718,13 @@ export default function SystemHealthDashboard() {
     await fetchCountries(1, '', countryPageSize, 'all');
   };
 
+  /**
+   * Da de alta una nueva comunidad/barrio privado en el backend (`POST /api/v1/external/countries`),
+   * reinicia el formulario y refresca el selector, listado paginado y métricas de salud.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
   const handleCreateCountry = async (e) => {
     e.preventDefault();
     if (!newCountryName.trim()) return;
@@ -656,6 +772,12 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Habilita la edición en línea de los datos generales de una comunidad precargando sus campos actuales.
+   *
+   * @param {Object} c - Registro de la comunidad a editar.
+   * @returns {void}
+   */
   const startEditingCountry = (c) => {
     setEditingCountryId(c.id);
     setEditCountryName(c.name || '');
@@ -666,6 +788,13 @@ export default function SystemHealthDashboard() {
     setCountryFeedback(null);
   };
 
+  /**
+   * Persiste los cambios de nombre y ubicación de una comunidad (`PATCH /api/v1/external/countries/:id`)
+   * y recarga el selector y la página actual del listado.
+   *
+   * @param {number} countryId - Identificador de la comunidad editada.
+   * @returns {Promise<void>}
+   */
   const handleSaveCountryEdit = async (countryId) => {
     if (!editCountryName.trim()) return;
     setSavingCountryId(countryId);
@@ -710,6 +839,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Inicializa el editor en línea de licenciamiento B2B (plan, estado comercial y cuota mensual QR)
+   * para la comunidad seleccionada.
+   *
+   * @param {Object} country - Registro de la comunidad cuya licencia B2B se va a modificar.
+   * @returns {void}
+   */
   const startEditingCountryBilling = (country) => {
     setEditingBillingCountryId(country.id);
     setBillingPlanDraft(country.plan_code || 'pilot');
@@ -721,6 +857,14 @@ export default function SystemHealthDashboard() {
     );
   };
 
+  /**
+   * Actualiza la configuración de licenciamiento B2B de una comunidad (`PATCH /api/v1/external/countries/:id/billing`),
+   * permitiendo usar los valores del borrador en edición o un payload directo (ej. extensión `+30d`).
+   *
+   * @param {number} countryId - Identificador de la comunidad.
+   * @param {Object|null} [overridePayload=null] - Payload opcional para acciones rápidas sin pasar por el borrador.
+   * @returns {Promise<void>}
+   */
   const handleSaveCountryBilling = async (countryId, overridePayload = null) => {
     setSavingBillingCountryId(countryId);
     setCountryFeedback(null);
@@ -764,6 +908,12 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Devuelve la etiqueta legible y las clases Tailwind del badge según el estado comercial B2B.
+   *
+   * @param {string|null|undefined} billingStatus - Estado de facturación (`active`, `trial`, `grace`, `suspended`).
+   * @returns {{ label: string, cls: string }} Metadatos de presentación del badge.
+   */
   const getB2BBillingBadge = (billingStatus) => {
     const st = String(billingStatus || 'active').toLowerCase();
     if (st === 'suspended') {
@@ -778,6 +928,13 @@ export default function SystemHealthDashboard() {
     return { label: 'B2B Activa', cls: 'bg-emerald-950 text-emerald-300 border-emerald-800' };
   };
 
+  /**
+   * Activa o desactiva una comunidad (`PATCH /api/v1/external/countries/:id/toggle`)
+   * y actualiza el listado y los indicadores globales de salud.
+   *
+   * @param {Object} country - Comunidad cuyo estado `is_active` se invertirá.
+   * @returns {Promise<void>}
+   */
   const handleToggleCountry = async (country) => {
     setCountryFeedback(null);
     try {
@@ -809,6 +966,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Genera una nueva clave API para la comunidad seleccionada (`POST /api/v1/external/integrations`),
+   * expone por única vez la clave en texto plano y la precarga automáticamente en el sandbox.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de creación.
+   * @returns {Promise<void>}
+   */
   const handleCreateIntegrationKey = async (e) => {
     e.preventDefault();
     if (!selectedCountryForKey) return;
@@ -860,6 +1024,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Rota una clave API existente (`PATCH /api/v1/external/integrations/:id/rotate`),
+   * muestra la nueva clave generada en texto plano y la precarga en el sandbox.
+   *
+   * @param {Object} integration - Registro de integración a rotar.
+   * @returns {Promise<void>}
+   */
   const handleRotateIntegrationKey = async (integration) => {
     setIntegrationFeedback(null);
     setLatestPlainKey(null);
@@ -895,6 +1066,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Activa o revoca una clave API existente (`PATCH /api/v1/external/integrations/:id/toggle`)
+   * y actualiza la tabla de claves, el conteo por comunidad y los indicadores de salud.
+   *
+   * @param {Object} integration - Registro de integración cuyo estado se invertirá.
+   * @returns {Promise<void>}
+   */
   const handleToggleIntegrationKey = async (integration) => {
     setIntegrationFeedback(null);
     try {
@@ -929,6 +1107,12 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Copia el `qr_token` de un pase al portapapeles y activa una confirmación visual temporal.
+   *
+   * @param {{ id: number, qr_token: string }} pass - Pase QR cuyo token se copiará.
+   * @returns {Promise<void>}
+   */
   const handleCopyToken = async (pass) => {
     try {
       await navigator.clipboard.writeText(pass.qr_token);
@@ -939,6 +1123,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Precarga un token QR en el formulario del sandbox, cambia a la pestaña `health`
+   * y desplaza suavemente la pantalla hasta la sección de prueba externa.
+   *
+   * @param {string} token - Token QR a precargar en el sandbox.
+   * @returns {void}
+   */
   const handleLoadTokenInSandbox = (token) => {
     setTestQrToken(token);
     setSandboxResponse(null);
@@ -949,6 +1140,13 @@ export default function SystemHealthDashboard() {
     }, 60);
   };
 
+  /**
+   * Cancela manualmente un pase QR pendiente (`PATCH /api/v1/external/passes/:id/cancel`)
+   * y refresca el listado de pases y las métricas globales del backend.
+   *
+   * @param {number} passId - Identificador del pase a cancelar.
+   * @returns {Promise<void>}
+   */
   const handleCancelPass = async (passId) => {
     setCancellingPassId(passId);
     setPassFeedback(null);
@@ -981,6 +1179,13 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Ejecuta una prueba contra el endpoint de garita `POST /api/v1/external/passes/verify`
+   * utilizando el modo de autenticación elegido (`x-api-key` o `Bearer JWT`) y registra respuesta y latencia.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario del sandbox.
+   * @returns {Promise<void>}
+   */
   const handleRunExternalTest = async (e) => {
     e.preventDefault();
     if (!testQrToken.trim()) return;
@@ -1034,6 +1239,12 @@ export default function SystemHealthDashboard() {
     }
   };
 
+  /**
+   * Convierte una duración en segundos al formato compacto legible `Xh Ym Zs`.
+   *
+   * @param {number|null|undefined} seconds - Tiempo activo del proceso en segundos.
+   * @returns {string} Uptime formateado o `'-'` si el valor no es numérico.
+   */
   const formatUptime = (seconds) => {
     if (typeof seconds !== 'number') return '-';
     const hrs = Math.floor(seconds / 3600);
@@ -1042,6 +1253,13 @@ export default function SystemHealthDashboard() {
     return `${hrs}h ${mins}m ${secs}s`;
   };
 
+  /**
+   * Calcula el estado visual efectivo de un pase QR combinando su estado persistido
+   * con la comparación de su ventana horaria UTC (`start_time` / `end_time`) frente a `referenceNowMs`.
+   *
+   * @param {Object} pass - Registro del pase QR.
+   * @returns {{ key: string, label: string, sublabel: string|null, badgeClass: string }} Metadatos de estado y estilo.
+   */
   const resolvePassDisplayStatus = (pass) => {
     const rawStatus = String(pass.status || 'pending').toLowerCase();
     const startMs = parseUtcTimestampMs(pass.start_time, pass.start_utc_ms);
@@ -1090,11 +1308,13 @@ export default function SystemHealthDashboard() {
     };
   };
 
+  // Filtrado en cliente sobre los pases cargados según el estado efectivo resuelto
   const filteredPasses = recentPasses.filter((pass) => {
     if (passStatusFilter === 'all') return true;
     return resolvePassDisplayStatus(pass).key === passStatusFilter;
   });
 
+  // Filtrado en cliente del catálogo de endpoints por ruta, módulo, método o descripción
   const filteredEndpoints = SYSTEM_ENDPOINTS_CATALOG.filter((ep) => {
     const q = endpointFilter.trim().toLowerCase();
     if (!q) return true;
@@ -1106,6 +1326,7 @@ export default function SystemHealthDashboard() {
     );
   });
 
+  // Derivación del estado global del backend (saludable, degradado u offline) y su causa
   const hasNetworkOrHttpFailure =
     Boolean(statusError) ||
     (healthHttpStatus !== null && healthHttpStatus >= 400) ||
@@ -1122,6 +1343,7 @@ export default function SystemHealthDashboard() {
     ? `Latencia HTTP elevada (${httpLatencyMs} ms >= 300 ms) o carga de consulta.`
     : 'Respuesta nominal de /health y /api/v1/external/status.';
 
+  // Métricas agregadas de diagnóstico y lista completa para el selector de claves API
   const metrics = diagnosticsData?.metrics || {};
   const activeKeysCount = metrics.active_integrations ?? 0;
   const activeCountriesCount = metrics.active_countries ?? 0;
@@ -1154,6 +1376,7 @@ export default function SystemHealthDashboard() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Selector de pestañas principales de la consola */}
             <div
               className="inline-flex rounded-xl p-1 border border-white/15"
               style={innerStyle}
@@ -1213,8 +1436,10 @@ export default function SystemHealthDashboard() {
           </div>
         </section>
 
+        {/* ==================== PESTAÑA 1: RESUMEN DEL SISTEMA ==================== */}
         {activeTab === 'health' && (
           <div className="space-y-6">
+            {/* Banner de error de conectividad o diagnóstico del backend */}
             {statusError && (
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
                 <div className="flex items-center gap-2">
@@ -1231,8 +1456,9 @@ export default function SystemHealthDashboard() {
               </div>
             )}
 
-            {/* Tarjetas de estado */}
+            {/* Tarjetas de estado en vivo: Backend, PostgreSQL y API Externa */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+              {/* Tarjeta 1: Salud del servidor Backend, latencia HTTP y detalle técnico */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1300,6 +1526,7 @@ export default function SystemHealthDashboard() {
                   </button>
                 </div>
 
+                {/* Panel desplegable con códigos HTTP y entorno del diagnóstico */}
                 {showBackendDiagDetails && (
                   <div
                     className="p-3 rounded-xl border border-black/20 text-[11px] font-mono space-y-1 overflow-x-auto"
@@ -1313,6 +1540,7 @@ export default function SystemHealthDashboard() {
                 )}
               </section>
 
+              {/* Tarjeta 2: Conectividad, latencia y conteos principales en PostgreSQL */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1355,6 +1583,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </section>
 
+              {/* Tarjeta 3: Resumen operativo de claves activas, barrios e intentos en API Externa */}
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-3"
                 style={cardStyle}
@@ -1396,11 +1625,12 @@ export default function SystemHealthDashboard() {
               </section>
             </div>
 
-            {/* Gestión de Comunidades / Barrios Privados */}
+            {/* Gestión de Comunidades / Barrios Privados y Licenciamiento B2B */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado, buscador, filtro de estado y exportación CSV de comunidades B2B */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <Building2 size={17} className="text-emerald-400" />
@@ -1492,6 +1722,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Formulario de alta rápida de una nueva comunidad */}
               <form onSubmit={handleCreateCountry} className="space-y-2.5 text-xs">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
                   <input
@@ -1547,6 +1778,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </form>
 
+              {/* Alertas de error de carga y feedback de operaciones CRUD/B2B */}
               {countryLoadError && (
                 <div className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs border bg-rose-950/50 border-rose-800 text-rose-200">
                   <div className="flex items-center gap-2">
@@ -1582,6 +1814,7 @@ export default function SystemHealthDashboard() {
                 </div>
               )}
 
+              {/* Tabla de comunidades con edición en línea de datos generales y licencia B2B */}
               {loadingCountries ? (
                 <div className="text-center py-6 text-xs opacity-80">Cargando comunidades...</div>
               ) : countries.length === 0 ? (
@@ -1682,6 +1915,7 @@ export default function SystemHealthDashboard() {
                                 locationSummary
                               )}
                             </td>
+                            {/* Celda de licencia B2B: editor en línea (plan, estado, cuota) o resumen */}
                             <td className="py-2.5 px-3">
                               {isEditingBilling ? (
                                 <div className="space-y-1.5 min-w-[200px]">
@@ -1785,6 +2019,7 @@ export default function SystemHealthDashboard() {
                                 </span>
                               )}
                             </td>
+                            {/* Acciones por comunidad: guardar/cancelar edición, licencia, +30d, editar y toggle */}
                             <td className="py-2.5 px-3 text-right">
                               {isEditing ? (
                                 <div className="inline-flex items-center gap-1.5">
@@ -1856,6 +2091,7 @@ export default function SystemHealthDashboard() {
                 </div>
               )}
 
+              {/* Controles de paginación y tamaño de página para Comunidades */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs opacity-85">
                 <div className="flex items-center gap-3">
                   <span>
@@ -1908,11 +2144,12 @@ export default function SystemHealthDashboard() {
               </div>
             </section>
 
-            {/* Claves API por Comunidad */}
+            {/* Claves API por Comunidad (Integraciones de garita) */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado y selector de cantidad de claves por página */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <ShieldCheck size={17} className="text-amber-400" />
@@ -1940,6 +2177,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Formulario de generación de nueva clave API asociada a una comunidad */}
               <form
                 onSubmit={handleCreateIntegrationKey}
                 className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs"
@@ -1977,6 +2215,7 @@ export default function SystemHealthDashboard() {
                 </button>
               </form>
 
+              {/* Feedback de operación y visualización única de la clave recién generada o rotada */}
               {integrationFeedback && (
                 <div
                   className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
@@ -2005,6 +2244,7 @@ export default function SystemHealthDashboard() {
                 </div>
               )}
 
+              {/* Tabla paginada de claves API configuradas (rotación y activación/revocación) */}
               {loadingIntegrations ? (
                 <div className="text-center py-6 text-xs opacity-80">Cargando claves...</div>
               ) : integrations.length === 0 ? (
@@ -2072,6 +2312,7 @@ export default function SystemHealthDashboard() {
                     </table>
                   </div>
 
+                  {/* Controles de paginación de Claves API */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs opacity-85">
                     <span>
                       Página {integrationsPage} de {integrationsTotalPages} ({integrationsTotalCount}{' '}
@@ -2115,6 +2356,7 @@ export default function SystemHealthDashboard() {
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado y barra de búsqueda/filtros de Pases QR */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-bold">Pases QR Recientes ({passTotalCount})</h3>
@@ -2190,6 +2432,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Alerta de resultado de acciones sobre pases (ej. cancelación) */}
               {passFeedback && (
                 <div
                   className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl text-xs border ${
@@ -2207,6 +2450,7 @@ export default function SystemHealthDashboard() {
                 </div>
               )}
 
+              {/* Tabla de pases QR con vigencia In/Out, estado efectivo y acciones rápidas */}
               {loadingPasses ? (
                 <div className="text-center py-6 text-xs opacity-80">Cargando pases QR...</div>
               ) : filteredPasses.length === 0 ? (
@@ -2323,6 +2567,7 @@ export default function SystemHealthDashboard() {
                 </div>
               )}
 
+              {/* Controles de paginación de Pases QR */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs opacity-85">
                 <span>
                   Página {passPage} de {passTotalPages} ({passTotalCount} pase(s))
@@ -2373,6 +2618,7 @@ export default function SystemHealthDashboard() {
                 </p>
               </div>
 
+              {/* Selector de modo de autenticación del sandbox: x-api-key o Bearer JWT */}
               <div
                 className="inline-flex rounded-xl p-1 border border-white/15 self-start"
                 style={innerStyle}
@@ -2397,6 +2643,7 @@ export default function SystemHealthDashboard() {
                 </button>
               </div>
 
+              {/* Formulario de envío de token QR al endpoint externo de verificación */}
               <form onSubmit={handleRunExternalTest} className="space-y-3 text-xs">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <input
@@ -2429,6 +2676,7 @@ export default function SystemHealthDashboard() {
                 </button>
               </form>
 
+              {/* Visor de respuesta JSON, código HTTP y latencia del sandbox */}
               {sandboxResponse && (
                 <div
                   className="border border-black/20 rounded-xl p-4 space-y-2.5"
@@ -2462,8 +2710,10 @@ export default function SystemHealthDashboard() {
           </div>
         )}
 
+        {/* ==================== PESTAÑA 2: CATÁLOGO DE ENDPOINTS ==================== */}
         {activeTab === 'endpoints' && (
           <div className="space-y-6">
+            {/* Tarjetas de resumen de entorno: clave ENV, modos de autenticación y URL base */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm space-y-2"
@@ -2501,10 +2751,12 @@ export default function SystemHealthDashboard() {
               </section>
             </div>
 
+            {/* Catálogo filtrable de endpoints del backend y prueba rápida en vivo */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado y campo de filtrado por ruta, método o módulo */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-black/20 pb-4">
                 <div>
                   <h3 className="text-sm font-bold">
@@ -2531,6 +2783,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Tabla del catálogo de endpoints con botón de prueba GET o acceso al sandbox */}
               <div className="overflow-x-auto rounded-xl border border-black/20" style={innerStyle}>
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
@@ -2588,6 +2841,7 @@ export default function SystemHealthDashboard() {
                 </table>
               </div>
 
+              {/* Visor de respuesta de la última prueba rápida ejecutada */}
               {endpointProbeResult && (
                 <div
                   className="border border-black/20 rounded-xl p-4 space-y-2.5"
@@ -2621,8 +2875,10 @@ export default function SystemHealthDashboard() {
           </div>
         )}
 
+        {/* ==================== PESTAÑA 3: AUDITORÍA Y TRANSACCIONES ==================== */}
         {activeTab === 'audit' && (
           <div className="space-y-6">
+            {/* Alerta de error al consultar los datos de auditoría */}
             {auditError && (
               <div className="flex items-center gap-2 bg-rose-950/60 border border-rose-800/80 text-rose-200 p-4 rounded-xl text-xs">
                 <AlertCircle size={16} className="text-rose-400 shrink-0" />
@@ -2630,6 +2886,7 @@ export default function SystemHealthDashboard() {
               </div>
             )}
 
+            {/* Tarjetas KPI de validaciones de acceso (totales, autorizados y denegados) */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <section
                 className="border border-black/20 p-5 rounded-2xl shadow-sm"
@@ -2660,10 +2917,12 @@ export default function SystemHealthDashboard() {
               </section>
             </div>
 
+            {/* Bitácora paginada de intentos de acceso en garita */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado con exportación CSV y filtros de búsqueda/resultado/tamaño */}
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <h3 className="text-sm font-bold">Bitácora de Intentos de Acceso</h3>
@@ -2758,6 +3017,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Tabla de eventos de validación de acceso registrados */}
               {loadingAudit ? (
                 <div className="text-center py-6 text-xs opacity-80">Cargando bitácora...</div>
               ) : accessLogs.length === 0 ? (
@@ -2810,6 +3070,7 @@ export default function SystemHealthDashboard() {
                     </table>
                   </div>
 
+                  {/* Controles de paginación de la bitácora de auditoría */}
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs opacity-85">
                     <span>
                       Página {auditPage} de {auditTotalPages} ({auditTotalCount} evento(s))
@@ -2847,10 +3108,12 @@ export default function SystemHealthDashboard() {
               )}
             </section>
 
+            {/* Resumen financiero y listado de Contratos y Transacciones */}
             <section
               className="border border-black/20 p-6 rounded-2xl shadow-sm space-y-4"
               style={cardStyle}
             >
+              {/* Encabezado con exportación CSV y totales (volumen bruto, comisión 7% y neto) */}
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Receipt size={17} className="text-emerald-400" />
@@ -2893,6 +3156,7 @@ export default function SystemHealthDashboard() {
                 </div>
               </div>
 
+              {/* Tabla de transacciones recientes asociadas a contratos */}
               {recentTransactions.length === 0 ? (
                 <div
                   className="text-center py-6 rounded-xl border border-black/20 text-xs opacity-80"

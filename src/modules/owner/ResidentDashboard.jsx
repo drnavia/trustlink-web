@@ -1,9 +1,19 @@
 /**
  * @file ResidentDashboard.jsx
- * @description Portal del Residente alineado con la evolución de la plataforma:
- * pasos ordenados (1. Prestadores, 2. Visitas, 3. Pases QR, 4. Visitas y Pagos, 5. Reseñas),
- * estado de contacto/confirmación en la tarjeta del prestador, navegación directa a Visitas,
- * íconos consistentes en los títulos de sección y respeto a los colores por zona (BrandingContext).
+ * @description Portal integral del Residente en TrustLink, estructurado en un flujo guiado de 5 pasos:
+ * 1. Directorio de Prestadores Verificados: búsqueda por texto, filtros dinámicos por especialidad,
+ *    toggle de "Socio Verificado", ordenamiento (destacados, calificación, trabajos), visibilidad de
+ *    documentación vencida, modal de reseñas verificadas y estado de contacto/visita por prestador.
+ * 2. Visitas: coordinación bidireccional de disponibilidad, mensajería de seguimiento por solicitud
+ *    y acceso directo para emitir un Pase QR con datos precargados.
+ * 3. Pases QR: emisión, visualización escaneable, edición y cancelación de pases con asignación de
+ *    vehículo/patente, selección de cuadrilla/ayudantes con estado de vigencia ART, filtros/paginación,
+ *    copia rápida del token y envío por WhatsApp con enlace directo para garita.
+ * 4. Visitas y Pagos: gestión de contratos acordados con desglose de comisión (7% plataforma / 93% prestador),
+ *    pago online con redirección a checkout, registro de conformidad (online o efectivo), Comprobante del Hogar
+ *    imprimible/PDF y apertura de reclamos o garantías post-servicio.
+ * 5. Reseñas: calificación cruzada entre residente y prestador para actualizar la reputación comunitaria.
+ * Respeta la paleta visual por zona definida en BrandingContext y los tokens compartidos de uiTokens.
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
@@ -48,6 +58,7 @@ import {
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
+/** Especialidades base mostradas como accesos rápidos en los filtros del directorio. */
 const QUICK_SPECIALTIES = [
   'Todos',
   'Electricista',
@@ -57,8 +68,16 @@ const QUICK_SPECIALTIES = [
   'Aire Acondicionado',
 ];
 
+/** Cantidad máxima de tarjetas de Pases QR visibles por página en el listado. */
 const PASSES_PER_PAGE = 6;
 
+/**
+ * Convierte una instancia de Date al formato local `YYYY-MM-DDTHH:mm`
+ * requerido por inputs HTML de tipo `datetime-local`.
+ *
+ * @param {Date} dateObj - Fecha y hora a formatear en zona horaria local.
+ * @returns {string} Cadena compatible con `datetime-local`.
+ */
 const toLocalDateTimeInput = (dateObj) => {
   const pad = (n) => String(n).padStart(2, '0');
   const y = dateObj.getFullYear();
@@ -69,6 +88,13 @@ const toLocalDateTimeInput = (dateObj) => {
   return `${y}-${m}-${d}T${hh}:${mm}`;
 };
 
+/**
+ * Formatea una fecha/hora en formato legible argentino (`DD/MM/YYYY, HH:mm`).
+ * Devuelve `'—'` si el valor está vacío o el valor original como texto si no puede parsearse.
+ *
+ * @param {string|number|Date|null|undefined} value - Fecha/hora de entrada.
+ * @returns {string} Representación localizada para visualización en interfaz o mensajes.
+ */
 const formatLocalDateTime = (value) => {
   if (!value) return '—';
   const parsed = new Date(value);
@@ -82,6 +108,13 @@ const formatLocalDateTime = (value) => {
   });
 };
 
+/**
+ * Calcula la etiqueta y clases visuales del badge de estado de cobertura ART
+ * para un integrante de cuadrilla en función de su fecha de vencimiento.
+ *
+ * @param {string|Date|null|undefined} expiryDate - Fecha de vencimiento de la ART.
+ * @returns {{ label: string, cls: string }} Texto descriptivo y clases Tailwind de severidad.
+ */
 const getCrewArtBadge = (expiryDate) => {
   if (!expiryDate) return { label: 'ART sin fecha', cls: 'bg-slate-800 text-slate-300 border-slate-700' };
   const parsed = new Date(expiryDate);
@@ -95,6 +128,14 @@ const getCrewArtBadge = (expiryDate) => {
   return { label: 'ART vigente', cls: 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60' };
 };
 
+/**
+ * Construye un enlace de WhatsApp (`https://wa.me/...`) con el resumen completo
+ * del Pase QR emitido: destino, vehículo o ingreso peatonal, cuadrilla autorizada,
+ * ventana de vigencia y enlace directo con token para validación en garita.
+ *
+ * @param {Object} passItem - Registro del pase QR emitido.
+ * @returns {string} URL lista para abrir en una nueva pestaña y compartir por WhatsApp.
+ */
 const buildPassWhatsAppUrl = (passItem) => {
   const digits = String(passItem?.provider_phone || '').replace(/\D/g, '');
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
@@ -113,6 +154,13 @@ const buildPassWhatsAppUrl = (passItem) => {
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 };
 
+/**
+ * Traduce el estado de una solicitud de visita en metadatos de presentación
+ * (etiqueta, estilos del badge y banderas booleanas de confirmación/rechazo).
+ *
+ * @param {Object|null|undefined} visit - Última solicitud de visita asociada a un prestador.
+ * @returns {{ label: string, badgeClass: string, isConfirmed: boolean, isDeclined: boolean }} Metadatos de estado.
+ */
 const getVisitStatusMeta = (visit) => {
   if (!visit) {
     return {
@@ -147,16 +195,28 @@ const getVisitStatusMeta = (visit) => {
   };
 };
 
+/**
+ * Componente principal del Portal del Residente.
+ * Centraliza la búsqueda de prestadores verificados, coordinación de visitas,
+ * emisión/gestión de Pases QR, conformidad/pagos de contratos y reseñas cruzadas.
+ *
+ * @param {Object} props
+ * @param {(view: string) => void} [props.onNavigate] - Callback opcional para navegar a otras vistas (ej. 'account').
+ * @returns {JSX.Element} Vista completa del dashboard del residente.
+ */
 export default function ResidentDashboard({ onNavigate }) {
+  // Contextos globales de marca y sesión del residente autenticado
   const { brand } = useBranding();
   const { user } = useAuth();
 
-  // Paso activo: 'providers' | 'visits' | 'passes' | 'payments' | 'reviews'
+  // Paso activo del flujo guiado: 'providers' | 'visits' | 'passes' | 'payments' | 'reviews'
   const [activeStep, setActiveStep] = useState('providers');
 
+  // Directorio de prestadores, filtros, ordenamiento y modal de reseñas públicas
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [providersError, setProvidersError] = useState('');
+  // Si el usuario llegó desde una búsqueda rápida externa, consume y limpia el término precargado
   const [searchTerm, setSearchTerm] = useState(() => {
     const saved = sessionStorage.getItem('trustlink_initial_service_query');
     if (saved && saved.trim()) {
@@ -241,6 +301,7 @@ export default function ResidentDashboard({ onNavigate }) {
   const [submittingReviewId, setSubmittingReviewId] = useState(null);
   const [reviewFeedback, setReviewFeedback] = useState({ type: '', text: '' });
 
+  // Estilos dinámicos por zona provistos por BrandingContext con valores de respaldo
   const primaryColor = brand?.primaryActionColor || '#059669';
 
   const cardStyle = {
@@ -253,11 +314,22 @@ export default function ResidentDashboard({ onNavigate }) {
     color: brand?.innerTextColor || '#E2E8F0',
   };
 
+  /**
+   * Genera las cabeceras HTTP estándar para peticiones JSON autenticadas con JWT.
+   *
+   * @returns {{ 'Content-Type': string, Authorization: string }} Cabeceras de solicitud.
+   */
   const getAuthHeaders = () => ({
     'Content-Type': 'application/json',
     Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
   });
 
+  /**
+   * Consulta el directorio de prestadores verificados disponibles para el residente,
+   * incluyendo especialidades, calificación, vehículos, cuadrilla y estado documental.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchVerifiedProviders = async () => {
     setLoadingProviders(true);
     setProvidersError('');
@@ -282,6 +354,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Obtiene las solicitudes de visita creadas por el residente junto con su estado
+   * de confirmación e historial de mensajes intercambiados con cada prestador.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchMyVisits = async () => {
     setLoadingVisits(true);
     try {
@@ -302,6 +380,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Recupera todos los Pases QR emitidos por el residente (vigentes, utilizados,
+   * vencidos y cancelados) para su gestión y consulta.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchMyPasses = async () => {
     setLoadingPasses(true);
     try {
@@ -322,6 +406,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Carga los contratos y órdenes de pago vinculados al residente para gestionar
+   * pagos, conformidades, comprobantes y reclamos.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchContractsData = async () => {
     setLoadingContracts(true);
     try {
@@ -342,6 +432,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Obtiene los contratos habilitados para reseña cruzada en el portal residente
+   * e inicializa los mapas locales de puntaje y comentario por contrato.
+   *
+   * @returns {Promise<void>}
+   */
   const fetchReviewsData = async () => {
     setLoadingReviews(true);
     try {
@@ -372,6 +468,7 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  // Carga inicial paralela de todos los módulos del Portal Residente al montar el componente
   useEffect(() => {
     fetchVerifiedProviders();
     fetchMyVisits();
@@ -380,6 +477,7 @@ export default function ResidentDashboard({ onNavigate }) {
     fetchReviewsData();
   }, []);
 
+  // Índice rápido de la solicitud de visita más reciente por `provider_id` para mostrar su estado en el directorio
   const latestVisitByProvider = useMemo(() => {
     const map = {};
     myVisits.forEach((v) => {
@@ -391,6 +489,7 @@ export default function ResidentDashboard({ onNavigate }) {
     return map;
   }, [myVisits]);
 
+  // Lista deduplicada de especialidades combinando chips rápidos y rubros reales de la base de datos
   const availableSpecialties = useMemo(() => {
     const dbSpecialties = new Set();
     providers.forEach((p) => {
@@ -415,6 +514,7 @@ export default function ResidentDashboard({ onNavigate }) {
     return combined;
   }, [providers]);
 
+  // Aplica filtros de especialidad, membresía Socio Verificado, búsqueda libre y criterio de ordenamiento
   const filteredProviders = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     const list = providers.filter((p) => {
@@ -450,6 +550,12 @@ export default function ResidentDashboard({ onNavigate }) {
     });
   }, [providers, searchTerm, selectedSpecialty, onlyVerifiedMembers, directorySortBy]);
 
+  /**
+   * Abre el modal de reputación de un prestador y consulta sus reseñas verificadas.
+   *
+   * @param {Object} provider - Objeto del prestador seleccionado en el directorio.
+   * @returns {Promise<void>}
+   */
   const handleOpenProviderReviews = async (provider) => {
     const pid = Number(provider.provider_id || provider.id);
     setReviewsModalProvider(provider);
@@ -470,6 +576,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Inicializa y abre el modal para solicitar/coordinar una visita con un prestador,
+   * precargando la ubicación del residente y una fecha sugerida (+1 hora).
+   *
+   * @param {Object} provider - Prestador destinatario de la solicitud.
+   */
   const openVisitModalForProvider = (provider) => {
     setVisitModalProvider(provider);
     setVisitFraction(user?.fraction_number || '');
@@ -479,6 +591,12 @@ export default function ResidentDashboard({ onNavigate }) {
     setVisitFeedback({ type: '', text: '' });
   };
 
+  /**
+   * Envía al backend la solicitud de coordinación de visita y actualiza el listado de visitas.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario modal.
+   * @returns {Promise<void>}
+   */
   const handleSaveVisitCoordination = async (e) => {
     e.preventDefault();
     if (!visitModalProvider) return;
@@ -524,6 +642,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Envía un mensaje de seguimiento dentro del hilo de una solicitud de visita existente
+   * y recarga el historial para reflejar la conversación actualizada.
+   *
+   * @param {number|string} visitId - Identificador de la visita en curso.
+   * @returns {Promise<void>}
+   */
   const handleSendFollowupMessage = async (visitId) => {
     const text = String(followupDrafts[visitId] || '').trim();
     if (!text) return;
@@ -545,6 +670,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Abre el modal de emisión de Pase QR para un prestador determinado,
+   * precargando ubicación, primer vehículo registrado y una ventana horaria de 8 horas.
+   *
+   * @param {Object} provider - Prestador al que se le emitirá el pase.
+   * @param {{ fraction?: string, lot?: string, preferredDate?: string }} [prefill={}] - Datos opcionales desde una visita previa.
+   */
   const openQrModalForProvider = (provider, prefill = {}) => {
     setQrModalProvider(provider);
     setFractionNumber(prefill.fraction ?? user?.fraction_number ?? '');
@@ -563,18 +695,34 @@ export default function ResidentDashboard({ onNavigate }) {
     setPassFeedback({ type: '', text: '', qrToken: '' });
   };
 
+  /**
+   * Alterna la inclusión de un ayudante/miembro de cuadrilla al crear un nuevo Pase QR.
+   *
+   * @param {number} empId - ID del empleado del prestador.
+   */
   const toggleCreateEmployeeId = (empId) => {
     setSelectedEmployeeIds((prev) =>
       prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
     );
   };
 
+  /**
+   * Alterna la inclusión de un ayudante/miembro de cuadrilla al editar un Pase QR vigente.
+   *
+   * @param {number} empId - ID del empleado del prestador.
+   */
   const toggleEditEmployeeId = (empId) => {
     setEditPassEmployeeIds((prev) =>
       prev.includes(empId) ? prev.filter((id) => id !== empId) : [...prev, empId]
     );
   };
 
+  /**
+   * Precarga los datos de un Pase QR vigente (`pending`) y abre el modal de edición
+   * para modificar patente, cuadrilla autorizada o rango horario.
+   *
+   * @param {Object} passItem - Pase QR seleccionado para edición.
+   */
   const openEditPassModal = (passItem) => {
     setEditingPass(passItem);
     setEditPassPlate(passItem.vehicle_plate || '');
@@ -589,6 +737,13 @@ export default function ResidentDashboard({ onNavigate }) {
     setEditPassFeedback({ type: '', text: '' });
   };
 
+  /**
+   * Persiste los cambios de un Pase QR vigente mediante `PATCH /api/v1/passes/:id`
+   * y actualiza el listado de pases emitidos.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de edición.
+   * @returns {Promise<void>}
+   */
   const handleSavePassEdit = async (e) => {
     e.preventDefault();
     if (!editingPass) return;
@@ -632,6 +787,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Valida y emite un nuevo Pase QR para el prestador seleccionado, incluyendo
+   * patente opcional, cuadrilla autorizada y vigencia horaria, mostrando el QR generado.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de creación.
+   * @returns {Promise<void>}
+   */
   const handleCreatePassSubmit = async (e) => {
     e.preventDefault();
     if (!qrModalProvider) return;
@@ -692,6 +854,14 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Copia el token de un Pase QR al portapapeles del sistema y activa un indicador
+   * visual temporal de confirmación sobre el botón correspondiente.
+   *
+   * @param {string} tokenValue - Token QR a copiar.
+   * @param {string|number} idKey - Identificador de UI para mostrar el estado "Copiado".
+   * @returns {Promise<void>}
+   */
   const handleCopyToken = async (tokenValue, idKey) => {
     if (!tokenValue) return;
     try {
@@ -703,6 +873,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Cancela un Pase QR pendiente mediante `PATCH /api/v1/passes/:id/cancel`,
+   * registra feedback en el listado y refresca los pases del residente.
+   *
+   * @param {number|string} passId - Identificador del pase a cancelar.
+   * @returns {Promise<void>}
+   */
   const handleCancelPass = async (passId) => {
     setCancellingPassId(passId);
     setPassListFeedback({ type: '', text: '' });
@@ -735,6 +912,7 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  // Filtra los pases emitidos por estado y por búsqueda textual (prestador, destino, token o ID)
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
     return myPasses.filter((passItem) => {
@@ -755,6 +933,7 @@ export default function ResidentDashboard({ onNavigate }) {
     });
   }, [myPasses, passSearch, passStatusFilter]);
 
+  // Cálculo de páginas totales y porción de pases visibles en la página actual
   const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
   const paginatedPasses = useMemo(() => {
     const safePage = Math.min(passesPage, totalPassPages);
@@ -762,6 +941,14 @@ export default function ResidentDashboard({ onNavigate }) {
     return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
   }, [filteredPasses, passesPage, totalPassPages]);
 
+  /**
+   * Inicia el pago de un contrato pendiente. Si el backend devuelve una URL de checkout
+   * externo (Mercado Pago), redirige al residente; caso contrario confirma el pago directo
+   * y recarga contratos, reseñas y directorio.
+   *
+   * @param {number|string} contractId - Identificador del contrato a abonar.
+   * @returns {Promise<void>}
+   */
   const handlePayContract = async (contractId) => {
     setPayingContractId(contractId);
     setPaymentFeedback({ type: '', text: '' });
@@ -802,6 +989,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Registra la conformidad del servicio para un contrato (en curso o acuerdo en efectivo)
+   * mediante `PATCH /api/v1/contracts/:id/complete` y actualiza contratos y reseñas.
+   *
+   * @param {number|string} contractId - Identificador del contrato a finalizar con conformidad.
+   * @returns {Promise<void>}
+   */
   const handleCompleteContract = async (contractId) => {
     setCompletingContractId(contractId);
     setPaymentFeedback({ type: '', text: '' });
@@ -832,6 +1026,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Consulta el Comprobante del Hogar oficial de un contrato y abre su modal de
+   * visualización e impresión/exportación a PDF.
+   *
+   * @param {number|string} contractId - Identificador del contrato a consultar.
+   * @returns {Promise<void>}
+   */
   const handleOpenReceipt = async (contractId) => {
     setLoadingReceiptId(contractId);
     setPaymentFeedback({ type: '', text: '' });
@@ -856,6 +1057,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Envía un reclamo o solicitud de garantía post-servicio asociado a un contrato
+   * para mediación del equipo de Operaciones de TrustLink.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de reclamo.
+   * @returns {Promise<void>}
+   */
   const handleSubmitDispute = async (e) => {
     e.preventDefault();
     if (!disputeModalContract || !disputeReason.trim() || !disputeDetails.trim()) return;
@@ -893,6 +1101,13 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  /**
+   * Registra la calificación y reseña del residente hacia el prestador de un contrato
+   * y refresca el historial de reseñas junto con el rating promedio del directorio.
+   *
+   * @param {number|string} contractId - Identificador del contrato evaluado.
+   * @returns {Promise<void>}
+   */
   const handleSubmitProviderReview = async (contractId) => {
     setSubmittingReviewId(contractId);
     setReviewFeedback({ type: '', text: '' });
@@ -930,11 +1145,12 @@ export default function ResidentDashboard({ onNavigate }) {
     }
   };
 
+  // Contador de contratos con pago pendiente para el acceso rápido en la cabecera del portal
   const pendingContractsCount = contracts.filter(
     (c) => String(c.status || '').toLowerCase() === 'pending'
   ).length;
 
-  // Flujo alineado: 1. Prestadores -> 2. Visitas -> 3. Pases QR -> 4. Visitas y Pagos -> 5. Reseñas
+  // Definición del flujo guiado de 5 pasos con sus contadores e íconos respectivos
   const steps = [
     {
       id: 'providers',
@@ -975,6 +1191,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
   return (
     <div className={PAGE_SHELL_CLASS}>
+      {/* Cabecera principal del Portal Residente con alerta de pagos pendientes y refresco global */}
       <div
         className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
         style={cardStyle}
@@ -1055,9 +1272,10 @@ export default function ResidentDashboard({ onNavigate }) {
         })}
       </div>
 
-      {/* PASO 1: PRESTADORES */}
+      {/* PASO 1: DIRECTORIO DE PRESTADORES VERIFICADOS */}
       {activeStep === 'providers' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          {/* Encabezado del directorio, buscador por texto y actualización manual */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1110,6 +1328,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           </div>
 
+          {/* Barra de filtros: chips de especialidades, toggle Socio Verificado y ordenamiento */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
             <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap">
               {availableSpecialties.map((spec) => {
@@ -1161,6 +1380,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           </div>
 
+          {/* Alerta de error al cargar el directorio */}
           {providersError && (
             <div className="rounded-xl p-4 border border-rose-800/70 bg-rose-950/50 text-rose-200 text-xs flex items-center gap-2">
               <AlertCircle size={16} className="shrink-0" />
@@ -1168,6 +1388,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           )}
 
+          {/* Estados de carga, sin resultados o grilla de tarjetas de prestadores */}
           {loadingProviders ? (
             <div
               className="rounded-xl p-8 border border-white/10 text-center text-xs opacity-75"
@@ -1213,6 +1434,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     style={innerStyle}
                   >
                     <div className="space-y-3">
+                      {/* Insignias de especialidad, membresía, alerta documental y calificación promedio */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
@@ -1238,6 +1460,7 @@ export default function ResidentDashboard({ onNavigate }) {
                         </span>
                       </div>
 
+                      {/* Identidad, métricas de trabajos/vehículos y acceso al modal de reseñas */}
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <h3 className="text-sm font-bold">{fullName}</h3>
@@ -1327,6 +1550,7 @@ export default function ResidentDashboard({ onNavigate }) {
       {/* PASO 2: VISITAS — CONFIRMACIÓN BIDIRECCIONAL Y SEGUIMIENTO */}
       {activeStep === 'visits' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          {/* Encabezado de agenda de visitas y botón de refresco */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1348,6 +1572,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </button>
           </div>
 
+          {/* Estados de carga, agenda vacía o tarjetas de solicitudes de visita */}
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas...</p>
           ) : myVisits.length === 0 ? (
@@ -1386,6 +1611,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     style={innerStyle}
                   >
                     <div className="space-y-3">
+                      {/* Cabecera de la visita con destino, horario y estado de confirmación */}
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <span className="font-bold text-sm">
@@ -1403,6 +1629,7 @@ export default function ResidentDashboard({ onNavigate }) {
                         </span>
                       </div>
 
+                      {/* Historial de mensajes intercambiados entre residente y prestador */}
                       {msgs.length > 0 && (
                         <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto">
                           {msgs.map((m, idx) => (
@@ -1417,6 +1644,7 @@ export default function ResidentDashboard({ onNavigate }) {
                       )}
                     </div>
 
+                    {/* Mensajería de seguimiento y botón directo para emitir Pase QR precargado */}
                     <div className="pt-3 border-t border-white/10 space-y-2">
                       <div className="flex items-center gap-2">
                         <input
@@ -1472,6 +1700,7 @@ export default function ResidentDashboard({ onNavigate }) {
       {/* PASO 3: PASES QR EMITIDOS */}
       {activeStep === 'passes' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          {/* Encabezado de Pases QR con buscador textual y filtro por estado */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -1513,6 +1742,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           </div>
 
+          {/* Feedback de acciones sobre el listado (edición o cancelación de pases) */}
           {passListFeedback.text && (
             <div
               className={`rounded-xl p-3 text-xs border flex items-center gap-2 ${
@@ -1530,6 +1760,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           )}
 
+          {/* Estados de carga, vacío o grilla paginada de Pases QR */}
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR...</p>
           ) : paginatedPasses.length === 0 ? (
@@ -1550,6 +1781,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
+                    {/* Detalles del pase: destino, vehículo/acceso, cuadrilla autorizada y vigencia */}
                     <div className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-bold">
@@ -1592,6 +1824,7 @@ export default function ResidentDashboard({ onNavigate }) {
                       </p>
                     </div>
 
+                    {/* Acciones sobre el token QR (copiar, ver QR, WhatsApp) y gestión de pases vigentes */}
                     <div className="space-y-2.5 pt-2 border-t border-white/10">
                       {item.qr_token && (
                         <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10">
@@ -1670,6 +1903,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           )}
 
+          {/* Paginación del listado de Pases QR */}
           {filteredPasses.length > PASSES_PER_PAGE && (
             <div className="flex items-center justify-between pt-2 text-xs">
               <span className="opacity-75">
@@ -1701,7 +1935,7 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 4: VISITAS Y PAGOS */}
+      {/* PASO 4: VISITAS Y ÓRDENES DE PAGO / CONFORMIDAD / COMPROBANTES / RECLAMOS */}
       {activeStep === 'payments' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div>
@@ -1714,6 +1948,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </p>
           </div>
 
+          {/* Feedback de pagos, conformidad, comprobantes y reclamos */}
           {paymentFeedback.text && (
             <div
               className={`rounded-xl p-3 text-xs border ${
@@ -1726,6 +1961,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           )}
 
+          {/* Estados de carga, sin contratos o grilla de órdenes de pago */}
           {loadingContracts ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando contratos y pagos...</p>
           ) : contracts.length === 0 ? (
@@ -1753,6 +1989,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
+                    {/* Resumen del contrato, badge de reclamo abierto y fecha de conformidad */}
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-sm font-bold">
@@ -1783,6 +2020,7 @@ export default function ResidentDashboard({ onNavigate }) {
                       )}
                     </div>
 
+                    {/* Desglose financiero (7% comisión / 93% neto) y acciones habilitadas según estado */}
                     <div className="space-y-3 pt-2 border-t border-white/10">
                       <div className="text-xs space-y-1">
                         <div className="flex justify-between">
@@ -1879,7 +2117,7 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 5: RESEÑAS */}
+      {/* PASO 5: RESEÑAS Y CALIFICACIÓN CRUZADA */}
       {activeStep === 'reviews' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
           <div>
@@ -1892,6 +2130,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </p>
           </div>
 
+          {/* Feedback de envío de calificación */}
           {reviewFeedback.text && (
             <div
               className={`rounded-xl p-3 text-xs border ${
@@ -1904,6 +2143,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           )}
 
+          {/* Estados de carga, sin contratos calificables o tarjetas de reseñas cruzadas */}
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando reseñas...</p>
           ) : reviewContracts.length === 0 ? (
@@ -1933,6 +2173,7 @@ export default function ResidentDashboard({ onNavigate }) {
                     className={ITEM_CARD_CLASS}
                     style={innerStyle}
                   >
+                    {/* Datos del servicio y devolución recibida por parte del prestador */}
                     <div className="space-y-2.5">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-sm font-bold">
@@ -1959,6 +2200,7 @@ export default function ResidentDashboard({ onNavigate }) {
                       )}
                     </div>
 
+                    {/* Calificación emitida por el residente o formulario interactivo pendiente */}
                     <div className="pt-2 border-t border-white/10">
                     {alreadyRatedProvider ? (
                       <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
@@ -2044,6 +2286,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
 
             <form onSubmit={handleSaveVisitCoordination} className="space-y-3 text-xs">
+              {/* Ubicación residencial tomada automáticamente del perfil del usuario */}
               <div
                 className="rounded-xl p-3 border border-slate-700/80 flex items-center justify-between gap-2"
                 style={innerStyle}
@@ -2083,6 +2326,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 )}
               </div>
 
+              {/* Fecha/hora sugerida y mensaje inicial de coordinación */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Fecha y hora propuesta</label>
                 <input
@@ -2109,6 +2353,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 />
               </div>
 
+              {/* Resultado del envío de la solicitud */}
               {visitFeedback.text && (
                 <div
                   className={`rounded-xl p-3 border space-y-2 ${
@@ -2165,6 +2410,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
 
             <form onSubmit={handleCreatePassSubmit} className="space-y-3 text-xs">
+              {/* Ubicación residencial bloqueada desde Mi Cuenta para evitar inconsistencias en garita */}
               <div
                 className="rounded-xl p-3 border border-slate-700/80 flex items-center justify-between gap-2"
                 style={innerStyle}
@@ -2204,6 +2450,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 )}
               </div>
 
+              {/* Selección de vehículo registrado o ingreso manual de patente / peatonal */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">
                   Vehículo autorizado del prestador
@@ -2234,6 +2481,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 )}
               </div>
 
+              {/* Selección opcional de cuadrilla / ayudantes del prestador con indicador de ART */}
               {Array.isArray(qrModalProvider.employees) && qrModalProvider.employees.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="block font-semibold opacity-85">
@@ -2275,6 +2523,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 </div>
               )}
 
+              {/* Ventana horaria de validez del Pase QR */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
                 <input
@@ -2299,6 +2548,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 />
               </div>
 
+              {/* Feedback de emisión y vista previa del QR generado con botón de copia */}
               {passFeedback.text && (
                 <div
                   className={`rounded-xl p-3 border space-y-2 ${
@@ -2383,8 +2633,10 @@ export default function ResidentDashboard({ onNavigate }) {
               </button>
             </div>
 
+            {/* Renderizado del código QR escaneable */}
             <QrCodeDisplay token={viewingQrPass.qr_token} size={200} />
 
+            {/* Listado de integrantes de cuadrilla autorizados en el pase */}
             {Array.isArray(viewingQrPass.authorized_employees) &&
               viewingQrPass.authorized_employees.length > 0 && (
                 <div
@@ -2407,6 +2659,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 </div>
               )}
 
+            {/* Token seleccionable y acción rápida de envío por WhatsApp */}
             <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
               <span className="block text-[10px] font-bold uppercase opacity-75">Token QR</span>
               <code className="block font-mono text-[11px] break-all select-all">
@@ -2455,6 +2708,7 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
 
             <form onSubmit={handleSavePassEdit} className="space-y-3">
+              {/* Campo editable de patente vehicular */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">
                   Patente de vehículo (vacío = ingreso peatonal)
@@ -2469,6 +2723,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 />
               </div>
 
+              {/* Selección de cuadrilla buscando el prestador asociado en el directorio cargado */}
               {(() => {
                 const matchedProvider = providers.find(
                   (p) =>
@@ -2522,6 +2777,7 @@ export default function ResidentDashboard({ onNavigate }) {
                 );
               })()}
 
+              {/* Modificación de la ventana horaria del pase vigente */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Válido desde</label>
                 <input
@@ -2601,6 +2857,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </button>
             </div>
 
+            {/* Bloques de comunidad/destino y compliance documental del prestador */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
                 <p className="font-bold text-emerald-300">Comunidad y Destino</p>
@@ -2634,6 +2891,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </div>
             </div>
 
+            {/* Detalle del servicio ejecutado, conformidad y trazabilidad del Pase QR */}
             <div className="p-3 rounded-xl border border-white/10 space-y-1.5" style={innerStyle}>
               <p className="font-bold">Servicio y Conformidad</p>
               <p className="opacity-90">{receiptModalData.contract?.description}</p>
@@ -2651,6 +2909,7 @@ export default function ResidentDashboard({ onNavigate }) {
               )}
             </div>
 
+            {/* Resumen económico del comprobante y acción de impresión / PDF */}
             <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
               <div className="flex justify-between">
                 <span className="opacity-75">Monto acordado:</span>
@@ -2720,6 +2979,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </button>
             </div>
 
+            {/* Listado de reseñas verificadas dejadas por otros residentes */}
             {loadingProviderReviews ? (
               <p className="py-6 text-center opacity-75">Cargando reseñas verificadas...</p>
             ) : providerReviewsList.length === 0 ? (
@@ -2771,6 +3031,7 @@ export default function ResidentDashboard({ onNavigate }) {
               </button>
             </div>
 
+            {/* Formulario de tipificación y descripción del reclamo para Operaciones */}
             <form onSubmit={handleSubmitDispute} className="space-y-3">
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Motivo del reclamo</label>
