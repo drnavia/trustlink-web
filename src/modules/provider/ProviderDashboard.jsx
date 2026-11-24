@@ -48,6 +48,8 @@ import {
   Clock,
   Users,
   Printer,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -212,9 +214,10 @@ export default function ProviderDashboard() {
   // Navegación principal por pasos: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
   const [activeStep, setActiveStep] = useState('credentials');
 
-  // Estado global del perfil del prestador, membresía Socio Verificado, ficha comercial y Q&A
+  // Estado global del perfil del prestador, historial documental, membresía Socio Verificado, ficha comercial y Q&A
   const [profileData, setProfileData] = useState({
     providers: [],
+    document_history: [],
     vehicles: [],
     employees: [],
     expiry_alerts: [],
@@ -225,6 +228,7 @@ export default function ProviderDashboard() {
     commercial_profile: null,
     public_questions: [],
   });
+  const [showDocHistory, setShowDocHistory] = useState(false);
   const [showMembershipPlans, setShowMembershipPlans] = useState(false);
   const [subscribingPlan, setSubscribingPlan] = useState('');
   const [loading, setLoading] = useState(true);
@@ -274,7 +278,11 @@ export default function ProviderDashboard() {
   const [savingSpecialty, setSavingSpecialty] = useState(false);
   const [togglingVisibilityId, setTogglingVisibilityId] = useState(null);
   const [editingSpecialtyId, setEditingSpecialtyId] = useState(null);
+  const [editSpecialtyCatalog, setEditSpecialtyCatalog] = useState(
+    STANDARD_SPECIALTIES_CATALOG[0]
+  );
   const [editSpecialtyName, setEditSpecialtyName] = useState('');
+  const [editSpecialtyDesc, setEditSpecialtyDesc] = useState('');
   const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
 
   // Paso 2: Flota Vehicular — formulario de alta de vehículos y seguro automotor
@@ -392,6 +400,7 @@ export default function ProviderDashboard() {
         };
         setProfileData({
           providers: data.providers || [],
+          document_history: data.document_history || [],
           vehicles: data.vehicles || [],
           employees: data.employees || [],
           expiry_alerts: data.expiry_alerts || [],
@@ -663,64 +672,169 @@ export default function ProviderDashboard() {
     fetchProviderContractsSummary();
   }, []);
 
-  // Normaliza el historial documental combinando el arreglo estructurado `documents` y los campos legacy por perfil
-  const documentHistory = useMemo(() => {
-    const items = [];
+  /**
+   * Normaliza una cadena (minúsculas sin acentos) para comparar rubros contra el catálogo oficial.
+   * @param {string} value - Texto a normalizar.
+   * @returns {string} Cadena normalizada.
+   */
+  const normalizeTextKey = (value) =>
+    String(value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toLowerCase();
+
+  /**
+   * Traduce un estado de auditoría documental al español amigable para mostrar en badges.
+   * @param {string} status - Estado proveniente del backend (`approved`, `rejected`, `pending`).
+   * @returns {{ label: string, tone: 'success'|'danger'|'warning' }} Etiqueta y tono visual.
+   */
+  const getAuditStatusMeta = (status) => {
+    const normalized = String(status || 'pending').toLowerCase();
+    if (normalized === 'approved') return { label: 'Aprobado', tone: 'success' };
+    if (normalized === 'rejected') return { label: 'Rechazado', tone: 'danger' };
+    return { label: 'En revisión', tone: 'warning' };
+  };
+
+  /**
+   * Proyecta la documentación personal a nivel persona (no multiplicada por especialidad):
+   * - `currentDocs`: exactamente 2 tarjetas vigentes/activas (**Antecedentes Penales** y
+   *   **Póliza ART / Seguro**), priorizando la versión más reciente de `provider_document_versions`
+   *   y haciendo fallback al perfil más reciente con datos cargados.
+   * - `historicalDocs`: historial inmutable deduplicado de versiones anteriores/vencidas para
+   *   auditoría legal en barrios cerrados (se muestra colapsado por defecto en modo solo lectura).
+   */
+  const personalDocumentsSummary = useMemo(() => {
     const profiles = profileData.providers || [];
+    const versions = Array.isArray(profileData.document_history)
+      ? profileData.document_history
+      : [];
+    const primaryProf = profiles[0] || null;
 
-    profiles.forEach((prof) => {
-      if (Array.isArray(prof.documents) && prof.documents.length > 0) {
-        prof.documents.forEach((doc, idx) => {
-          items.push({
-            key: `doc-${prof.id}-${doc.id || idx}`,
-            profileId: prof.id,
-            docType: doc.doc_type || doc.type || 'Documento',
-            url: doc.url || '',
-            validFrom: doc.valid_from || null,
-            validTo: doc.valid_to || doc.expires_at || null,
-            auditStatus: doc.status || prof.status || 'pending',
-            specialty: prof.specialty || '',
-          });
-        });
-      } else {
-        const crimUrl = prof.criminal_record_url || '';
-        const crimTo = prof.criminal_record_expiry || prof.criminal_record_valid_to || null;
-        const crimFrom = prof.criminal_record_valid_from || prof.created_at || null;
-        if (crimUrl || crimTo) {
-          items.push({
-            key: `crim-${prof.id}`,
-            profileId: prof.id,
-            field: 'criminal',
-            docType: 'Antecedentes Penales',
-            url: crimUrl,
-            validFrom: crimFrom,
-            validTo: crimTo,
-            auditStatus: prof.status || 'pending',
-            specialty: prof.specialty || '',
-          });
-        }
+    const toDateKey = (v) => {
+      if (!v) return '';
+      const s = String(v).trim();
+      return s.length >= 10 ? s.slice(0, 10) : s;
+    };
 
-        const artUrl = prof.art_insurance_url || prof.insurance_policy_url || '';
-        const artTo = prof.art_insurance_expiry || prof.insurance_expiry || null;
-        const artFrom = prof.art_insurance_valid_from || prof.created_at || null;
-        if (artUrl || artTo) {
-          items.push({
-            key: `art-${prof.id}`,
-            profileId: prof.id,
-            field: 'art',
-            docType: 'Póliza ART / Seguro',
-            url: artUrl,
-            validFrom: artFrom,
-            validTo: artTo,
-            auditStatus: prof.status || 'pending',
-            specialty: prof.specialty || '',
-          });
-        }
+    const normalizeDocSlot = (rawType) => {
+      const t = normalizeTextKey(rawType);
+      if (t.includes('insurance') || t.includes('art') || t.includes('seguro')) {
+        return 'insurance';
       }
+      return 'criminal';
+    };
+
+    const slotConfig = [
+      {
+        slot: 'criminal',
+        field: 'criminal',
+        docType: 'Antecedentes Penales',
+      },
+      {
+        slot: 'insurance',
+        field: 'art',
+        docType: 'Póliza ART / Seguro',
+      },
+    ];
+
+    const currentSignatureBySlot = new Map();
+    const currentVersionIdBySlot = new Map();
+
+    const currentDocs = slotConfig.map(({ slot, field, docType: slotTitle }) => {
+      const slotVersions = versions.filter((v) => normalizeDocSlot(v.doc_type) === slot);
+      const latestVersion = slotVersions[0] || null;
+
+      // Fallback a la fila de `providers` más reciente que contenga este documento
+      const fallbackProf =
+        profiles.find((p) =>
+          slot === 'criminal'
+            ? Boolean(p.criminal_record_url || p.criminal_record_expiry)
+            : Boolean(
+                p.insurance_policy_url ||
+                  p.art_insurance_url ||
+                  p.insurance_expiry ||
+                  p.art_insurance_expiry
+              )
+        ) || primaryProf;
+
+      const profUrl =
+        slot === 'criminal'
+          ? fallbackProf?.criminal_record_url || ''
+          : fallbackProf?.insurance_policy_url || fallbackProf?.art_insurance_url || '';
+      const profTo =
+        slot === 'criminal'
+          ? fallbackProf?.criminal_record_expiry || fallbackProf?.criminal_record_valid_to || null
+          : fallbackProf?.insurance_expiry || fallbackProf?.art_insurance_expiry || null;
+      const profFrom =
+        slot === 'criminal'
+          ? fallbackProf?.criminal_record_valid_from || fallbackProf?.created_at || null
+          : fallbackProf?.art_insurance_valid_from || fallbackProf?.created_at || null;
+
+      const resolvedUrl = latestVersion?.document_url || profUrl || '';
+      const resolvedFrom = latestVersion?.valid_from || latestVersion?.created_at || profFrom || null;
+      const resolvedTo = latestVersion?.valid_to || profTo || null;
+      const resolvedAuditStatus =
+        latestVersion?.status || fallbackProf?.status || primaryProf?.status || 'pending';
+      const isMissing = !resolvedUrl && !resolvedTo;
+
+      if (latestVersion?.id) {
+        currentVersionIdBySlot.set(slot, latestVersion.id);
+      }
+      if (!isMissing) {
+        currentSignatureBySlot.set(
+          slot,
+          `${slot}|${resolvedUrl.trim().toLowerCase()}|${toDateKey(resolvedFrom)}|${toDateKey(resolvedTo)}`
+        );
+      }
+
+      return {
+        key: `current-${slot}`,
+        slot,
+        field,
+        profileId: latestVersion?.provider_id || fallbackProf?.id || primaryProf?.id || null,
+        docType: slotTitle,
+        url: resolvedUrl,
+        validFrom: resolvedFrom,
+        validTo: resolvedTo,
+        auditStatus: resolvedAuditStatus,
+        isMissing,
+      };
     });
 
-    return items;
-  }, [profileData.providers]);
+    // Construye el historial de versiones anteriores/vencidas evitando duplicados por especialidad
+    const seenHistoryKeys = new Set();
+    const historicalDocs = [];
+
+    versions.forEach((v) => {
+      const slot = normalizeDocSlot(v.doc_type);
+      const docTitle = slot === 'insurance' ? 'Póliza ART / Seguro' : 'Antecedentes Penales';
+      const url = String(v.document_url || '').trim();
+      const validFrom = v.valid_from || v.created_at || null;
+      const validTo = v.valid_to || null;
+      const sig = `${slot}|${url.toLowerCase()}|${toDateKey(validFrom)}|${toDateKey(validTo)}`;
+
+      // Excluir la versión actualmente vigente mostrada arriba
+      if (currentVersionIdBySlot.get(slot) === v.id) return;
+      if (currentSignatureBySlot.get(slot) === sig) return;
+      if (seenHistoryKeys.has(sig)) return;
+
+      seenHistoryKeys.add(sig);
+      historicalDocs.push({
+        key: `hist-${v.id}`,
+        slot,
+        docType: docTitle,
+        url,
+        validFrom,
+        validTo,
+        createdAt: v.created_at || null,
+        auditStatus: v.status || 'pending',
+      });
+    });
+
+    const loadedCount = currentDocs.filter((d) => !d.isMissing).length;
+    return { currentDocs, historicalDocs, loadedCount };
+  }, [profileData.providers, profileData.document_history]);
 
   // Cantidad de especialidades actualmente visibles para residentes en el directorio
   const activeSpecialtiesCount = useMemo(() => {
@@ -728,8 +842,9 @@ export default function ProviderDashboard() {
   }, [profileData.providers]);
 
   /**
-   * Registra un nuevo documento de compliance (Antecedentes Penales o Póliza ART/Seguro)
-   * creando o actualizando el perfil base del prestador según exista previamente.
+   * Registra o renueva un documento personal de compliance (Antecedentes Penales o Póliza ART/Seguro).
+   * Envía únicamente el documento cargado para que el backend lo propague a todas las especialidades
+   * de la persona y conserve la versión anterior en el historial de auditoría.
    * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario documental.
    * @returns {Promise<void>}
    */
@@ -742,30 +857,26 @@ export default function ProviderDashboard() {
     const baseProfile = profileData.providers[0] || {};
     const isArt = docType.toLowerCase().includes('art') || docType.toLowerCase().includes('seguro');
 
-    const payload = {
-      specialty: baseProfile.specialty || 'Servicios Verificados',
-      criminal_record_url: !isArt ? docUrl.trim() : baseProfile.criminal_record_url || '',
-      criminal_record_from: !isArt ? docValidFrom || null : null,
-      criminal_record_expiry: !isArt
-        ? docValidTo || null
-        : baseProfile.criminal_record_expiry || null,
-      art_insurance_url: isArt
-        ? docUrl.trim()
-        : baseProfile.art_insurance_url || baseProfile.insurance_policy_url || '',
-      insurance_policy_url: isArt
-        ? docUrl.trim()
-        : baseProfile.insurance_policy_url || baseProfile.art_insurance_url || '',
-      insurance_from: isArt ? docValidFrom || null : null,
-      art_insurance_expiry: isArt
-        ? docValidTo || null
-        : baseProfile.art_insurance_expiry || baseProfile.insurance_expiry || null,
-      insurance_expiry: isArt
-        ? docValidTo || null
-        : baseProfile.insurance_expiry || baseProfile.art_insurance_expiry || null,
-      valid_from: docValidFrom || null,
-      valid_to: docValidTo || null,
-      document_type: docType,
-    };
+    const docFields = isArt
+      ? {
+          insurance_policy_url: docUrl.trim(),
+          art_insurance_url: docUrl.trim(),
+          insurance_from: docValidFrom || null,
+          insurance_expiry: docValidTo || null,
+          art_insurance_expiry: docValidTo || null,
+        }
+      : {
+          criminal_record_url: docUrl.trim(),
+          criminal_record_from: docValidFrom || null,
+          criminal_record_expiry: docValidTo || null,
+        };
+
+    const payload = baseProfile.id
+      ? docFields
+      : {
+          specialty: STANDARD_SPECIALTIES_CATALOG[0] || 'Mantenimiento General',
+          ...docFields,
+        };
 
     try {
       const endpoint = baseProfile.id
@@ -784,7 +895,9 @@ export default function ProviderDashboard() {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccessMsg('Documentación cargada y registrada en el historial.');
+        setSuccessMsg(
+          data.message || 'Documentación personal renovada y registrada en el historial de auditoría.'
+        );
         setDocUrl('');
         setDocValidFrom('');
         setDocValidTo('');
@@ -802,8 +915,8 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Activa el modo de edición inline para un documento del historial y precarga sus valores actuales.
-   * @param {{ key: string, url?: string, validFrom?: string|null, validTo?: string|null }} docItem - Ítem documental seleccionado.
+   * Activa el modo de edición/renovación inline para uno de los 2 documentos personales vigentes.
+   * @param {{ key: string, url?: string, validFrom?: string|null, validTo?: string|null }} docItem - Documento vigente seleccionado.
    */
   const startEditingDocument = (docItem) => {
     setEditingDocKey(docItem.key);
@@ -815,8 +928,10 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Persiste los cambios editados de URL y fechas de vigencia de un documento del historial vía PATCH.
-   * @param {{ profileId: number|string, field?: string, docType: string }} docItem - Ítem documental en edición.
+   * Persiste la renovación o edición de URL y vigencias de un documento personal (Antecedentes o ART).
+   * Envía solo el documento modificado para sincronizarlo en todas las especialidades de la persona
+   * y preservar la versión previa en `provider_document_versions`.
+   * @param {{ profileId: number|string|null, field?: string, docType: string }} docItem - Documento vigente en edición.
    * @returns {Promise<void>}
    */
   const handleSaveDocumentEdit = async (docItem) => {
@@ -825,36 +940,37 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
 
     const targetProfile =
-      profileData.providers.find((p) => p.id === docItem.profileId) || profileData.providers[0] || {};
+      profileData.providers.find((p) => p.id === docItem.profileId) || profileData.providers[0] || null;
     const isArt = docItem.field === 'art' || docItem.docType.toLowerCase().includes('art');
 
-    const payload = {
-      specialty: targetProfile.specialty || 'Servicios Verificados',
-      criminal_record_url: !isArt ? editDocUrl.trim() : targetProfile.criminal_record_url || '',
-      criminal_record_from: !isArt ? editDocValidFrom || null : null,
-      criminal_record_expiry: !isArt
-        ? editDocValidTo || null
-        : targetProfile.criminal_record_expiry || null,
-      art_insurance_url: isArt
-        ? editDocUrl.trim()
-        : targetProfile.art_insurance_url || targetProfile.insurance_policy_url || '',
-      insurance_policy_url: isArt
-        ? editDocUrl.trim()
-        : targetProfile.insurance_policy_url || targetProfile.art_insurance_url || '',
-      insurance_from: isArt ? editDocValidFrom || null : null,
-      art_insurance_expiry: isArt
-        ? editDocValidTo || null
-        : targetProfile.art_insurance_expiry || targetProfile.insurance_expiry || null,
-      insurance_expiry: isArt
-        ? editDocValidTo || null
-        : targetProfile.insurance_expiry || targetProfile.art_insurance_expiry || null,
-      valid_from: editDocValidFrom || null,
-      valid_to: editDocValidTo || null,
-    };
+    const docFields = isArt
+      ? {
+          insurance_policy_url: editDocUrl.trim(),
+          art_insurance_url: editDocUrl.trim(),
+          insurance_from: editDocValidFrom || null,
+          insurance_expiry: editDocValidTo || null,
+          art_insurance_expiry: editDocValidTo || null,
+        }
+      : {
+          criminal_record_url: editDocUrl.trim(),
+          criminal_record_from: editDocValidFrom || null,
+          criminal_record_expiry: editDocValidTo || null,
+        };
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${targetProfile.id}`, {
-        method: 'PATCH',
+      const endpoint = targetProfile?.id
+        ? `${API_BASE}/api/v1/providers/profile/${targetProfile.id}`
+        : `${API_BASE}/api/v1/providers/profile`;
+      const method = targetProfile?.id ? 'PATCH' : 'POST';
+      const payload = targetProfile?.id
+        ? docFields
+        : {
+            specialty: STANDARD_SPECIALTIES_CATALOG[0] || 'Mantenimiento General',
+            ...docFields,
+          };
+
+      const response = await fetch(endpoint, {
+        method,
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
@@ -864,7 +980,9 @@ export default function ProviderDashboard() {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccessMsg('Documento actualizado en el historial.');
+        setSuccessMsg(
+          data.message || 'Documentación personal actualizada; la versión anterior quedó en el historial.'
+        );
         setEditingDocKey(null);
         await fetchProviderProfile();
       } else {
@@ -944,35 +1062,80 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Guarda el nuevo nombre de una especialidad editada inline manteniendo sus referencias documentales.
+   * Activa la edición inline de una especialidad precargando el selector de catálogo estándar
+   * o el modo "Otra especialidad" con su descripción personalizada.
+   * @param {Object} specialtyItem - Fila de especialidad seleccionada para editar.
+   */
+  const startEditingSpecialty = (specialtyItem) => {
+    const targetKey = normalizeTextKey(specialtyItem.specialty);
+    const standardMatch = STANDARD_SPECIALTIES_CATALOG.find(
+      (cat) => normalizeTextKey(cat) === targetKey
+    );
+
+    if (standardMatch && !specialtyItem.is_custom_specialty) {
+      setEditSpecialtyCatalog(standardMatch);
+      setEditSpecialtyName('');
+      setEditSpecialtyDesc('');
+    } else {
+      setEditSpecialtyCatalog('__custom__');
+      setEditSpecialtyName(specialtyItem.specialty || '');
+      setEditSpecialtyDesc(specialtyItem.custom_specialty_description || '');
+    }
+
+    setEditingSpecialtyId(specialtyItem.id);
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  /**
+   * Guarda una especialidad editada inline usando el catálogo estándar (auto-aprobado si el
+   * compliance personal ya está validado) o el modo personalizado con breve descripción para Ops.
+   * No reenvía URLs documentales para evitar duplicados en el historial documental.
    * @param {Object} specialtyItem - Perfil de especialidad a actualizar.
    * @returns {Promise<void>}
    */
   const handleSaveSpecialtyEdit = async (specialtyItem) => {
-    if (!editSpecialtyName.trim()) return;
+    const isCustomMode = editSpecialtyCatalog === '__custom__';
+    const finalName = isCustomMode ? editSpecialtyName.trim() : editSpecialtyCatalog;
+    if (!finalName) return;
+
+    if (isCustomMode && editSpecialtyDesc.trim().length < 5) {
+      setErrorMsg('Describí brevemente tu especialidad personalizada (mínimo 5 caracteres).');
+      return;
+    }
 
     setUpdatingSpecialty(true);
     setErrorMsg('');
     setSuccessMsg('');
 
     try {
+      const payload = {
+        specialty: finalName,
+        is_custom_specialty: isCustomMode,
+      };
+      if (isCustomMode) {
+        payload.custom_specialty_description = editSpecialtyDesc.trim();
+      } else {
+        payload.custom_specialty_description = null;
+      }
+
       const response = await fetch(`${API_BASE}/api/v1/providers/profile/${specialtyItem.id}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
         },
-        body: JSON.stringify({
-          specialty: editSpecialtyName.trim(),
-          criminal_record_url: specialtyItem.criminal_record_url || '',
-          insurance_policy_url:
-            specialtyItem.insurance_policy_url || specialtyItem.art_insurance_url || '',
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
       if (response.ok) {
-        setSuccessMsg('Especialidad actualizada correctamente.');
+        setSuccessMsg(
+          data.message ||
+            (data.auto_approved
+              ? `Especialidad "${finalName}" actualizada y habilitada automáticamente.`
+              : 'Especialidad actualizada correctamente.')
+        );
         setEditingSpecialtyId(null);
         await fetchProviderProfile();
       } else {
@@ -1498,7 +1661,19 @@ export default function ProviderDashboard() {
   ).length;
 
   const primaryProfile = profileData.providers[0] || null;
-  const profileStatus = primaryProfile?.status || 'Pendiente';
+  // Estado consolidado de compliance a nivel persona (prioriza aprobado si ya posee credenciales activas)
+  const overallComplianceStatus = useMemo(() => {
+    const rows = profileData.providers || [];
+    if (rows.length === 0) return 'pending';
+    if (rows.some((r) => r.status === 'approved')) return 'approved';
+    if (rows.every((r) => r.status === 'rejected')) return 'rejected';
+    return 'pending';
+  }, [profileData.providers]);
+  const overallComplianceMeta = getAuditStatusMeta(overallComplianceStatus);
+  // Scoring unificado con el motor de reputación (evita desfasaje frente a "Mi Reputación")
+  const headerScoring = Number(
+    profileData.reputation?.rating_avg ?? primaryProfile?.rating_avg ?? 0
+  ).toFixed(2);
 
   // Clases utilitarias compartidas para encabezados de listas, contadores y botones de fila
   const listHeaderTitleClass =
@@ -1587,13 +1762,18 @@ export default function ProviderDashboard() {
             style={innerStyle}
           >
             <Star size={13} className="text-amber-400 fill-amber-400" />
-            <span>Scoring: {Number(primaryProfile?.rating_avg || 0).toFixed(2)}</span>
+            <span>Scoring: {headerScoring}</span>
           </span>
           <span
-            className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-700/80"
-            style={innerStyle}
+            className={`text-xs font-bold px-3 py-2 rounded-xl border ${
+              overallComplianceMeta.tone === 'success'
+                ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
+                : overallComplianceMeta.tone === 'danger'
+                ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
+                : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
+            }`}
           >
-            Estado: {profileStatus}
+            Estado: {overallComplianceMeta.label}
           </span>
           <button
             type="button"
@@ -2245,136 +2425,234 @@ export default function ProviderDashboard() {
               </form>
             )}
 
-            {/* Encabezado y listado del historial documental con edición inline */}
+            {/* Encabezado y las 2 tarjetas de Documentación Personal Vigente (Antecedentes + ART) */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className={listHeaderTitleClass}>
-                <History size={13} className="opacity-80" /> HISTORIAL DOCUMENTAL
+                <ShieldCheck size={13} className="opacity-80" /> DOCUMENTACIÓN VIGENTE
               </span>
               <span className={listCounterBadgeClass} style={innerStyle}>
-                {documentHistory.length} doc(s)
+                {personalDocumentsSummary.loadedCount}/2 cargado(s)
               </span>
             </div>
 
             <div className="space-y-3">
-              {documentHistory.length === 0 ? (
-                <div
-                  className="p-4 rounded-xl border border-slate-800/70 text-xs opacity-80"
-                  style={innerStyle}
-                >
-                  No hay documentación cargada aún. Usá &ldquo;+ Cargar&rdquo; para agregarla.
-                </div>
-              ) : (
-                documentHistory.map((docItem) => {
-                  const isEditingDoc = editingDocKey === docItem.key;
-                  const validity = getValidityStatus(docItem.validTo);
+              {personalDocumentsSummary.currentDocs.map((docItem) => {
+                const isEditingDoc = editingDocKey === docItem.key;
+                const validity = docItem.isMissing
+                  ? { label: 'Sin cargar', tone: 'neutral' }
+                  : getValidityStatus(docItem.validTo);
+                const auditMeta = getAuditStatusMeta(docItem.auditStatus);
 
-                  return (
-                    <div
-                      key={docItem.key}
-                      className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
-                      style={innerStyle}
-                    >
-                      {isEditingDoc ? (
-                        <div className="space-y-2.5">
-                          <div className="font-bold">{docItem.docType}</div>
-                          <input
-                            type="text"
-                            value={editDocUrl}
-                            onChange={(e) => setEditDocUrl(e.target.value)}
-                            placeholder="URL del documento"
-                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                            style={cardStyle}
-                          />
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                            <div>
-                              <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
-                              <input
-                                type="date"
-                                value={editDocValidFrom}
-                                onChange={(e) => setEditDocValidFrom(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                                style={cardStyle}
-                              />
-                            </div>
-                            <div>
-                              <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
-                              <input
-                                type="date"
-                                value={editDocValidTo}
-                                onChange={(e) => setEditDocValidTo(e.target.value)}
-                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                                style={cardStyle}
-                              />
-                            </div>
-                          </div>
-                          <div className="flex justify-end gap-2">
-                            <button
-                              type="button"
-                              onClick={() => setEditingDocKey(null)}
-                              className={rowActionBtnClass}
+                return (
+                  <div
+                    key={docItem.key}
+                    className="p-4 rounded-xl border border-slate-800/70 space-y-2.5 text-xs"
+                    style={innerStyle}
+                  >
+                    {isEditingDoc ? (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold">{docItem.docType}</span>
+                          <span className="text-[11px] opacity-75">
+                            La versión anterior se conserva en el historial
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          value={editDocUrl}
+                          onChange={(e) => setEditDocUrl(e.target.value)}
+                          placeholder="URL del documento vigente"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                            <input
+                              type="date"
+                              value={editDocValidFrom}
+                              onChange={(e) => setEditDocValidFrom(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                               style={cardStyle}
-                            >
-                              <X size={12} /> Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleSaveDocumentEdit(docItem)}
-                              disabled={updatingDoc}
-                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer"
-                              style={{ backgroundColor: primaryColor }}
-                            >
-                              <Save size={12} /> {updatingDoc ? 'Guardando...' : 'Guardar'}
-                            </button>
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
+                            <input
+                              type="date"
+                              value={editDocValidTo}
+                              onChange={(e) => setEditDocValidTo(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
                           </div>
                         </div>
-                      ) : (
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm">{docItem.docType}</span>
-                              <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                  validity.tone === 'success'
-                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                                    : validity.tone === 'warning'
-                                    ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
-                                    : validity.tone === 'danger'
-                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                                    : 'border-slate-700'
-                                }`}
-                                style={validity.tone === 'neutral' ? cardStyle : undefined}
-                              >
-                                {validity.label}
-                              </span>
-                              <span
-                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
-                                style={cardStyle}
-                              >
-                                Validado: {docItem.auditStatus}
-                              </span>
-                            </div>
-                            {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
-                            <p className="opacity-75">
-                              Vigencia: {formatDateShort(docItem.validFrom)} →{' '}
-                              {formatDateShort(docItem.validTo)}
-                            </p>
-                          </div>
-
+                        <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => startEditingDocument(docItem)}
+                            onClick={() => setEditingDocKey(null)}
                             className={rowActionBtnClass}
                             style={cardStyle}
                           >
-                            <Edit3 size={12} /> Editar
+                            <X size={12} /> Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveDocumentEdit(docItem)}
+                            disabled={updatingDoc}
+                            className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Save size={12} /> {updatingDoc ? 'Guardando...' : 'Guardar renovación'}
                           </button>
                         </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
+                      </div>
+                    ) : docItem.isMissing ? (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm">{docItem.docType}</span>
+                            <span
+                              className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-600/50 bg-amber-950/60 text-amber-200"
+                            >
+                              Pendiente de carga
+                            </span>
+                          </div>
+                          <p className="opacity-75">
+                            Aún no cargaste este documento personal obligatorio para habilitar ingresos en garita.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDocType(docItem.docType);
+                            setShowDocForm(true);
+                          }}
+                          className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer shrink-0"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <Plus size={12} /> Cargar
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-sm">{docItem.docType}</span>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                validity.tone === 'success'
+                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                  : validity.tone === 'warning'
+                                  ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                                  : validity.tone === 'danger'
+                                  ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                                  : 'border-slate-700'
+                              }`}
+                              style={validity.tone === 'neutral' ? cardStyle : undefined}
+                            >
+                              {validity.label}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                auditMeta.tone === 'success'
+                                  ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
+                                  : auditMeta.tone === 'danger'
+                                  ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
+                                  : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
+                              }`}
+                            >
+                              Validado: {auditMeta.label}
+                            </span>
+                          </div>
+                          {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
+                          <p className="opacity-75">
+                            Vigencia: {formatDateShort(docItem.validFrom)} →{' '}
+                            {formatDateShort(docItem.validTo)}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => startEditingDocument(docItem)}
+                          className={rowActionBtnClass}
+                          style={cardStyle}
+                        >
+                          <Edit3 size={12} /> Renovar / Editar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
+
+            {/* Acordeón colapsable (solo lectura) con el historial inmutable de versiones anteriores */}
+            {personalDocumentsSummary.historicalDocs.length > 0 && (
+              <div className="pt-2 border-t border-white/10 space-y-2.5">
+                <button
+                  type="button"
+                  onClick={() => setShowDocHistory((prev) => !prev)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-800/80 text-xs font-bold hover:opacity-95 cursor-pointer"
+                  style={innerStyle}
+                >
+                  <span className="inline-flex items-center gap-1.5">
+                    <History size={13} className="opacity-80" />
+                    <span>
+                      Ver historial de versiones anteriores (
+                      {personalDocumentsSummary.historicalDocs.length})
+                    </span>
+                  </span>
+                  {showDocHistory ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </button>
+
+                {showDocHistory && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] opacity-75 px-1">
+                      Respaldo inmutable solo lectura: TrustLink conserva las versiones anteriores o
+                      vencidas para auditoría legal de ingresos pasados en barrios cerrados.
+                    </p>
+                    {personalDocumentsSummary.historicalDocs.map((hist) => {
+                      const histValidity = getValidityStatus(hist.validTo);
+                      const isExpiredHist = histValidity.tone === 'danger';
+                      return (
+                        <div
+                          key={hist.key}
+                          className="p-3 rounded-xl border border-slate-800/70 text-xs space-y-1 opacity-85"
+                          style={innerStyle}
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold">{hist.docType}</span>
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  isExpiredHist
+                                    ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
+                                    : 'border-slate-700 opacity-85'
+                                }`}
+                                style={isExpiredHist ? undefined : cardStyle}
+                              >
+                                {isExpiredHist ? 'Vencido' : 'Versión anterior'}
+                              </span>
+                            </div>
+                            {hist.createdAt && (
+                              <span className="text-[10px] opacity-70">
+                                Cargado: {formatDateShort(hist.createdAt)}
+                              </span>
+                            )}
+                          </div>
+                          {hist.url && <p className="opacity-75 truncate">{hist.url}</p>}
+                          <p className="text-[11px] opacity-70">
+                            Vigencia: {formatDateShort(hist.validFrom)} →{' '}
+                            {formatDateShort(hist.validTo)}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </section>
 
           {/* Sección 1B: Gestión de especialidades y control de visibilidad en directorio */}
@@ -2516,13 +2794,54 @@ export default function ProviderDashboard() {
                     >
                       {isEditing ? (
                         <div className="space-y-2.5">
-                          <input
-                            type="text"
-                            value={editSpecialtyName}
-                            onChange={(e) => setEditSpecialtyName(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          <select
+                            value={editSpecialtyCatalog}
+                            onChange={(e) => setEditSpecialtyCatalog(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
                             style={cardStyle}
-                          />
+                          >
+                            {STANDARD_SPECIALTIES_CATALOG.map((spec) => (
+                              <option key={spec} value={spec}>
+                                {spec}
+                              </option>
+                            ))}
+                            <option value="__custom__">
+                              Otra especialidad (no figura en la lista — requiere aprobación de Ops)
+                            </option>
+                          </select>
+
+                          {editSpecialtyCatalog === '__custom__' ? (
+                            <div className="space-y-2 rounded-xl p-3 border border-amber-500/35 bg-amber-950/20">
+                              <input
+                                type="text"
+                                required
+                                maxLength={100}
+                                value={editSpecialtyName}
+                                onChange={(e) => setEditSpecialtyName(e.target.value)}
+                                placeholder="Nombre de la especialidad personalizada..."
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                                style={cardStyle}
+                              />
+                              <textarea
+                                rows={2}
+                                required
+                                maxLength={300}
+                                value={editSpecialtyDesc}
+                                onChange={(e) => setEditSpecialtyDesc(e.target.value)}
+                                placeholder="Breve descripción del servicio para moderación de Operaciones TrustLink..."
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                                style={cardStyle}
+                              />
+                              <p className="text-[11px] text-amber-200 opacity-90">
+                                Las especialidades personalizadas quedan en revisión de Operaciones antes de publicarse.
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="text-[11px] text-emerald-300 opacity-90">
+                              Rubro de catálogo estándar: mantiene la aprobación al instante si tu compliance personal ya está validado.
+                            </p>
+                          )}
+
                           <div className="flex justify-end gap-2">
                             <button
                               type="button"
@@ -2536,7 +2855,7 @@ export default function ProviderDashboard() {
                               type="button"
                               onClick={() => handleSaveSpecialtyEdit(p)}
                               disabled={updatingSpecialty}
-                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer"
+                              className="text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                               style={{ backgroundColor: primaryColor }}
                             >
                               <Save size={12} /> {updatingSpecialty ? 'Guardando...' : 'Guardar'}
@@ -2576,9 +2895,16 @@ export default function ProviderDashboard() {
                                 {isHidden ? 'Oculta' : 'Visible'}
                               </span>
                             </div>
+                            {p.is_custom_specialty && p.custom_specialty_description && (
+                              <p className="text-[11px] opacity-85 italic">
+                                &ldquo;{p.custom_specialty_description}&rdquo;
+                              </p>
+                            )}
                             <p className="opacity-75">
                               {p.status === 'approved'
                                 ? 'Habilitada y visible según tu configuración en el directorio.'
+                                : p.is_custom_specialty && p.specialty_approval_status === 'pending'
+                                ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
                                 : 'Pendiente de validación de TrustLink para habilitarse a residentes.'}
                             </p>
                           </div>
@@ -2596,10 +2922,7 @@ export default function ProviderDashboard() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
-                                setEditingSpecialtyId(p.id);
-                                setEditSpecialtyName(p.specialty || '');
-                              }}
+                              onClick={() => startEditingSpecialty(p)}
                               className={rowActionBtnClass}
                               style={cardStyle}
                             >
