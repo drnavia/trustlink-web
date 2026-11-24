@@ -97,7 +97,7 @@ export default function UserManagementView() {
     setLoading(true);
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
+      const response = await fetch(`${API_BASE}/api/v1/auth/users/privileged`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

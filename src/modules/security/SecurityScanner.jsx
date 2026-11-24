@@ -143,6 +143,7 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
         authorized: response.ok && Boolean(data.authorized),
         message:
           data.message ||
+          data.error ||
           (response.ok ? 'Acceso autorizado.' : 'Acceso denegado o token inválido.'),
         code: data.code || (response.ok ? 'ACCESS_GRANTED' : 'ACCESS_DENIED'),
         details: data.details || data.pass || null,
@@ -277,6 +278,10 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
   };
 
   const details = result?.details || {};
+  const vehicleInfo =
+    details.vehicle ||
+    (Array.isArray(details.vehicles) && details.vehicles.length > 0 ? details.vehicles[0] : null) ||
+    details;
 
   return (
     <div className="p-6 md:p-8 flex-1">
@@ -464,13 +469,13 @@ export default function SecurityScanner({ initialToken = '', onClearInitialToken
                       <Car size={13} /> Vehículo y Destino
                     </p>
                     <p className="font-semibold">
-                      {[details.brand, details.model, details.vehicle_type]
+                      {[vehicleInfo.brand, vehicleInfo.model, vehicleInfo.vehicle_type]
                         .filter(Boolean)
                         .join(' · ') || 'Sin vehículo asociado'}
-                      {details.color ? ` (${details.color})` : ''}
+                      {vehicleInfo.color ? ` (${vehicleInfo.color})` : ''}
                     </p>
-                    {details.plate && (
-                      <p className="text-sky-300 font-mono font-bold">Patente: {details.plate}</p>
+                    {vehicleInfo.plate && (
+                      <p className="text-sky-300 font-mono font-bold">Patente: {vehicleInfo.plate}</p>
                     )}
                     <p className="opacity-85 flex items-center gap-1.5">
                       <MapPin size={12} className="text-emerald-400 shrink-0" />

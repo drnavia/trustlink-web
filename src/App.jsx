@@ -59,8 +59,7 @@ function MainAppContent() {
     isSuperadmin ||
     userRole === 'owner' ||
     userRole === 'family' ||
-    userRole === 'resident' ||
-    userRole === 'provider';
+    userRole === 'resident';
   const canSeeSecurity = isSuperadmin || userRole === 'security';
 
   // Vista activa inicial según estado de sesión
@@ -444,22 +443,33 @@ function MainAppContent() {
 
       {/* ZONA 3: Contenedor Principal de Vistas */}
       <main className="flex-1 flex flex-col">
-        {currentView === 'landing' && <LandingHome onViewChange={setCurrentView} />}
+        {currentView === 'landing' && (
+          <LandingHome
+            onGoLogin={() => setCurrentView('login')}
+            onGoRegister={() => setCurrentView('register')}
+            onViewChange={setCurrentView}
+          />
+        )}
 
         {currentView === 'login' && (
           <LoginView
             onLoginSuccess={(loggedInUser) => {
               setCurrentView(getDefaultAuthenticatedView(loggedInUser?.role));
             }}
-            onNavigateRegister={() => setCurrentView('register')}
+            onViewChange={setCurrentView}
           />
         )}
 
         {currentView === 'register' && (
-          <RegisterView onRegisterSuccess={() => setCurrentView('login')} />
+          <RegisterView
+            onRegisterSuccess={() => setCurrentView('login')}
+            onViewChange={setCurrentView}
+          />
         )}
 
-        {currentView === 'resident' && <ResidentDashboard onViewChange={setCurrentView} />}
+        {currentView === 'resident' && (
+          <ResidentDashboard onNavigate={setCurrentView} onViewChange={setCurrentView} />
+        )}
 
         {currentView === 'provider' && <ProviderDashboard onViewChange={setCurrentView} />}
 

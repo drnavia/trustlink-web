@@ -243,9 +243,9 @@ export default function AdminComplianceView() {
                         </span>
                       )}
 
-                      {p.art_insurance_url ? (
+                      {p.insurance_policy_url || p.art_insurance_url ? (
                         <a
-                          href={p.art_insurance_url}
+                          href={p.insurance_policy_url || p.art_insurance_url}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-white/15 font-semibold hover:opacity-90"

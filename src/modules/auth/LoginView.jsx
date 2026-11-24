@@ -10,11 +10,8 @@ import React, { useState } from 'react';
 import { Lock, Mail, LogIn, AlertCircle, Loader2 } from 'lucide-react';
 import { useAuth } from './AuthContext';
 import { useBranding } from '../branding/BrandingContext';
-import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
 
-/* const API_BASE = 'http://localhost:4000'; */
-
-export default function LoginView({ onLoginSuccess, onViewChange }) {
+export default function LoginView({ onLoginSuccess, onViewChange, onNavigateRegister }) {
   const { login } = useAuth();
   const { brand } = useBranding();
 
@@ -46,49 +43,19 @@ export default function LoginView({ onLoginSuccess, onViewChange }) {
     const cleanEmail = email.trim();
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: cleanEmail,
-          password,
-        }),
-      });
+      const result = await login(cleanEmail, password);
 
-      const data = await response.json();
-
-      if (response.ok && data.token && data.user) {
-        // Persistir sesión en localStorage de forma explícita y confiable
-        localStorage.setItem('trustlink_token', data.token);
-        localStorage.setItem('trustlink_user', JSON.stringify(data.user));
-
-        // Sincronizar AuthContext según la firma disponible
-        if (typeof login === 'function') {
-          try {
-            if (login.length >= 2) {
-              await login(cleanEmail, password);
-            } else {
-              await login({ user: data.user, token: data.token });
-            }
-          } catch (ctxErr) {
-            console.warn('Aviso al sincronizar AuthContext:', ctxErr);
-          }
-        }
-
+      if (result?.ok && result.user) {
         if (typeof onLoginSuccess === 'function') {
-          onLoginSuccess(data.user);
+          onLoginSuccess(result.user);
         }
       } else {
-        localStorage.removeItem('trustlink_token');
-        localStorage.removeItem('trustlink_user');
-        setErrorMsg(data.error || 'Credenciales inválidas o cuenta inactiva en la base de datos.');
+        setErrorMsg(
+          result?.error || 'Credenciales inválidas o cuenta inactiva en la base de datos.'
+        );
       }
     } catch (error) {
       console.error('Error al iniciar sesión:', error);
-      localStorage.removeItem('trustlink_token');
-      localStorage.removeItem('trustlink_user');
       setErrorMsg('Error de conexión con el servidor de TrustLink.');
     } finally {
       setLoading(false);
@@ -190,10 +157,10 @@ export default function LoginView({ onLoginSuccess, onViewChange }) {
         {/* Enlace al registro */}
         <div className="pt-4 border-t border-black/20 text-center text-xs opacity-80">
           <span>¿No tenés cuenta? </span>
-          {onViewChange ? (
+          {onViewChange || onNavigateRegister ? (
             <button
               type="button"
-              onClick={() => onViewChange('register')}
+              onClick={() => (onViewChange ? onViewChange('register') : onNavigateRegister())}
               className="font-bold hover:underline cursor-pointer"
               style={{ color: accentColor }}
             >

@@ -32,28 +32,33 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
-      //const response = await fetch('http://localhost:4000/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password })
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
-      if (response.ok && data.token) {
+      if (response.ok && data.token && data.user) {
         localStorage.setItem('trustlink_token', data.token);
         localStorage.setItem('trustlink_user', JSON.stringify(data.user));
         setToken(data.token);
         setUser(data.user);
-        return true;
+        return { ok: true, user: data.user, token: data.token };
       } else {
         logout(); // Limpiar rastro anterior si falla
-        return false;
+        return {
+          ok: false,
+          error: data.error || 'Credenciales inválidas o cuenta inactiva en la base de datos.'
+        };
       }
     } catch (error) {
       console.error('Error en contexto de login:', error);
       logout();
-      return false;
+      return {
+        ok: false,
+        error: 'Error de conexión con el servidor de TrustLink.'
+      };
     }
   };
 

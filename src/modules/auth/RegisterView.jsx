@@ -65,7 +65,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
         phone: phone.trim() || null,
         email: email.trim(),
         password,
-        fraction: fraction.trim() || null,
+        fraction_number: fraction.trim() || null,
         lot_number: lotNumber.trim() || null,
       };
 

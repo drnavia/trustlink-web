@@ -36,10 +36,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
-
-export const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
-  'http://localhost:4000';
+import { API_BASE } from '../../config/api';
 
 const PASSES_PER_PAGE = 6;
 
@@ -325,7 +322,7 @@ export default function ProviderDashboard() {
   const fetchProviderReviewContracts = async () => {
     setLoadingReviews(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews/provider-contracts`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/contracts`, {
         method: 'GET',
         headers: getAuthHeaders(),
       });
@@ -422,6 +419,7 @@ export default function ProviderDashboard() {
     const payload = {
       specialty: baseProfile.specialty || 'Servicios Verificados',
       criminal_record_url: !isArt ? docUrl.trim() : baseProfile.criminal_record_url || '',
+      criminal_record_from: !isArt ? docValidFrom || null : null,
       criminal_record_expiry: !isArt
         ? docValidTo || null
         : baseProfile.criminal_record_expiry || null,
@@ -431,6 +429,7 @@ export default function ProviderDashboard() {
       insurance_policy_url: isArt
         ? docUrl.trim()
         : baseProfile.insurance_policy_url || baseProfile.art_insurance_url || '',
+      insurance_from: isArt ? docValidFrom || null : null,
       art_insurance_expiry: isArt
         ? docValidTo || null
         : baseProfile.art_insurance_expiry || baseProfile.insurance_expiry || null,
@@ -446,7 +445,7 @@ export default function ProviderDashboard() {
       const endpoint = baseProfile.id
         ? `${API_BASE}/api/v1/providers/profile/${baseProfile.id}`
         : `${API_BASE}/api/v1/providers/profile`;
-      const method = baseProfile.id ? 'PUT' : 'POST';
+      const method = baseProfile.id ? 'PATCH' : 'POST';
 
       const response = await fetch(endpoint, {
         method,
@@ -497,6 +496,7 @@ export default function ProviderDashboard() {
     const payload = {
       specialty: targetProfile.specialty || 'Servicios Verificados',
       criminal_record_url: !isArt ? editDocUrl.trim() : targetProfile.criminal_record_url || '',
+      criminal_record_from: !isArt ? editDocValidFrom || null : null,
       criminal_record_expiry: !isArt
         ? editDocValidTo || null
         : targetProfile.criminal_record_expiry || null,
@@ -506,6 +506,7 @@ export default function ProviderDashboard() {
       insurance_policy_url: isArt
         ? editDocUrl.trim()
         : targetProfile.insurance_policy_url || targetProfile.art_insurance_url || '',
+      insurance_from: isArt ? editDocValidFrom || null : null,
       art_insurance_expiry: isArt
         ? editDocValidTo || null
         : targetProfile.art_insurance_expiry || targetProfile.insurance_expiry || null,
@@ -518,7 +519,7 @@ export default function ProviderDashboard() {
 
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/profile/${targetProfile.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
@@ -562,7 +563,8 @@ export default function ProviderDashboard() {
         body: JSON.stringify({
           specialty: newSpecialty.trim(),
           criminal_record_url: currentDoc.criminal_record_url || '',
-          art_insurance_url: currentDoc.art_insurance_url || currentDoc.insurance_policy_url || '',
+          insurance_policy_url:
+            currentDoc.insurance_policy_url || currentDoc.art_insurance_url || '',
         }),
       });
       const data = await response.json();
@@ -592,7 +594,7 @@ export default function ProviderDashboard() {
 
     try {
       const response = await fetch(`${API_BASE}/api/v1/providers/profile/${specialtyItem.id}`, {
-        method: 'PUT',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           ...getAuthHeaders(),
@@ -600,8 +602,8 @@ export default function ProviderDashboard() {
         body: JSON.stringify({
           specialty: editSpecialtyName.trim(),
           criminal_record_url: specialtyItem.criminal_record_url || '',
-          art_insurance_url:
-            specialtyItem.art_insurance_url || specialtyItem.insurance_policy_url || '',
+          insurance_policy_url:
+            specialtyItem.insurance_policy_url || specialtyItem.art_insurance_url || '',
         }),
       });
       const data = await response.json();
@@ -635,7 +637,7 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/providers/vehicles`, {
+      const response = await fetch(`${API_BASE}/api/v1/providers/vehicle`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -646,7 +648,7 @@ export default function ProviderDashboard() {
           brand: vehBrand.trim(),
           model: vehModel.trim(),
           color: vehColor.trim(),
-          license_plate: vehPlate.trim().toUpperCase(),
+          plate: vehPlate.trim().toUpperCase(),
         }),
       });
       const data = await response.json();
@@ -773,7 +775,7 @@ export default function ProviderDashboard() {
     setSuccessMsg('');
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/reviews`, {
+      const response = await fetch(`${API_BASE}/api/v1/reviews/owner`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -782,8 +784,7 @@ export default function ProviderDashboard() {
         body: JSON.stringify({
           contract_id: contractId,
           rating: ratingVal,
-          comment: commentVal,
-          target_role: 'owner',
+          comment: commentVal || null,
         }),
       });
       const data = await response.json();
@@ -2056,11 +2057,14 @@ export default function ProviderDashboard() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span className="font-bold">
-                          Contrato #{item.contract_id} · {item.owner_name || 'Residente Verificado'}
+                          Contrato #{item.contract_id} ·{' '}
+                          {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
+                            item.owner_name ||
+                            'Residente Verificado'}
                         </span>
                       </div>
                       <span className="uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700">
-                        {item.status}
+                        {item.contract_status || item.status}
                       </span>
                     </div>
 

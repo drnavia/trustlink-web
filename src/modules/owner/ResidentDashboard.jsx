@@ -29,10 +29,7 @@ import {
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
-
-export const API_BASE =
-  (import.meta.env.VITE_API_BASE_URL && String(import.meta.env.VITE_API_BASE_URL).trim()) ||
-  'http://localhost:4000';
+import { API_BASE } from '../../config/api';
 
 const QUICK_SPECIALTIES = [
   'Todos',
@@ -307,8 +304,9 @@ export default function ResidentDashboard({ onNavigate }) {
         const initialRatings = {};
         const initialComments = {};
         list.forEach((c) => {
-          initialRatings[c.id] = c.provider_review_rating || 5;
-          initialComments[c.id] = c.provider_review_comment || '';
+          const cid = c.contract_id ?? c.id;
+          initialRatings[cid] = c.provider_review_rating || 5;
+          initialComments[cid] = c.provider_review_comment || '';
         });
         setRatingByContract(initialRatings);
         setCommentByContract(initialComments);
@@ -1452,76 +1450,98 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {reviewContracts.map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-xl p-4 border border-slate-800/70 space-y-3"
-                  style={innerStyle}
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-xs font-bold">
-                      Servicio #{item.id} ·{' '}
-                      {item.provider_name || `Prestador #${item.provider_id}`}
-                    </span>
-                    <span className="text-[11px] opacity-75">Estado: {item.status}</span>
-                  </div>
+              {reviewContracts.map((item) => {
+                const cid = item.contract_id ?? item.id;
+                const providerDisplay =
+                  `${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
+                  item.provider_name ||
+                  `Prestador #${item.provider_id}`;
+                const statusDisplay = item.contract_status || item.status || 'pending';
+                const alreadyRatedProvider = Boolean(item.provider_review_rating);
 
-                  {item.owner_review_rating && (
-                    <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
-                      <span className="font-bold text-emerald-300">
-                        Reseña del prestador: ★ {item.owner_review_rating}/5
+                return (
+                  <div
+                    key={cid}
+                    className="rounded-xl p-4 border border-slate-800/70 space-y-3"
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs font-bold">
+                        Servicio #{cid} · {providerDisplay}
                       </span>
-                      {item.owner_review_comment && (
-                        <p className="opacity-85 mt-0.5">“{item.owner_review_comment}”</p>
-                      )}
+                      <span className="text-[11px] opacity-75">Estado: {statusDisplay}</span>
                     </div>
-                  )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
-                    <select
-                      value={ratingByContract[item.id] ?? 5}
-                      onChange={(e) =>
-                        setRatingByContract((prev) => ({
-                          ...prev,
-                          [item.id]: Number(e.target.value),
-                        }))
-                      }
-                      className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                      style={cardStyle}
-                    >
-                      <option value={5}>★★★★★ (5/5)</option>
-                      <option value={4}>★★★★☆ (4/5)</option>
-                      <option value={3}>★★★☆☆ (3/5)</option>
-                      <option value={2}>★★☆☆☆ (2/5)</option>
-                      <option value={1}>★☆☆☆☆ (1/5)</option>
-                    </select>
+                    {item.description && <p className="text-xs opacity-80">{item.description}</p>}
 
-                    <input
-                      type="text"
-                      value={commentByContract[item.id] ?? ''}
-                      onChange={(e) =>
-                        setCommentByContract((prev) => ({
-                          ...prev,
-                          [item.id]: e.target.value,
-                        }))
-                      }
-                      placeholder="Dejá un comentario sobre el servicio..."
-                      className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                      style={cardStyle}
-                    />
+                    {item.owner_review_rating && (
+                      <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                        <span className="font-bold text-emerald-300">
+                          Reseña del prestador: ★ {item.owner_review_rating}/5
+                        </span>
+                        {item.owner_review_comment && (
+                          <p className="opacity-85 mt-0.5">“{item.owner_review_comment}”</p>
+                        )}
+                      </div>
+                    )}
 
-                    <button
-                      type="button"
-                      disabled={submittingReviewId === item.id}
-                      onClick={() => handleSubmitProviderReview(item.id)}
-                      className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      {submittingReviewId === item.id ? 'Guardando...' : 'Enviar Reseña'}
-                    </button>
+                    {alreadyRatedProvider ? (
+                      <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
+                        <span className="font-bold text-emerald-300">
+                          Tu calificación al prestador: ★ {item.provider_review_rating}/5
+                        </span>
+                        {item.provider_review_comment && (
+                          <p className="opacity-85 mt-0.5">“{item.provider_review_comment}”</p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center">
+                        <select
+                          value={ratingByContract[cid] ?? 5}
+                          onChange={(e) =>
+                            setRatingByContract((prev) => ({
+                              ...prev,
+                              [cid]: Number(e.target.value),
+                            }))
+                          }
+                          className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                          style={cardStyle}
+                        >
+                          <option value={5}>★★★★★ (5/5)</option>
+                          <option value={4}>★★★★☆ (4/5)</option>
+                          <option value={3}>★★★☆☆ (3/5)</option>
+                          <option value={2}>★★☆☆☆ (2/5)</option>
+                          <option value={1}>★☆☆☆☆ (1/5)</option>
+                        </select>
+
+                        <input
+                          type="text"
+                          value={commentByContract[cid] ?? ''}
+                          onChange={(e) =>
+                            setCommentByContract((prev) => ({
+                              ...prev,
+                              [cid]: e.target.value,
+                            }))
+                          }
+                          placeholder="Dejá un comentario sobre el servicio..."
+                          className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                          style={cardStyle}
+                        />
+
+                        <button
+                          type="button"
+                          disabled={submittingReviewId === cid}
+                          onClick={() => handleSubmitProviderReview(cid)}
+                          className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          {submittingReviewId === cid ? 'Guardando...' : 'Enviar Reseña'}
+                        </button>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

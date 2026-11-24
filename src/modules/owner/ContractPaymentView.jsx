@@ -371,6 +371,7 @@ export default function ContractPaymentView({ onViewChange }) {
                 const platformFee = Number((agreed * PLATFORM_FEE_RATE).toFixed(2));
                 const providerPayout = Number((agreed - platformFee).toFixed(2));
                 const providerName =
+                  contract.provider_name ||
                   `${contract.first_name || ''} ${contract.last_name || ''}`.trim() ||
                   'Prestador Verificado';
 
