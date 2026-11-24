@@ -161,6 +161,15 @@ function MainAppContent() {
     }
   }, []);
 
+  // Normaliza pathname heredado (ej. /admin/superadmin/config#account -> /#account) al montar
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
+      const targetHash = window.location.hash || `#${currentView}`;
+      window.history.replaceState(null, '', `/${window.location.search}${targetHash}`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Soporte para botón Atrás/Adelante del navegador vía hash
   useEffect(() => {
     const onPopState = () => {
