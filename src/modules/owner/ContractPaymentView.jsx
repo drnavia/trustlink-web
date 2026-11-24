@@ -56,6 +56,11 @@ export default function ContractPaymentView({ onViewChange }) {
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState(null);
   const [feedback, setFeedback] = useState(null);
+  const [gatewayConfig, setGatewayConfig] = useState({
+    gateway_mode: 'mock',
+    sandbox: false,
+    platform_fee_percent: 7,
+  });
 
   // Creación de contrato desde visita/pase QR
   const [selectedPassId, setSelectedPassId] = useState('');
@@ -132,13 +137,74 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   }, []);
 
+  const fetchGatewayConfig = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/payments/config`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data) {
+        setGatewayConfig({
+          gateway_mode: data.gateway_mode || 'mock',
+          sandbox: Boolean(data.sandbox),
+          platform_fee_percent: Number(data.platform_fee_percent ?? 7),
+        });
+      }
+    } catch {
+      // Mantiene defaults seguros
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
-    await Promise.all([fetchPendingContracts(), fetchMyPasses(), fetchReviewContracts()]);
-  }, [fetchPendingContracts, fetchMyPasses, fetchReviewContracts]);
+    await Promise.all([
+      fetchGatewayConfig(),
+      fetchPendingContracts(),
+      fetchMyPasses(),
+      fetchReviewContracts(),
+    ]);
+  }, [fetchGatewayConfig, fetchPendingContracts, fetchMyPasses, fetchReviewContracts]);
 
   useEffect(() => {
     refreshAll();
   }, [refreshAll]);
+
+  // Detecta retorno desde Mercado Pago Checkout Pro (?mp_status=approved|pending|rejected&contract_id=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const mpStatus = (params.get('mp_status') || params.get('collection_status') || '').toLowerCase();
+      const returnedContractId = params.get('contract_id') || '';
+      if (!mpStatus) return;
+
+      const labelSuffix = returnedContractId ? ` (Contrato #${returnedContractId})` : '';
+      if (mpStatus === 'approved') {
+        setFeedback({
+          type: 'success',
+          text: `Pago aprobado en Mercado Pago${labelSuffix}. Estamos confirmando la acreditación en TrustLink.`,
+        });
+      } else if (mpStatus === 'pending' || mpStatus === 'in_process') {
+        setFeedback({
+          type: 'success',
+          text: `Pago pendiente de acreditación en Mercado Pago${labelSuffix}. Te actualizaremos el estado automáticamente al recibir el webhook.`,
+        });
+      } else {
+        setFeedback({
+          type: 'error',
+          text: `El pago en Mercado Pago no se completó (${mpStatus})${labelSuffix}. Podés reintentar cuando quieras.`,
+        });
+      }
+
+      params.delete('mp_status');
+      params.delete('collection_status');
+      params.delete('contract_id');
+      const nextSearch = params.toString();
+      const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, document.title, nextUrl);
+    } catch {
+      // Ignora URLs malformadas
+    }
+  }, []);
 
   const activePass = passes.find((p) => String(p.id) === String(selectedPassId)) || null;
 
@@ -211,11 +277,20 @@ export default function ContractPaymentView({ onViewChange }) {
         body: JSON.stringify({
           contract_id: contractId,
           amount,
-          payment_method: 'mercado_pago_mock',
+          payment_method: gatewayConfig.gateway_mode === 'mercadopago' ? 'mercadopago' : 'mercado_pago_mock',
         }),
       });
       const data = await res.json();
       if (res.ok) {
+        if (data.requires_redirect && data.checkout_url) {
+          setFeedback({
+            type: 'success',
+            text: data.message || 'Redirigiendo al checkout seguro de Mercado Pago...',
+            checkoutUrl: data.checkout_url,
+          });
+          window.location.assign(data.checkout_url);
+          return;
+        }
         setFeedback({
           type: 'success',
           text:
@@ -282,6 +357,15 @@ export default function ContractPaymentView({ onViewChange }) {
     }
   };
 
+  const effectiveFeeRate =
+    Number(gatewayConfig.platform_fee_percent ?? 7) / 100 || PLATFORM_FEE_RATE;
+  const gatewayBadgeLabel =
+    gatewayConfig.gateway_mode === 'mercadopago'
+      ? gatewayConfig.sandbox
+        ? 'Mercado Pago (Sandbox)'
+        : 'Mercado Pago Real'
+      : 'Modo Piloto (Simulado)';
+
   const statusBadgeClass =
     'text-[11px] font-semibold px-3 py-1 rounded-full border border-white/15 shrink-0';
 
@@ -309,7 +393,17 @@ export default function ContractPaymentView({ onViewChange }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-2 self-start sm:self-center">
+            <div className="flex flex-wrap items-center gap-2 self-start sm:self-center">
+              <span
+                className={`text-[11px] font-bold px-3 py-1 rounded-full border shrink-0 ${
+                  gatewayConfig.gateway_mode === 'mercadopago'
+                    ? 'bg-sky-950/70 border-sky-700 text-sky-200'
+                    : 'border-white/15 opacity-90'
+                }`}
+                style={gatewayConfig.gateway_mode === 'mercadopago' ? undefined : innerStyle}
+              >
+                {gatewayBadgeLabel}
+              </span>
               <span className={statusBadgeClass} style={innerStyle}>
                 {contracts.length === 0
                   ? 'Sin contratos pendientes'
@@ -345,6 +439,14 @@ export default function ContractPaymentView({ onViewChange }) {
                 <AlertCircle size={16} />
               )}
               <span>{feedback.text}</span>
+              {feedback.checkoutUrl && (
+                <a
+                  href={feedback.checkoutUrl}
+                  className="ml-auto font-bold underline underline-offset-2 shrink-0"
+                >
+                  Ir a Mercado Pago →
+                </a>
+              )}
             </div>
           )}
 
@@ -375,7 +477,7 @@ export default function ContractPaymentView({ onViewChange }) {
             <div className={ITEMS_GRID_CLASS}>
               {contracts.map((contract) => {
                 const agreed = Number(contract.agreed_amount || 0);
-                const platformFee = Number((agreed * PLATFORM_FEE_RATE).toFixed(2));
+                const platformFee = Number((agreed * effectiveFeeRate).toFixed(2));
                 const providerPayout = Number((agreed - platformFee).toFixed(2));
                 const providerName =
                   contract.provider_name ||

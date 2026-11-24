@@ -723,6 +723,14 @@ export default function ResidentDashboard({ onNavigate }) {
       });
       const data = await response.json();
       if (response.ok) {
+        if (data.requires_redirect && data.checkout_url) {
+          setPaymentFeedback({
+            type: 'success',
+            text: data.message || 'Redirigiendo al checkout seguro de Mercado Pago...',
+          });
+          window.location.assign(data.checkout_url);
+          return;
+        }
         setPaymentFeedback({
           type: 'success',
           text: data.message || 'Pago confirmado y comisión registrada.',
