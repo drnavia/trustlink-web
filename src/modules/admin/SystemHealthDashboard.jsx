@@ -35,11 +35,13 @@ import {
   Receipt,
   Webhook,
   Play,
-  Lock
+  Lock,
+  Download
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api'; // Ajustá la cantidad de ../ según la carpeta del archivo
+import { downloadCsv } from '../../utils/csvExport';
 
 /* const API_BASE = 'http://localhost:4000'; */
 const DEFAULT_TIMEZONE = 'America/Argentina/Buenos_Aires';
@@ -1443,6 +1445,31 @@ export default function SystemHealthDashboard() {
                   </select>
                   <button
                     type="button"
+                    onClick={() =>
+                      downloadCsv(
+                        `trustlink-comunidades-b2b-${new Date().toISOString().slice(0, 10)}.csv`,
+                        [
+                          { key: 'id', label: 'ID' },
+                          { key: 'name', label: 'Barrio' },
+                          { key: 'city', label: 'Localidad' },
+                          { key: 'province', label: 'Provincia' },
+                          { key: 'plan_code', label: 'Plan B2B' },
+                          { key: 'billing_status', label: 'Estado Comercial' },
+                          { key: 'monthly_qr_used', label: 'QR Usados Mes' },
+                          { key: 'monthly_pass_quota', label: 'Cuota Mensual' },
+                          { key: 'active_keys_count', label: 'Claves API' },
+                          { key: 'is_active', label: 'Activa' },
+                        ],
+                        countries
+                      )
+                    }
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                    style={innerStyle}
+                  >
+                    <Download size={12} /> CSV
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       setCountryPage(1);
                       fetchCountries(1, countrySearch, countryPageSize, countryStatusFilter);
@@ -2638,7 +2665,34 @@ export default function SystemHealthDashboard() {
               style={cardStyle}
             >
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <h3 className="text-sm font-bold">Bitácora de Intentos de Acceso</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold">Bitácora de Intentos de Acceso</h3>
+                  {accessLogs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        downloadCsv(
+                          `trustlink-auditoria-garita-${new Date().toISOString().slice(0, 10)}.csv`,
+                          [
+                            { key: 'id', label: 'ID' },
+                            { key: 'created_at', label: 'Fecha' },
+                            { key: 'authorized', label: 'Autorizado' },
+                            { key: 'reason_code', label: 'Codigo' },
+                            { key: 'integration_label', label: 'Origen' },
+                            { key: 'auth_mode', label: 'Auth' },
+                            { key: 'qr_token', label: 'Token' },
+                            { key: 'message', label: 'Detalle' },
+                          ],
+                          accessLogs
+                        )
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                      style={innerStyle}
+                    >
+                      <Download size={11} /> Exportar CSV
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs">
                   <div className="relative">
                     <Search

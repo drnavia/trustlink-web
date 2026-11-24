@@ -17,11 +17,13 @@ import {
   Unlock,
   Clock,
   MessageCircle,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
+import { downloadCsv } from '../../utils/csvExport';
 
 /* const API_BASE = 'http://localhost:4000'; */
 
@@ -430,13 +432,36 @@ export default function LocalAdminView() {
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-[11px] font-bold">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold">
             <span className="px-2.5 py-1 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
               {expirySummary.expired} vencido(s)
             </span>
             <span className="px-2.5 py-1 rounded-full border border-amber-700/70 bg-amber-950/60 text-amber-200">
               {expirySummary.expiring_soon} por vencer
             </span>
+            {expiryAlerts.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  downloadCsv(
+                    `trustlink-vencimientos-${new Date().toISOString().slice(0, 10)}.csv`,
+                    [
+                      { key: 'title', label: 'Documento' },
+                      { key: 'provider_name', label: 'Prestador' },
+                      { key: 'provider_email', label: 'Email' },
+                      { key: 'severity', label: 'Severidad' },
+                      { key: 'expiry_date', label: 'Fecha Vencimiento' },
+                      { key: 'days_remaining', label: 'Dias Restantes' },
+                    ],
+                    expiryAlerts
+                  )
+                }
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-white/15 cursor-pointer hover:opacity-90"
+                style={innerStyle}
+              >
+                <Download size={12} /> CSV
+              </button>
+            )}
           </div>
         </div>
 

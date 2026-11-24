@@ -35,10 +35,12 @@ import {
   Trash2,
   Clock,
   Users,
+  Printer,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
@@ -182,7 +184,7 @@ export default function ProviderDashboard() {
   const [showSpecialtyForm, setShowSpecialtyForm] = useState(false);
   const [newSpecialty, setNewSpecialty] = useState('');
   const [savingSpecialty, setSavingSpecialty] = useState(false);
-  const [hiddenSpecialtyIds, setHiddenSpecialtyIds] = useState({});
+  const [togglingVisibilityId, setTogglingVisibilityId] = useState(null);
   const [editingSpecialtyId, setEditingSpecialtyId] = useState(null);
   const [editSpecialtyName, setEditSpecialtyName] = useState('');
   const [updatingSpecialty, setUpdatingSpecialty] = useState(false);
@@ -258,7 +260,10 @@ export default function ProviderDashboard() {
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  // 6. Reseñas
+  // 6. Contratos, Ingresos y Reseñas
+  const [providerContracts, setProviderContracts] = useState([]);
+  const [providerEarningsSummary, setProviderEarningsSummary] = useState(null);
+  const [loadingReceiptId, setLoadingReceiptId] = useState(null);
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
@@ -376,12 +381,50 @@ export default function ProviderDashboard() {
     }
   };
 
+  const fetchProviderContractsSummary = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/provider`, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setProviderContracts(data.contracts || []);
+        setProviderEarningsSummary(data.summary || null);
+      }
+    } catch (error) {
+      console.error('Error al cargar contratos/ingresos del prestador:', error);
+    }
+  };
+
+  const handlePrintProviderReceipt = async (contractId) => {
+    setLoadingReceiptId(contractId);
+    setErrorMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/receipt`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (response.ok && data.receipt) {
+        printServiceReceipt(data.receipt);
+      } else {
+        setErrorMsg(data.error || 'No se pudo generar el comprobante del servicio.');
+      }
+    } catch (error) {
+      console.error('Error al imprimir comprobante del prestador:', error);
+      setErrorMsg('Error de conexión al generar el comprobante.');
+    } finally {
+      setLoadingReceiptId(null);
+    }
+  };
+
   useEffect(() => {
     fetchProviderProfile();
     fetchProviderSchedule();
     fetchIncomingVisits();
     fetchAssignedPasses();
     fetchProviderReviewContracts();
+    fetchProviderContractsSummary();
   }, []);
 
   const documentHistory = useMemo(() => {
@@ -443,8 +486,8 @@ export default function ProviderDashboard() {
   }, [profileData.providers]);
 
   const activeSpecialtiesCount = useMemo(() => {
-    return (profileData.providers || []).filter((p) => !hiddenSpecialtyIds[p.id]).length;
-  }, [profileData.providers, hiddenSpecialtyIds]);
+    return (profileData.providers || []).filter((p) => p.is_visible_in_directory !== false).length;
+  }, [profileData.providers]);
 
   const handleCreateDocument = async (e) => {
     e.preventDefault();
@@ -662,11 +705,35 @@ export default function ProviderDashboard() {
     }
   };
 
-  const toggleSpecialtyVisibility = (specialtyId) => {
-    setHiddenSpecialtyIds((prev) => ({
-      ...prev,
-      [specialtyId]: !prev[specialtyId],
-    }));
+  const toggleSpecialtyVisibility = async (specialtyItem) => {
+    const targetId = typeof specialtyItem === 'object' ? specialtyItem.id : specialtyItem;
+    const currentVisible =
+      typeof specialtyItem === 'object' ? specialtyItem.is_visible_in_directory !== false : true;
+    setTogglingVisibilityId(targetId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/profile/${targetId}/visibility`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ is_visible_in_directory: !currentVisible }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Visibilidad actualizada en el directorio.');
+        await fetchProviderProfile();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la visibilidad.');
+      }
+    } catch (error) {
+      console.error('Error al cambiar visibilidad de especialidad:', error);
+      setErrorMsg('Error de conexión al actualizar la visibilidad.');
+    } finally {
+      setTogglingVisibilityId(null);
+    }
   };
 
   const handleAddVehicle = async (e) => {
@@ -1723,7 +1790,7 @@ export default function ProviderDashboard() {
               ) : (
                 profileData.providers.map((p) => {
                   const isEditing = editingSpecialtyId === p.id;
-                  const isHidden = Boolean(hiddenSpecialtyIds[p.id]);
+                  const isHidden = p.is_visible_in_directory === false;
 
                   return (
                     <div
@@ -1792,7 +1859,8 @@ export default function ProviderDashboard() {
                           <div className="flex items-center gap-2 shrink-0">
                             <button
                               type="button"
-                              onClick={() => toggleSpecialtyVisibility(p.id)}
+                              disabled={togglingVisibilityId === p.id}
+                              onClick={() => toggleSpecialtyVisibility(p)}
                               className={rowActionBtnClass}
                               style={cardStyle}
                             >
@@ -2905,6 +2973,90 @@ export default function ProviderDashboard() {
               {reviewContracts.length} contrato(s)
             </span>
           </div>
+
+          {/* Resumen de Ingresos, Contratos y Comprobantes del Prestador */}
+          {providerEarningsSummary && (
+            <div className="space-y-3 pb-2 border-b border-white/10">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
+                  <div className="text-[10px] uppercase opacity-70">Neto estimado (93%)</div>
+                  <div className="text-base font-black font-mono text-emerald-400 mt-0.5">
+                    ${Number(providerEarningsSummary.total_net_payout || 0).toLocaleString('es-AR')}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
+                  <div className="text-[10px] uppercase opacity-70">Completados</div>
+                  <div className="text-base font-black font-mono mt-0.5">
+                    {providerEarningsSummary.completed_count ?? 0}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
+                  <div className="text-[10px] uppercase opacity-70">Pendientes / En curso</div>
+                  <div className="text-base font-black font-mono mt-0.5">
+                    {(providerEarningsSummary.pending_count ?? 0) +
+                      (providerEarningsSummary.in_progress_count ?? 0)}
+                  </div>
+                </div>
+                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
+                  <div className="text-[10px] uppercase opacity-70">Reclamos abiertos</div>
+                  <div
+                    className={`text-base font-black font-mono mt-0.5 ${
+                      providerEarningsSummary.open_disputes_count > 0 ? 'text-rose-400' : ''
+                    }`}
+                  >
+                    {providerEarningsSummary.open_disputes_count ?? 0}
+                  </div>
+                </div>
+              </div>
+
+              {providerContracts.length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
+                  {providerContracts.slice(0, 6).map((c) => {
+                    const cMeta = getUnifiedStatusMeta(c.status, 'contract');
+                    return (
+                      <div
+                        key={`earn-${c.id}`}
+                        className="p-3 rounded-xl border border-white/10 flex items-center justify-between gap-2"
+                        style={innerStyle}
+                      >
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-bold">Contrato #{c.id}</span>
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${cMeta.cls}`}
+                            >
+                              {cMeta.label}
+                            </span>
+                            {Number(c.open_disputes_count || 0) > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-700 bg-rose-950/60 text-rose-200">
+                                Reclamo
+                              </span>
+                            )}
+                          </div>
+                          <p className="opacity-80 truncate">
+                            {c.owner_name} · Neto:{' '}
+                            <strong className="font-mono text-emerald-400">
+                              ${Number(c.provider_payout || 0).toLocaleString('es-AR')}
+                            </strong>
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={loadingReceiptId === c.id}
+                          onClick={() => handlePrintProviderReceipt(c.id)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer shrink-0 disabled:opacity-50"
+                          style={cardStyle}
+                        >
+                          <Printer size={12} className="text-emerald-400" />
+                          {loadingReceiptId === c.id ? '...' : 'Comprobante'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando historial de servicios...</p>

@@ -20,10 +20,14 @@ import {
   Compass,
   PlusCircle,
   Ticket,
+  FileText,
+  Printer,
+  X,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
+import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
@@ -52,9 +56,17 @@ export default function ContractPaymentView({ onViewChange }) {
   const primaryActionColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   const [contracts, setContracts] = useState([]);
+  const [allContracts, setAllContracts] = useState([]);
   const [passes, setPasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [payingId, setPayingId] = useState(null);
+  const [completingId, setCompletingId] = useState(null);
+  const [loadingReceiptId, setLoadingReceiptId] = useState(null);
+  const [receiptModalData, setReceiptModalData] = useState(null);
+  const [disputeModalContract, setDisputeModalContract] = useState(null);
+  const [disputeReason, setDisputeReason] = useState('Trabajo incompleto o con fallas');
+  const [disputeDetails, setDisputeDetails] = useState('');
+  const [submittingDispute, setSubmittingDispute] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [gatewayConfig, setGatewayConfig] = useState({
     gateway_mode: 'mock',
@@ -83,12 +95,17 @@ export default function ContractPaymentView({ onViewChange }) {
   const fetchPendingContracts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/v1/payments/pending`, {
-        headers: getAuthHeaders(),
-      });
-      const data = await res.json();
-      if (res.ok) {
+      const [pendingRes, allRes] = await Promise.all([
+        fetch(`${API_BASE}/api/v1/payments/pending`, { headers: getAuthHeaders() }),
+        fetch(`${API_BASE}/api/v1/contracts`, { headers: getAuthHeaders() }).catch(() => null),
+      ]);
+      const data = await pendingRes.json();
+      if (pendingRes.ok) {
         setContracts(data.contracts || []);
+      }
+      if (allRes && allRes.ok) {
+        const allData = await allRes.json();
+        setAllContracts(allData.contracts || []);
       }
     } catch (error) {
       console.error('Error al cargar contratos pendientes:', error);
@@ -309,6 +326,94 @@ export default function ContractPaymentView({ onViewChange }) {
       setFeedback({ type: 'error', text: 'Error de red al procesar el pago.' });
     } finally {
       setPayingId(null);
+    }
+  };
+
+  const handleCompleteContract = async (contractId) => {
+    setCompletingId(contractId);
+    setFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/complete`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ completion_notes: 'Conformidad registrada desde Pagos y Contratos' }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: 'success',
+          text: data.message || `Conformidad registrada para el contrato #${contractId}.`,
+        });
+        await Promise.all([fetchPendingContracts(), fetchReviewContracts()]);
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar conformidad.' });
+      }
+    } catch (error) {
+      console.error('Error al registrar conformidad:', error);
+      setFeedback({ type: 'error', text: 'Error de red al registrar conformidad.' });
+    } finally {
+      setCompletingId(null);
+    }
+  };
+
+  const handleOpenReceipt = async (contractId) => {
+    setLoadingReceiptId(contractId);
+    setFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/contracts/${contractId}/receipt`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok && data.receipt) {
+        setReceiptModalData(data.receipt);
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'No se pudo cargar el comprobante.' });
+      }
+    } catch (error) {
+      console.error('Error al consultar comprobante:', error);
+      setFeedback({ type: 'error', text: 'Error de red al cargar el comprobante.' });
+    } finally {
+      setLoadingReceiptId(null);
+    }
+  };
+
+  const handleSubmitDispute = async (e) => {
+    e.preventDefault();
+    if (!disputeModalContract || !disputeReason.trim() || !disputeDetails.trim()) return;
+    setSubmittingDispute(true);
+    setFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/contracts/${disputeModalContract.id}/dispute`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          reason: disputeReason.trim(),
+          details: disputeDetails.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setFeedback({
+          type: 'success',
+          text: data.message || 'Reclamo registrado para revisión de Operaciones.',
+        });
+        setDisputeModalContract(null);
+        setDisputeDetails('');
+        await fetchPendingContracts();
+      } else {
+        setFeedback({ type: 'error', text: data.error || 'No se pudo registrar el reclamo.' });
+      }
+    } catch (error) {
+      console.error('Error al registrar reclamo:', error);
+      setFeedback({ type: 'error', text: 'Error de red al registrar el reclamo.' });
+    } finally {
+      setSubmittingDispute(false);
     }
   };
 
@@ -831,14 +936,224 @@ export default function ContractPaymentView({ onViewChange }) {
           )}
         </section>
 
+        {/* Bloque 3b: Contratos Activos / Completados — Conformidad, Comprobante y Reclamos */}
+        {allContracts.filter((c) => ['in_progress', 'completed'].includes(String(c.status || '').toLowerCase())).length > 0 && (
+          <section className={SECTION_CARD_CLASS} style={cardStyle}>
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <FileText size={17} className="text-emerald-400 shrink-0" />
+                <div>
+                  <h3 className="text-sm font-bold">
+                    Conformidad Final, Comprobantes del Hogar y Garantía
+                  </h3>
+                  <p className="text-[11px] opacity-75">
+                    Registrá conformidad, imprimí tu comprobante auditable o abrí un reclamo post-servicio.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className={ITEMS_GRID_CLASS}>
+              {allContracts
+                .filter((c) => ['in_progress', 'completed'].includes(String(c.status || '').toLowerCase()))
+                .map((c) => {
+                  const st = String(c.status || '').toLowerCase();
+                  const statusMeta = getUnifiedStatusMeta(st, 'contract');
+                  const hasOpenDispute = Number(c.open_disputes_count || 0) > 0;
+                  return (
+                    <div key={c.id} className={ITEM_CARD_CLASS} style={innerStyle}>
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-bold">
+                            Contrato #{c.id} · {c.provider_name || 'Prestador'}
+                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {hasOpenDispute && (
+                              <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
+                                Reclamo abierto
+                              </span>
+                            )}
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                            >
+                              {statusMeta.label}
+                            </span>
+                          </div>
+                        </div>
+                        <p className="text-xs opacity-80">{c.description}</p>
+                        <p className="text-xs font-mono font-bold text-emerald-400">
+                          ${Number(c.agreed_amount || 0).toLocaleString('es-AR')}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
+                        {st === 'in_progress' && (
+                          <button
+                            type="button"
+                            disabled={completingId === c.id}
+                            onClick={() => handleCompleteContract(c.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryActionColor }}
+                          >
+                            <CheckCircle2 size={13} />
+                            {completingId === c.id ? 'Guardando...' : 'Dar Conformidad'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          disabled={loadingReceiptId === c.id}
+                          onClick={() => handleOpenReceipt(c.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer disabled:opacity-50"
+                          style={cardStyle}
+                        >
+                          <FileText size={13} className="text-emerald-400" />
+                          {loadingReceiptId === c.id ? 'Cargando...' : 'Comprobante'}
+                        </button>
+                        {!hasOpenDispute && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDisputeModalContract(c);
+                              setDisputeReason('Trabajo incompleto o con fallas');
+                              setDisputeDetails('');
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-rose-800/60 bg-rose-950/35 text-rose-200 cursor-pointer"
+                          >
+                            <AlertCircle size={13} /> Reclamo
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </section>
+        )}
+
         {/* Nota de respaldo de pasarela */}
         <div className="text-[11px] opacity-70 flex items-center gap-1.5">
           <Sparkles size={12} className="text-emerald-400" />
           <span>
-            La comisión de plataforma del 7% se calcula automáticamente sobre cada orden abonada ({user?.email || 'residente'}).
+            La comisión de plataforma del {gatewayConfig.platform_fee_percent}% se calcula automáticamente sobre cada orden abonada ({user?.email || 'residente'}).
           </span>
         </div>
       </main>
+
+      {receiptModalData && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-xl rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                  Comprobante del Hogar · {receiptModalData.receipt_code}
+                </p>
+                <h3 className="text-base font-black mt-0.5">
+                  Contrato #{receiptModalData.contract?.id} · {receiptModalData.provider?.name}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptModalData(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-3 rounded-xl border border-white/10 space-y-1" style={innerStyle}>
+              <p className="font-bold">{receiptModalData.contract?.description}</p>
+              <p className="opacity-80">
+                Comunidad: {receiptModalData.community?.name} · Estado: {receiptModalData.contract?.status}
+              </p>
+              <p className="opacity-80">
+                Monto: ${Number(receiptModalData.payment?.total_amount || 0).toLocaleString('es-AR')} · Neto prestador: $
+                {Number(receiptModalData.payment?.provider_payout || 0).toLocaleString('es-AR')}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+              <button
+                type="button"
+                onClick={() => setReceiptModalData(null)}
+                className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                style={innerStyle}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                onClick={() => printServiceReceipt(receiptModalData)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryActionColor }}
+              >
+                <Printer size={14} /> Imprimir / Guardar PDF
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {disputeModalContract && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-base font-bold">
+                Reclamo / Garantía · Contrato #{disputeModalContract.id}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setDisputeModalContract(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleSubmitDispute} className="space-y-3">
+              <select
+                value={disputeReason}
+                onChange={(e) => setDisputeReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                style={innerStyle}
+              >
+                <option value="Trabajo incompleto o con fallas">Trabajo incompleto o con fallas</option>
+                <option value="Garantía post-servicio sin respuesta">Garantía post-servicio sin respuesta</option>
+                <option value="Diferencia en monto o alcance acordado">Diferencia en monto o alcance acordado</option>
+                <option value="Daño material o incumplimiento en domicilio">Daño material o incumplimiento en domicilio</option>
+              </select>
+              <textarea
+                rows={4}
+                required
+                value={disputeDetails}
+                onChange={(e) => setDisputeDetails(e.target.value)}
+                placeholder="Describí qué ocurrió..."
+                className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                style={innerStyle}
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDisputeModalContract(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={submittingDispute || !disputeDetails.trim()}
+                  className="px-4 py-2 rounded-xl font-bold text-white bg-rose-600 hover:bg-rose-500 cursor-pointer disabled:opacity-50"
+                >
+                  {submittingDispute ? 'Enviando...' : 'Registrar Reclamo'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

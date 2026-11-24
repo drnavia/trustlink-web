@@ -1,0 +1,37 @@
+{
+  "name": "TrustLink · Servicios Verificados y Accesos QR",
+  "short_name": "TrustLink",
+  "description": "Plataforma inteligente de servicios verificados, pases QR y control de accesos para comunidades privadas.",
+  "lang": "es-AR",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#020617",
+  "theme_color": "#059669",
+  "icons": [
+    {
+      "src": "/trustlink-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Consola Garita",
+      "short_name": "Garita QR",
+      "url": "/#security"
+    },
+    {
+      "name": "Portal Residente",
+      "short_name": "Residente",
+      "url": "/#resident"
+    },
+    {
+      "name": "Portal Prestador",
+      "short_name": "Prestador",
+      "url": "/#provider"
+    }
+  ]
+}

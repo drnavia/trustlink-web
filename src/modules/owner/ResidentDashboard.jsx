@@ -166,6 +166,11 @@ export default function ResidentDashboard({ onNavigate }) {
     return '';
   });
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
+  const [onlyVerifiedMembers, setOnlyVerifiedMembers] = useState(false);
+  const [directorySortBy, setDirectorySortBy] = useState('featured');
+  const [reviewsModalProvider, setReviewsModalProvider] = useState(null);
+  const [providerReviewsList, setProviderReviewsList] = useState([]);
+  const [loadingProviderReviews, setLoadingProviderReviews] = useState(false);
 
   // Solicitudes / coordinación de visita del residente
   const [myVisits, setMyVisits] = useState([]);
@@ -412,7 +417,7 @@ export default function ResidentDashboard({ onNavigate }) {
 
   const filteredProviders = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    return providers.filter((p) => {
+    const list = providers.filter((p) => {
       const fullName = `${p.first_name || ''} ${p.last_name || ''}`.toLowerCase();
       const specialty = String(p.specialty || '').toLowerCase();
       const email = String(p.email || '').toLowerCase();
@@ -421,15 +426,49 @@ export default function ResidentDashboard({ onNavigate }) {
         selectedSpecialty === 'Todos' ||
         specialty.includes(selectedSpecialty.toLowerCase());
 
+      const matchesMember = !onlyVerifiedMembers || Boolean(p.is_verified_member);
+
       const matchesQuery =
         !query ||
         fullName.includes(query) ||
         specialty.includes(query) ||
         email.includes(query);
 
-      return matchesSpecialty && matchesQuery;
+      return matchesSpecialty && matchesMember && matchesQuery;
     });
-  }, [providers, searchTerm, selectedSpecialty]);
+
+    return [...list].sort((a, b) => {
+      if (directorySortBy === 'rating') {
+        return Number(b.rating_avg || 0) - Number(a.rating_avg || 0);
+      }
+      if (directorySortBy === 'jobs') {
+        return Number(b.total_jobs ?? b.completed_jobs ?? 0) - Number(a.total_jobs ?? a.completed_jobs ?? 0);
+      }
+      const memberDiff = Number(Boolean(b.is_verified_member)) - Number(Boolean(a.is_verified_member));
+      if (memberDiff !== 0) return memberDiff;
+      return Number(b.rating_avg || 0) - Number(a.rating_avg || 0);
+    });
+  }, [providers, searchTerm, selectedSpecialty, onlyVerifiedMembers, directorySortBy]);
+
+  const handleOpenProviderReviews = async (provider) => {
+    const pid = Number(provider.provider_id || provider.id);
+    setReviewsModalProvider(provider);
+    setProviderReviewsList([]);
+    setLoadingProviderReviews(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/reviews/provider/${pid}`, {
+        headers: getAuthHeaders(),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setProviderReviewsList(data.reviews || []);
+      }
+    } catch (error) {
+      console.error('Error al consultar reseñas del prestador:', error);
+    } finally {
+      setLoadingProviderReviews(false);
+    }
+  };
 
   const openVisitModalForProvider = (provider) => {
     setVisitModalProvider(provider);
@@ -1071,25 +1110,55 @@ export default function ResidentDashboard({ onNavigate }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
-            {availableSpecialties.map((spec) => {
-              const active = selectedSpecialty === spec;
-              return (
-                <button
-                  key={spec}
-                  type="button"
-                  onClick={() => setSelectedSpecialty(spec)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
-                    active
-                      ? 'text-white border-transparent shadow-sm'
-                      : 'border-white/15 opacity-80 hover:opacity-100'
-                  }`}
-                  style={active ? { backgroundColor: primaryColor } : innerStyle}
-                >
-                  {spec}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+            <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap">
+              {availableSpecialties.map((spec) => {
+                const active = selectedSpecialty === spec;
+                return (
+                  <button
+                    key={spec}
+                    type="button"
+                    onClick={() => setSelectedSpecialty(spec)}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    {spec}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => setOnlyVerifiedMembers((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                  onlyVerifiedMembers
+                    ? 'border-amber-400/70 bg-amber-500/20 text-amber-200'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={onlyVerifiedMembers ? undefined : innerStyle}
+              >
+                <Award size={12} />
+                <span>Solo Socios Verificados</span>
+              </button>
+
+              <select
+                value={directorySortBy}
+                onChange={(e) => setDirectorySortBy(e.target.value)}
+                aria-label="Ordenar prestadores"
+                className="px-2.5 py-1 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
+                style={innerStyle}
+              >
+                <option value="featured">Orden: Destacados</option>
+                <option value="rating">Mejor calificación</option>
+                <option value="jobs">Más trabajos</option>
+              </select>
+            </div>
           </div>
 
           {providersError && (
@@ -1169,11 +1238,23 @@ export default function ResidentDashboard({ onNavigate }) {
                         </span>
                       </div>
 
-                      <div>
-                        <h3 className="text-sm font-bold">{fullName}</h3>
-                        <p className="text-xs opacity-75 mt-0.5">
-                          {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
-                        </p>
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-sm font-bold">{fullName}</h3>
+                          <p className="text-xs opacity-75 mt-0.5">
+                            {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
+                            {Array.isArray(provider.vehicles) && provider.vehicles.length > 0
+                              ? ` · ${provider.vehicles.length} vehículo(s)`
+                              : ''}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenProviderReviews(provider)}
+                          className="text-[11px] font-bold underline underline-offset-2 opacity-85 hover:opacity-100 cursor-pointer shrink-0"
+                        >
+                          Ver reseñas
+                        </button>
                       </div>
 
                       {/* Estado limpio de contacto y confirmación */}
@@ -2609,6 +2690,63 @@ export default function ResidentDashboard({ onNavigate }) {
                 <Printer size={14} /> Imprimir / Guardar PDF
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Reseñas verificadas del prestador */}
+      {reviewsModalProvider && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-lg rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs max-h-[85vh] overflow-y-auto"
+            style={cardStyle}
+          >
+            <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
+              <div>
+                <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
+                  Reputación Verificada
+                </p>
+                <h3 className="text-base font-black mt-0.5">
+                  {reviewsModalProvider.first_name} {reviewsModalProvider.last_name} · ★{' '}
+                  {Number(reviewsModalProvider.rating_avg || 0).toFixed(1)}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReviewsModalProvider(null)}
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {loadingProviderReviews ? (
+              <p className="py-6 text-center opacity-75">Cargando reseñas verificadas...</p>
+            ) : providerReviewsList.length === 0 ? (
+              <div className="p-5 rounded-xl border border-white/10 text-center opacity-75" style={innerStyle}>
+                Este prestador aún no tiene reseñas escritas publicadas.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {providerReviewsList.map((rev) => (
+                  <div
+                    key={rev.id}
+                    className="p-3.5 rounded-xl border border-white/10 space-y-1"
+                    style={innerStyle}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold">
+                        {rev.owner_name || `${rev.first_name || ''} ${rev.last_name || ''}`.trim() || 'Residente Verificado'}
+                      </span>
+                      <span className="font-bold text-amber-300">
+                        {'★'.repeat(Number(rev.rating || 5))} ({rev.rating}/5)
+                      </span>
+                    </div>
+                    {rev.comment && <p className="opacity-85 italic">&ldquo;{rev.comment}&rdquo;</p>}
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}
