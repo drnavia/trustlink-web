@@ -6,22 +6,24 @@ Aplicación web de **TrustLink** — plataforma de servicios verificados, gesti�
 
 ## Stack Tecnológico
 
-- **Framework:** React 19 + Vite 6
+- **Framework:** React 19 + Vite 6 + **PWA instalable** (`public/manifest.webmanifest` + `public/sw.js`)
 - **Estilos e Íconos:** Tailwind CSS 4 + `lucide-react`
-- **Calidad:** `oxlint` y tests nativos con `node --test`
+- **Calidad:** `oxlint` (0 warnings/errors) y tests nativos con `node --test` (`qrEncoder` + `serviceSearchMatcher`)
 
 ---
 
-## Portales y Módulos (`src/modules`)
+## Portales y Módulos (`src/modules`, `src/components`, `src/utils`)
 
-- **Landing Pública (`landing/LandingHome.jsx`):** Propuesta de valor diferenciada por actor, buscador rápido por rubro/servicio con persistencia de búsqueda al ingresar y accesos a registro/login.
-- **Autenticación y Cuenta (`auth/`):** Login, registro, recuperación de contraseña y gestión de cuenta con **identidad dual** (switches de Portal Residente / Portal Prestador y selector de portal principal).
-- **Portal Residente (`owner/`):** Directorio de prestadores verificados con flota, coordinación de visitas, emisión/edición/cancelación de pases QR (incluyendo ayudantes/cuadrilla), atajos de WhatsApp, pagos de contratos y reseñas.
-- **Portal Prestador (`provider/`):** Credenciales y vencimientos documentales, flota vehicular, gestión de ayudantes/cuadrilla, agenda online, bandeja de visitas, Pases QR asignados y reseñas cruzadas.
-- **Consola Garita (`security/SecurityScanner.jsx`):** Escáner QR con cámara en vivo o ingreso manual, validación en tiempo real de vigencia, compliance, vehículo y cuadrilla.
+- **Landing Pública (`landing/LandingHome.jsx`):** Propuesta de valor diferenciada por actor, **buscador inteligente por síntomas y sinónimos** (`utils/serviceSearchMatcher.js`) con sugerencias en vivo y persistencia de consulta al iniciar sesión.
+- **Autenticación y Cuenta (`auth/`):** Login, registro, recuperación/cambio de contraseña y gestión de cuenta con **identidad dual** (switches de Portal Residente / Portal Prestador, dirty state y selector de portal principal).
+- **Portal Residente (`owner/ResidentDashboard.jsx` y `ContractPaymentView.jsx`):**
+  - Directorio verificado con **buscador por síntomas**, **termómetro de reputación** (`components/HomeProtectedBadge.jsx`), prueba social hiper-local (*"servicios/ingresos en tu barrio"*), **tiempo promedio de respuesta**, **ficha comercial rápida**, filtros *Mis Favoritos*, *Disponible hoy*, *Urgencias 24h* y *Solo Socios Verificados*, modal de **Q&A público** y modal de reseñas filtrable por estrellas y micro-tags.
+  - Sello UX **Hogar Protegido**, coordinación de visitas con mensajería, emisión/edición/cancelación de Pases QR (vehículo + cuadrilla/ART + WhatsApp), botón **Volver a contratar** en 1 clic, pagos (mock / Mercado Pago Checkout Pro), **conformidad final** (digital o efectivo), **Comprobante del Hogar imprimible** (`utils/receiptPrinter.js`), reclamos/garantía y reseñas cruzadas con **micro-tags tocables**.
+- **Portal Prestador (`provider/ProviderDashboard.jsx`):** Credenciales versionadas y alertas de vencimiento, visibilidad persistente por especialidad, **Tablero "Mi Reputación"** con termómetro y próximo hito, editor de **Ficha Comercial / Urgencias 24h**, **respuestas a Q&A público**, autogestión de membresía **Socio Verificado**, flota vehicular, cuadrilla/ayudantes, agenda online, bandeja de visitas, Pases QR, **resumen de ingresos netos (93%)**, comprobantes imprimibles y reseñas cruzadas.
+- **Consola Garita (`security/SecurityScanner.jsx`):** Escáner QR con cámara en vivo o ingreso manual, validación en tiempo real de vigencia, compliance (con alerta roja diferenciada ante documentos vencidos), vehículo y cuadrilla.
 - **Gobernanza y Administración (`admin/` y `branding/`):**
-  - **Modo Maestro (Superadmin):** Auditoría central de compliance, gestión de usuarios, comunidades y claves API de garita, diagnóstico del sistema y personalización de marca blanca.
-  - **Admin Local:** Reportes/suspensiones operativas locales por comunidad y alertas proactivas de vencimientos documentales.
+  - **Modo Maestro (Superadmin):** Auditoría central de compliance, gestión de membresías y mediación de reclamos post-servicio, gestión de usuarios, **licenciamiento B2B y cuota mensual QR** por comunidad, claves API de garita, diagnóstico del sistema, exportaciones **CSV** (`utils/csvExport.js`) y personalización de marca blanca.
+  - **Admin Local:** Estado de licencia B2B de la comunidad, reportes/suspensiones operativas locales, alertas proactivas de vencimientos documentales y exportaciones CSV.
 
 ---
 
@@ -48,4 +50,4 @@ Aplicación web de **TrustLink** — plataforma de servicios verificados, gesti�
 - `npm run build` — Genera el bundle de producción en `dist/`.
 - `npm run preview` — Previsualiza el build de producción.
 - `npm run lint` — Ejecuta el linter (`oxlint`).
-- `npm test` — Corre pruebas unitarias (`tests/qrEncoder.test.js`).
+- `npm test` — Corre pruebas unitarias (`tests/qrEncoder.test.js` y `tests/serviceSearchMatcher.test.js`).
