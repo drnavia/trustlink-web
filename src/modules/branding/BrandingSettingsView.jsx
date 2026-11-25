@@ -1,20 +1,24 @@
 /**
  * @file BrandingSettingsView.jsx
- * @description Vista exclusiva de 'superadmin' para configurar 12 presets rápidos (6 Dark en fila 1
- * y 6 Light en fila 2) con pares explícitos dark/light, selector de Modo Oscuro reubicado en la
- * cabecera de presets, logo opcional con vista previa directa, identidad opcional del menú,
- * fondos y tipografías de las Zonas 1 a 6 en formato compacto y persistencia en PostgreSQL.
+ * @description Vista de configuración de Apariencia (Marca y Estilos) exclusiva de `superadmin`,
+ * integrada como 3ª pestaña de `Sistema` (`embedded = true`) o accesible en modo directo:
+ * - 12 presets rápidos (6 Dark + 6 Light) con detección automática del preset activo,
+ *   muestras de alto contraste y toggle switch accesible de Modo Oscuro.
+ * - Carga y vista previa del logo institucional + identidad textual del menú.
+ * - Zonas 1 a 6 alineadas a igual altura con indicador de contraste WCAG por zona y
+ *   vista previa continua en vivo (`lg:sticky`) ensamblada en un solo marco.
+ * - Detección real de cambios sin guardar (`hasUnsavedChanges`) y confirmación en 2 clics
+ *   para `Restaurar por Defecto`.
  * @location /trustlink-web/src/modules/branding/BrandingSettingsView.jsx
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Palette,
   Save,
   RotateCcw,
   CheckCircle2,
   AlertCircle,
-  Lock,
   Upload,
   Trash2,
   Moon,
@@ -23,12 +27,15 @@ import {
   ShieldCheck,
   Sparkles,
   Type,
+  X,
 } from 'lucide-react';
 import {
   useBranding,
   DEFAULT_BRANDING_CONFIG,
   BRANDING_PRESETS,
 } from './BrandingContext';
+import { PAGE_SHELL_CLASS, FIELD_INPUT_CLASS } from '../../config/uiTokens';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
 
 // Reglas de validación para colores HEX y carga de logo institucional
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
@@ -54,7 +61,7 @@ const LIGHT_PRESET_KEYS = [
   'cyanUrban',
 ];
 
-// Definición declarativa de las 6 zonas de color editables (fondo y tipografía)
+// Definición declarativa de las 6 zonas de color editables (rótulos concisos de 1 línea)
 const ZONES_CONFIG = [
   {
     zone: 'ZONA 1',
@@ -70,7 +77,7 @@ const ZONES_CONFIG = [
   },
   {
     zone: 'ZONA 3',
-    title: 'Fondo de la plataforma general',
+    title: 'Plataforma general',
     bgField: 'platformBgColor',
     textField: 'platformTextColor',
   },
@@ -94,9 +101,95 @@ const ZONES_CONFIG = [
   },
 ];
 
+// Campos persistidos que determinan si existen cambios sin guardar
+const TRACKED_BRANDING_FIELDS = [
+  'brandName',
+  'brandBadge',
+  'brandSubtitle',
+  'menuBgColor',
+  'menuTextColor',
+  'submenuBgColor',
+  'submenuTextColor',
+  'platformBgColor',
+  'platformTextColor',
+  'cardBgColor',
+  'cardTextColor',
+  'innerBgColor',
+  'innerTextColor',
+  'footerBgColor',
+  'footerTextColor',
+  'logoUrl',
+  'darkMode',
+];
+
+/**
+ * Extrae una fotografía normalizada de los campos persistidos del branding para comparaciones.
+ *
+ * @param {Object} src - Objeto fuente (`brand` o `formState`).
+ * @returns {Object} Snapshot normalizado con valores de respaldo seguros.
+ */
+function buildBrandingSnapshot(src = {}) {
+  return {
+    brandName: src.brandName ?? DEFAULT_BRANDING_CONFIG.brandName,
+    brandBadge: src.brandBadge ?? DEFAULT_BRANDING_CONFIG.brandBadge,
+    brandSubtitle: src.brandSubtitle ?? DEFAULT_BRANDING_CONFIG.brandSubtitle,
+    menuBgColor: (src.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor).toUpperCase(),
+    menuTextColor: (src.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor).toUpperCase(),
+    submenuBgColor: (src.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor).toUpperCase(),
+    submenuTextColor: (src.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor).toUpperCase(),
+    platformBgColor: (src.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor).toUpperCase(),
+    platformTextColor: (src.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor).toUpperCase(),
+    cardBgColor: (src.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor).toUpperCase(),
+    cardTextColor: (src.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor).toUpperCase(),
+    innerBgColor: (src.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor).toUpperCase(),
+    innerTextColor: (src.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor).toUpperCase(),
+    footerBgColor: (src.footerBgColor || DEFAULT_BRANDING_CONFIG.footerBgColor).toUpperCase(),
+    footerTextColor: (src.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor).toUpperCase(),
+    logoUrl: src.logoUrl || null,
+    darkMode: typeof src.darkMode === 'boolean' ? src.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
+  };
+}
+
+/**
+ * Detecta automáticamente qué clave de `BRANDING_PRESETS` coincide con los colores activos.
+ * Si el usuario modificó colores manualmente y no coincide con ningún preset, retorna `'custom'`.
+ *
+ * @param {Object} state - Estado actual de colores.
+ * @returns {string} Clave del preset coincidente o `'custom'`.
+ */
+function detectMatchingPresetKey(state) {
+  const norm = (val) => String(val || '').trim().toUpperCase();
+  const keysToCheck = [...DARK_PRESET_KEYS, ...LIGHT_PRESET_KEYS];
+  const colorProps = ['menuBgColor', 'platformBgColor', 'cardBgColor', 'innerBgColor'];
+
+  // Primera pasada: coincidencia exacta con la variante por defecto de cada preset
+  for (const key of keysToCheck) {
+    const preset = BRANDING_PRESETS[key];
+    const variant = preset?.variants?.[preset.defaultMode];
+    if (!variant) continue;
+    if (colorProps.every((prop) => norm(state[prop]) === norm(variant[prop]))) {
+      return key;
+    }
+  }
+
+  // Segunda pasada: coincidencia con la variante alterna (par oscuro/claro)
+  for (const key of keysToCheck) {
+    const preset = BRANDING_PRESETS[key];
+    const altMode = preset?.defaultMode === 'dark' ? 'light' : 'dark';
+    const variant = preset?.variants?.[altMode];
+    if (!variant) continue;
+    if (colorProps.every((prop) => norm(state[prop]) === norm(variant[prop]))) {
+      return key;
+    }
+  }
+
+  return 'custom';
+}
+
 /**
  * Calcula la relación de contraste WCAG 2.x entre dos colores HEX (`#RRGGBB`).
- * Se utiliza para emitir avisos preventivos de legibilidad cuando alguna zona cae por debajo de 3:1.
+ * Se utiliza para mostrar badges de accesibilidad por zona y avisos preventivos < 3:1.
+ *
  * @param {string} hexA - Primer color en formato HEX de 6 dígitos.
  * @param {string} hexB - Segundo color en formato HEX de 6 dígitos.
  * @returns {number} Relación de contraste en el rango [1, 21] (retorna 4.5 si algún HEX es incompleto).
@@ -104,17 +197,11 @@ const ZONES_CONFIG = [
 const getContrastRatio = (hexA, hexB) => {
   if (!HEX_REGEX.test(hexA) || !HEX_REGEX.test(hexB)) return 4.5;
 
-  /**
-   * Linealiza un canal sRGB (2 dígitos HEX) según la fórmula de luminancia relativa WCAG.
-   * @param {string} hexSlice - Par hexadecimal del canal R, G o B.
-   * @returns {number} Componente linealizado en [0, 1].
-   */
   const channelLuminance = (hexSlice) => {
     const c = parseInt(hexSlice, 16) / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
   };
 
-  // Luminancia relativa ponderada para cada color (coeficientes Rec. 709 / WCAG)
   const lumA =
     0.2126 * channelLuminance(hexA.slice(1, 3)) +
     0.7152 * channelLuminance(hexA.slice(3, 5)) +
@@ -131,8 +218,11 @@ const getContrastRatio = (hexA, hexB) => {
 };
 
 /**
- * Panel maestro de configuración de colores, presets de piel, logo e identidad institucional.
- * Permite previsualizar cambios en tiempo real sobre toda la aplicación y persistirlos en PostgreSQL.
+ * Panel de configuración de apariencia white-label (colores, presets, logo e identidad).
+ *
+ * @param {Object} [props] - Propiedades opcionales del componente.
+ * @param {boolean} [props.embedded=false] - Si es `true`, omite contenedor y cabecera propia para integrarse dentro de `Sistema → Apariencia`.
+ * @returns {JSX.Element} Consola de personalización visual.
  */
 export default function BrandingSettingsView({ embedded = false } = {}) {
   const {
@@ -156,39 +246,38 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
-  // Estado controlado del formulario, preset activo y banderas de operación
-  const [formState, setFormState] = useState({
-    ...DEFAULT_BRANDING_CONFIG,
-    logoFileName: '',
-  });
+  // Snapshot persistido inicial para calcular con exactitud si existen cambios sin guardar
+  const initialSnapshot = useMemo(() => buildBrandingSnapshot(brand), [brand]);
+  const [savedSnapshot, setSavedSnapshot] = useState(() => buildBrandingSnapshot(brand));
+  const initializedSnapshotRef = useRef(false);
 
-  const [selectedPresetKey, setSelectedPresetKey] = useState('default');
+  // Estado controlado del formulario, preset activo y banderas de operación
+  const [formState, setFormState] = useState(() => ({
+    ...buildBrandingSnapshot(brand),
+    logoFileName: '',
+  }));
+
+  const [selectedPresetKey, setSelectedPresetKey] = useState(() =>
+    detectMatchingPresetKey(brand)
+  );
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [confirmingReset, setConfirmingReset] = useState(false);
   const [feedback, setFeedback] = useState({ type: '', text: '' });
 
-  // Sincroniza `formState` cada vez que el contexto `BrandingContext` carga o actualiza la configuración
+  // Sincroniza `formState` cuando `BrandingContext` carga por primera vez desde el backend
   useEffect(() => {
+    const snap = buildBrandingSnapshot(brand);
     setFormState((prev) => ({
       ...prev,
-      brandName: brand.brandName || DEFAULT_BRANDING_CONFIG.brandName,
-      brandBadge: brand.brandBadge || DEFAULT_BRANDING_CONFIG.brandBadge,
-      brandSubtitle: brand.brandSubtitle || DEFAULT_BRANDING_CONFIG.brandSubtitle,
-      menuBgColor: brand.menuBgColor || DEFAULT_BRANDING_CONFIG.menuBgColor,
-      menuTextColor: brand.menuTextColor || DEFAULT_BRANDING_CONFIG.menuTextColor,
-      submenuBgColor: brand.submenuBgColor || DEFAULT_BRANDING_CONFIG.submenuBgColor,
-      submenuTextColor: brand.submenuTextColor || DEFAULT_BRANDING_CONFIG.submenuTextColor,
-      platformBgColor: brand.platformBgColor || DEFAULT_BRANDING_CONFIG.platformBgColor,
-      platformTextColor: brand.platformTextColor || DEFAULT_BRANDING_CONFIG.platformTextColor,
-      cardBgColor: brand.cardBgColor || DEFAULT_BRANDING_CONFIG.cardBgColor,
-      cardTextColor: brand.cardTextColor || DEFAULT_BRANDING_CONFIG.cardTextColor,
-      innerBgColor: brand.innerBgColor || DEFAULT_BRANDING_CONFIG.innerBgColor,
-      innerTextColor: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
-      footerBgColor: brand.footerBgColor || DEFAULT_BRANDING_CONFIG.footerBgColor,
-      footerTextColor: brand.footerTextColor || DEFAULT_BRANDING_CONFIG.footerTextColor,
-      logoUrl: brand.logoUrl || null,
-      darkMode: typeof brand.darkMode === 'boolean' ? brand.darkMode : DEFAULT_BRANDING_CONFIG.darkMode,
+      ...snap,
     }));
+    if (!initializedSnapshotRef.current) {
+      initializedSnapshotRef.current = true;
+      setSavedSnapshot(snap);
+      setSelectedPresetKey(detectMatchingPresetKey(snap));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     brand.brandName,
     brand.brandBadge,
@@ -209,30 +298,46 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
     brand.darkMode,
   ]);
 
+  // Determina si hay diferencias entre la vista previa local y el último estado guardado en PostgreSQL
+  const hasUnsavedChanges = useMemo(() => {
+    const current = buildBrandingSnapshot(formState);
+    return TRACKED_BRANDING_FIELDS.some((field) => current[field] !== savedSnapshot[field]);
+  }, [formState, savedSnapshot]);
+
+  // Preset efectivo mostrado en la grilla (coincidencia exacta o `'custom'`)
+  const effectivePresetKey = useMemo(
+    () =>
+      selectedPresetKey && BRANDING_PRESETS[selectedPresetKey]
+        ? selectedPresetKey
+        : detectMatchingPresetKey(formState),
+    [selectedPresetKey, formState]
+  );
+
   /**
    * Actualiza un campo textual de identidad del menú (`brandName`, `brandBadge`, `brandSubtitle`)
    * y lo refleja inmediatamente en la vista previa global.
-   * @param {string} field - Nombre de la propiedad de identidad.
-   * @param {string} value - Nuevo valor escrito por el usuario.
    */
   const updateIdentityField = (field, value) => {
+    setConfirmingReset(false);
     setFormState((prev) => ({ ...prev, [field]: value }));
     previewBranding({ [field]: value });
   };
 
   /**
-   * Normaliza un valor HEX ingresado (agregando `#` y mayúsculas), marca el preset como `custom`
-   * y aplica la vista previa en vivo únicamente cuando el código cumple `#RRGGBB`.
-   * @param {string} field - Campo de color de zona en `formState`.
-   * @param {string} rawValue - Valor crudo del picker nativo o input HEX.
+   * Normaliza un valor HEX ingresado (agregando `#` y mayúsculas), recalcula si coincide con
+   * algún preset o pasa a `custom`, y aplica vista previa cuando el código es `#RRGGBB`.
    */
   const updateColorField = (field, rawValue) => {
+    setConfirmingReset(false);
     let cleaned = rawValue.trim().toUpperCase();
     if (cleaned && !cleaned.startsWith('#')) {
       cleaned = `#${cleaned}`;
     }
-    setSelectedPresetKey('custom');
-    setFormState((prev) => ({ ...prev, [field]: cleaned }));
+    setFormState((prev) => {
+      const next = { ...prev, [field]: cleaned };
+      setSelectedPresetKey(detectMatchingPresetKey(next));
+      return next;
+    });
     if (HEX_REGEX.test(cleaned)) {
       previewBranding({ [field]: cleaned });
     }
@@ -241,13 +346,13 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
   /**
    * Alterna entre la variante dark y light explícita del preset activo
    * (o usa el preset por defecto si se habían editado colores sueltos).
-   * @param {boolean} checked - `true` para modo oscuro, `false` para modo claro.
    */
   const handleDarkModeToggle = (checked) => {
+    setConfirmingReset(false);
     const targetMode = checked ? 'dark' : 'light';
     const baseKey =
-      selectedPresetKey && BRANDING_PRESETS[selectedPresetKey]
-        ? selectedPresetKey
+      effectivePresetKey && BRANDING_PRESETS[effectivePresetKey]
+        ? effectivePresetKey
         : 'default';
 
     const variantConfig = applyBrandingPreset(baseKey, targetMode);
@@ -261,12 +366,12 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
   /**
    * Aplica inmediatamente uno de los 12 presets del catálogo usando su modo por defecto
    * y sincroniza todos los controles de color del formulario.
-   * @param {string} presetKey - Clave del preset dentro de `BRANDING_PRESETS`.
    */
   const handleApplyPreset = (presetKey) => {
     const presetObj = BRANDING_PRESETS[presetKey];
     if (!presetObj) return;
     setFeedback({ type: '', text: '' });
+    setConfirmingReset(false);
     setSelectedPresetKey(presetKey);
     const variantConfig = applyBrandingPreset(presetKey, presetObj.defaultMode);
     setFormState((prev) => ({
@@ -278,13 +383,13 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
   /**
    * Valida tipo MIME/extensión (SVG, PNG, JPG) y tamaño máximo (1 MB) del archivo elegido,
    * lo convierte a Data URL mediante `FileReader` y lo aplica en la vista previa en vivo.
-   * @param {React.ChangeEvent<HTMLInputElement>} e
    */
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFeedback({ type: '', text: '' });
+    setConfirmingReset(false);
 
     const mime = (file.type || '').toLowerCase();
     const ext = (file.name.split('.').pop() || '').toLowerCase();
@@ -328,6 +433,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
    */
   const handleRemoveLogo = () => {
     setFeedback({ type: '', text: '' });
+    setConfirmingReset(false);
     setFormState((prev) => ({
       ...prev,
       logoUrl: null,
@@ -339,11 +445,11 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
   /**
    * Valida que los 12 colores de las 6 zonas tengan formato HEX válido y persiste
    * toda la configuración en PostgreSQL vía `BrandingContext.saveBranding`.
-   * @param {React.FormEvent<HTMLFormElement>} e
    */
   const handleSave = async (e) => {
     e.preventDefault();
     setFeedback({ type: '', text: '' });
+    setConfirmingReset(false);
 
     const allColorFields = ZONES_CONFIG.flatMap((z) => [
       formState[z.bgField],
@@ -358,31 +464,14 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
       return;
     }
 
+    const payload = buildBrandingSnapshot(formState);
     setSaving(true);
     try {
-      await saveBranding({
-        brandName: formState.brandName,
-        brandBadge: formState.brandBadge,
-        brandSubtitle: formState.brandSubtitle,
-        menuBgColor: formState.menuBgColor,
-        menuTextColor: formState.menuTextColor,
-        submenuBgColor: formState.submenuBgColor,
-        submenuTextColor: formState.submenuTextColor,
-        platformBgColor: formState.platformBgColor,
-        platformTextColor: formState.platformTextColor,
-        cardBgColor: formState.cardBgColor,
-        cardTextColor: formState.cardTextColor,
-        innerBgColor: formState.innerBgColor,
-        innerTextColor: formState.innerTextColor,
-        footerBgColor: formState.footerBgColor,
-        footerTextColor: formState.footerTextColor,
-        logoUrl: formState.logoUrl,
-        darkMode: formState.darkMode,
-      });
-
+      await saveBranding(payload);
+      setSavedSnapshot(payload);
       setFeedback({
         type: 'success',
-        text: 'Colores y marca guardados en PostgreSQL y aplicados en toda la plataforma.',
+        text: 'Apariencia guardada en PostgreSQL y aplicada en toda la plataforma.',
       });
     } catch (error) {
       setFeedback({
@@ -395,22 +484,24 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
   };
 
   /**
-   * Restaura la apariencia a los valores institucionales por defecto y guarda el reseteo en el servidor.
+   * Restaura la apariencia a los valores institucionales por defecto tras confirmación explícita.
    */
-  const handleReset = async () => {
+  const handleConfirmReset = async () => {
     setFeedback({ type: '', text: '' });
     setResetting(true);
     try {
-      const target = defaults || DEFAULT_BRANDING_CONFIG;
+      const target = buildBrandingSnapshot(defaults || DEFAULT_BRANDING_CONFIG);
       await resetBranding();
       setSelectedPresetKey('default');
+      setSavedSnapshot(target);
       setFormState({
         ...target,
         logoFileName: '',
       });
+      setConfirmingReset(false);
       setFeedback({
         type: 'success',
-        text: 'Configuración restaurada a los valores por defecto de TrustLink.',
+        text: 'Apariencia restaurada a los valores por defecto de TrustLink.',
       });
     } catch (error) {
       setFeedback({
@@ -427,24 +518,36 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
    */
   const handleDiscardPreview = async () => {
     setFeedback({ type: '', text: '' });
-    setSelectedPresetKey('default');
-    await fetchBranding();
+    setConfirmingReset(false);
+    const fresh = await fetchBranding();
+    const snap = buildBrandingSnapshot(fresh || savedSnapshot || initialSnapshot);
+    setSavedSnapshot(snap);
+    setFormState({ ...snap, logoFileName: '' });
+    setSelectedPresetKey(detectMatchingPresetKey(snap));
   };
 
-  // Bandera de alerta WCAG: se activa si al menos una zona tiene relación de contraste inferior a 3:1
-  const hasLowContrastWarning = ZONES_CONFIG.some(
-    (z) => getContrastRatio(formState[z.bgField], formState[z.textField]) < 3
+  // Relación de contraste WCAG por zona + alerta global si alguna cae por debajo de 3:1
+  const zoneContrastMap = useMemo(() => {
+    const map = {};
+    ZONES_CONFIG.forEach((z) => {
+      map[z.zone] = getContrastRatio(formState[z.bgField], formState[z.textField]);
+    });
+    return map;
+  }, [formState]);
+
+  const hasLowContrastWarning = useMemo(
+    () => Object.values(zoneContrastMap).some((ratio) => ratio < 3),
+    [zoneContrastMap]
   );
 
   /**
-   * Renderiza una tarjeta clickeable de preset rápido con su etiqueta de grupo y 4 muestras de color.
-   * @param {string} presetKey - Clave del preset en `BRANDING_PRESETS`.
-   * @returns {JSX.Element|null}
+   * Renderiza una tarjeta clickeable de preset rápido con 4 muestras visibles de alto contraste
+   * (fondo de plataforma, cajas internas, menú y acento/tipografía) e indicador índigo unificado.
    */
   const renderPresetCard = (presetKey) => {
     const preset = BRANDING_PRESETS[presetKey];
     if (!preset) return null;
-    const isSelected = selectedPresetKey === presetKey;
+    const isSelected = effectivePresetKey === presetKey;
     const baseSwatch = preset.variants[preset.defaultMode] || preset.variants.dark;
 
     return (
@@ -453,40 +556,41 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
         type="button"
         onClick={() => handleApplyPreset(presetKey)}
         title={preset.description}
-        className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
+        className={`px-3 py-2.5 rounded-xl border text-left transition-all flex items-center justify-between gap-2 cursor-pointer ${
           isSelected
-            ? 'border-emerald-400 ring-2 ring-emerald-500/40'
+            ? 'border-indigo-400 ring-2 ring-indigo-500/40 shadow-sm'
             : 'border-white/15 hover:border-white/30'
         }`}
         style={cardStyle}
       >
         <div className="min-w-0">
           <p className="text-[11px] font-bold truncate">{preset.name}</p>
-          <span className="text-[9px] font-mono opacity-70 uppercase">
+          <span className="text-[9px] font-mono opacity-65 uppercase">
             {preset.group}
           </span>
         </div>
 
-        <div className="flex items-center gap-0.5 shrink-0">
+        {/* 4 muestras distinguibles en Dark y Light gracias al aro sutil + muestra de tipografía/acento */}
+        <div className="flex items-center gap-1 shrink-0">
           <span
-            className="w-2.5 h-2.5 rounded-full border border-black/30"
-            style={{ backgroundColor: baseSwatch.menuBgColor }}
-            title="Zona 1 — Menú"
-          />
-          <span
-            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            className="w-3 h-3 rounded-full ring-1 ring-white/30 shadow-xs"
             style={{ backgroundColor: baseSwatch.platformBgColor }}
             title="Zona 3 — Plataforma"
           />
           <span
-            className="w-2.5 h-2.5 rounded-full border border-black/30"
-            style={{ backgroundColor: baseSwatch.cardBgColor }}
-            title="Zona 4 — Tarjetas"
-          />
-          <span
-            className="w-2.5 h-2.5 rounded-full border border-black/30"
+            className="w-3 h-3 rounded-full ring-1 ring-white/30 shadow-xs"
             style={{ backgroundColor: baseSwatch.innerBgColor }}
             title="Zona 5 — Cajas internas"
+          />
+          <span
+            className="w-3 h-3 rounded-full ring-1 ring-white/30 shadow-xs"
+            style={{ backgroundColor: baseSwatch.menuBgColor }}
+            title="Zona 1 — Menú"
+          />
+          <span
+            className="w-3 h-3 rounded-full ring-1 ring-white/30 shadow-xs"
+            style={{ backgroundColor: baseSwatch.footerTextColor || baseSwatch.menuTextColor }}
+            title="Acento / Tipografía"
           />
         </div>
       </button>
@@ -495,9 +599,6 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
 
   /**
    * Renderiza un control compacto de color compuesto por selector nativo y campo HEX sincronizados.
-   * @param {string} label - Etiqueta visible ('Fondo' | 'Tipografía').
-   * @param {string} field - Nombre de la propiedad de color en `formState`.
-   * @returns {JSX.Element}
    */
   const renderCompactColorInput = (label, field) => {
     const value = formState[field];
@@ -505,7 +606,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
 
     return (
       <div
-        className="flex items-center justify-between gap-2 border border-black/20 px-2.5 py-1.5 rounded-lg"
+        className="flex items-center justify-between gap-2 border border-white/10 px-2.5 py-1.5 rounded-lg"
         style={cardStyle}
       >
         <span className="text-[11px] font-medium opacity-85">{label}</span>
@@ -539,78 +640,80 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
     (formState.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle;
 
   return (
-    <div
-      className={
-        embedded
-          ? 'space-y-6 font-sans'
-          : 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans'
-      }
-    >
+    <div className={embedded ? 'space-y-6 font-sans' : `${PAGE_SHELL_CLASS} font-sans`}>
+      {/* Cabecera propia únicamente cuando se renderiza fuera de Sistema (compatibilidad directa) */}
+      {!embedded && (
+        <AdminPageHeader
+          icon={<Palette size={22} strokeWidth={1.8} />}
+          iconColorClass="text-emerald-400"
+          title="Apariencia"
+          subtitle="Presets de piel, logo institucional, identidad del menú y colores por zona."
+          cardStyle={cardStyle}
+          innerStyle={innerStyle}
+        />
+      )}
+
       <form
         onSubmit={handleSave}
-        className="w-full p-5 sm:p-6 md:p-8 rounded-2xl border border-white/10 shadow-sm space-y-6"
+        className="w-full p-5 sm:p-6 rounded-2xl border border-white/10 shadow-sm space-y-6"
         style={cardStyle}
       >
-        {/* Encabezado */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-white/10 gap-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="p-3 rounded-xl border border-white/15 text-emerald-400"
-              style={innerStyle}
-            >
-              <Palette size={22} />
-            </div>
-            <div>
-              <h2 className="text-xl font-black text-white">
-                Colores / Marca
-              </h2>
-              <p className="text-xs opacity-80 mt-0.5">
-                Identidad del menú, fondos y tipografías de Zona 1 a Zona 6, presets rápidos, logo y modo oscuro.
-              </p>
-            </div>
-          </div>
-
-          <span
-            className="text-xs font-bold text-emerald-400 px-4 py-2 rounded-xl border border-white/15 inline-flex items-center gap-1.5 self-start md:self-auto"
-            style={innerStyle}
-          >
-            <Lock size={13} /> Acceso Maestro
-          </span>
-        </div>
-
-        {/* 1. Presets de Piel Rápidos (Fila 1: 6 Dark · Fila 2: 6 Light) + Switch Modo Oscuro Reubicado */}
+        {/* 1. Presets de Piel Rápidos (Fila 1: 6 Dark · Fila 2: 6 Light) + Toggle Modo Oscuro */}
         <section
-          className="border border-black/20 p-4 rounded-2xl space-y-3"
+          className="border border-white/10 p-4 rounded-2xl space-y-3"
           style={innerStyle}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-emerald-400">
-                <Sparkles size={14} /> Presets de Piel Rápidos
-              </h3>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5 text-emerald-400">
+                  <Sparkles size={14} /> Presets de Piel Rápidos
+                </h3>
+                {effectivePresetKey === 'custom' && (
+                  <span
+                    className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-indigo-400/50 bg-indigo-950/60 text-indigo-200"
+                  >
+                    Personalizado
+                  </span>
+                )}
+                {hasUnsavedChanges && (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold border border-amber-500/50 bg-amber-950/60 text-amber-200">
+                    Cambios sin guardar (vista previa)
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] opacity-80 mt-0.5">
                 Fila superior: 6 estilos Dark · Fila inferior: 6 estilos Light. Cada preset adapta su par oscuro/claro al alternar Modo Oscuro.
               </p>
             </div>
 
-            {/* Control Modo Oscuro reubicado en la cabecera de Presets */}
-            <label
-              className="inline-flex items-center gap-2.5 border border-white/15 px-3 py-1.5 rounded-xl cursor-pointer text-xs font-bold self-start sm:self-auto shrink-0"
+            {/* Toggle switch moderno y accesible para Modo Oscuro */}
+            <button
+              type="button"
+              role="switch"
+              aria-checked={Boolean(formState.darkMode)}
+              onClick={() => handleDarkModeToggle(!formState.darkMode)}
+              className="inline-flex items-center gap-2.5 border border-white/15 px-3 py-1.5 rounded-xl cursor-pointer text-xs font-bold self-start sm:self-auto shrink-0 transition-opacity hover:opacity-95"
               style={cardStyle}
             >
               {formState.darkMode ? (
-                <Moon size={14} className="text-emerald-400 shrink-0" />
+                <Moon size={14} className="text-indigo-300 shrink-0" />
               ) : (
                 <Sun size={14} className="text-amber-400 shrink-0" />
               )}
-              <span>Modo Oscuro: {formState.darkMode ? 'Activado' : 'Desactivado'}</span>
-              <input
-                type="checkbox"
-                checked={Boolean(formState.darkMode)}
-                onChange={(e) => handleDarkModeToggle(e.target.checked)}
-                className="w-4 h-4 accent-emerald-500 cursor-pointer"
-              />
-            </label>
+              <span>Modo Oscuro</span>
+              <span
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                  formState.darkMode ? 'bg-indigo-600' : 'bg-slate-500/60'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                    formState.darkMode ? 'translate-x-4.5' : 'translate-x-1'
+                  }`}
+                />
+              </span>
+            </button>
           </div>
 
           {/* Fila 1: 6 Presets Dark */}
@@ -642,21 +745,21 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
           </div>
         )}
 
-        {/* Aviso preventivo de contraste */}
+        {/* Aviso preventivo de contraste global */}
         {hasLowContrastWarning && (
           <div className="p-3.5 rounded-xl text-xs flex items-center gap-2 border bg-amber-950/50 border-amber-800/70 text-amber-200">
             <AlertCircle size={16} className="text-amber-400 shrink-0" />
             <span>
-              Aviso de contraste: en alguna de las zonas el color de tipografía y el color de fondo tienen bajo contraste.
+              Aviso de contraste: una o más zonas tienen baja legibilidad entre fondo y tipografía (marcadas abajo en ámbar).
             </span>
           </div>
         )}
 
         {/* 2. Fila Intermedia: Logo con vista previa directa + Identidad del Menú */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Tarjeta de carga y vista previa del logo institucional */}
           <div
-            className="lg:col-span-5 border border-black/20 p-4 rounded-xl flex flex-col justify-between space-y-3"
+            className="lg:col-span-5 border border-white/10 p-4 rounded-2xl flex flex-col justify-between space-y-3"
             style={innerStyle}
           >
             <div className="flex items-start justify-between gap-3">
@@ -692,7 +795,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <div className="flex items-center gap-2">
                 <label
-                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold border border-white/15 cursor-pointer transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 transition-opacity"
                   style={cardStyle}
                 >
                   <Upload size={13} /> Subir logo
@@ -708,7 +811,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
                   <button
                     type="button"
                     onClick={handleRemoveLogo}
-                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-rose-950/60 hover:bg-rose-900/70 text-xs font-bold text-rose-200 border border-rose-800 cursor-pointer transition-colors"
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-rose-950/60 hover:bg-rose-900/70 text-xs font-bold text-rose-200 border border-rose-800 cursor-pointer transition-colors"
                   >
                     <Trash2 size={13} /> Quitar
                   </button>
@@ -719,15 +822,15 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
                 {formState.logoFileName
                   ? formState.logoFileName
                   : formState.logoUrl
-                  ? 'Logo personalizado'
-                  : 'Emblema por defecto'}
+                    ? 'Logo personalizado'
+                    : 'Emblema por defecto'}
               </span>
             </div>
           </div>
 
           {/* Tarjeta de campos de identidad textual del encabezado (nombre, badge y subtítulo) */}
           <div
-            className="lg:col-span-7 border border-black/20 p-4 rounded-xl space-y-3"
+            className="lg:col-span-7 border border-white/10 p-4 rounded-2xl space-y-3"
             style={innerStyle}
           >
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
@@ -750,7 +853,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
                   value={formState.brandName}
                   onChange={(e) => updateIdentityField('brandName', e.target.value)}
                   placeholder="TrustLink"
-                  className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
                   style={cardStyle}
                 />
               </div>
@@ -765,7 +868,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
                   value={formState.brandBadge}
                   onChange={(e) => updateIdentityField('brandBadge', e.target.value)}
                   placeholder="Community"
-                  className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
                   style={cardStyle}
                 />
               </div>
@@ -780,7 +883,7 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
                   value={formState.brandSubtitle}
                   onChange={(e) => updateIdentityField('brandSubtitle', e.target.value)}
                   placeholder="Red de Confianza Residencial"
-                  className="w-full px-3 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                  className={`w-full px-3 ${FIELD_INPUT_CLASS}`}
                   style={cardStyle}
                 />
               </div>
@@ -788,170 +891,228 @@ export default function BrandingSettingsView({ embedded = false } = {}) {
           </div>
         </div>
 
-        {/* 3. Zonas 1 a 6 Minimalistas + Vista Previa en Vivo Alineada a la Altura de ZONA 1 */}
+        {/* 3. Zonas 1 a 6 alineadas + Vista Previa continua sticky */}
         <div className="space-y-3">
           <h3 className="text-xs font-bold uppercase tracking-wider opacity-80">
             Zonas 1 a 6 — Fondo y Tipografía
           </h3>
 
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Filas compactas de Zonas 1 a 6 */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+            {/* Columna Izquierda: 6 filas uniformes con indicador de contraste WCAG */}
             <div className="lg:col-span-7 space-y-2.5">
-              {ZONES_CONFIG.map((item) => (
-                <div
-                  key={item.zone}
-                  className="border border-black/20 px-3.5 py-2.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                  style={innerStyle}
-                >
-                  <div className="min-w-0">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 mr-2">
-                      {item.zone}
-                    </span>
-                    <span className="text-xs font-bold">{item.title}</span>
-                  </div>
+              {ZONES_CONFIG.map((item) => {
+                const ratio = zoneContrastMap[item.zone] ?? 4.5;
+                const isLow = ratio < 3;
+                const isMedium = ratio >= 3 && ratio < 4.5;
+                return (
+                  <div
+                    key={item.zone}
+                    className={`border px-3.5 py-2.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+                      isLow ? 'border-amber-500/70' : 'border-white/10'
+                    }`}
+                    style={innerStyle}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 shrink-0">
+                        {item.zone}
+                      </span>
+                      <span className="text-xs font-bold truncate">{item.title}</span>
+                      {isLow ? (
+                        <span
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-700/70 shrink-0"
+                          title={`Contraste WCAG ${ratio.toFixed(1)}:1 (recomendado ≥ 4.5:1)`}
+                        >
+                          Bajo ({ratio.toFixed(1)}:1)
+                        </span>
+                      ) : isMedium ? (
+                        <span
+                          className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-800/70 text-slate-300 border border-white/10 shrink-0"
+                          title={`Contraste WCAG ${ratio.toFixed(1)}:1`}
+                        >
+                          {ratio.toFixed(1)}:1
+                        </span>
+                      ) : null}
+                    </div>
 
-                  <div className="grid grid-cols-2 gap-2 shrink-0">
-                    {renderCompactColorInput('Fondo', item.bgField)}
-                    {renderCompactColorInput('Tipografía', item.textField)}
+                    <div className="grid grid-cols-2 gap-2 shrink-0">
+                      {renderCompactColorInput('Fondo', item.bgField)}
+                      {renderCompactColorInput('Tipografía', item.textField)}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
-            {/* Columna Derecha: Vista Previa en Vivo alineada a la altura de ZONA 1 */}
+            {/* Columna Derecha: Vista Previa continua en un único marco sticky */}
             <div
-              className="lg:col-span-5 border border-black/20 p-4 rounded-2xl space-y-3"
+              className="lg:col-span-5 lg:sticky lg:top-20 border border-white/10 p-4 rounded-2xl space-y-3"
               style={innerStyle}
             >
-              <div className="flex items-center justify-between border-b border-black/20 pb-2.5">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2.5">
                 <span className="text-xs font-bold">Vista previa en vivo</span>
                 <span className="text-[11px] opacity-80">
                   {formState.darkMode ? 'Modo oscuro' : 'Modo claro'}
                 </span>
               </div>
 
-              {/* Zona 1: Menú */}
-              <div
-                className="px-3.5 py-2.5 rounded-t-xl border border-black/20 flex items-center justify-between gap-2"
-                style={{
-                  backgroundColor: formState.menuBgColor,
-                  color: formState.menuTextColor,
-                }}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  {formState.logoUrl ? (
-                    <img
-                      src={formState.logoUrl}
-                      alt={previewTitle}
-                      className="h-8 w-auto max-w-24 object-contain rounded"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
-                      <ShieldCheck size={16} />
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-black truncate">{previewTitle}</span>
-                      <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/25 border border-white/15 shrink-0">
-                        {previewBadge}
-                      </span>
-                    </div>
-                    <p className="text-[10px] opacity-80 truncate">{previewSubtitle}</p>
-                  </div>
-                </div>
-                <span className="text-[10px] opacity-75 shrink-0">Zona 1</span>
-              </div>
-
-              {/* Zona 2: Sub-menú */}
-              <div
-                className="px-3.5 py-2 border-x border-black/20 flex items-center justify-between text-[11px]"
-                style={{
-                  backgroundColor: formState.submenuBgColor,
-                  color: formState.submenuTextColor,
-                }}
-              >
-                <span className="font-semibold">Zona 2 — Sub-menú</span>
-                <span className="opacity-80">Modo Maestro</span>
-              </div>
-
-              {/* Zona 3: Fondo Plataforma + Zona 4 Tarjeta + Zona 5 Caja Interna */}
-              <div
-                className="p-3.5 border-x border-black/20 space-y-2.5"
-                style={{
-                  backgroundColor: formState.platformBgColor,
-                  color: formState.platformTextColor,
-                }}
-              >
-                <p className="text-[11px] font-semibold">Zona 3 — Fondo de la plataforma general</p>
-
-                {/* Zona 4: Tarjeta principal */}
+              {/* Marco continuo Zonas 1 → 6 sin huecos artificiales */}
+              <div className="rounded-xl overflow-hidden border border-white/15 shadow-sm">
+                {/* Zona 1: Menú */}
                 <div
-                  className="p-3 rounded-xl border border-black/20 space-y-2"
+                  className="px-3.5 py-2.5 border-b border-white/10 flex items-center justify-between gap-2"
                   style={{
-                    backgroundColor: formState.cardBgColor,
-                    color: formState.cardTextColor,
+                    backgroundColor: formState.menuBgColor,
+                    color: formState.menuTextColor,
                   }}
                 >
-                  <p className="text-xs font-bold">Zona 4 — Tarjetas principales</p>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {formState.logoUrl ? (
+                      <img
+                        src={formState.logoUrl}
+                        alt={previewTitle}
+                        className="h-8 w-auto max-w-24 object-contain rounded"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                        <ShieldCheck size={16} />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black truncate">{previewTitle}</span>
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-black/25 border border-white/15 shrink-0">
+                          {previewBadge}
+                        </span>
+                      </div>
+                      <p className="text-[10px] opacity-80 truncate">{previewSubtitle}</p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] opacity-75 shrink-0">Zona 1</span>
+                </div>
 
-                  {/* Zona 5: Caja interna */}
+                {/* Zona 2: Sub-menú */}
+                <div
+                  className="px-3.5 py-2 border-b border-white/10 flex items-center justify-between text-[11px]"
+                  style={{
+                    backgroundColor: formState.submenuBgColor,
+                    color: formState.submenuTextColor,
+                  }}
+                >
+                  <span className="font-semibold">Zona 2 — Sub-menú</span>
+                  <span className="opacity-80">Administración</span>
+                </div>
+
+                {/* Zona 3: Plataforma general + Zona 4 Tarjeta + Zona 5 Caja Interna */}
+                <div
+                  className="p-3.5 space-y-2.5"
+                  style={{
+                    backgroundColor: formState.platformBgColor,
+                    color: formState.platformTextColor,
+                  }}
+                >
+                  <p className="text-[11px] font-semibold">Zona 3 — Plataforma general</p>
+
+                  {/* Zona 4: Tarjeta principal */}
                   <div
-                    className="p-2 rounded-lg border border-black/20 text-[11px]"
+                    className="p-3 rounded-xl border border-white/10 space-y-2"
                     style={{
-                      backgroundColor: formState.innerBgColor,
-                      color: formState.innerTextColor,
+                      backgroundColor: formState.cardBgColor,
+                      color: formState.cardTextColor,
                     }}
                   >
-                    Zona 5 — Cajas internas
+                    <p className="text-xs font-bold">Zona 4 — Tarjetas principales</p>
+
+                    {/* Zona 5: Caja interna */}
+                    <div
+                      className="p-2 rounded-lg border border-white/10 text-[11px]"
+                      style={{
+                        backgroundColor: formState.innerBgColor,
+                        color: formState.innerTextColor,
+                      }}
+                    >
+                      Zona 5 — Cajas internas
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Zona 6: Footer */}
-              <div
-                className="px-3.5 py-2 rounded-b-xl border border-black/20 text-[11px] text-center"
-                style={{
-                  backgroundColor: formState.footerBgColor,
-                  color: formState.footerTextColor,
-                }}
-              >
-                Zona 6 — Footer
+                {/* Zona 6: Footer */}
+                <div
+                  className="px-3.5 py-2 border-t border-white/10 text-[11px] text-center"
+                  style={{
+                    backgroundColor: formState.footerBgColor,
+                    color: formState.footerTextColor,
+                  }}
+                >
+                  Zona 6 — Footer
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* 4. Botones de Guardar y Restaurar */}
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-black/20">
-          <button
-            type="submit"
-            disabled={saving || resetting}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-          >
-            <Save size={15} />
-            {saving ? 'Guardando...' : 'Guardar y Aplicar'}
-          </button>
+        {/* 4. Barra de acciones con dirty-state real y confirmación en 2 clics para Restaurar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t border-white/10">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              type="submit"
+              disabled={saving || resetting || !hasUnsavedChanges}
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+            >
+              <Save size={15} />
+              {saving ? 'Guardando...' : 'Guardar y Aplicar'}
+            </button>
 
-          <button
-            type="button"
-            onClick={handleReset}
-            disabled={saving || resetting}
-            className="px-4 py-2.5 rounded-xl text-xs font-bold border border-white/15 inline-flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
-            style={innerStyle}
-          >
-            <RotateCcw size={14} />
-            {resetting ? 'Restaurando...' : 'Restaurar por Defecto'}
-          </button>
+            {hasUnsavedChanges && (
+              <button
+                type="button"
+                onClick={handleDiscardPreview}
+                disabled={saving || resetting}
+                className="px-3.5 py-2.5 rounded-xl text-xs font-semibold border border-white/15 opacity-85 hover:opacity-100 transition-opacity cursor-pointer"
+                style={innerStyle}
+              >
+                Descartar cambios
+              </button>
+            )}
+          </div>
 
-          <button
-            type="button"
-            onClick={handleDiscardPreview}
-            disabled={saving || resetting}
-            className="px-3.5 py-2.5 rounded-xl text-xs font-semibold opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
-          >
-            Descartar cambios sin guardar
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {confirmingReset ? (
+              <>
+                <span className="text-[11px] text-amber-300 font-semibold">
+                  ¿Restaurar valores de fábrica?
+                </span>
+                <button
+                  type="button"
+                  onClick={handleConfirmReset}
+                  disabled={resetting}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RotateCcw size={13} />
+                  {resetting ? 'Restaurando...' : 'Confirmar restauración'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReset(false)}
+                  disabled={resetting}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold border border-white/15 inline-flex items-center gap-1 cursor-pointer"
+                  style={innerStyle}
+                >
+                  <X size={13} /> Cancelar
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmingReset(true)}
+                disabled={saving || resetting}
+                className="px-4 py-2.5 rounded-xl text-xs font-bold border border-white/15 inline-flex items-center gap-2 transition-all hover:opacity-90 cursor-pointer disabled:opacity-45"
+                style={innerStyle}
+              >
+                <RotateCcw size={14} />
+                Restaurar por Defecto
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>
