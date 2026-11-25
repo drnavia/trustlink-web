@@ -223,8 +223,8 @@ export default function SystemHealthDashboard({ onNavigate } = {}) {
     color: brand?.innerTextColor || '#F1F5F9',
   };
 
-  // Pestaña activa de la consola ('health' | 'audit' | 'endpoints')
-  const [activeTab, setActiveTab] = useState('health');
+  // Pestaña activa de la consola ('audit' | 'health' | 'endpoints')
+  const [activeTab, setActiveTab] = useState('audit');
 
   // Estado de salud, latencia HTTP y diagnóstico de backend y base de datos
   const [loadingStatus, setLoadingStatus] = useState(true);
@@ -788,49 +788,60 @@ export default function SystemHealthDashboard({ onNavigate } = {}) {
             <div>
               <h2 className="text-xl font-black tracking-tight">Auditoría y Sistema</h2>
               <p className="text-xs opacity-80 mt-0.5">
-                Monitoreo técnico, pases QR, sandbox de garita, auditoría de accesos, transacciones y endpoints.
+                Bitácora de accesos y transacciones, monitoreo técnico, pases QR, sandbox de garita y endpoints.
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Selector de pestañas principales de la consola */}
+            {/* Selector de pestañas ordenado por uso operativo -> técnico, todas con ícono y accesibilidad ARIA */}
             <div
-              className="inline-flex rounded-xl p-1 border border-white/15"
+              role="tablist"
+              aria-label="Secciones de Auditoría y Sistema"
+              className="inline-flex items-center gap-1 rounded-xl p-1 border border-white/15"
               style={innerStyle}
             >
               <button
                 type="button"
-                onClick={() => setActiveTab('health')}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'health'
-                    ? 'bg-indigo-600 text-white'
-                    : 'opacity-80 hover:opacity-100'
-                }`}
-              >
-                Resumen
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab('endpoints')}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                  activeTab === 'endpoints'
-                    ? 'bg-indigo-600 text-white'
-                    : 'opacity-80 hover:opacity-100'
-                }`}
-              >
-                <Webhook size={13} /> Endpoints
-              </button>
-              <button
-                type="button"
+                role="tab"
+                aria-selected={activeTab === 'audit'}
                 onClick={() => setActiveTab('audit')}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                   activeTab === 'audit'
-                    ? 'bg-indigo-600 text-white'
+                    ? 'bg-indigo-600 text-white shadow-sm'
                     : 'opacity-80 hover:opacity-100'
                 }`}
               >
-                <ClipboardList size={13} /> Auditoría
+                <ClipboardList size={13} />
+                <span>Auditoría</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'health'}
+                onClick={() => setActiveTab('health')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'health'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'opacity-80 hover:opacity-100'
+                }`}
+              >
+                <Activity size={13} />
+                <span>Salud y Pases</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeTab === 'endpoints'}
+                onClick={() => setActiveTab('endpoints')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  activeTab === 'endpoints'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'opacity-80 hover:opacity-100'
+                }`}
+              >
+                <Webhook size={13} />
+                <span>Endpoints</span>
               </button>
             </div>
 
