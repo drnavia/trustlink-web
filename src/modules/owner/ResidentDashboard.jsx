@@ -54,7 +54,10 @@ import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
-import ProviderTrustBadge from '../../components/ProviderTrustBadge';
+import ProviderTrustBadge, {
+  TrustChecksStrip,
+  TrustLevelsGuide,
+} from '../../components/ProviderTrustBadge';
 import {
   HomeProtectedBadge,
   ReputationThermometer,
@@ -346,6 +349,7 @@ export default function ResidentDashboard({
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [onlyAvailableToday, setOnlyAvailableToday] = useState(false);
   const [onlyEmergencies, setOnlyEmergencies] = useState(false);
+  const [showTrustGuide, setShowTrustGuide] = useState(false);
   const [togglingFavoriteUserId, setTogglingFavoriteUserId] = useState(null);
   const [directorySortBy, setDirectorySortBy] = useState('featured');
   const [reviewsModalProvider, setReviewsModalProvider] = useState(null);
@@ -2000,20 +2004,34 @@ export default function ResidentDashboard({
       {/* PASO 1: DIRECTORIO DE PRESTADORES VERIFICADOS */}
       {activeStep === 'providers' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          {/* Encabezado del directorio, buscador por texto y actualización manual */}
+          {/* Encabezado del directorio, guía de niveles de confianza, buscador y actualización */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                 <Users size={18} className="text-emerald-400 shrink-0" />
-                <span>Directorio de Prestadores Verificados</span>
+                <span>Directorio de Prestadores</span>
               </h2>
               <p className="text-xs opacity-75">
-                Consultá si ya lo contactaste, revisá el estado de confirmación y pasá a Visitas o Pases QR.
+                Compará el nivel de respaldo documental (1 a 5) y la experiencia de otros vecinos antes de contratar.
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1 md:w-72">
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowTrustGuide((prev) => !prev)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+                  showTrustGuide
+                    ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
+                    : 'border-white/15 opacity-85 hover:opacity-100'
+                }`}
+                style={showTrustGuide ? undefined : innerStyle}
+              >
+                <HelpCircle size={13} className="shrink-0" />
+                <span>Niveles de confianza</span>
+              </button>
+
+              <div className="relative flex-1 min-w-55 md:w-72">
                 <Search
                   size={15}
                   className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
@@ -2055,6 +2073,14 @@ export default function ResidentDashboard({
 
           {/* Sello UX Hogar Protegido TrustLink (3 garantías antes de contratar) */}
           <HomeProtectedBadge variant="compact" />
+
+          {/* Guía desplegable de los 5 niveles de confianza */}
+          {showTrustGuide && (
+            <TrustLevelsGuide
+              innerStyle={innerStyle}
+              onClose={() => setShowTrustGuide(false)}
+            />
+          )}
 
           {/* Sugerencias inteligentes cuando el residente busca por síntoma o problema */}
           {directorySearchSuggestions.length > 0 && (
@@ -2285,87 +2311,90 @@ export default function ResidentDashboard({
                 const visibleSpecialties = orderedSpecialties.slice(0, MAX_VISIBLE_CARD_SPECIALTIES);
                 const extraSpecialties = orderedSpecialties.slice(MAX_VISIBLE_CARD_SPECIALTIES);
 
+                const cardTrust = provider.trust_badge || {
+                  level: isVerifiedMember ? 5 : 4,
+                  label: isVerifiedMember ? membershipBadgeLabel : 'Verificado',
+                  tone: hasExpiredDocs ? 'danger' : isVerifiedMember ? 'gold' : 'emerald',
+                  can_issue_pass: !hasExpiredDocs,
+                  has_expired_docs: hasExpiredDocs,
+                };
+                const trustLevel = Number(provider.trust_level ?? cardTrust.level ?? 0);
+                const trustBandClass = hasExpiredDocs
+                  ? 'border-rose-500/40 bg-rose-950/35'
+                  : trustLevel >= 5
+                    ? 'border-amber-400/45 bg-amber-500/10'
+                    : trustLevel === 4
+                      ? 'border-emerald-500/40 bg-emerald-500/10'
+                      : 'border-white/10 bg-black/20';
+                const cardRingClass = hasExpiredDocs
+                  ? 'border-rose-500/45'
+                  : trustLevel >= 5
+                    ? 'border-amber-400/60 ring-1 ring-amber-400/25'
+                    : trustLevel === 4
+                      ? 'border-emerald-500/45'
+                      : '';
+                const trustSummaryLine = hasExpiredDocs
+                  ? 'Documentación vencida · Emisión de Pase QR pausada'
+                  : trustLevel >= 5
+                    ? 'Máxima confianza · Verificado con prioridad y Pase QR'
+                    : trustLevel === 4
+                      ? 'Respaldo completo · Habilitado para Pase QR en garita'
+                      : trustLevel === 3
+                        ? 'Documentación en validación · Solo consultas (sin Pase QR aún)'
+                        : 'Solo consultas y presupuesto · Aún sin Pase QR en garita';
+
                 return (
                   <article
                     key={providerId}
-                    className={`${ITEM_CARD_CLASS} ${
-                      isVerifiedMember ? 'border-amber-500/45 ring-1 ring-amber-500/20' : ''
-                    }`}
+                    className={`${ITEM_CARD_CLASS} ${cardRingClass}`}
                     style={innerStyle}
                   >
                     <div className="space-y-3">
-                      {/* Fila superior: señales operativas (membresía, urgencias, disponibilidad) + favorito y calificación */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {provider.trust_badge ? (
-                            <ProviderTrustBadge trust={provider.trust_badge} />
-                          ) : (
-                            isVerifiedMember && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
-                                <Award size={11} className="text-amber-300 shrink-0" />
-                                <span>{membershipBadgeLabel}</span>
-                              </span>
-                            )
-                          )}
-                          {provider.can_issue_pass === false && !hasExpiredDocs && (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border border-white/15 bg-black/25 opacity-85"
-                              title="Podés consultar y pedir presupuesto; para emitir Pase QR en garita el prestador debe completar su Nivel Verificado"
-                            >
-                              <span>Consultas · Sin Pase QR aún</span>
-                            </span>
-                          )}
-                          {acceptsEmergencies && !hasExpiredDocs && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-400/50 bg-rose-500/15 text-rose-200">
-                              <AlertCircle size={10} className="shrink-0" />
-                              <span>Urgencias 24h</span>
-                            </span>
-                          )}
-                          {!hasExpiredDocs && (
-                            <span
-                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border ${
-                                availableToday
-                                  ? 'border-emerald-500/40 bg-emerald-950/50 text-emerald-200'
-                                  : 'border-amber-500/40 bg-amber-950/40 text-amber-200'
+                      {/* Bloque 1: Banda protagónica de Confianza y Respaldo (Nivel 1..5 + 4 controles reales) */}
+                      <div className={`rounded-xl p-2.5 border space-y-2 ${trustBandClass}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0">
+                            <ProviderTrustBadge trust={cardTrust} size="md" showScale />
+                            <p className="text-[11px] opacity-85 leading-snug">
+                              {trustSummaryLine}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFavorite(provider)}
+                              disabled={togglingFavoriteUserId === Number(provider.user_id)}
+                              title={isFavorite ? 'Quitar de Mis Favoritos' : 'Guardar en Mis Favoritos'}
+                              aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                isFavorite
+                                  ? 'border-rose-500/50 bg-rose-500/15 text-rose-300'
+                                  : 'border-white/15 opacity-75 hover:opacity-100'
                               }`}
+                              style={isFavorite ? undefined : cardStyle}
                             >
-                              <Zap size={10} className="shrink-0" />
-                              <span>{availableToday ? 'Disponible hoy' : 'Agenda ocupada hoy'}</span>
+                              <Heart size={13} className={isFavorite ? 'fill-rose-400 text-rose-400' : ''} />
+                            </button>
+
+                            <span
+                              title="Calificación promedio de vecinos"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/35 bg-amber-500/10 text-amber-300"
+                            >
+                              <Star size={12} className="fill-amber-400 text-amber-400" />
+                              {rating}
                             </span>
-                          )}
-                          {hasExpiredDocs && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-500/45 bg-rose-950/60 text-rose-200">
-                              <AlertCircle size={11} className="text-rose-300 shrink-0" />
-                              <span>Doc. vencida</span>
-                            </span>
-                          )}
+                          </div>
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleFavorite(provider)}
-                            disabled={togglingFavoriteUserId === Number(provider.user_id)}
-                            title={isFavorite ? 'Quitar de Mis Favoritos' : 'Guardar en Mis Favoritos'}
-                            aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                              isFavorite
-                                ? 'border-rose-500/50 bg-rose-500/15 text-rose-300'
-                                : 'border-white/15 opacity-75 hover:opacity-100'
-                            }`}
-                            style={isFavorite ? undefined : cardStyle}
-                          >
-                            <Heart size={13} className={isFavorite ? 'fill-rose-400 text-rose-400' : ''} />
-                          </button>
-
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border border-amber-500/30 bg-amber-500/10 text-amber-300">
-                            <Star size={12} className="fill-amber-400 text-amber-400" />
-                            {rating}
-                          </span>
-                        </div>
+                        <TrustChecksStrip
+                          trust={cardTrust}
+                          hasExpiredDocs={hasExpiredDocs}
+                          compact
+                        />
                       </div>
 
-                      {/* Identidad, rubros habilitados, métricas y accesos a Reseñas y Q&A */}
+                      {/* Bloque 2: Identidad, rubros habilitados, disponibilidad operativa y accesos a Reseñas/Q&A */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 space-y-1.5">
                           <div>
@@ -2406,6 +2435,24 @@ export default function ResidentDashboard({
                                 +{extraSpecialties.length} más
                               </span>
                             )}
+                            {!hasExpiredDocs && (
+                              <span
+                                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                                  availableToday
+                                    ? 'border-emerald-500/35 bg-emerald-950/45 text-emerald-200'
+                                    : 'border-amber-500/35 bg-amber-950/35 text-amber-200'
+                                }`}
+                              >
+                                <Zap size={10} className="shrink-0" />
+                                <span>{availableToday ? 'Disponible hoy' : 'Agenda ocupada hoy'}</span>
+                              </span>
+                            )}
+                            {acceptsEmergencies && !hasExpiredDocs && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-md border border-rose-400/50 bg-rose-500/15 text-rose-200">
+                                <AlertCircle size={10} className="shrink-0" />
+                                <span>Urgencias 24h</span>
+                              </span>
+                            )}
                           </div>
 
                           {provider.service_bio && (
@@ -2435,11 +2482,14 @@ export default function ResidentDashboard({
                         </div>
                       </div>
 
-                      {/* Termómetro de reputación + tiempo de respuesta + actividad en tu barrio + ficha comercial */}
+                      {/* Bloque 3: Experiencia de vecinos (Reputación) + tiempo de respuesta + ficha comercial */}
                       <div
                         className="rounded-xl p-3 text-xs space-y-2 border border-white/10"
                         style={cardStyle}
                       >
+                        <div className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                          Experiencia de vecinos
+                        </div>
                         <ReputationThermometer reputation={provider.reputation} compact />
 
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">

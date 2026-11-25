@@ -47,7 +47,7 @@ export function ReputationThermometer({ reputation, compact = false }) {
 
   const activeSegments = Math.max(1, Math.min(5, Number(reputation.thermometer || 3)));
   const toneClass = LEVEL_TONE_CLASSES[reputation.tone] || LEVEL_TONE_CLASSES.sky;
-  const label = reputation.level_label || 'Verificado';
+  const label = reputation.level_label || 'Nuevo en TrustLink';
   const score = Number(reputation.score ?? 0);
 
   return (
@@ -106,7 +106,7 @@ export function HomeProtectedBadge({ variant = 'compact' }) {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 opacity-90">
           <span className="inline-flex items-center gap-1">
             <CheckCircle2 size={12} className="text-emerald-400 shrink-0" />
-            ART y antecedentes vigentes en garita
+            En Nivel 4–5 (Verificados): ART y antecedentes vigentes en garita
           </span>
           <span className="inline-flex items-center gap-1">
             <FileCheck2 size={12} className="text-emerald-400 shrink-0" />
