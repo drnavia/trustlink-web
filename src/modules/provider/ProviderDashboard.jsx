@@ -3524,6 +3524,7 @@ export default function ProviderDashboard() {
           innerStyle={innerStyle}
           primaryColor={primaryColor}
           getAuthHeaders={getAuthHeaders}
+          onGoToVisits={() => setActiveStep('visits')}
           onBlocksCountChange={(count) =>
             setScheduleBlocks((prev) =>
               prev.length === count ? prev : Array.from({ length: count }, (_, idx) => ({ id: idx }))
@@ -3641,7 +3642,27 @@ export default function ProviderDashboard() {
                           </span>
                         </span>
                         <span className="font-bold">
-                          {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                          {visit.preferred_date
+                            ? (() => {
+                                const startStr = formatDateTimeAR(visit.preferred_date);
+                                if (!visit.preferred_end_date) return startStr;
+                                const s = new Date(visit.preferred_date);
+                                const e = new Date(visit.preferred_end_date);
+                                if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return startStr;
+                                const sameDay =
+                                  s.getFullYear() === e.getFullYear() &&
+                                  s.getMonth() === e.getMonth() &&
+                                  s.getDate() === e.getDate();
+                                const endTime = e.toLocaleTimeString('es-AR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false,
+                                });
+                                return sameDay
+                                  ? `${startStr} → ${endTime}`
+                                  : `${startStr} → ${formatDateTimeAR(visit.preferred_end_date)}`;
+                              })()
+                            : 'A convenir'}
                         </span>
                       </div>
 

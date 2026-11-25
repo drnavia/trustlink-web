@@ -144,6 +144,7 @@ const getBlockVisualMeta = (blockType) => {
  * @param {string} props.primaryColor - Color de acción principal.
  * @param {() => Object} props.getAuthHeaders - Generador de cabeceras Authorization Bearer.
  * @param {(count: number) => void} [props.onBlocksCountChange] - Sincroniza el contador de la pestaña Agenda.
+ * @param {() => void} [props.onGoToVisits] - Navega directo al Paso 4 (Visitas) al inspeccionar una solicitud tentativa.
  * @returns {JSX.Element}
  */
 export default function ProviderCalendarManager({
@@ -152,6 +153,7 @@ export default function ProviderCalendarManager({
   primaryColor,
   getAuthHeaders,
   onBlocksCountChange,
+  onGoToVisits,
 }) {
   // Inicializadores perezosos de fecha y zona horaria (cumplen pureza de render para React Compiler)
   const [todayYmd] = useState(() => toLocalYmd(new Date()));
@@ -179,13 +181,14 @@ export default function ProviderCalendarManager({
   const [draftSlotMinutes, setDraftSlotMinutes] = useState(30);
   const [savingRules, setSavingRules] = useState(false);
 
-  // Panel rápido al hacer clic sobre una franja disponible o bloqueada
+  // Panel rápido al hacer clic sobre una franja disponible, ocupada o potencial visita pendiente
   const [selectedAvailableSlot, setSelectedAvailableSlot] = useState(null);
   const [quickBlockType, setQuickBlockType] = useState('external_visit');
   const [quickDurationMin, setQuickDurationMin] = useState(60);
   const [quickBlockTitle, setQuickBlockTitle] = useState('');
   const [savingQuickBlock, setSavingQuickBlock] = useState(false);
   const [selectedBusyBlock, setSelectedBusyBlock] = useState(null);
+  const [selectedTentativeVisit, setSelectedTentativeVisit] = useState(null);
   const [deletingBlockId, setDeletingBlockId] = useState(null);
 
   // Formulario desplegable opcional para cargar un rango manual personalizado
@@ -263,6 +266,7 @@ export default function ProviderCalendarManager({
     setSelectedDayYmd(nextStart);
     setSelectedAvailableSlot(null);
     setSelectedBusyBlock(null);
+    setSelectedTentativeVisit(null);
   };
 
   /**
@@ -817,13 +821,16 @@ export default function ProviderCalendarManager({
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" /> Libre
             </span>
             <span className="inline-flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-full border border-dashed border-amber-300 bg-amber-400/35" /> Potencial visita
+            </span>
+            <span className="inline-flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-400" /> Trabajo externo
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400" /> No laborable
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Visita TrustLink
+              <span className="w-2.5 h-2.5 rounded-full bg-sky-400" /> Visita acordada
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-full bg-purple-400" /> Pase QR
@@ -844,10 +851,13 @@ export default function ProviderCalendarManager({
                   setSelectedDayYmd(day.date);
                   setSelectedAvailableSlot(null);
                   setSelectedBusyBlock(null);
+                  setSelectedTentativeVisit(null);
                 }}
                 className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
                   isSelected
                     ? 'border-emerald-400 ring-1 ring-emerald-400/40'
+                    : day.tentative_count > 0
+                    ? 'border-amber-400/50 hover:border-amber-300'
                     : day.is_working
                     ? 'border-white/15 hover:border-white/30'
                     : 'border-white/10 opacity-60 hover:opacity-85'
@@ -867,8 +877,11 @@ export default function ProviderCalendarManager({
                 {day.is_working ? (
                   <p className="text-[10px] opacity-85">
                     <span className="text-emerald-300 font-bold">{day.available_count} libre(s)</span>
+                    {day.tentative_count > 0 && (
+                      <span className="text-amber-200 font-bold"> · {day.tentative_count} pend.</span>
+                    )}
                     {day.busy_count > 0 && (
-                      <span className="text-amber-300 font-semibold"> · {day.busy_count} ocup.</span>
+                      <span className="text-sky-300 font-semibold"> · {day.busy_count} ocup.</span>
                     )}
                   </p>
                 ) : (
@@ -879,6 +892,63 @@ export default function ProviderCalendarManager({
           })}
         </div>
       </div>
+
+      {/* Panel contextual inline: Detalle de Potencial Visita pendiente (sin bloquear aún para otros residentes) */}
+      {selectedTentativeVisit && (
+        <div
+          className="rounded-xl p-3.5 border border-dashed border-amber-400/70 bg-amber-950/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+        >
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-dashed border-amber-400/70 bg-amber-500/20 text-amber-100">
+                Potencial visita (pendiente de confirmación)
+              </span>
+              <span className="font-bold text-sm">
+                Visita #{selectedTentativeVisit.id} · {selectedTentativeVisit.owner_name}
+              </span>
+            </div>
+            <p className="opacity-90">
+              {formatBlockRange(selectedTentativeVisit.start_at, selectedTentativeVisit.end_at)} ·{' '}
+              <strong>
+                {selectedTentativeVisit.fraction_number || '—'} / Lote{' '}
+                {selectedTentativeVisit.lot_number || '—'}
+              </strong>
+            </p>
+            {selectedTentativeVisit.notes && (
+              <p className="text-[11px] opacity-80 italic">
+                &ldquo;{selectedTentativeVisit.notes}&rdquo;
+              </p>
+            )}
+            <p className="text-[11px] text-amber-200/90">
+              Aún no bloquea tu agenda para otros residentes: al confirmarla en 4. Visitas quedará bloqueada definitivamente.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {typeof onGoToVisits === 'function' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTentativeVisit(null);
+                  onGoToVisits();
+                }}
+                className="px-3.5 py-1.5 rounded-xl font-bold text-white cursor-pointer"
+                style={{ backgroundColor: primaryColor }}
+              >
+                Confirmar / Repactar en 4. Visitas
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setSelectedTentativeVisit(null)}
+              className="px-3 py-1.5 rounded-xl font-bold border border-white/15 cursor-pointer"
+              style={cardStyle}
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Panel contextual inline: Bloqueo rápido al tocar una franja libre */}
       {selectedAvailableSlot && activeDay && (
@@ -1068,10 +1138,15 @@ export default function ProviderCalendarManager({
             {activeDay.slots.map((slot) => {
               const isPast = slot.status === 'past';
               const isBusy = slot.status === 'busy';
+              const isTentative = slot.status === 'tentative';
               const isSelectedAvail =
                 selectedAvailableSlot && selectedAvailableSlot.start_iso === slot.start_iso;
               const isSelectedBusy =
                 selectedBusyBlock && slot.block && selectedBusyBlock.id === slot.block.id;
+              const isSelectedTentative =
+                selectedTentativeVisit &&
+                slot.tentative_visit &&
+                selectedTentativeVisit.id === slot.tentative_visit.id;
 
               if (isBusy && slot.block) {
                 const visual = getBlockVisualMeta(slot.block.block_type);
@@ -1081,6 +1156,7 @@ export default function ProviderCalendarManager({
                     type="button"
                     onClick={() => {
                       setSelectedAvailableSlot(null);
+                      setSelectedTentativeVisit(null);
                       setSelectedBusyBlock(slot.block);
                     }}
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer space-y-1 ${
@@ -1107,6 +1183,32 @@ export default function ProviderCalendarManager({
                 );
               }
 
+              if (isTentative && slot.tentative_visit) {
+                return (
+                  <button
+                    key={slot.start_iso}
+                    type="button"
+                    onClick={() => {
+                      setSelectedAvailableSlot(null);
+                      setSelectedBusyBlock(null);
+                      setSelectedTentativeVisit(slot.tentative_visit);
+                    }}
+                    className={`p-2.5 rounded-xl border border-dashed border-amber-400/75 bg-amber-500/15 text-amber-100 hover:border-amber-300 text-left transition-all cursor-pointer space-y-1 ${
+                      isSelectedTentative ? 'ring-2 ring-amber-300/70' : ''
+                    }`}
+                    title={`Potencial visita #${slot.tentative_visit.id} (${slot.tentative_visit.owner_name}) — Pendiente de confirmación`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="font-mono font-bold text-xs">{slot.time}</span>
+                      <Clock size={11} className="text-amber-300 shrink-0" />
+                    </div>
+                    <p className="text-[10px] font-bold truncate text-amber-200">
+                      Potencial · {slot.tentative_visit.owner_name}
+                    </p>
+                  </button>
+                );
+              }
+
               return (
                 <button
                   key={slot.start_iso}
@@ -1114,6 +1216,7 @@ export default function ProviderCalendarManager({
                   disabled={isPast}
                   onClick={() => {
                     setSelectedBusyBlock(null);
+                    setSelectedTentativeVisit(null);
                     setSelectedAvailableSlot(slot);
                     setQuickDurationMin(slotMinutes === 60 ? 60 : 60);
                   }}

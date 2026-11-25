@@ -367,6 +367,8 @@ export default function ResidentDashboard({
   const [visitFraction, setVisitFraction] = useState('');
   const [visitLot, setVisitLot] = useState('');
   const [visitDate, setVisitDate] = useState('');
+  const [visitEndDate, setVisitEndDate] = useState('');
+  const [visitDurationMin, setVisitDurationMin] = useState(60);
   const [visitNotes, setVisitNotes] = useState('');
   const [savingVisit, setSavingVisit] = useState(false);
   const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
@@ -1121,8 +1123,25 @@ export default function ResidentDashboard({
   };
 
   /**
+   * Calcula y sincroniza la fecha/hora de fin de una solicitud de visita asegurando
+   * un mínimo de 60 minutos desde el inicio (contemplando visita y traslados).
+   *
+   * @param {string} startLocalStr - Fecha/hora inicio en formato `YYYY-MM-DDTHH:mm`.
+   * @param {number} [durationMin=60] - Duración deseada en minutos (mín. 60).
+   */
+  const syncVisitWindowFromStart = (startLocalStr, durationMin = visitDurationMin) => {
+    setVisitDate(startLocalStr);
+    const safeMin = Math.max(60, Number(durationMin) || 60);
+    setVisitDurationMin(safeMin);
+    const parsed = new Date(startLocalStr);
+    if (!Number.isNaN(parsed.getTime())) {
+      setVisitEndDate(toLocalDateTimeInput(new Date(parsed.getTime() + safeMin * 60 * 1000)));
+    }
+  };
+
+  /**
    * Inicializa y abre el modal para solicitar/coordinar una visita con un prestador,
-   * precargando la ubicación del residente y una fecha sugerida (+1 hora).
+   * precargando la ubicación automática y una ventana inicial mínima de 1 hora.
    *
    * @param {Object} provider - Prestador destinatario de la solicitud.
    */
@@ -1130,13 +1149,17 @@ export default function ResidentDashboard({
     setVisitModalProvider(provider);
     setVisitFraction(user?.fraction_number || '');
     setVisitLot(user?.lot_number || '');
-    setVisitDate(toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000)));
+    const defaultStart = new Date(Date.now() + 60 * 60 * 1000);
+    setVisitDurationMin(60);
+    setVisitDate(toLocalDateTimeInput(defaultStart));
+    setVisitEndDate(toLocalDateTimeInput(new Date(defaultStart.getTime() + 60 * 60 * 1000)));
     setVisitNotes('');
     setVisitFeedback({ type: '', text: '' });
   };
 
   /**
-   * Envía al backend la solicitud de coordinación de visita y actualiza el listado de visitas.
+   * Envía al backend la solicitud de coordinación de visita con ventana mínima de 1 hora
+   * (`preferred_date` y `preferred_end_date`) y actualiza el listado de visitas.
    *
    * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario modal.
    * @returns {Promise<void>}
@@ -1146,13 +1169,34 @@ export default function ResidentDashboard({
     if (!visitModalProvider) return;
     const providerId = visitModalProvider.provider_id || visitModalProvider.id;
 
+    const parsedPreferred = visitDate ? new Date(visitDate) : null;
+    const parsedEnd = visitEndDate ? new Date(visitEndDate) : null;
+    if (
+      parsedPreferred &&
+      !Number.isNaN(parsedPreferred.getTime()) &&
+      parsedEnd &&
+      !Number.isNaN(parsedEnd.getTime()) &&
+      parsedEnd.getTime() - parsedPreferred.getTime() < 60 * 60 * 1000
+    ) {
+      setVisitFeedback({
+        type: 'error',
+        text: 'La ventana mínima de visita es de 1 hora (para contemplar tiempos de traslado).',
+      });
+      return;
+    }
+
     setSavingVisit(true);
     setVisitFeedback({ type: '', text: '' });
-    const parsedPreferred = visitDate ? new Date(visitDate) : null;
     const preferredIso =
       parsedPreferred && !Number.isNaN(parsedPreferred.getTime())
         ? parsedPreferred.toISOString()
         : visitDate || null;
+    const preferredEndIso =
+      parsedEnd && !Number.isNaN(parsedEnd.getTime())
+        ? parsedEnd.toISOString()
+        : parsedPreferred && !Number.isNaN(parsedPreferred.getTime())
+        ? new Date(parsedPreferred.getTime() + Math.max(60, visitDurationMin) * 60 * 1000).toISOString()
+        : null;
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests`, {
         method: 'POST',
@@ -1162,6 +1206,8 @@ export default function ResidentDashboard({
           fraction_number: visitFraction.trim() || null,
           lot_number: visitLot.trim() || null,
           preferred_date: preferredIso,
+          preferred_end_date: preferredEndIso,
+          duration_minutes: Math.max(60, visitDurationMin),
           notes: visitNotes.trim(),
         }),
       });
@@ -1332,10 +1378,10 @@ export default function ResidentDashboard({
   /**
    * Abre el modal de emisión de Pase QR para un prestador determinado,
    * precargando automáticamente el domicilio del residente (Fracción/Manzana y Lote bloqueados),
-   * el primer vehículo registrado y la ventana horaria desde la visita acordada (+2h por defecto, editable).
+   * el primer vehículo registrado y la ventana horaria exacta (`Desde` -> `Hasta`) de la visita acordada.
    *
    * @param {Object} provider - Prestador al que se le emitirá el pase.
-   * @param {{ fraction?: string, lot?: string, preferredDate?: string, vehiclePlate?: string }} [prefill={}] - Datos opcionales desde una visita acordada.
+   * @param {{ fraction?: string, lot?: string, preferredDate?: string, preferredEndDate?: string, vehiclePlate?: string }} [prefill={}] - Datos opcionales desde una visita acordada.
    */
   const openQrModalForProvider = (provider, prefill = {}) => {
     setQrModalProvider(provider);
@@ -1351,10 +1397,15 @@ export default function ResidentDashboard({
     const validStart = Number.isNaN(baseStart.getTime())
       ? new Date(Date.now() - 10 * 60 * 1000)
       : baseStart;
-    // Si proviene de una visita acordada, precarga una ventana de 2 horas desde el horario pactado
-    const defaultDurationMs = hasAgreedDate ? 2 * 60 * 60 * 1000 : 4 * 60 * 60 * 1000;
+    const parsedAgreedEnd = prefill.preferredEndDate ? new Date(prefill.preferredEndDate) : null;
+    const validEnd =
+      parsedAgreedEnd &&
+      !Number.isNaN(parsedAgreedEnd.getTime()) &&
+      parsedAgreedEnd.getTime() > validStart.getTime()
+        ? parsedAgreedEnd
+        : new Date(validStart.getTime() + (hasAgreedDate ? 60 * 60 * 1000 : 4 * 60 * 60 * 1000));
     setStartTime(toLocalDateTimeInput(validStart));
-    setEndTime(toLocalDateTimeInput(new Date(validStart.getTime() + defaultDurationMs)));
+    setEndTime(toLocalDateTimeInput(validEnd));
     setPassFeedback({ type: '', text: '', qrToken: '' });
   };
 
@@ -2455,6 +2506,7 @@ export default function ResidentDashboard({
                             onClick={() =>
                               openQrModalForProvider(provider, {
                                 preferredDate: activeVisit?.preferred_date,
+                                preferredEndDate: activeVisit?.preferred_end_date,
                               })
                             }
                             className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
@@ -2647,7 +2699,27 @@ export default function ResidentDashboard({
                           </span>
                         </span>
                         <span className="font-bold">
-                          {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                          {visit.preferred_date
+                            ? (() => {
+                                const startStr = formatDateTimeAR(visit.preferred_date);
+                                if (!visit.preferred_end_date) return startStr;
+                                const s = new Date(visit.preferred_date);
+                                const e = new Date(visit.preferred_end_date);
+                                if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return startStr;
+                                const sameDay =
+                                  s.getFullYear() === e.getFullYear() &&
+                                  s.getMonth() === e.getMonth() &&
+                                  s.getDate() === e.getDate();
+                                const endTime = e.toLocaleTimeString('es-AR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                  hour12: false,
+                                });
+                                return sameDay
+                                  ? `${startStr} → ${endTime}`
+                                  : `${startStr} → ${formatDateTimeAR(visit.preferred_end_date)}`;
+                              })()
+                            : 'A convenir'}
                         </span>
                       </div>
 
@@ -2847,6 +2919,7 @@ export default function ResidentDashboard({
                             onClick={() =>
                               openQrModalForProvider(matchedProvider, {
                                 preferredDate: visit.preferred_date,
+                                preferredEndDate: visit.preferred_end_date,
                               })
                             }
                             className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
@@ -3829,55 +3902,91 @@ export default function ResidentDashboard({
                           })}
                         </div>
 
-                        {/* Franjas horarias del día seleccionado (clic para autocompletar fecha/hora) */}
+                        {/* Franjas horarias del día seleccionado (clic para seleccionar inicio + ventana mínima de 1 hora) */}
                         {selectedDayObj && !selectedDayObj.is_working ? (
                           <p className="text-[11px] opacity-75">
                             El prestador no atiende los {selectedDayObj.day_label.toLowerCase()}. Elegí otro día arriba.
                           </p>
                         ) : selectedDayObj && selectedDayObj.slots.length > 0 ? (
-                          <div className="space-y-1.5">
-                            <p className="text-[10px] opacity-75">
-                              Tocá un horario libre para proponer tu visita (horarios tachados ya están ocupados):
-                            </p>
-                            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
-                              {selectedDayObj.slots.map((slot) => {
-                                const slotInputVal = `${selectedDayObj.date}T${slot.time}`;
-                                const isChosen = visitDate === slotInputVal;
-                                const isAvail = slot.status === 'available';
-                                return (
-                                  <button
-                                    key={slot.start_iso}
-                                    type="button"
-                                    disabled={!isAvail}
-                                    onClick={() => setVisitDate(slotInputVal)}
-                                    className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold border transition-all ${
-                                      isChosen
-                                        ? 'border-emerald-300 text-white shadow-sm cursor-pointer'
-                                        : isAvail
-                                        ? 'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 hover:border-emerald-400 cursor-pointer'
-                                        : 'border-white/10 opacity-35 line-through cursor-not-allowed'
-                                    }`}
-                                    style={
-                                      isChosen
-                                        ? { backgroundColor: primaryColor }
-                                        : !isAvail
-                                        ? cardStyle
-                                        : undefined
+                          (() => {
+                            const winStartMs = visitDate ? new Date(visitDate).getTime() : NaN;
+                            const winEndMs = visitEndDate ? new Date(visitEndDate).getTime() : NaN;
+                            const hasValidWindow =
+                              !Number.isNaN(winStartMs) && !Number.isNaN(winEndMs) && winEndMs > winStartMs;
+                            const hasOverlapBusy =
+                              hasValidWindow &&
+                              selectedDayObj.slots.some((slot) => {
+                                const sMs = new Date(slot.start_iso).getTime();
+                                return sMs >= winStartMs && sMs < winEndMs && slot.status !== 'available';
+                              });
+
+                            return (
+                              <div className="space-y-1.5">
+                                <p className="text-[10px] opacity-75">
+                                  Tocá la hora de inicio: el sistema reserva automáticamente una ventana mínima de 1 hora (podés ampliarla debajo).
+                                </p>
+                                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                                  {selectedDayObj.slots.map((slot) => {
+                                    const slotInputVal = `${selectedDayObj.date}T${slot.time}`;
+                                    const slotStartMs = new Date(slot.start_iso).getTime();
+                                    const isStartSlot = visitDate === slotInputVal;
+                                    const isInWindow =
+                                      hasValidWindow &&
+                                      !Number.isNaN(slotStartMs) &&
+                                      slotStartMs >= winStartMs &&
+                                      slotStartMs < winEndMs;
+                                    const isAvail = slot.status === 'available';
+
+                                    let slotCls =
+                                      'border-white/10 opacity-35 line-through cursor-not-allowed';
+                                    if (isStartSlot && isAvail) {
+                                      slotCls = 'border-emerald-300 text-white shadow-sm cursor-pointer';
+                                    } else if (isInWindow && isAvail) {
+                                      slotCls =
+                                        'border-emerald-400/80 bg-emerald-500/35 text-white cursor-pointer';
+                                    } else if (isInWindow && !isAvail) {
+                                      slotCls =
+                                        'border-amber-400/80 bg-amber-500/20 text-amber-200 line-through cursor-not-allowed';
+                                    } else if (isAvail) {
+                                      slotCls =
+                                        'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 hover:border-emerald-400 cursor-pointer';
                                     }
-                                    title={
-                                      isAvail
-                                        ? `Disponible de ${slot.time} a ${slot.end_time}`
-                                        : slot.status === 'busy'
-                                        ? 'Franja ocupada'
-                                        : 'Horario pasado'
-                                    }
-                                  >
-                                    {slot.time}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
+
+                                    return (
+                                      <button
+                                        key={slot.start_iso}
+                                        type="button"
+                                        disabled={!isAvail}
+                                        onClick={() => syncVisitWindowFromStart(slotInputVal, visitDurationMin)}
+                                        className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold border transition-all ${slotCls}`}
+                                        style={
+                                          isStartSlot && isAvail
+                                            ? { backgroundColor: primaryColor }
+                                            : !isAvail && !isInWindow
+                                            ? cardStyle
+                                            : undefined
+                                        }
+                                        title={
+                                          isAvail
+                                            ? `Iniciar visita a las ${slot.time} (ventana de ${visitDurationMin} min)`
+                                            : slot.status === 'busy'
+                                            ? 'Franja ocupada'
+                                            : 'Horario pasado'
+                                        }
+                                      >
+                                        {slot.time}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                                {hasOverlapBusy && (
+                                  <p className="text-[10px] text-amber-200 bg-amber-950/40 border border-amber-500/40 rounded-lg px-2.5 py-1.5">
+                                    Atención: dentro de la duración elegida hay una franja ya ocupada. Podés elegir otro horario de inicio o aclararlo en el mensaje.
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()
                         ) : (
                           <p className="text-[11px] opacity-75">
                             No hay franjas disponibles para este día.
@@ -3893,16 +4002,74 @@ export default function ResidentDashboard({
                 )}
               </div>
 
-              {/* Fecha/hora sugerida (autocompletada al tocar una franja libre o editable manualmente) */}
-              <div>
-                <label className="block font-semibold mb-1 opacity-85">Fecha y hora propuesta</label>
-                <input
-                  type="datetime-local"
-                  value={visitDate}
-                  onChange={(e) => setVisitDate(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                  style={innerStyle}
-                />
+              {/* Ventana de visita (mínimo 1 hora por tiempos de traslado entre barrios) */}
+              <div className="rounded-xl p-3 border border-slate-700/80 space-y-2.5" style={innerStyle}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-semibold opacity-90">Duración de la visita (mínimo 1 hora)</span>
+                  <div className="flex flex-wrap gap-1">
+                    {[
+                      { min: 60, label: '1 h (mín.)' },
+                      { min: 90, label: '1 h 30' },
+                      { min: 120, label: '2 h' },
+                      { min: 180, label: '3 h' },
+                    ].map((opt) => {
+                      const active = visitDurationMin === opt.min;
+                      return (
+                        <button
+                          key={opt.min}
+                          type="button"
+                          onClick={() => syncVisitWindowFromStart(visitDate, opt.min)}
+                          className={`px-2 py-0.5 rounded-lg text-[10px] font-bold border cursor-pointer transition-all ${
+                            active
+                              ? 'border-emerald-300 text-white'
+                              : 'border-white/15 opacity-80 hover:opacity-100'
+                          }`}
+                          style={active ? { backgroundColor: primaryColor } : cardStyle}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block font-semibold mb-1 opacity-85">Desde</label>
+                    <input
+                      type="datetime-local"
+                      value={visitDate}
+                      onChange={(e) => syncVisitWindowFromStart(e.target.value, visitDurationMin)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                      style={cardStyle}
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1 opacity-85">Hasta (mín. 1 h)</label>
+                    <input
+                      type="datetime-local"
+                      value={visitEndDate}
+                      onChange={(e) => {
+                        const nextVal = e.target.value;
+                        setVisitEndDate(nextVal);
+                        const s = new Date(visitDate);
+                        const en = new Date(nextVal);
+                        if (!Number.isNaN(s.getTime()) && !Number.isNaN(en.getTime())) {
+                          const diffMin = Math.round((en.getTime() - s.getTime()) / 60000);
+                          if (diffMin >= 60) {
+                            setVisitDurationMin(diffMin);
+                          }
+                        }
+                      }}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                      style={cardStyle}
+                    />
+                  </div>
+                </div>
+
+                <p className="text-[10px] opacity-75">
+                  Se exige al menos 1 hora para contemplar el servicio en domicilio y el traslado hacia el próximo barrio. Mientras el prestador no confirme, la franja aparece como potencial en su agenda sin bloquear todavía a otros vecinos.
+                </p>
               </div>
 
               <div>
@@ -3942,14 +4109,28 @@ export default function ResidentDashboard({
                 >
                   Cerrar
                 </button>
-                <button
-                  type="submit"
-                  disabled={savingVisit}
-                  className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  {savingVisit ? 'Enviando...' : 'Enviar Solicitud'}
-                </button>
+                {visitFeedback.type === 'success' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVisitModalProvider(null);
+                      setActiveStep('visits');
+                    }}
+                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    Ir a 2. Visitas
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={savingVisit}
+                    className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {savingVisit ? 'Enviando...' : 'Enviar Solicitud'}
+                  </button>
+                )}
               </div>
             </form>
           </div>
