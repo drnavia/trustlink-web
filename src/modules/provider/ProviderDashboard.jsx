@@ -55,6 +55,7 @@ import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
+import ProviderCalendarManager from '../../components/ProviderCalendarManager';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
@@ -68,21 +69,6 @@ import {
 
 /** Cantidad máxima de pases QR mostrados por página en la pestaña de Pases. */
 const PASSES_PER_PAGE = 6;
-
-/**
- * Convierte un objeto `Date` al formato local `YYYY-MM-DDTHH:mm` requerido por inputs `datetime-local`.
- * @param {Date} dateObj - Instancia de fecha/hora a formatear.
- * @returns {string} Fecha y hora local formateada para controles HTML `datetime-local`.
- */
-const toLocalDateTimeInput = (dateObj) => {
-  const pad = (n) => String(n).padStart(2, '0');
-  const y = dateObj.getFullYear();
-  const m = pad(dateObj.getMonth() + 1);
-  const d = pad(dateObj.getDate());
-  const hh = pad(dateObj.getHours());
-  const mm = pad(dateObj.getMinutes());
-  return `${y}-${m}-${d}T${hh}:${mm}`;
-};
 
 /**
  * Evalúa la vigencia de una fecha de vencimiento documental respecto del día actual.
@@ -172,19 +158,6 @@ function getPassStatusLabel(status) {
   if (normalized === 'expired') return 'Vencido';
   if (normalized === 'cancelled') return 'Cancelado';
   return status || 'Sin estado';
-}
-
-/**
- * Traduce el tipo de bloqueo de agenda del prestador a una etiqueta legible en español.
- * @param {string|null|undefined} blockType - Código de tipo (`external_visit`, `trustlink_visit`, `trustlink_pass`, `unavailable`).
- * @returns {string} Descripción legible del origen o naturaleza del bloqueo.
- */
-function getBlockTypeLabel(blockType) {
-  const t = String(blockType || '').toLowerCase();
-  if (t === 'external_visit') return 'Visita Externa';
-  if (t === 'trustlink_visit') return 'Visita TrustLink';
-  if (t === 'trustlink_pass') return 'Pase QR Bloqueado';
-  return 'Horario No Laborable';
 }
 
 /**
@@ -329,18 +302,9 @@ export default function ProviderDashboard() {
   const [editEmpInsuranceExpiry, setEditEmpInsuranceExpiry] = useState('');
   const [updatingEmployee, setUpdatingEmployee] = useState(false);
 
-  // Paso 3: Agenda Online — listado de franjas ocupadas y alta de bloqueos manuales
+  // Paso 3: Agenda Viva — contador de bloques sincronizado con ProviderCalendarManager
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
-  const [loadingSchedule, setLoadingSchedule] = useState(false);
-  const [blockType, setBlockType] = useState('unavailable');
-  const [blockTitle, setBlockTitle] = useState('');
-  const [blockStart, setBlockStart] = useState(() =>
-    toLocalDateTimeInput(new Date(Date.now() + 60 * 60 * 1000))
-  );
-  const [blockEnd, setBlockEnd] = useState(() =>
-    toLocalDateTimeInput(new Date(Date.now() + 3 * 60 * 60 * 1000))
-  );
-  const [savingBlock, setSavingBlock] = useState(false);
+  const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
   // Paso 4: Solicitudes de Visita — pedidos entrantes y borradores de respuesta
   const [incomingVisits, setIncomingVisits] = useState([]);
@@ -523,11 +487,11 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Carga los bloques de agenda del prestador (manuales y generados por visitas o pases QR).
+   * Sincroniza el contador de bloques de agenda y fuerza el refresco del calendario vivo
+   * (por ejemplo tras confirmar una visita o recargar manualmente).
    * @returns {Promise<void>}
    */
   const fetchProviderSchedule = async () => {
-    setLoadingSchedule(true);
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/schedule/provider`, {
         method: 'GET',
@@ -536,11 +500,10 @@ export default function ProviderDashboard() {
       const data = await response.json();
       if (response.ok) {
         setScheduleBlocks(data.blocks || []);
+        setScheduleRefreshKey((prev) => prev + 1);
       }
     } catch (error) {
       console.error('Error al cargar agenda del prestador:', error);
-    } finally {
-      setLoadingSchedule(false);
     }
   };
 
@@ -1426,67 +1389,6 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Crea un bloqueo manual en la agenda online (horario no laborable o visita externa fuera de TrustLink).
-   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario de bloqueo de agenda.
-   * @returns {Promise<void>}
-   */
-  const handleCreateScheduleBlock = async (e) => {
-    e.preventDefault();
-    setSavingBlock(true);
-    setErrorMsg('');
-    setSuccessMsg('');
-
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/passes/schedule/blocks`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...getAuthHeaders(),
-        },
-        body: JSON.stringify({
-          block_type: blockType,
-          title: blockTitle.trim(),
-          start_at: new Date(blockStart).toISOString(),
-          end_at: new Date(blockEnd).toISOString(),
-        }),
-      });
-      const data = await response.json();
-      if (response.ok) {
-        setSuccessMsg(data.message || 'Bloque agregado a tu agenda.');
-        setBlockTitle('');
-        await fetchProviderSchedule();
-      } else {
-        setErrorMsg(data.error || 'No se pudo guardar el bloque en la agenda.');
-      }
-    } catch (error) {
-      console.error('Error al guardar bloque de agenda:', error);
-      setErrorMsg('Error de conexión al guardar en la agenda.');
-    } finally {
-      setSavingBlock(false);
-    }
-  };
-
-  /**
-   * Elimina un bloqueo manual de la agenda online y recarga las franjas vigentes.
-   * @param {number|string} blockId - Identificador del bloque manual a eliminar.
-   * @returns {Promise<void>}
-   */
-  const handleDeleteScheduleBlock = async (blockId) => {
-    try {
-      const response = await fetch(`${API_BASE}/api/v1/passes/schedule/blocks/${blockId}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      });
-      if (response.ok) {
-        setSuccessMsg('Bloque eliminado de la agenda.');
-        await fetchProviderSchedule();
-      }
-    } catch (error) {
-      console.error('Error al eliminar bloque:', error);
-    }
-  };
-
-  /**
    * Responde a una solicitud de visita entrante confirmando o rechazando disponibilidad,
    * adjuntando opcionalmente un mensaje al hilo y resincronizando visitas y agenda.
    * @param {number|string} visitId - Identificador de la solicitud de visita.
@@ -1904,115 +1806,168 @@ export default function ProviderDashboard() {
         </div>
       )}
 
-      {/* Tablero "Mi Reputación y Visibilidad" (termómetro estilo marketplace + próximo hito) */}
-      {!loading && profileData.reputation && (
-        <div
+      {/* Bloque A: Mi Reputación en el Directorio (visible solo en Paso 1 Credenciales y Paso 6 Reseñas) */}
+      {!loading &&
+        profileData.reputation &&
+        (activeStep === 'credentials' || activeStep === 'reviews') && (
+          <section
+            className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3.5 text-xs"
+            style={cardStyle}
+          >
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+              {/* Izquierda: nivel actual, termómetro de 5 segmentos y micro-tags destacados */}
+              <div className="lg:col-span-5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-bold text-sm">
+                    <Star size={15} className="text-amber-400 fill-amber-400 shrink-0" />
+                    <span>Mi Reputación en el Directorio</span>
+                  </div>
+                  {profileData.reputation.response_label && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 shrink-0">
+                      <Clock size={12} className="shrink-0" />
+                      {profileData.reputation.response_label}
+                    </span>
+                  )}
+                </div>
+                <ReputationThermometer reputation={profileData.reputation} />
+                {Array.isArray(profileData.reputation.top_tags) &&
+                  profileData.reputation.top_tags.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      {profileData.reputation.top_tags.map((item) => (
+                        <span
+                          key={item.tag}
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-200"
+                        >
+                          {item.tag} ({item.count})
+                        </span>
+                      ))}
+                    </div>
+                  )}
+              </div>
+
+              {/* Derecha: 3 KPIs tipográficos de solo lectura (diferenciados visualmente de botones) + próximo hito */}
+              <div className="lg:col-span-7 space-y-2.5">
+                <div className="grid grid-cols-3 gap-2">
+                  <div
+                    className="rounded-xl px-3 py-2 border border-white/10"
+                    style={innerStyle}
+                  >
+                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
+                      Conformados
+                    </p>
+                    <p className="text-base font-extrabold mt-0.5">
+                      {profileData.reputation.completed_jobs ?? 0}
+                    </p>
+                  </div>
+
+                  <div
+                    className="rounded-xl px-3 py-2 border border-white/10"
+                    style={innerStyle}
+                  >
+                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
+                      Reseñas
+                    </p>
+                    <p className="text-base font-extrabold mt-0.5 flex items-baseline gap-1.5">
+                      <span>{profileData.reputation.reviews_count ?? 0}</span>
+                      <span className="text-[11px] font-semibold text-amber-300">
+                        ★ {Number(profileData.reputation.rating_avg || 0).toFixed(1)}
+                      </span>
+                    </p>
+                  </div>
+
+                  <div
+                    className="rounded-xl px-3 py-2 border border-white/10"
+                    style={innerStyle}
+                  >
+                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
+                      Reclamos
+                    </p>
+                    <p
+                      className={`text-base font-extrabold mt-0.5 ${
+                        Number(profileData.reputation.disputes_count || 0) > 0
+                          ? 'text-rose-300'
+                          : 'text-emerald-300'
+                      }`}
+                    >
+                      {profileData.reputation.disputes_count ?? 0}
+                    </p>
+                  </div>
+                </div>
+
+                {profileData.reputation.next_milestone && (
+                  <p className="text-[11px] opacity-85 leading-relaxed">
+                    <span className="font-bold opacity-100">Próximo objetivo:</span>{' '}
+                    {profileData.reputation.next_milestone}
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+      {/* Bloque B: Ficha Comercial y Consultas Públicas (separado de Reputación, visible solo en Paso 1) */}
+      {!loading && activeStep === 'credentials' && (
+        <section
           className="rounded-2xl p-4 border border-slate-800/80 space-y-3 text-xs"
           style={cardStyle}
         >
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-center">
-            <div className="lg:col-span-5 space-y-1.5">
-              <div className="flex items-center gap-2 font-bold">
-                <Star size={15} className="text-amber-400 fill-amber-400 shrink-0" />
-                <span>Mi Reputación en el Directorio</span>
-              </div>
-              <ReputationThermometer reputation={profileData.reputation} />
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="space-y-1 min-w-0">
+              <p className="font-bold text-sm">Ficha Comercial en el Directorio</p>
+              <p className="text-[11px] opacity-80 flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span>
+                  Urgencias 24h:{' '}
+                  <strong className={commAcceptsEmergencies ? 'text-emerald-300' : 'opacity-90'}>
+                    {commAcceptsEmergencies ? 'Activado' : 'No'}
+                  </strong>
+                </span>
+                <span className="opacity-40">·</span>
+                <span>
+                  Presupuesto:{' '}
+                  <strong>
+                    {commQuotePolicy === 'sin_cargo'
+                      ? 'Sin cargo'
+                      : commQuotePolicy === 'arancelada'
+                      ? 'Visita arancelada'
+                      : 'A consultar'}
+                  </strong>
+                </span>
+                <span className="opacity-40">·</span>
+                <span>
+                  Facturación:{' '}
+                  <strong>
+                    {commInvoiceType === 'factura_a'
+                      ? 'Factura A'
+                      : commInvoiceType === 'factura_c'
+                      ? 'Factura C'
+                      : commInvoiceType === 'ambas'
+                      ? 'Factura A / C'
+                      : commInvoiceType === 'sin_factura'
+                      ? 'Recibo / Sin factura'
+                      : 'A consultar'}
+                  </strong>
+                </span>
+              </p>
             </div>
 
-            <div className="lg:col-span-7 space-y-2">
-              <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
-                  Conformados: <strong>{profileData.reputation.completed_jobs ?? 0}</strong>
-                </span>
-                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
-                  Reseñas: <strong>{profileData.reputation.reviews_count ?? 0}</strong> (★{' '}
-                  {Number(profileData.reputation.rating_avg || 0).toFixed(1)})
-                </span>
-                <span className="px-2.5 py-1 rounded-lg border border-white/10" style={innerStyle}>
-                  Reclamos: <strong>{profileData.reputation.disputes_count ?? 0}</strong>
-                </span>
-                {profileData.reputation.response_label && (
-                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sky-500/35 bg-sky-500/10 text-sky-200 font-semibold">
-                    <Clock size={11} className="shrink-0" />
-                    {profileData.reputation.response_label}
-                  </span>
-                )}
-              </div>
-
-              {Array.isArray(profileData.reputation.top_tags) &&
-                profileData.reputation.top_tags.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {profileData.reputation.top_tags.map((item) => (
-                      <span
-                        key={item.tag}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-200"
-                      >
-                        {item.tag} ({item.count})
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-              {profileData.reputation.next_milestone && (
-                <p className="text-[11px] opacity-85">
-                  <strong>Próximo objetivo:</strong> {profileData.reputation.next_milestone}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Accesos rápidos de conversión: Ficha Comercial / Urgencias 24h y Q&A comunitario */}
-          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
-                Urgencias 24h:{' '}
-                <strong className={commAcceptsEmergencies ? 'text-emerald-300' : 'opacity-75'}>
-                  {commAcceptsEmergencies ? 'Activado' : 'No'}
-                </strong>
-              </span>
-              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
-                Presupuesto:{' '}
-                <strong>
-                  {commQuotePolicy === 'sin_cargo'
-                    ? 'Sin cargo'
-                    : commQuotePolicy === 'arancelada'
-                    ? 'Visita arancelada'
-                    : 'A consultar'}
-                </strong>
-              </span>
-              <span className="px-2.5 py-1 rounded-full border border-white/15" style={innerStyle}>
-                Factura:{' '}
-                <strong>
-                  {commInvoiceType === 'factura_a'
-                    ? 'Factura A'
-                    : commInvoiceType === 'factura_c'
-                    ? 'Factura C'
-                    : commInvoiceType === 'ambas'
-                    ? 'Factura A / C'
-                    : commInvoiceType === 'sin_factura'
-                    ? 'Recibo / Sin factura'
-                    : 'A consultar'}
-                </strong>
-              </span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setShowCommercialEditor((prev) => !prev)}
-                className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
                 style={innerStyle}
               >
-                {showCommercialEditor ? 'Ocultar Ficha Comercial' : 'Editar Ficha Comercial'}
+                <Edit3 size={13} />
+                <span>{showCommercialEditor ? 'Ocultar Ficha' : 'Editar Ficha Comercial'}</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => setShowQaPanel((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
                 style={innerStyle}
               >
-                <MessageSquare size={12} />
+                <MessageSquare size={13} />
                 <span>
                   Preguntas ({Array.isArray(profileData.public_questions) ? profileData.public_questions.length : 0})
                 </span>
@@ -2198,11 +2153,11 @@ export default function ProviderDashboard() {
               )}
             </div>
           )}
-        </div>
+        </section>
       )}
 
-      {/* Barra compacta de Membresía "Socio Verificado" (progressive disclosure) */}
-      {!loading && (
+      {/* Barra compacta de Membresía "Socio Verificado" (visible solo en Paso 1 Credenciales para despejar los pasos operativos) */}
+      {!loading && activeStep === 'credentials' && (
         <div
           className={`rounded-2xl p-4 border space-y-3 text-xs ${
             profileData.membership?.is_verified_member
@@ -3526,147 +3481,19 @@ export default function ProviderDashboard() {
           </div>
         </section>
       ) : activeStep === 'schedule' ? (
-        /* PASO 3: AGENDA ONLINE Y DISPONIBILIDAD */
-        <section
-          className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
-          style={cardStyle}
-        >
-          {/* Cabecera de Agenda Online y botón de actualización */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div>
-              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                <Calendar size={18} className="text-emerald-400 shrink-0" />
-                <span>Agenda Online y Disponibilidad</span>
-              </h2>
-              <p className="text-xs opacity-75">
-                Bloqueá horarios no laborables, registrá visitas externas y revisá franjas ocupadas por TrustLink.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={fetchProviderSchedule}
-              className={rowActionBtnClass}
-              style={innerStyle}
-            >
-              <RefreshCw size={13} className={loadingSchedule ? 'animate-spin' : ''} /> Actualizar
-            </button>
-          </div>
-
-          {/* Formulario de creación de bloqueos manuales (no laborable / visita externa) */}
-          <form
-            onSubmit={handleCreateScheduleBlock}
-            className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
-            style={innerStyle}
-          >
-            <p className="font-bold flex items-center gap-1.5">
-              <Clock size={14} className="text-emerald-400" /> Agregar Bloqueo o Visita Externa
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <select
-                value={blockType}
-                onChange={(e) => setBlockType(e.target.value)}
-                className="px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                style={cardStyle}
-              >
-                <option value="unavailable">Horario no laborable</option>
-                <option value="external_visit">Visita externa (fuera de TrustLink)</option>
-              </select>
-              <input
-                type="text"
-                value={blockTitle}
-                onChange={(e) => setBlockTitle(e.target.value)}
-                placeholder="Detalle (ej: Descanso mediodía / Obra barrio norte)"
-                className="sm:col-span-2 px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                style={cardStyle}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <div>
-                <label className="block text-[11px] opacity-80 mb-1">Desde</label>
-                <input
-                  type="datetime-local"
-                  value={blockStart}
-                  onChange={(e) => setBlockStart(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                  style={cardStyle}
-                />
-              </div>
-              <div>
-                <label className="block text-[11px] opacity-80 mb-1">Hasta</label>
-                <input
-                  type="datetime-local"
-                  value={blockEnd}
-                  onChange={(e) => setBlockEnd(e.target.value)}
-                  required
-                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                  style={cardStyle}
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={savingBlock}
-                className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                style={{ backgroundColor: primaryColor }}
-              >
-                <Plus size={14} /> {savingBlock ? 'Guardando...' : 'Bloquear Franja'}
-              </button>
-            </div>
-          </form>
-
-          {/* Grilla de bloques de agenda (manuales eliminables y automáticos de TrustLink) */}
-          {loadingSchedule ? (
-            <p className="text-xs opacity-75 py-8 text-center">Cargando agenda del prestador...</p>
-          ) : scheduleBlocks.length === 0 ? (
-            <div
-              className="p-8 rounded-xl border border-slate-800/70 text-xs opacity-75 text-center"
-              style={innerStyle}
-            >
-              Sin bloques registrados todavía. Las visitas confirmadas o pases QR emitidos también se reflejarán aquí automáticamente.
-            </div>
-          ) : (
-            <div className={ITEMS_GRID_CLASS}>
-              {scheduleBlocks.map((blk) => {
-                const isManualBlock = !blk.source_ref;
-                return (
-                  <div
-                    key={blk.id}
-                    className={ITEM_CARD_CLASS}
-                    style={innerStyle}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-sm">{blk.title || 'Bloque de agenda'}</span>
-                        <p className="opacity-80 mt-0.5">
-                          {formatDateTime(blk.start_at)} → {formatDateTime(blk.end_at)}
-                        </p>
-                      </div>
-                      <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700 shrink-0">
-                        {getBlockTypeLabel(blk.block_type)}
-                      </span>
-                    </div>
-
-                    {isManualBlock && (
-                      <div className="flex justify-end pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteScheduleBlock(blk.id)}
-                          className="inline-flex items-center gap-1 text-rose-300 hover:text-rose-200 font-bold cursor-pointer"
-                        >
-                          <Trash2 size={12} /> Quitar bloque
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
+        /* PASO 3: AGENDA VIVA Y DISPONIBILIDAD (Jornada semanal + Grilla interactiva cada 30/60 min) */
+        <ProviderCalendarManager
+          key={scheduleRefreshKey}
+          cardStyle={cardStyle}
+          innerStyle={innerStyle}
+          primaryColor={primaryColor}
+          getAuthHeaders={getAuthHeaders}
+          onBlocksCountChange={(count) =>
+            setScheduleBlocks((prev) =>
+              prev.length === count ? prev : Array.from({ length: count }, (_, idx) => ({ id: idx }))
+            )
+          }
+        />
       ) : activeStep === 'visits' ? (
         /* PASO 4: SOLICITUDES Y CONFIRMACIÓN DE VISITAS */
         <section

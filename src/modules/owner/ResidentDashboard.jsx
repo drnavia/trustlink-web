@@ -330,6 +330,10 @@ export default function ResidentDashboard({
   const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
   const [followupDrafts, setFollowupDrafts] = useState({});
   const [sendingFollowupId, setSendingFollowupId] = useState(null);
+  // Disponibilidad viva del prestador dentro del modal "Solicitar Visita" (Fase 5.4)
+  const [visitAvailability, setVisitAvailability] = useState(null);
+  const [loadingVisitAvailability, setLoadingVisitAvailability] = useState(false);
+  const [selectedVisitAvailDay, setSelectedVisitAvailDay] = useState('');
 
   // Emisión de pase QR vinculado a un prestador
   const [qrModalProvider, setQrModalProvider] = useState(null);
@@ -601,6 +605,50 @@ export default function ResidentDashboard({
     fetchContractsData();
     fetchReviewsData();
   }, []);
+
+  // Consulta la disponibilidad viva de 7 días (sin datos privados) al abrir el modal "Solicitar Visita"
+  useEffect(() => {
+    const providerUserId = Number(visitModalProvider?.user_id);
+    if (!providerUserId) {
+      setVisitAvailability(null);
+      setSelectedVisitAvailDay('');
+      return;
+    }
+
+    let cancelled = false;
+    const loadAvailability = async () => {
+      setLoadingVisitAvailability(true);
+      try {
+        const tzOffset = new Date().getTimezoneOffset();
+        const res = await fetch(
+          `${API_BASE}/api/v1/passes/schedule/availability/${providerUserId}?days=7&tz_offset=${tzOffset}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+            },
+          }
+        );
+        const data = await res.json();
+        if (!cancelled && res.ok && Array.isArray(data.days)) {
+          setVisitAvailability(data);
+          const firstWithSlots =
+            data.days.find((d) => d.is_working && d.available_count > 0) ||
+            data.days.find((d) => d.is_working) ||
+            data.days[0];
+          setSelectedVisitAvailDay(firstWithSlots?.date || '');
+        }
+      } catch (error) {
+        console.error('Error al consultar disponibilidad del prestador:', error);
+      } finally {
+        if (!cancelled) setLoadingVisitAvailability(false);
+      }
+    };
+
+    loadAvailability();
+    return () => {
+      cancelled = true;
+    };
+  }, [visitModalProvider]);
 
   // Detecta retorno desde Mercado Pago Checkout Pro (?mp_status=...&contract_id=...), abre Paso 4 y limpia la URL
   useEffect(() => {
@@ -3231,11 +3279,11 @@ export default function ResidentDashboard({
         </section>
       )}
 
-      {/* Modal de Solicitud / Coordinación de Visita */}
+      {/* Modal de Solicitud / Coordinación de Visita con Calendario Vivo de Disponibilidad */}
       {visitModalProvider && (
         <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
           <div
-            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4"
+            className="w-full max-w-lg rounded-2xl p-5 sm:p-6 border border-slate-700/80 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto"
             style={cardStyle}
           >
             <div className="flex items-center justify-between gap-2">
@@ -3292,7 +3340,129 @@ export default function ResidentDashboard({
                 )}
               </div>
 
-              {/* Fecha/hora sugerida y mensaje inicial de coordinación */}
+              {/* Calendario vivo de disponibilidad del prestador (7 días, franjas cada 30/60 min) */}
+              <div className="rounded-xl p-3 border border-slate-700/80 space-y-2.5" style={innerStyle}>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-bold flex items-center gap-1.5">
+                    <Calendar size={13} className="text-emerald-400 shrink-0" />
+                    <span>Disponibilidad en tiempo real</span>
+                  </span>
+                  {visitAvailability?.schedule_summary && (
+                    <span className="text-[10px] opacity-75">
+                      {visitAvailability.schedule_summary}
+                    </span>
+                  )}
+                </div>
+
+                {loadingVisitAvailability ? (
+                  <p className="text-[11px] opacity-75 py-2">Consultando agenda del prestador...</p>
+                ) : visitAvailability && Array.isArray(visitAvailability.days) ? (
+                  (() => {
+                    const selectedDayObj =
+                      visitAvailability.days.find((d) => d.date === selectedVisitAvailDay) ||
+                      visitAvailability.days[0];
+                    return (
+                      <div className="space-y-2.5">
+                        {/* Tira horizontal de los próximos 7 días */}
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                          {visitAvailability.days.map((day) => {
+                            const isPicked = selectedDayObj?.date === day.date;
+                            const dayNum = String(day.date || '').split('-')[2] || '';
+                            const monthNum = String(day.date || '').split('-')[1] || '';
+                            return (
+                              <button
+                                key={day.date}
+                                type="button"
+                                onClick={() => setSelectedVisitAvailDay(day.date)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-left shrink-0 cursor-pointer transition-all ${
+                                  isPicked
+                                    ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                    : day.is_working
+                                    ? 'border-white/15 hover:border-white/30'
+                                    : 'border-white/10 opacity-50'
+                                }`}
+                                style={isPicked ? undefined : cardStyle}
+                              >
+                                <div className="font-bold text-[11px] whitespace-nowrap">
+                                  {day.short_label} {dayNum}/{monthNum}
+                                </div>
+                                <div className="text-[10px] opacity-80 whitespace-nowrap">
+                                  {!day.is_working
+                                    ? 'No atiende'
+                                    : day.available_count > 0
+                                    ? `${day.available_count} libres`
+                                    : 'Completo'}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Franjas horarias del día seleccionado (clic para autocompletar fecha/hora) */}
+                        {selectedDayObj && !selectedDayObj.is_working ? (
+                          <p className="text-[11px] opacity-75">
+                            El prestador no atiende los {selectedDayObj.day_label.toLowerCase()}. Elegí otro día arriba.
+                          </p>
+                        ) : selectedDayObj && selectedDayObj.slots.length > 0 ? (
+                          <div className="space-y-1.5">
+                            <p className="text-[10px] opacity-75">
+                              Tocá un horario libre para proponer tu visita (horarios tachados ya están ocupados):
+                            </p>
+                            <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                              {selectedDayObj.slots.map((slot) => {
+                                const slotInputVal = `${selectedDayObj.date}T${slot.time}`;
+                                const isChosen = visitDate === slotInputVal;
+                                const isAvail = slot.status === 'available';
+                                return (
+                                  <button
+                                    key={slot.start_iso}
+                                    type="button"
+                                    disabled={!isAvail}
+                                    onClick={() => setVisitDate(slotInputVal)}
+                                    className={`px-2 py-1 rounded-lg font-mono text-[11px] font-bold border transition-all ${
+                                      isChosen
+                                        ? 'border-emerald-300 text-white shadow-sm cursor-pointer'
+                                        : isAvail
+                                        ? 'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 hover:border-emerald-400 cursor-pointer'
+                                        : 'border-white/10 opacity-35 line-through cursor-not-allowed'
+                                    }`}
+                                    style={
+                                      isChosen
+                                        ? { backgroundColor: primaryColor }
+                                        : !isAvail
+                                        ? cardStyle
+                                        : undefined
+                                    }
+                                    title={
+                                      isAvail
+                                        ? `Disponible de ${slot.time} a ${slot.end_time}`
+                                        : slot.status === 'busy'
+                                        ? 'Franja ocupada'
+                                        : 'Horario pasado'
+                                    }
+                                  >
+                                    {slot.time}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-[11px] opacity-75">
+                            No hay franjas disponibles para este día.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <p className="text-[11px] opacity-75">
+                    Podés proponer tu horario preferido debajo para coordinar con el prestador.
+                  </p>
+                )}
+              </div>
+
+              {/* Fecha/hora sugerida (autocompletada al tocar una franja libre o editable manualmente) */}
               <div>
                 <label className="block font-semibold mb-1 opacity-85">Fecha y hora propuesta</label>
                 <input
