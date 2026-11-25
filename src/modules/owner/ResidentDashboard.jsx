@@ -48,6 +48,7 @@ import {
   MapPin,
   Clock,
   HelpCircle,
+  Plus,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -248,19 +249,40 @@ const getVisitStatusMeta = (visit) => {
 /**
  * Componente principal del Portal del Residente.
  * Centraliza la búsqueda de prestadores verificados, coordinación de visitas,
- * emisión/gestión de Pases QR, conformidad/pagos de contratos y reseñas cruzadas.
+ * emisión/gestión de Pases QR, generación y pago de órdenes (incluyendo retorno de Mercado Pago),
+ * conformidad/comprobantes/reclamos y reseñas cruzadas en un único flujo guiado de 5 pasos.
  *
  * @param {Object} props
  * @param {(view: string) => void} [props.onNavigate] - Callback opcional para navegar a otras vistas (ej. 'account').
+ * @param {string|null} [props.initialStep] - Paso inicial solicitado externamente (ej. `'payments'` al llegar desde `/#payments`).
+ * @param {() => void} [props.onConsumedInitialStep] - Callback opcional para limpiar `initialStep` tras aplicarlo.
  * @returns {JSX.Element} Vista completa del dashboard del residente.
  */
-export default function ResidentDashboard({ onNavigate }) {
+export default function ResidentDashboard({
+  onNavigate,
+  initialStep = null,
+  onConsumedInitialStep,
+}) {
   // Contextos globales de marca y sesión del residente autenticado
   const { brand } = useBranding();
   const { user } = useAuth();
 
   // Paso activo del flujo guiado: 'providers' | 'visits' | 'passes' | 'payments' | 'reviews'
-  const [activeStep, setActiveStep] = useState('providers');
+  const [activeStep, setActiveStep] = useState(() =>
+    ['providers', 'visits', 'passes', 'payments', 'reviews'].includes(initialStep)
+      ? initialStep
+      : 'providers'
+  );
+
+  // Sincroniza cambios externos de paso inicial (ej. redirección desde /#payments o retorno de Mercado Pago)
+  useEffect(() => {
+    if (['providers', 'visits', 'passes', 'payments', 'reviews'].includes(initialStep)) {
+      setActiveStep(initialStep);
+      if (typeof onConsumedInitialStep === 'function') {
+        onConsumedInitialStep();
+      }
+    }
+  }, [initialStep, onConsumedInitialStep]);
 
   // Directorio de prestadores, filtros, ordenamiento y modal de reseñas públicas
   const [providers, setProviders] = useState([]);
@@ -344,9 +366,19 @@ export default function ResidentDashboard({ onNavigate }) {
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passListFeedback, setPassListFeedback] = useState({ type: '', text: '' });
 
-  // Contratos / Pagos / Conformidad / Comprobante / Reclamos
+  // Contratos / Pagos / Nueva Orden desde Pase QR / Conformidad / Comprobante / Reclamos
   const [contracts, setContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
+  const [gatewayConfig, setGatewayConfig] = useState({
+    gateway_mode: 'mock',
+    sandbox: false,
+    platform_fee_percent: 7,
+  });
+  const [showNewOrderForm, setShowNewOrderForm] = useState(false);
+  const [orderPassId, setOrderPassId] = useState('');
+  const [orderDescription, setOrderDescription] = useState('');
+  const [orderAmount, setOrderAmount] = useState('');
+  const [creatingOrder, setCreatingOrder] = useState(false);
   const [payingContractId, setPayingContractId] = useState(null);
   const [completingContractId, setCompletingContractId] = useState(null);
   const [loadingReceiptId, setLoadingReceiptId] = useState(null);
@@ -472,6 +504,33 @@ export default function ResidentDashboard({ onNavigate }) {
   };
 
   /**
+   * Consulta la configuración activa de la pasarela de pagos (`mock` / `mercadopago`, sandbox y
+   * porcentaje de comisión de plataforma) para reflejarla en el Paso 4.
+   *
+   * @returns {Promise<void>}
+   */
+  const fetchGatewayConfig = async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/payments/config`, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data) {
+        setGatewayConfig({
+          gateway_mode: data.gateway_mode || 'mock',
+          sandbox: Boolean(data.sandbox),
+          platform_fee_percent: Number(data.platform_fee_percent ?? 7),
+        });
+      }
+    } catch {
+      // Mantiene configuración segura por defecto
+    }
+  };
+
+  /**
    * Carga los contratos y órdenes de pago vinculados al residente para gestionar
    * pagos, conformidades, comprobantes y reclamos.
    *
@@ -538,9 +597,148 @@ export default function ResidentDashboard({ onNavigate }) {
     fetchVerifiedProviders();
     fetchMyVisits();
     fetchMyPasses();
+    fetchGatewayConfig();
     fetchContractsData();
     fetchReviewsData();
   }, []);
+
+  // Detecta retorno desde Mercado Pago Checkout Pro (?mp_status=...&contract_id=...), abre Paso 4 y limpia la URL
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const mpStatus = (params.get('mp_status') || params.get('collection_status') || '').toLowerCase();
+      const returnedContractId = params.get('contract_id') || '';
+      if (!mpStatus) return;
+
+      setActiveStep('payments');
+      const labelSuffix = returnedContractId ? ` (Contrato #${returnedContractId})` : '';
+      if (mpStatus === 'approved') {
+        setPaymentFeedback({
+          type: 'success',
+          text: `Pago aprobado en Mercado Pago${labelSuffix}. Estamos confirmando la acreditación en TrustLink.`,
+        });
+      } else if (mpStatus === 'pending' || mpStatus === 'in_process') {
+        setPaymentFeedback({
+          type: 'success',
+          text: `Pago pendiente de acreditación en Mercado Pago${labelSuffix}. Te actualizaremos el estado automáticamente al recibir la notificación.`,
+        });
+      } else {
+        setPaymentFeedback({
+          type: 'error',
+          text: `El pago en Mercado Pago no se completó (${mpStatus})${labelSuffix}. Podés reintentar cuando quieras.`,
+        });
+      }
+
+      params.delete('mp_status');
+      params.delete('collection_status');
+      params.delete('contract_id');
+      const nextSearch = params.toString();
+      const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+      window.history.replaceState({}, document.title, nextUrl);
+    } catch {
+      // Ignora URLs malformadas
+    }
+  }, []);
+
+  // Pases elegibles para generar una orden de pago: excluye cancelados y prioriza Utilizados > Vigentes > Vencidos
+  const eligibleOrderPasses = useMemo(() => {
+    const priority = { used: 0, pending: 1, expired: 2 };
+    return (myPasses || [])
+      .filter((p) => String(p.status || '').toLowerCase() !== 'cancelled')
+      .sort((a, b) => {
+        const pa = priority[String(a.status || '').toLowerCase()] ?? 3;
+        const pb = priority[String(b.status || '').toLowerCase()] ?? 3;
+        if (pa !== pb) return pa - pb;
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+  }, [myPasses]);
+
+  /**
+   * Abre el formulario "+ Nueva Orden de Pago" en el Paso 4 preseleccionando un Pase QR puntual.
+   *
+   * @param {Object} passItem - Pase QR desde el cual se generará la orden de pago.
+   */
+  const openNewOrderForPass = (passItem) => {
+    if (passItem?.id) {
+      setOrderPassId(String(passItem.id));
+    }
+    setPaymentFeedback({ type: '', text: '' });
+    setShowNewOrderForm(true);
+    setActiveStep('payments');
+  };
+
+  /**
+   * Crea una nueva orden de pago asociada a un Pase QR de visita (`POST /api/v1/contracts`)
+   * y actualiza el listado de contratos y reseñas en el Paso 4.
+   *
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
+  const handleCreateOrderFromPass = async (e) => {
+    e.preventDefault();
+    const selectedPass =
+      eligibleOrderPasses.find((p) => String(p.id) === String(orderPassId)) ||
+      eligibleOrderPasses[0] ||
+      null;
+    const numericAmount = Number(orderAmount);
+
+    if (!selectedPass) {
+      setPaymentFeedback({
+        type: 'error',
+        text: 'Emití primero un Pase QR en el Paso 3 para poder generar una orden de pago.',
+      });
+      return;
+    }
+    if (!orderDescription.trim() || Number.isNaN(numericAmount) || numericAmount <= 0) {
+      setPaymentFeedback({
+        type: 'error',
+        text: 'Indicá la descripción del trabajo realizado y un monto acordado mayor a cero.',
+      });
+      return;
+    }
+
+    setCreatingOrder(true);
+    setPaymentFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/contracts`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          provider_id: selectedPass.provider_id,
+          pass_id: selectedPass.id,
+          description: orderDescription.trim(),
+          agreed_amount: numericAmount,
+        }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setPaymentFeedback({
+          type: 'success',
+          text:
+            data.message ||
+            'Orden de pago generada correctamente. Ya podés confirmar el pago o registrar conformidad.',
+        });
+        setOrderDescription('');
+        setOrderAmount('');
+        setShowNewOrderForm(false);
+        await Promise.all([fetchContractsData(), fetchReviewsData()]);
+      } else {
+        setPaymentFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo crear la orden de pago.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al crear orden de pago desde pase QR:', error);
+      setPaymentFeedback({
+        type: 'error',
+        text: 'Error de conexión al crear la orden de pago.',
+      });
+    } finally {
+      setCreatingOrder(false);
+    }
+  };
 
   // Índice rápido de la solicitud de visita más reciente por `provider_id` para mostrar su estado en el directorio
   const latestVisitByProvider = useMemo(() => {
@@ -2410,19 +2608,30 @@ export default function ResidentDashboard({ onNavigate }) {
                       ) : (
                         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                           <span className="opacity-70">Pase histórico ({statusMeta.label.toLowerCase()})</span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              handleRehireProvider(
-                                item.provider_id,
-                                item.provider_name || '',
-                                item.vehicle_plate || ''
-                              )
-                            }
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-emerald-300 border border-emerald-500/40 bg-emerald-950/40 hover:bg-emerald-950/70 cursor-pointer"
-                          >
-                            <RotateCcw size={11} /> Volver a contratar
-                          </button>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {String(item.status || '').toLowerCase() === 'used' && (
+                              <button
+                                type="button"
+                                onClick={() => openNewOrderForPass(item)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-sky-200 border border-sky-500/40 bg-sky-950/40 hover:bg-sky-950/70 cursor-pointer"
+                              >
+                                <CreditCard size={11} /> Crear orden de pago
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleRehireProvider(
+                                  item.provider_id,
+                                  item.provider_name || '',
+                                  item.vehicle_plate || ''
+                                )
+                              }
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-emerald-300 border border-emerald-500/40 bg-emerald-950/40 hover:bg-emerald-950/70 cursor-pointer"
+                            >
+                              <RotateCcw size={11} /> Volver a contratar
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -2464,21 +2673,191 @@ export default function ResidentDashboard({ onNavigate }) {
         </section>
       )}
 
-      {/* PASO 4: VISITAS Y ÓRDENES DE PAGO / CONFORMIDAD / COMPROBANTES / RECLAMOS */}
+      {/* PASO 4: VISITAS Y ÓRDENES DE PAGO / NUEVA ORDEN / CONFORMIDAD / COMPROBANTES / RECLAMOS */}
       {activeStep === 'payments' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          <div>
-            <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
-              <CreditCard size={18} className="text-emerald-400 shrink-0" />
-              <span>Visitas y Órdenes de Pago</span>
-            </h2>
-            <p className="text-xs opacity-75">
-              Revisá los contratos acordados con desglose de comisión (7% plataforma / 93% prestador).
-            </p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <CreditCard size={18} className="text-emerald-400 shrink-0" />
+                <span>Visitas y Órdenes de Pago</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Generá órdenes desde tus pases QR, aboná con desglose transparente (
+                {gatewayConfig.platform_fee_percent}% plataforma /{' '}
+                {100 - gatewayConfig.platform_fee_percent}% prestador) y descargá comprobantes.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap shrink-0">
+              <span
+                className={`text-[11px] font-bold px-2.5 py-1.5 rounded-xl border ${
+                  gatewayConfig.gateway_mode === 'mercadopago'
+                    ? 'border-sky-500/40 bg-sky-950/50 text-sky-200'
+                    : 'border-white/15 opacity-85'
+                }`}
+                style={gatewayConfig.gateway_mode === 'mercadopago' ? undefined : innerStyle}
+              >
+                {gatewayConfig.gateway_mode === 'mercadopago'
+                  ? gatewayConfig.sandbox
+                    ? 'Mercado Pago (Sandbox)'
+                    : 'Mercado Pago Activo'
+                  : 'Modo Piloto (Simulado)'}
+              </span>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!showNewOrderForm && !orderPassId && eligibleOrderPasses.length > 0) {
+                    setOrderPassId(String(eligibleOrderPasses[0].id));
+                  }
+                  setShowNewOrderForm((prev) => !prev);
+                }}
+                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shadow-sm"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {showNewOrderForm ? <X size={14} /> : <Plus size={14} />}
+                <span>{showNewOrderForm ? 'Cerrar' : 'Nueva Orden de Pago'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Sello UX Hogar Protegido TrustLink en el flujo de pagos y conformidad */}
           <HomeProtectedBadge variant="compact" />
+
+          {/* Formulario desplegable: Generar Orden de Pago desde Visita / Pase QR */}
+          {showNewOrderForm && (
+            <form
+              onSubmit={handleCreateOrderFromPass}
+              className="rounded-xl p-4 border border-white/15 space-y-3 text-xs"
+              style={innerStyle}
+            >
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <p className="font-bold">Generar Orden de Pago desde Pase QR</p>
+                  <p className="text-[11px] opacity-75">
+                    Seleccioná el pase de la visita realizada, detallá el trabajo y cargá el monto acordado.
+                  </p>
+                </div>
+              </div>
+
+              {eligibleOrderPasses.length === 0 ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-amber-500/35 bg-amber-950/25 text-amber-100">
+                  <span>
+                    Aún no tenés pases QR elegibles. Emití primero un pase en el Paso 3 o elegí un prestador en el Paso 1.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setActiveStep('passes')}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer shrink-0"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    Ir a Pases QR
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">Pase QR / Prestador</label>
+                      <select
+                        value={orderPassId || String(eligibleOrderPasses[0]?.id || '')}
+                        onChange={(e) => setOrderPassId(e.target.value)}
+                        className={`w-full ${FIELD_INPUT_CLASS}`}
+                        style={cardStyle}
+                      >
+                        {eligibleOrderPasses.map((pass) => {
+                          const passStatusLabel = getUnifiedStatusMeta(pass.status, 'pass').label;
+                          const providerName =
+                            pass.provider_name || `Prestador #${pass.provider_id}`;
+                          return (
+                            <option key={pass.id} value={String(pass.id)}>
+                              Pase #{pass.id} · {providerName} · {passStatusLabel}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">Trabajo realizado</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={200}
+                        value={orderDescription}
+                        onChange={(e) => setOrderDescription(e.target.value)}
+                        placeholder="Ej: Reparación de pérdida y revisión"
+                        className={`w-full ${FIELD_INPUT_CLASS}`}
+                        style={cardStyle}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">Monto acordado ($)</label>
+                      <input
+                        type="number"
+                        required
+                        min="1"
+                        step="0.01"
+                        value={orderAmount}
+                        onChange={(e) => setOrderAmount(e.target.value)}
+                        placeholder="Ej: 45000"
+                        className={`w-full ${FIELD_INPUT_CLASS}`}
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+
+                  {Number(orderAmount) > 0 && (
+                    <div className="flex flex-wrap items-center gap-3 text-[11px] px-3 py-2 rounded-lg border border-white/10 bg-black/20">
+                      <span>
+                        Comisión TrustLink ({gatewayConfig.platform_fee_percent}%):{' '}
+                        <strong className="font-mono">
+                          $
+                          {(
+                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
+                            100
+                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                        </strong>
+                      </span>
+                      <span>
+                        Neto prestador ({100 - Number(gatewayConfig.platform_fee_percent || 7)}%):{' '}
+                        <strong className="font-mono text-emerald-300">
+                          $
+                          {(
+                            Number(orderAmount) -
+                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
+                              100
+                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowNewOrderForm(false)}
+                      className="px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                      style={cardStyle}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={creatingOrder}
+                      className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <Plus size={13} />
+                      {creatingOrder ? 'Creando orden...' : 'Crear Orden de Pago'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </form>
+          )}
 
           {/* Feedback de pagos, conformidad, comprobantes y reclamos */}
           {paymentFeedback.text && (
@@ -2498,16 +2877,20 @@ export default function ResidentDashboard({ onNavigate }) {
             <p className="text-xs opacity-75 py-8 text-center">Cargando contratos y pagos...</p>
           ) : contracts.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
+              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10 space-y-3"
               style={innerStyle}
             >
-              No hay contratos registrados todavía. Podés emitir un pase QR en el Paso 3 o abrir Pagos y Reseñas en el menú superior.
+              <p>
+                No hay órdenes de pago registradas todavía. Usá &ldquo;+ Nueva Orden de Pago&rdquo;
+                arriba o generá una orden desde tus Pases QR en el Paso 3.
+              </p>
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
               {contracts.map((contract) => {
                 const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
-                const feeAmount = Number((totalAmount * 0.07).toFixed(2));
+                const feePercent = Number(gatewayConfig.platform_fee_percent ?? 7);
+                const feeAmount = Number(((totalAmount * feePercent) / 100).toFixed(2));
                 const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
                 const isPending = String(contract.status || '').toLowerCase() === 'pending';
                 const isInProgress = String(contract.status || '').toLowerCase() === 'in_progress';
@@ -2560,11 +2943,11 @@ export default function ResidentDashboard({ onNavigate }) {
                           <span className="font-bold font-mono">${totalAmount.toLocaleString('es-AR')}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="opacity-75">Comisión TrustLink (7%):</span>
+                          <span className="opacity-75">Comisión TrustLink ({feePercent}%):</span>
                           <span className="font-mono">${feeAmount.toLocaleString('es-AR')}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="opacity-75">Neto prestador (93%):</span>
+                          <span className="opacity-75">Neto prestador ({100 - feePercent}%):</span>
                           <span className="font-semibold font-mono text-emerald-400">
                             ${payoutAmount.toLocaleString('es-AR')}
                           </span>

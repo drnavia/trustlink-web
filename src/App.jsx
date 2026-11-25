@@ -10,7 +10,6 @@ import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Home,
   Wrench,
-  CreditCard,
   QrCode,
   LogOut,
   LogIn,
@@ -35,7 +34,6 @@ const RegisterView = lazy(() => import('./modules/auth/RegisterView'));
 const AccountView = lazy(() => import('./modules/auth/AccountView'));
 const ResidentDashboard = lazy(() => import('./modules/owner/ResidentDashboard'));
 const ProviderDashboard = lazy(() => import('./modules/provider/ProviderDashboard'));
-const ContractPaymentView = lazy(() => import('./modules/owner/ContractPaymentView'));
 const SecurityScanner = lazy(() => import('./modules/security/SecurityScanner'));
 const AdminComplianceView = lazy(() => import('./modules/admin/AdminComplianceView'));
 const LocalAdminView = lazy(() => import('./modules/admin/LocalAdminView'));
@@ -95,6 +93,21 @@ function readViewFromHash() {
 }
 
 /**
+ * Detecta si la URL actual incluye parámetros de retorno de Mercado Pago Checkout Pro
+ * (`?mp_status=` o `?collection_status=`) para abrir directamente el Paso 4 de Pagos.
+ * @returns {boolean} `true` si la URL corresponde a un retorno de pasarela de pagos.
+ */
+function hasMpReturnParams() {
+  if (typeof window === 'undefined') return false;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return Boolean(params.get('mp_status') || params.get('collection_status'));
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Contenido principal de la aplicación con acceso a BrandingContext y AuthContext.
  * Orquesta los permisos por rol/portal, la navegación vía hash/History API,
  * la barra superior adaptable, el sub-menú de Modo Maestro y la carga diferida de vistas.
@@ -120,7 +133,6 @@ function MainAppContent() {
     (user?.can_use_provider !== undefined
       ? Boolean(user.can_use_provider)
       : userRole === 'provider');
-  const canSeePayments = canSeeResident;
   const canSeeSecurity = isSuperadmin || userRole === 'security';
 
   /**
@@ -155,8 +167,12 @@ function MainAppContent() {
 
   // Token QR inicial capturado desde la URL (si la garita abrió un enlace directo)
   const [initialQrToken, setInitialQrToken] = useState(() => readInitialQrTokenFromUrl());
+  // Paso inicial opcional del Portal Residente (ej. 'payments' al ingresar por /#payments o retorno de Mercado Pago)
+  const [residentInitialStep, setResidentInitialStep] = useState(() =>
+    readViewFromHash() === 'payments' || hasMpReturnParams() ? 'payments' : null
+  );
 
-  // Vista activa inicial: prioriza login ante token QR sin sesión, consola garita si tiene permiso o hash válido
+  // Vista activa inicial: unifica alias heredado `#payments` hacia `#resident` (Paso 4)
   const [currentView, setCurrentViewState] = useState(() => {
     const hashView = readViewFromHash();
     if (!isAuthenticated) {
@@ -164,6 +180,9 @@ function MainAppContent() {
       return hashView === 'login' || hashView === 'register' ? hashView : 'landing';
     }
     if (readInitialQrTokenFromUrl() && canSeeSecurity) return 'security';
+    if (hashView === 'payments' || hasMpReturnParams()) {
+      return canSeeResident ? 'resident' : getDefaultAuthenticatedView(user);
+    }
     return hashView || getDefaultAuthenticatedView(user);
   });
   // Estado desplegable de la sub-barra de Gobernanza Central (Modo Maestro)
@@ -174,11 +193,17 @@ function MainAppContent() {
   /**
    * Cambia la vista activa y actualiza el historial del navegador normalizando el pathname a `/`
    * y reflejando la ruta como hash (`/#<vista>`) sin provocar recargas.
+   * Mantiene compatibilidad redirigiendo el alias heredado `payments` al Paso 4 de `resident`.
    * @param {string|((prev: string) => string)} nextOrUpdater - Nueva vista o función actualizadora.
    */
   const setCurrentView = useCallback((nextOrUpdater) => {
     setCurrentViewState((prev) => {
-      const next = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      const requested = typeof nextOrUpdater === 'function' ? nextOrUpdater(prev) : nextOrUpdater;
+      const isLegacyPayments = requested === 'payments';
+      const next = isLegacyPayments ? 'resident' : requested;
+      if (isLegacyPayments) {
+        setResidentInitialStep('payments');
+      }
       if (typeof window !== 'undefined' && next && VALID_VIEWS.has(next)) {
         const targetHash = `#${next}`;
         const cleanPath = '/';
@@ -204,10 +229,12 @@ function MainAppContent() {
     }
   }, []);
 
-  // Normaliza pathname heredado (ej. /admin/superadmin/config#account -> /#account) al montar
+  // Normaliza pathname heredado (ej. /admin/superadmin/config#account -> /#account) y alias #payments -> #resident al montar
   useEffect(() => {
-    if (typeof window !== 'undefined' && window.location.pathname !== '/') {
-      const targetHash = window.location.hash || `#${currentView}`;
+    if (typeof window === 'undefined') return;
+    const isLegacyHash = readViewFromHash() === 'payments';
+    if (window.location.pathname !== '/' || (isAuthenticated && isLegacyHash)) {
+      const targetHash = isLegacyHash ? '#resident' : window.location.hash || `#${currentView}`;
       window.history.replaceState(null, '', `/${window.location.search}${targetHash}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,6 +244,7 @@ function MainAppContent() {
   useEffect(() => {
     /**
      * Sincroniza la vista activa y cualquier `?qr_token=` presente al navegar por el historial.
+     * Si el hash corresponde al alias heredado `#payments`, redirige al Paso 4 de `resident`.
      */
     const onPopState = () => {
       const tokenFromUrl = readInitialQrTokenFromUrl();
@@ -224,7 +252,10 @@ function MainAppContent() {
         setInitialQrToken(tokenFromUrl);
       }
       const hashView = readViewFromHash();
-      if (hashView) {
+      if (hashView === 'payments') {
+        setResidentInitialStep('payments');
+        setCurrentViewState('resident');
+      } else if (hashView) {
         setCurrentViewState(hashView);
       }
     };
@@ -444,18 +475,6 @@ function MainAppContent() {
                   title="Portal Prestador"
                 >
                   <Wrench size={13} /> {isSuperadmin ? 'Prestador' : 'Portal Prestador'}
-                </button>
-              )}
-
-              {canSeePayments && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('payments')}
-                  className={navBtnClass(currentView === 'payments')}
-                  style={navBtnStyle(currentView === 'payments')}
-                  title="Pagos y Reseñas"
-                >
-                  <CreditCard size={13} /> {isSuperadmin ? 'Pagos' : 'Pagos y Reseñas'}
                 </button>
               )}
 
@@ -692,14 +711,17 @@ function MainAppContent() {
           <AccountView onNavigate={setCurrentView} />
         )}
 
-        {/* Portales operativos: Residente, Prestador, Pagos y Consola de Garita */}
-        {currentView === 'resident' && (
-          <ResidentDashboard onNavigate={setCurrentView} onViewChange={setCurrentView} />
+        {/* Portales operativos: Residente (flujo único de 5 pasos incl. Pagos y Reseñas), Prestador y Consola de Garita */}
+        {(currentView === 'resident' || currentView === 'payments') && (
+          <ResidentDashboard
+            onNavigate={setCurrentView}
+            onViewChange={setCurrentView}
+            initialStep={currentView === 'payments' ? 'payments' : residentInitialStep}
+            onConsumedInitialStep={() => setResidentInitialStep(null)}
+          />
         )}
 
         {currentView === 'provider' && <ProviderDashboard onViewChange={setCurrentView} />}
-
-        {currentView === 'payments' && <ContractPaymentView onViewChange={setCurrentView} />}
 
         {currentView === 'security' && (
           <SecurityScanner
