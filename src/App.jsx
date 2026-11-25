@@ -641,7 +641,7 @@ function MainAppContent() {
                     : 'bg-black/25 hover:bg-black/35 border border-white/15'
                 }`}
               >
-                <Users size={12} /> Cuentas Privilegiadas
+                <Users size={12} /> Usuarios y Métricas
               </button>
 
               <button
