@@ -19,6 +19,7 @@ import {
   UserCheck,
   ShieldAlert,
   Users,
+  Building2,
   Palette,
   Activity,
   ChevronDown,
@@ -37,6 +38,7 @@ const ProviderDashboard = lazy(() => import('./modules/provider/ProviderDashboar
 const SecurityScanner = lazy(() => import('./modules/security/SecurityScanner'));
 const AdminComplianceView = lazy(() => import('./modules/admin/AdminComplianceView'));
 const LocalAdminView = lazy(() => import('./modules/admin/LocalAdminView'));
+const CommunitiesAdminView = lazy(() => import('./modules/admin/CommunitiesAdminView'));
 const UserManagementView = lazy(() => import('./modules/admin/UserManagementView'));
 const BrandingSettingsView = lazy(() => import('./modules/branding/BrandingSettingsView'));
 const SystemHealthDashboard = lazy(() => import('./modules/admin/SystemHealthDashboard'));
@@ -499,7 +501,7 @@ function MainAppContent() {
                     currentView === 'local_admin' ? { backgroundColor: '#D97706' } : undefined
                   }
                 >
-                  <ShieldAlert size={13} /> Vista Admin Barrio
+                  <ShieldAlert size={13} /> Admin Barrio
                 </button>
               )}
 
@@ -510,12 +512,12 @@ function MainAppContent() {
                   aria-expanded={masterModeOpen}
                   className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
                     masterModeOpen || MASTER_VIEWS.has(currentView)
-                      ? 'bg-purple-700 text-white border-purple-400 shadow-md'
-                      : 'bg-purple-950/80 text-purple-200 border-purple-700/70 hover:bg-purple-900'
+                      ? 'bg-indigo-600 text-white border-indigo-400 shadow-md'
+                      : 'bg-indigo-950/75 text-indigo-100 border-indigo-700/70 hover:bg-indigo-900'
                   }`}
                 >
                   <Layers size={13} />
-                  <span>Modo Maestro</span>
+                  <span>Administración</span>
                   <ChevronDown
                     size={13}
                     className={`transition-transform ${masterModeOpen ? 'rotate-180' : ''}`}
@@ -593,7 +595,7 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* ZONA 2: Sub-menú de Gobernanza Central Superadmin (Modo Maestro) */}
+      {/* ZONA 2: Sub-menú de Administración Global (alineado a la izquierda, orden por dominio y acento uniforme) */}
       {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
           className="border-b border-black/20 px-4 sm:px-6 py-2"
@@ -602,73 +604,34 @@ function MainAppContent() {
             color: brand?.submenuTextColor || '#CBD5E1',
           }}
         >
-          <div className="max-w-6xl w-full mx-auto flex items-center justify-between gap-3 overflow-x-auto md:flex-wrap text-xs">
-            <span className="font-semibold inline-flex items-center gap-1.5 whitespace-nowrap shrink-0">
-              <Layers size={13} /> Gobernanza Central Superadmin
-            </span>
-
-            <div className="flex items-center gap-1.5 md:flex-wrap shrink-0">
-              <button
-                type="button"
-                onClick={() => setCurrentView('admin')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  currentView === 'admin'
-                    ? 'bg-emerald-600 text-white ring-2 ring-emerald-400/50'
-                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
-                }`}
-              >
-                <UserCheck size={12} /> Compliance Prestadores
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCurrentView('local_admin')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  currentView === 'local_admin'
-                    ? 'bg-amber-600 text-white ring-2 ring-amber-400/50'
-                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
-                }`}
-              >
-                <ShieldAlert size={12} /> Vista Admin Barrio
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCurrentView('users_master')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  currentView === 'users_master'
-                    ? 'bg-indigo-600 text-white ring-2 ring-indigo-400/50'
-                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
-                }`}
-              >
-                <Users size={12} /> Usuarios y Métricas
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCurrentView('branding_master')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  currentView === 'branding_master'
-                    ? 'bg-pink-600 text-white ring-2 ring-pink-400/50'
-                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
-                }`}
-              >
-                <Palette size={12} /> Colores / Marca
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCurrentView('health')}
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                  currentView === 'health'
-                    ? 'bg-sky-600 text-white ring-2 ring-sky-400/50'
-                    : 'bg-black/25 hover:bg-black/35 border border-white/15'
-                }`}
-              >
-                <Activity size={12} /> Salud &amp; APIs
-              </button>
-            </div>
-          </div>
+          <nav
+            aria-label="Submenú de Administración"
+            className="max-w-6xl w-full mx-auto flex items-center gap-1.5 overflow-x-auto md:flex-wrap text-xs"
+          >
+            {[
+              { id: 'users_master', label: 'Métricas y Usuarios', Icon: Users },
+              { id: 'admin', label: 'Prestadores', Icon: UserCheck },
+              { id: 'local_admin', label: 'Comunidades', Icon: Building2 },
+              { id: 'health', label: 'Auditoría y Sistema', Icon: Activity },
+              { id: 'branding_master', label: 'Marca y Estilo', Icon: Palette },
+            ].map(({ id, label, Icon }) => {
+              const isActive = currentView === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setCurrentView(id)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
+                    isActive
+                      ? 'bg-indigo-600 text-white shadow-sm'
+                      : 'bg-black/20 hover:bg-black/35 border border-white/15 opacity-85 hover:opacity-100'
+                  }`}
+                >
+                  <Icon size={13} /> {label}
+                </button>
+              );
+            })}
+          </nav>
         </div>
       )}
 
@@ -730,10 +693,12 @@ function MainAppContent() {
           />
         )}
 
-        {/* Vistas administrativas y de gobernanza central (Modo Maestro / Admin Barrio) */}
+        {/* Vistas de Administración Global (Superadmin) y Administración Local (Admin Barrio) */}
         {isSuperadmin && currentView === 'admin' && <AdminComplianceView />}
 
-        {(isSuperadmin || isLocalAdmin) && currentView === 'local_admin' && <LocalAdminView />}
+        {isSuperadmin && currentView === 'local_admin' && <CommunitiesAdminView />}
+
+        {isLocalAdmin && currentView === 'local_admin' && <LocalAdminView />}
 
         {isSuperadmin && currentView === 'users_master' && <UserManagementView />}
 

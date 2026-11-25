@@ -32,9 +32,11 @@ import { downloadCsv } from '../../utils/csvExport';
  * levantamiento de suspensiones locales de prestadores y expone alertas preventivas de
  * vencimiento documental con recordatorio vía WhatsApp y exportación CSV.
  *
+ * @param {Object} [props] - Propiedades opcionales del componente.
+ * @param {boolean} [props.embedded=false] - Si es `true`, omite el contenedor de página y encabezado propio para integrarse como pestaña dentro de `CommunitiesAdminView`.
  * @returns {JSX.Element} Vista operativa de administración local.
  */
-export default function LocalAdminView() {
+export default function LocalAdminView({ embedded = false } = {}) {
   const { user } = useAuth();
   const { brand } = useBranding();
   const isSuperadmin = user?.role === 'superadmin';
@@ -257,35 +259,37 @@ export default function LocalAdminView() {
   };
 
   return (
-    <div className={`${PAGE_SHELL_CLASS} font-sans`}>
-      {/* Zona 4: Encabezado Vista Admin Barrio */}
-      <section
-        className="border border-white/10 p-5 sm:p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm"
-        style={cardStyle}
-      >
-        <div className="flex items-center gap-3">
-          <div className="p-3 text-amber-400 rounded-xl border border-white/15" style={innerStyle}>
-            <ShieldAlert size={22} />
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-white">Vista Admin Barrio</h2>
-            <p className="text-xs opacity-80 mt-0.5">
-              Reportes y suspensiones locales dentro de la comunidad.
-            </p>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() => fetchLocalData(selectedCountryId)}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
-          style={innerStyle}
+    <div className={embedded ? 'space-y-6 font-sans' : `${PAGE_SHELL_CLASS} font-sans`}>
+      {/* Zona 4: Encabezado propio (solo en vista independiente del Admin Local) */}
+      {!embedded && (
+        <section
+          className="border border-white/10 p-5 sm:p-6 rounded-2xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-sm"
+          style={cardStyle}
         >
-          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          Actualizar
-        </button>
-      </section>
+          <div className="flex items-center gap-3">
+            <div className="p-3 text-amber-400 rounded-xl border border-white/15" style={innerStyle}>
+              <ShieldAlert size={22} />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-white">Administración de Barrio</h2>
+              <p className="text-xs opacity-80 mt-0.5">
+                Reportes, suspensiones locales y alertas de vencimiento documental de la comunidad.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => fetchLocalData(selectedCountryId)}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
+            style={innerStyle}
+          >
+            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            Actualizar
+          </button>
+        </section>
+      )}
 
       {/* Banner de feedback operativo (confirmación o error) */}
       {feedback && (
