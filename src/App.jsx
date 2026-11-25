@@ -18,6 +18,7 @@ import {
   Layers,
   UserCheck,
   ShieldAlert,
+  ShieldCheck,
   Users,
   Building2,
   BarChart3,
@@ -381,10 +382,10 @@ function MainAppContent() {
                 />
               ) : (
                 <div
-                  className="w-8 h-8 md:w-9 md:h-9 rounded-xl flex items-center justify-center text-white font-black text-sm md:text-base shadow shrink-0"
-                  style={{ backgroundColor: brand?.primaryColor || '#0A2540' }}
+                  className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow shrink-0"
+                  aria-hidden="true"
                 >
-                  {displayBrandName.charAt(0).toUpperCase()}
+                  <ShieldCheck size={18} />
                 </div>
               )}
 
