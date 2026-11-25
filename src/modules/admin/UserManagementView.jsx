@@ -1,14 +1,18 @@
 /**
  * @file UserManagementView.jsx
- * @description Panel maestro de Usuarios, Analítica Comunitaria y Cuentas Privilegiadas para `superadmin`.
- * Organizado en dos pestañas claras:
- * 1) Métricas y Comunidad:
+ * @description Panel maestro de Métricas y Usuarios para `superadmin`.
+ * Organizado en dos pestañas simétricas 1:1 con el submenú ("Métricas y Usuarios"):
+ * 1) Métricas:
  *    - Bloque 1: Adquisición (`initial_role`) vs. Identidad Activa Hoy (`can_use_resident` / `can_use_provider`),
  *      cuentas duales y conversión cruzada (Residente <-> Prestador).
  *    - Bloque 2: Embudo de Activación (salud de prestadores y residentes + ratio demanda/oferta).
  *    - Bloque 3: Embudo operativo de visitas/QR/garita/contratos/reseñas, crecimiento 7d/30d y comparativa por barrio.
- * 2) Cuentas Privilegiadas:
- *    - Buscador, filtros por rol en español, listado a ancho completo, alta en modal con CTA contextual y edición completa.
+ * 2) Usuarios:
+ *    - Selector limpio de segmento entre:
+ *      a) Cuentas Generales (Residentes, Prestadores y Duales): buscador, filtros por comunidad, origen de alta,
+ *         perfil actual y estado, exportación CSV, paginación y suspensión/reactivación segura en 2 clics.
+ *      b) Cuentas Privilegiadas (Superadmin, Admin Barrio y Garita/Seguridad): buscador, chips por rol en español,
+ *         alta en modal con CTA contextual y edición completa.
  * @location /trustlink-web/src/modules/admin/UserManagementView.jsx
  */
 
@@ -27,6 +31,7 @@ import {
   Search,
   Building2,
   ArrowRightLeft,
+  ArrowRight,
   TrendingUp,
   AlertTriangle,
   Sparkles,
@@ -34,6 +39,10 @@ import {
   Phone,
   Mail,
   IdCard,
+  MapPin,
+  ShieldCheck,
+  UserX,
+  UserCheck,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -94,9 +103,40 @@ function getInitials(firstName, lastName) {
 }
 
 /**
- * Consola maestra de Usuarios, Métricas de Comunidad y Gestión de Cuentas Privilegiadas.
+ * Formatea una fecha corta en formato local argentino (`dd/mm/aaaa`).
  *
- * @returns {JSX.Element} Vista integral de analítica de usuarios y administración de accesos.
+ * @param {string|null|undefined} raw - Timestamp ISO o SQL.
+ * @returns {string} Fecha legible o `'—'`.
+ */
+function formatShortDate(raw) {
+  if (!raw) return '—';
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+/**
+ * Formatea la ubicación residencial de una cuenta comunitaria (Manzana/Fracción + Lote).
+ *
+ * @param {Object} u - Usuario comunitario.
+ * @returns {string} Texto legible del domicilio o `'Sin lote cargado'`.
+ */
+function formatResidentialLocation(u) {
+  if (!u?.lot_number) return 'Sin lote cargado';
+  const areaPrefix =
+    u.fraction_type === 'manzana'
+      ? 'Manzana '
+      : u.fraction_type === 'fraccion'
+      ? 'Fracción '
+      : '';
+  const areaPart = u.fraction_number ? `${areaPrefix}${u.fraction_number} · ` : '';
+  return `${areaPart}Lote ${u.lot_number}`;
+}
+
+/**
+ * Consola maestra de Métricas y Usuarios (Comunidad + Cuentas Privilegiadas).
+ *
+ * @returns {JSX.Element} Vista integral de analítica y directorio completo de usuarios.
  */
 export default function UserManagementView() {
   const { brand } = useBranding();
@@ -112,10 +152,12 @@ export default function UserManagementView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
-  // Pestaña activa del panel: analítica de comunidad por defecto o gestión de cuentas privilegiadas
+  // Pestaña superior 1:1 con el submenú: 'analytics' (Métricas) o 'users' (Usuarios)
   const [activeTab, setActiveTab] = useState('analytics');
+  // Sub-segmento limpio dentro de 'Usuarios': 'community' (Cuentas Generales) o 'privileged' (Cuentas Privilegiadas)
+  const [usersSegment, setUsersSegment] = useState('community');
 
-  // Catálogo de comunidades activas compartido entre filtros de analítica y alta/edición de cuentas
+  // Catálogo de comunidades activas compartido entre analítica, cuentas generales y cuentas privilegiadas
   const [countries, setCountries] = useState([]);
 
   // Estado de Analítica Comunitaria (Bloques 1, 2 y 3)
@@ -125,7 +167,29 @@ export default function UserManagementView() {
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [analyticsError, setAnalyticsError] = useState('');
 
-  // Estado de Cuentas Privilegiadas (listado, filtros, modal de alta y modal de edición)
+  // Estado de Cuentas Generales (Residentes, Prestadores y Duales)
+  const [communityUsers, setCommunityUsers] = useState([]);
+  const [communitySummary, setCommunitySummary] = useState({
+    total: 0,
+    only_resident: 0,
+    only_provider: 0,
+    dual: 0,
+    inactive: 0,
+  });
+  const [communityPage, setCommunityPage] = useState(1);
+  const [communityTotalPages, setCommunityTotalPages] = useState(1);
+  const [communityTotalFiltered, setCommunityTotalFiltered] = useState(0);
+  const [communitySearch, setCommunitySearch] = useState('');
+  const [communityCountryFilter, setCommunityCountryFilter] = useState('all');
+  const [communityOriginFilter, setCommunityOriginFilter] = useState('all');
+  const [communityProfileFilter, setCommunityProfileFilter] = useState('all');
+  const [communityStatusFilter, setCommunityStatusFilter] = useState('all');
+  const [loadingCommunityUsers, setLoadingCommunityUsers] = useState(false);
+  const [communityFeedback, setCommunityFeedback] = useState({ type: '', text: '' });
+  const [confirmToggleUserId, setConfirmToggleUserId] = useState(null);
+  const [togglingUserId, setTogglingUserId] = useState(null);
+
+  // Estado de Cuentas Privilegiadas (Superadmin, Admin Barrio, Garita/Seguridad)
   const [usersList, setUsersList] = useState([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [savingUser, setSavingUser] = useState(false);
@@ -135,7 +199,7 @@ export default function UserManagementView() {
   const [roleFilter, setRoleFilter] = useState('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Estado para el formulario modal de alta de cuenta privilegiada
+  // Formulario modal de alta de cuenta privilegiada
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
@@ -147,7 +211,7 @@ export default function UserManagementView() {
     country_id: '',
   });
 
-  // Estado para el modal de edición de cuenta privilegiada
+  // Formulario modal de edición de cuenta privilegiada
   const [editingUser, setEditingUser] = useState(null);
   const [editForm, setEditForm] = useState({
     first_name: '',
@@ -238,6 +302,64 @@ export default function UserManagementView() {
   );
 
   /**
+   * Consulta el listado paginado y filtrable de cuentas generales de la comunidad (Residentes, Prestadores y Duales).
+   *
+   * @param {number} [pageToLoad=communityPage] - Número de página a consultar.
+   * @returns {Promise<void>}
+   */
+  const fetchCommunityUsers = useCallback(
+    async (pageToLoad = communityPage) => {
+      setLoadingCommunityUsers(true);
+      try {
+        const params = new URLSearchParams({
+          page: String(pageToLoad),
+          limit: '10',
+        });
+        if (communitySearch.trim()) params.set('search', communitySearch.trim());
+        if (communityCountryFilter !== 'all') params.set('country_id', communityCountryFilter);
+        if (communityOriginFilter !== 'all') params.set('initial_origin', communityOriginFilter);
+        if (communityProfileFilter !== 'all') params.set('current_profile', communityProfileFilter);
+        if (communityStatusFilter !== 'all') params.set('status', communityStatusFilter);
+
+        const res = await fetch(`${API_BASE}/api/v1/auth/users/community?${params.toString()}`, {
+          headers: getAuthHeaders(),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok) {
+          setCommunityUsers(Array.isArray(data.users) ? data.users : []);
+          if (data.summary) setCommunitySummary(data.summary);
+          const pag = data.pagination || {};
+          setCommunityPage(pag.page || pageToLoad);
+          setCommunityTotalPages(pag.totalPages || 1);
+          setCommunityTotalFiltered(pag.total ?? (data.users || []).length);
+        } else {
+          setCommunityFeedback({
+            type: 'error',
+            text: data.error || 'No se pudieron cargar las cuentas generales.',
+          });
+        }
+      } catch (error) {
+        console.error('Error al cargar cuentas generales:', error);
+        setCommunityFeedback({
+          type: 'error',
+          text: 'Error de conexión al consultar las cuentas de comunidad.',
+        });
+      } finally {
+        setLoadingCommunityUsers(false);
+      }
+    },
+    [
+      communityPage,
+      communitySearch,
+      communityCountryFilter,
+      communityOriginFilter,
+      communityProfileFilter,
+      communityStatusFilter,
+      getAuthHeaders,
+    ]
+  );
+
+  /**
    * Consulta al backend el listado completo de cuentas privilegiadas (`superadmin`, `admin`, `security`).
    *
    * @returns {Promise<void>}
@@ -264,18 +386,29 @@ export default function UserManagementView() {
     }
   }, [getAuthHeaders]);
 
-  // Carga inicial de comunidades y cuentas privilegiadas al montar la vista
+  // Carga inicial de comunidades y cuentas privilegiadas al montar
   useEffect(() => {
     fetchCountries();
     fetchPrivilegedUsers();
   }, [fetchCountries, fetchPrivilegedUsers]);
 
-  // Recarga automática de métricas cuando cambian los filtros de comunidad o período
+  // Recarga automática de métricas al cambiar comunidad o período
   useEffect(() => {
     fetchAnalytics(analyticsCountryId, analyticsPeriod);
   }, [analyticsCountryId, analyticsPeriod, fetchAnalytics]);
 
-  // Contadores rápidos por rol privilegiado para los chips de filtro
+  // Recarga de cuentas generales al cambiar filtros (vuelve a página 1)
+  useEffect(() => {
+    fetchCommunityUsers(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    communityCountryFilter,
+    communityOriginFilter,
+    communityProfileFilter,
+    communityStatusFilter,
+  ]);
+
+  // Contadores rápidos por rol privilegiado para chips de filtro
   const roleCounts = useMemo(() => {
     return usersList.reduce(
       (acc, u) => {
@@ -290,7 +423,7 @@ export default function UserManagementView() {
     );
   }, [usersList]);
 
-  // Listado filtrado en vivo por rol y búsqueda de texto (nombre, correo, DNI o barrio)
+  // Listado filtrado en vivo de cuentas privilegiadas
   const filteredPrivilegedUsers = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return usersList.filter((u) => {
@@ -306,7 +439,49 @@ export default function UserManagementView() {
   }, [usersList, roleFilter, searchTerm]);
 
   /**
-   * Exporta a CSV el desglose comunitario de métricas actuales respetando los filtros aplicados.
+   * Suspende o reactiva de forma segura una cuenta comunitaria (`PATCH /api/v1/auth/users/community/:id/toggle`).
+   *
+   * @param {Object} targetUser - Cuenta comunitaria a modificar.
+   * @returns {Promise<void>}
+   */
+  const handleToggleCommunityUser = async (targetUser) => {
+    setTogglingUserId(targetUser.id);
+    setCommunityFeedback({ type: '', text: '' });
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/auth/users/community/${targetUser.id}/toggle`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ is_active: !targetUser.is_active }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCommunityFeedback({
+          type: 'success',
+          text:
+            data.message ||
+            (targetUser.is_active ? 'Cuenta suspendida.' : 'Cuenta reactivada.'),
+        });
+        setConfirmToggleUserId(null);
+        await Promise.all([fetchCommunityUsers(communityPage), fetchAnalytics()]);
+      } else {
+        setCommunityFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo actualizar el estado de la cuenta.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al cambiar estado de cuenta comunitaria:', error);
+      setCommunityFeedback({
+        type: 'error',
+        text: 'Error de conexión al actualizar el estado.',
+      });
+    } finally {
+      setTogglingUserId(null);
+    }
+  };
+
+  /**
+   * Exporta a CSV el desglose comunitario de métricas actuales.
    */
   const handleExportAnalyticsCsv = () => {
     if (!analyticsData) return;
@@ -337,7 +512,46 @@ export default function UserManagementView() {
   };
 
   /**
-   * Abre el modal de creación de cuenta privilegiada reiniciando el borrador con comunidad por defecto.
+   * Exporta a CSV la página visible de cuentas generales de la comunidad.
+   */
+  const handleExportCommunityUsersCsv = () => {
+    const headers = [
+      'ID',
+      'Nombre',
+      'Apellido',
+      'Correo',
+      'DNI',
+      'Teléfono',
+      'Comunidad',
+      'Domicilio',
+      'Origen Alta',
+      'Perfil Hoy',
+      'Estado',
+      'Fecha Alta',
+    ];
+    const dataRows = communityUsers.map((u) => [
+      u.id,
+      u.first_name,
+      u.last_name,
+      u.email,
+      u.dni || '',
+      u.phone || '',
+      u.country_name || '',
+      formatResidentialLocation(u),
+      u.initial_origin === 'provider' ? 'Prestador' : 'Residente',
+      u.current_profile === 'dual'
+        ? 'Cuenta Dual'
+        : u.current_profile === 'only_provider'
+        ? 'Solo Prestador'
+        : 'Solo Residente',
+      u.is_active ? 'Activo' : 'Inactivo',
+      formatShortDate(u.created_at),
+    ]);
+    downloadCsv(`trustlink-cuentas-generales-p${communityPage}.csv`, headers, dataRows);
+  };
+
+  /**
+   * Abre el modal de creación de cuenta privilegiada reiniciando el borrador.
    */
   const openCreateModal = () => {
     setErrorMsg('');
@@ -358,7 +572,7 @@ export default function UserManagementView() {
   /**
    * Envía el alta de una nueva cuenta privilegiada (`admin`, `security` o `superadmin`).
    *
-   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario modal.
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del modal.
    * @returns {Promise<void>}
    */
   const handleCreateUser = async (e) => {
@@ -399,7 +613,7 @@ export default function UserManagementView() {
   };
 
   /**
-   * Abre el modal de edición precargando todos los datos actuales de la cuenta seleccionada.
+   * Abre el modal de edición precargando todos los datos actuales de la cuenta privilegiada.
    *
    * @param {Object} u - Cuenta privilegiada a editar.
    */
@@ -479,6 +693,7 @@ export default function UserManagementView() {
   const b2 = analyticsData?.block2_activation || null;
   const b3 = analyticsData?.block3_operations || null;
   const createRoleMeta = PRIVILEGED_ROLE_META[formData.role] || PRIVILEGED_ROLE_META.admin;
+  const totalAllAccounts = (communitySummary.total || 0) + usersList.length;
 
   // Etapas del embudo operativo (Bloque 3)
   const funnelSteps = useMemo(() => {
@@ -500,9 +715,16 @@ export default function UserManagementView() {
     ];
   }, [b3]);
 
+  const isRefreshingCurrent =
+    activeTab === 'analytics'
+      ? loadingAnalytics
+      : usersSegment === 'community'
+      ? loadingCommunityUsers
+      : loadingUsers;
+
   return (
     <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans">
-      {/* Zona 4: Encabezado unificado con navegación interna por pestañas */}
+      {/* Zona 4: Encabezado simétrico 1:1 con el submenú ("Métricas y Usuarios") */}
       <section
         className="border border-white/10 p-5 sm:p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4"
         style={cardStyle}
@@ -512,24 +734,28 @@ export default function UserManagementView() {
             className="p-3 rounded-xl border border-white/15 text-indigo-300 shrink-0"
             style={innerStyle}
           >
-            {activeTab === 'analytics' ? <BarChart3 size={22} /> : <ShieldAlert size={22} />}
+            {activeTab === 'analytics' ? <BarChart3 size={22} /> : <Users size={22} />}
           </div>
           <div>
-            <h2 className="text-xl font-black text-white">Usuarios, Métricas y Accesos</h2>
+            <h2 className="text-xl font-black text-white">Métricas y Usuarios</h2>
             <p className="text-xs opacity-80 mt-0.5">
-              Origen de altas, identidad dual, salud del marketplace y administración de roles operativos.
+              Analítica de adquisición e identidad dual, directorio comunitario y roles operativos.
             </p>
           </div>
         </div>
 
-        {/* Pestañas internas limpias + acción de refresco */}
+        {/* 2 pestañas simétricas con ícono, gap-1 y ARIA */}
         <div className="flex flex-wrap items-center gap-2">
           <div
+            role="tablist"
+            aria-label="Secciones de Métricas y Usuarios"
             className="inline-flex items-center p-1 rounded-xl border border-white/15 gap-1"
             style={innerStyle}
           >
             <button
               type="button"
+              role="tab"
+              aria-selected={activeTab === 'analytics'}
               onClick={() => setActiveTab('analytics')}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
                 activeTab === 'analytics'
@@ -538,45 +764,48 @@ export default function UserManagementView() {
               }`}
             >
               <BarChart3 size={14} />
-              <span>Métricas y Comunidad</span>
+              <span>Métricas</span>
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('privileged')}
+              role="tab"
+              aria-selected={activeTab === 'users'}
+              onClick={() => setActiveTab('users')}
               className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
-                activeTab === 'privileged'
+                activeTab === 'users'
                   ? 'bg-indigo-600 text-white shadow-sm'
                   : 'opacity-80 hover:opacity-100'
               }`}
             >
-              <ShieldAlert size={14} />
-              <span>Cuentas Privilegiadas ({usersList.length})</span>
+              <Users size={14} />
+              <span>Usuarios ({totalAllAccounts})</span>
             </button>
           </div>
 
           <button
             type="button"
-            onClick={() =>
-              activeTab === 'analytics'
-                ? fetchAnalytics(analyticsCountryId, analyticsPeriod)
-                : fetchPrivilegedUsers()
-            }
-            disabled={loadingAnalytics || loadingUsers}
+            onClick={() => {
+              if (activeTab === 'analytics') {
+                fetchAnalytics(analyticsCountryId, analyticsPeriod);
+              } else if (usersSegment === 'community') {
+                fetchCommunityUsers(communityPage);
+              } else {
+                fetchPrivilegedUsers();
+              }
+            }}
+            disabled={isRefreshingCurrent}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/15 text-xs font-bold hover:opacity-90 cursor-pointer disabled:opacity-50"
             style={innerStyle}
             title="Actualizar datos"
           >
-            <RefreshCw
-              size={14}
-              className={loadingAnalytics || loadingUsers ? 'animate-spin' : ''}
-            />
+            <RefreshCw size={14} className={isRefreshingCurrent ? 'animate-spin' : ''} />
             <span className="hidden sm:inline">Actualizar</span>
           </button>
         </div>
       </section>
 
       {/* ========================================================================
-          PESTAÑA 1: MÉTRICAS Y COMUNIDAD (BLOQUES 1, 2 Y 3)
+          PESTAÑA 1: MÉTRICAS (BLOQUES 1, 2 Y 3)
          ======================================================================== */}
       {activeTab === 'analytics' && (
         <div className="space-y-6">
@@ -607,7 +836,6 @@ export default function UserManagementView() {
                 </select>
               </div>
 
-              {/* Selector segmentado de período */}
               <div
                 className="inline-flex items-center p-0.5 rounded-xl border border-white/15 text-xs"
                 style={innerStyle}
@@ -676,12 +904,18 @@ export default function UserManagementView() {
                       Compara cómo crearon originalmente su cuenta frente a qué portales tienen habilitados actualmente.
                     </p>
                   </div>
-                  <span
-                    className="text-[11px] font-bold px-3 py-1 rounded-full border border-white/15 self-start sm:self-auto"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('users');
+                      setUsersSegment('community');
+                    }}
+                    className="text-[11px] font-bold px-3 py-1 rounded-full border border-white/15 self-start sm:self-auto hover:opacity-90 cursor-pointer"
                     style={innerStyle}
+                    title="Ver listado nominal de cuentas generales"
                   >
-                    {b1.total_community_users} usuario(s) de comunidad
-                  </span>
+                    {b1.total_community_users} usuario(s) de comunidad →
+                  </button>
                 </div>
 
                 {/* 4 KPIs principales tipográficos */}
@@ -750,7 +984,7 @@ export default function UserManagementView() {
                   </div>
                 </div>
 
-                {/* Barra de composición de identidad + Efecto red (conversión cruzada) */}
+                {/* Barra de composición de identidad + Efecto red */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                   <div
                     className="lg:col-span-7 p-4 rounded-xl border border-white/10 space-y-3"
@@ -761,7 +995,6 @@ export default function UserManagementView() {
                       <span className="opacity-70">{b1.total_community_users} cuentas</span>
                     </div>
 
-                    {/* Barra proporcional apilada */}
                     <div className="h-3 w-full rounded-full overflow-hidden bg-black/35 flex">
                       {b1.total_community_users > 0 ? (
                         <>
@@ -815,7 +1048,6 @@ export default function UserManagementView() {
                     </div>
                   </div>
 
-                  {/* Tarjetas de conversión cruzada (Identidad Dual) */}
                   <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
                     <div
                       className="p-3.5 rounded-xl border border-white/10 flex items-center justify-between gap-3"
@@ -864,7 +1096,7 @@ export default function UserManagementView() {
                 </p>
               </section>
 
-              {/* BLOQUE 2: EMBUDO DE ACTIVACIÓN (SALUD DEL MARKETPLACE) */}
+              {/* BLOQUE 2: EMBUDO DE ACTIVACIÓN */}
               <section
                 className="border border-white/10 p-5 sm:p-6 rounded-2xl space-y-5"
                 style={cardStyle}
@@ -880,7 +1112,6 @@ export default function UserManagementView() {
                     </p>
                   </div>
 
-                  {/* Ratio Demanda / Oferta */}
                   <div
                     className="px-3.5 py-2 rounded-xl border border-white/15 text-xs flex items-center gap-2 self-start sm:self-auto"
                     style={innerStyle}
@@ -894,7 +1125,6 @@ export default function UserManagementView() {
                   </div>
                 </div>
 
-                {/* Alerta accionable si hay cuellos de botella en compliance */}
                 {(b2.providers_pending_compliance > 0 || b2.providers_with_expired_docs > 0) && (
                   <div className="rounded-xl p-3.5 border border-amber-500/35 bg-amber-950/30 text-amber-100 text-xs flex flex-wrap items-center gap-3">
                     <AlertTriangle size={15} className="text-amber-400 shrink-0" />
@@ -913,7 +1143,6 @@ export default function UserManagementView() {
                 )}
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {/* Embudo de Prestadores */}
                   <div className="p-4 rounded-xl border border-white/10 space-y-3" style={innerStyle}>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-emerald-300">Activación de Prestadores</span>
@@ -966,7 +1195,6 @@ export default function UserManagementView() {
                     })}
                   </div>
 
-                  {/* Embudo de Residentes */}
                   <div className="p-4 rounded-xl border border-white/10 space-y-3" style={innerStyle}>
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-sky-300">Activación de Residentes</span>
@@ -1030,7 +1258,6 @@ export default function UserManagementView() {
                   </p>
                 </div>
 
-                {/* Embudo horizontal de punta a punta */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
                   {funnelSteps.map((step, idx) => {
                     const prevVal = idx > 0 ? funnelSteps[idx - 1].value : null;
@@ -1057,7 +1284,6 @@ export default function UserManagementView() {
                   })}
                 </div>
 
-                {/* Ritmo de crecimiento reciente (7d y 30d) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                   <div
                     className="p-4 rounded-xl border border-white/10 flex items-center justify-between gap-4"
@@ -1092,7 +1318,6 @@ export default function UserManagementView() {
                   </div>
                 </div>
 
-                {/* Tabla comparativa por comunidad */}
                 {Array.isArray(b3.by_community) && b3.by_community.length > 0 && (
                   <div className="space-y-2">
                     <h4 className="text-xs font-bold opacity-85">Desglose por comunidad</h4>
@@ -1150,206 +1375,603 @@ export default function UserManagementView() {
       )}
 
       {/* ========================================================================
-          PESTAÑA 2: CUENTAS PRIVILEGIADAS (UX/UI REDISEÑADA — LISTADO ANCHO + MODALES)
+          PESTAÑA 2: USUARIOS (CUENTAS GENERALES + CUENTAS PRIVILEGIADAS)
          ======================================================================== */}
-      {activeTab === 'privileged' && (
+      {activeTab === 'users' && (
         <div className="space-y-4">
-          {/* Banners de feedback operativo */}
-          {errorMsg && (
-            <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
-              <AlertCircle size={16} className="text-rose-400 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {successMsg && (
-            <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
-              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
-              <span>{successMsg}</span>
-            </div>
-          )}
-
-          {/* Barra superior limpia: Buscador + Filtros por rol + CTA Nueva cuenta */}
+          {/* Selector de audiencia subordinado (jerarquía visual clara sin doble tab pesada) */}
           <section
-            className="border border-white/10 p-4 sm:p-5 rounded-2xl space-y-4"
+            className="border border-white/10 p-3.5 sm:p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3"
             style={cardStyle}
           >
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-              {/* Buscador en vivo */}
-              <div className="relative flex-1 max-w-md">
-                <Search
-                  size={14}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por nombre, correo, DNI o barrio..."
-                  className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-white/15 text-xs"
-                  style={innerStyle}
-                />
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setUsersSegment('community')}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  usersSegment === 'community'
+                    ? 'border-emerald-400/70 bg-emerald-500/15 text-emerald-100'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={usersSegment === 'community' ? undefined : innerStyle}
+              >
+                <Users size={14} />
+                <span>Cuentas Generales ({communitySummary.total})</span>
+              </button>
 
               <button
                 type="button"
-                onClick={openCreateModal}
-                className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shrink-0 shadow-sm"
+                onClick={() => setUsersSegment('privileged')}
+                className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                  usersSegment === 'privileged'
+                    ? 'border-indigo-400/70 bg-indigo-500/15 text-indigo-100'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={usersSegment === 'privileged' ? undefined : innerStyle}
               >
-                <UserPlus size={15} />
-                <span>Nueva cuenta privilegiada</span>
+                <ShieldAlert size={14} />
+                <span>Cuentas Privilegiadas ({usersList.length})</span>
               </button>
             </div>
 
-            {/* Chips de filtro por rol en español */}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              {[
-                { id: 'all', label: `Todos (${roleCounts.all})` },
-                { id: 'superadmin', label: `Superadmin (${roleCounts.superadmin})` },
-                { id: 'admin', label: `Admin Barrio (${roleCounts.admin})` },
-                { id: 'security', label: `Garita / Seguridad (${roleCounts.security})` },
-              ].map((chip) => {
-                const active = roleFilter === chip.id;
-                return (
-                  <button
-                    key={chip.id}
-                    type="button"
-                    onClick={() => setRoleFilter(chip.id)}
-                    className={`px-3 py-1.5 rounded-xl border font-bold transition-colors cursor-pointer ${
-                      active
-                        ? 'bg-indigo-600 text-white border-indigo-400'
-                        : 'border-white/15 opacity-80 hover:opacity-100'
-                    }`}
-                    style={active ? undefined : innerStyle}
-                  >
-                    {chip.label}
-                  </button>
-                );
-              })}
-            </div>
+            <p className="text-[11px] opacity-75">
+              {usersSegment === 'community'
+                ? 'Residentes, prestadores y cuentas duales registrados en las comunidades.'
+                : 'Operadores con acceso administrativo o de control perimetral en garita.'}
+            </p>
+          </section>
 
-            {/* Grilla a ancho completo (2 columnas en desktop) de cuentas privilegiadas */}
-            {loadingUsers && usersList.length === 0 ? (
-              <div
-                className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80"
-                style={innerStyle}
-              >
-                Cargando cuentas privilegiadas...
-              </div>
-            ) : filteredPrivilegedUsers.length === 0 ? (
-              <div
-                className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80 space-y-2"
-                style={innerStyle}
-              >
-                <Users size={22} className="mx-auto opacity-50" />
-                <p>No se encontraron cuentas privilegiadas con los filtros actuales.</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-                {filteredPrivilegedUsers.map((u) => {
-                  const roleKey = String(u.role || 'admin').toLowerCase();
-                  const meta = PRIVILEGED_ROLE_META[roleKey] || PRIVILEGED_ROLE_META.admin;
-                  const isSuper = roleKey === 'superadmin';
-                  const missingCommunity = !isSuper && !u.country_name;
+          {/* --------------------------------------------------------------------
+              SEGMENTO A: CUENTAS GENERALES (RESIDENTES, PRESTADORES Y DUALES)
+             -------------------------------------------------------------------- */}
+          {usersSegment === 'community' && (
+            <section
+              className="border border-white/10 p-4 sm:p-5 rounded-2xl space-y-4"
+              style={cardStyle}
+            >
+              {communityFeedback.text && (
+                <div
+                  className={`p-3.5 rounded-xl text-xs border flex items-center gap-2 ${
+                    communityFeedback.type === 'success'
+                      ? 'bg-emerald-950/60 border-emerald-800 text-emerald-200'
+                      : 'bg-rose-950/60 border-rose-800 text-rose-200'
+                  }`}
+                >
+                  {communityFeedback.type === 'success' ? (
+                    <CheckCircle2 size={15} className="shrink-0" />
+                  ) : (
+                    <AlertCircle size={15} className="shrink-0" />
+                  )}
+                  <span>{communityFeedback.text}</span>
+                </div>
+              )}
 
-                  return (
-                    <article
-                      key={u.id}
-                      className={`p-4 rounded-xl border flex flex-col justify-between gap-3 text-xs transition-colors ${
-                        u.is_active ? 'border-white/10' : 'border-rose-900/60 opacity-75'
-                      }`}
+              {/* Filtros: Buscador, Comunidad, Origen de alta, Estado y CSV */}
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 text-xs">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    fetchCommunityUsers(1);
+                  }}
+                  className="flex flex-wrap items-center gap-2 flex-1"
+                >
+                  <div className="relative flex-1 min-w-52 max-w-sm">
+                    <Search
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                    />
+                    <input
+                      type="text"
+                      value={communitySearch}
+                      onChange={(e) => setCommunitySearch(e.target.value)}
+                      placeholder="Buscar nombre, correo, DNI, lote..."
+                      className="w-full pl-9 pr-3 py-2 rounded-xl border border-white/15 text-xs"
                       style={innerStyle}
+                    />
+                  </div>
+
+                  <select
+                    value={communityCountryFilter}
+                    onChange={(e) => setCommunityCountryFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                    aria-label="Filtrar por comunidad"
+                  >
+                    <option value="all">Todas las comunidades</option>
+                    {countries.map((c) => (
+                      <option key={c.id} value={String(c.id)}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={communityOriginFilter}
+                    onChange={(e) => setCommunityOriginFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                    aria-label="Filtrar por origen de alta"
+                  >
+                    <option value="all">Origen: Todos</option>
+                    <option value="resident">Alta como Residente</option>
+                    <option value="provider">Alta como Prestador</option>
+                  </select>
+
+                  <select
+                    value={communityStatusFilter}
+                    onChange={(e) => setCommunityStatusFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={innerStyle}
+                    aria-label="Filtrar por estado"
+                  >
+                    <option value="all">Estado: Todos</option>
+                    <option value="active">Activos</option>
+                    <option value="inactive">Suspendidos</option>
+                  </select>
+
+                  <button
+                    type="submit"
+                    className="px-3 py-2 rounded-xl border border-white/15 font-bold hover:opacity-90 cursor-pointer"
+                    style={innerStyle}
+                  >
+                    Buscar
+                  </button>
+                </form>
+
+                <button
+                  type="button"
+                  onClick={handleExportCommunityUsersCsv}
+                  disabled={communityUsers.length === 0}
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl border border-white/15 font-bold hover:opacity-90 cursor-pointer disabled:opacity-40 shrink-0"
+                  style={innerStyle}
+                >
+                  <Download size={13} />
+                  <span>Exportar CSV</span>
+                </button>
+              </div>
+
+              {/* Chips rápidos por perfil activo hoy */}
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                {[
+                  { id: 'all', label: `Todos (${communitySummary.total})` },
+                  { id: 'only_resident', label: `Solo Residente (${communitySummary.only_resident})` },
+                  { id: 'dual', label: `Cuentas Duales (${communitySummary.dual})` },
+                  { id: 'only_provider', label: `Solo Prestador (${communitySummary.only_provider})` },
+                ].map((chip) => {
+                  const active = communityProfileFilter === chip.id;
+                  return (
+                    <button
+                      key={chip.id}
+                      type="button"
+                      onClick={() => setCommunityProfileFilter(chip.id)}
+                      className={`px-3 py-1.5 rounded-xl border font-bold transition-colors cursor-pointer ${
+                        active
+                          ? 'bg-indigo-600 text-white border-indigo-400'
+                          : 'border-white/15 opacity-80 hover:opacity-100'
+                      }`}
+                      style={active ? undefined : innerStyle}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 min-w-0">
-                          <div
-                            className="w-9 h-9 rounded-xl border border-white/15 flex items-center justify-center font-black text-xs shrink-0"
-                            style={cardStyle}
-                          >
-                            {getInitials(u.first_name, u.last_name)}
-                          </div>
-                          <div className="min-w-0 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-bold text-sm truncate">
-                                {u.first_name} {u.last_name}
-                              </span>
-                              <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${meta.badgeClass}`}
-                              >
-                                {meta.label}
-                              </span>
-                            </div>
-
-                            {/* Alcance geográfico siempre explícito */}
-                            <div className="flex items-center gap-1.5 text-[11px]">
-                              {isSuper ? (
-                                <span className="inline-flex items-center gap-1 text-purple-300 font-semibold">
-                                  <Globe size={11} /> Alcance global (todas las comunidades)
-                                </span>
-                              ) : missingCommunity ? (
-                                <span className="inline-flex items-center gap-1 text-amber-300 font-semibold">
-                                  <AlertTriangle size={11} /> Sin barrio asignado
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 opacity-85">
-                                  <Building2 size={11} className="text-sky-400" /> {u.country_name}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        <span
-                          className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border shrink-0 ${
-                            u.is_active
-                              ? 'bg-emerald-950/75 text-emerald-300 border-emerald-700/70'
-                              : 'bg-rose-950/75 text-rose-300 border-rose-700/70'
-                          }`}
-                        >
-                          {u.is_active ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </div>
-
-                      {/* Datos de contacto y botón explícito de edición */}
-                      <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                        <div className="space-y-0.5 min-w-0 opacity-80 text-[11px]">
-                          <p className="flex items-center gap-1.5 truncate">
-                            <Mail size={11} className="shrink-0 opacity-70" />
-                            <span className="truncate">{u.email}</span>
-                          </p>
-                          <p className="flex items-center gap-3 flex-wrap">
-                            <span className="inline-flex items-center gap-1">
-                              <IdCard size={11} className="opacity-70" /> DNI: {u.dni || '—'}
-                            </span>
-                            {u.phone && (
-                              <span className="inline-flex items-center gap-1">
-                                <Phone size={11} className="opacity-70" /> {u.phone}
-                              </span>
-                            )}
-                          </p>
-                        </div>
-
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(u)}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/15 font-bold text-xs hover:opacity-90 cursor-pointer shrink-0"
-                          style={cardStyle}
-                        >
-                          <Edit3 size={12} />
-                          <span>Editar</span>
-                        </button>
-                      </div>
-                    </article>
+                      {chip.label}
+                    </button>
                   );
                 })}
               </div>
-            )}
-          </section>
+
+              {/* Grilla de cuentas generales con trazabilidad Origen -> Identidad Hoy */}
+              {loadingCommunityUsers && communityUsers.length === 0 ? (
+                <div
+                  className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80"
+                  style={innerStyle}
+                >
+                  Cargando cuentas generales de la comunidad...
+                </div>
+              ) : communityUsers.length === 0 ? (
+                <div
+                  className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80 space-y-2"
+                  style={innerStyle}
+                >
+                  <Users size={22} className="mx-auto opacity-50" />
+                  <p>No se encontraron cuentas generales con los filtros aplicados.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+                  {communityUsers.map((u) => {
+                    const isDual = u.current_profile === 'dual';
+                    const isOnlyProv = u.current_profile === 'only_provider';
+                    const originLabel =
+                      u.initial_origin === 'provider' ? 'Alta: Prestador' : 'Alta: Residente';
+                    const todayLabel = isDual
+                      ? 'Hoy: Cuenta Dual'
+                      : isOnlyProv
+                      ? 'Hoy: Prestador'
+                      : 'Hoy: Residente';
+                    const todayCls = isDual
+                      ? 'bg-purple-950/90 text-purple-200 border-purple-700/70'
+                      : isOnlyProv
+                      ? 'bg-emerald-950/90 text-emerald-200 border-emerald-700/70'
+                      : 'bg-sky-950/90 text-sky-200 border-sky-700/70';
+                    const isConfirming = confirmToggleUserId === u.id;
+
+                    return (
+                      <article
+                        key={u.id}
+                        className={`p-4 rounded-xl border flex flex-col justify-between gap-3 text-xs ${
+                          u.is_active ? 'border-white/10' : 'border-rose-900/60 opacity-75'
+                        }`}
+                        style={innerStyle}
+                      >
+                        <div className="space-y-2.5">
+                          {/* Cabecera: avatar, nombre, badges de estado y verificación */}
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div
+                                className="w-9 h-9 rounded-xl border border-white/15 flex items-center justify-center font-black text-xs shrink-0"
+                                style={cardStyle}
+                              >
+                                {getInitials(u.first_name, u.last_name)}
+                              </div>
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="font-bold text-sm truncate">
+                                    {u.first_name} {u.last_name}
+                                  </span>
+                                  {u.provider_approved && (
+                                    <span
+                                      className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/80 text-emerald-300 border border-emerald-700/60"
+                                      title="Compliance aprobado como prestador"
+                                    >
+                                      <ShieldCheck size={10} /> Verificado
+                                    </span>
+                                  )}
+                                </div>
+
+                                {/* Trazabilidad visual: Origen inmutable -> Identidad actual */}
+                                <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                                  <span
+                                    className="px-2 py-0.5 rounded-md border border-white/15 font-semibold opacity-85"
+                                    style={cardStyle}
+                                  >
+                                    {originLabel}
+                                  </span>
+                                  <ArrowRight size={11} className="opacity-55 shrink-0" />
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full border font-bold ${todayCls}`}
+                                  >
+                                    {todayLabel}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border shrink-0 ${
+                                u.is_active
+                                  ? 'bg-emerald-950/75 text-emerald-300 border-emerald-700/70'
+                                  : 'bg-rose-950/75 text-rose-300 border-rose-700/70'
+                              }`}
+                            >
+                              {u.is_active ? 'Activo' : 'Suspendido'}
+                            </span>
+                          </div>
+
+                          {/* Comunidad y domicilio */}
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] opacity-85">
+                            <span className="inline-flex items-center gap-1">
+                              <Building2 size={11} className="text-sky-400 shrink-0" />
+                              {u.country_name || 'Sin comunidad'}
+                            </span>
+                            {u.can_use_resident && (
+                              <span className="inline-flex items-center gap-1">
+                                <MapPin size={11} className="text-emerald-400 shrink-0" />
+                                {formatResidentialLocation(u)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Contacto, fecha de alta y acción segura de suspensión/reactivación */}
+                        <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                          <div className="space-y-0.5 min-w-0 opacity-80 text-[11px]">
+                            <p className="flex items-center gap-1.5 truncate">
+                              <Mail size={11} className="shrink-0 opacity-70" />
+                              <span className="truncate">{u.email}</span>
+                            </p>
+                            <p className="flex items-center gap-2.5 flex-wrap">
+                              <span className="inline-flex items-center gap-1">
+                                <IdCard size={11} className="opacity-70" /> DNI: {u.dni || '—'}
+                              </span>
+                              {u.phone && (
+                                <span className="inline-flex items-center gap-1">
+                                  <Phone size={11} className="opacity-70" /> {u.phone}
+                                </span>
+                              )}
+                              <span className="opacity-65">Alta: {formatShortDate(u.created_at)}</span>
+                            </p>
+                          </div>
+
+                          {isConfirming ? (
+                            <div className="inline-flex items-center gap-1.5 shrink-0">
+                              <button
+                                type="button"
+                                disabled={togglingUserId === u.id}
+                                onClick={() => handleToggleCommunityUser(u)}
+                                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer disabled:opacity-50 ${
+                                  u.is_active
+                                    ? 'bg-rose-600 hover:bg-rose-500'
+                                    : 'bg-emerald-600 hover:bg-emerald-500'
+                                }`}
+                              >
+                                {togglingUserId === u.id
+                                  ? '...'
+                                  : u.is_active
+                                  ? 'Confirmar'
+                                  : 'Reactivar'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmToggleUserId(null)}
+                                className="px-2 py-1.5 rounded-lg text-[11px] border border-white/15 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmToggleUserId(u.id)}
+                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-xs cursor-pointer shrink-0 ${
+                                u.is_active
+                                  ? 'border-white/15 hover:border-rose-500/50 hover:text-rose-200'
+                                  : 'border-emerald-600/60 bg-emerald-950/40 text-emerald-200 hover:bg-emerald-950/70'
+                              }`}
+                              style={u.is_active ? cardStyle : undefined}
+                            >
+                              {u.is_active ? (
+                                <>
+                                  <UserX size={12} /> <span>Suspender</span>
+                                </>
+                              ) : (
+                                <>
+                                  <UserCheck size={12} /> <span>Reactivar</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Paginación de cuentas generales */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs opacity-85">
+                <span>
+                  Página {communityPage} de {communityTotalPages} ({communityTotalFiltered} resultado(s))
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={communityPage <= 1 || loadingCommunityUsers}
+                    onClick={() => fetchCommunityUsers(Math.max(1, communityPage - 1))}
+                    className="px-3 py-1 rounded-lg border border-white/15 font-semibold disabled:opacity-40 cursor-pointer"
+                    style={innerStyle}
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    disabled={communityPage >= communityTotalPages || loadingCommunityUsers}
+                    onClick={() =>
+                      fetchCommunityUsers(Math.min(communityTotalPages, communityPage + 1))
+                    }
+                    className="px-3 py-1 rounded-lg border border-white/15 font-semibold disabled:opacity-40 cursor-pointer"
+                    style={innerStyle}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* --------------------------------------------------------------------
+              SEGMENTO B: CUENTAS PRIVILEGIADAS (SUPERADMIN, ADMIN BARRIO, GARITA)
+             -------------------------------------------------------------------- */}
+          {usersSegment === 'privileged' && (
+            <div className="space-y-4">
+              {errorMsg && (
+                <div className="bg-rose-950/60 border border-rose-800 text-rose-200 p-4 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle size={16} className="text-rose-400 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {successMsg && (
+                <div className="bg-emerald-950/60 border border-emerald-800 text-emerald-200 p-4 rounded-xl text-xs flex items-center gap-2">
+                  <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+                  <span>{successMsg}</span>
+                </div>
+              )}
+
+              <section
+                className="border border-white/10 p-4 sm:p-5 rounded-2xl space-y-4"
+                style={cardStyle}
+              >
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                  <div className="relative flex-1 max-w-md">
+                    <Search
+                      size={14}
+                      className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                    />
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder="Buscar por nombre, correo, DNI o barrio..."
+                      className="w-full pl-9 pr-3.5 py-2 rounded-xl border border-white/15 text-xs"
+                      style={innerStyle}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={openCreateModal}
+                    className="inline-flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer shrink-0 shadow-sm"
+                  >
+                    <UserPlus size={15} />
+                    <span>Nueva cuenta privilegiada</span>
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  {[
+                    { id: 'all', label: `Todos (${roleCounts.all})` },
+                    { id: 'superadmin', label: `Superadmin (${roleCounts.superadmin})` },
+                    { id: 'admin', label: `Admin Barrio (${roleCounts.admin})` },
+                    { id: 'security', label: `Garita / Seguridad (${roleCounts.security})` },
+                  ].map((chip) => {
+                    const active = roleFilter === chip.id;
+                    return (
+                      <button
+                        key={chip.id}
+                        type="button"
+                        onClick={() => setRoleFilter(chip.id)}
+                        className={`px-3 py-1.5 rounded-xl border font-bold transition-colors cursor-pointer ${
+                          active
+                            ? 'bg-indigo-600 text-white border-indigo-400'
+                            : 'border-white/15 opacity-80 hover:opacity-100'
+                        }`}
+                        style={active ? undefined : innerStyle}
+                      >
+                        {chip.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {loadingUsers && usersList.length === 0 ? (
+                  <div
+                    className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80"
+                    style={innerStyle}
+                  >
+                    Cargando cuentas privilegiadas...
+                  </div>
+                ) : filteredPrivilegedUsers.length === 0 ? (
+                  <div
+                    className="p-8 rounded-xl border border-white/10 text-center text-xs opacity-80 space-y-2"
+                    style={innerStyle}
+                  >
+                    <Users size={22} className="mx-auto opacity-50" />
+                    <p>No se encontraron cuentas privilegiadas con los filtros actuales.</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                    {filteredPrivilegedUsers.map((u) => {
+                      const roleKey = String(u.role || 'admin').toLowerCase();
+                      const meta = PRIVILEGED_ROLE_META[roleKey] || PRIVILEGED_ROLE_META.admin;
+                      const isSuper = roleKey === 'superadmin';
+                      const missingCommunity = !isSuper && !u.country_name;
+
+                      return (
+                        <article
+                          key={u.id}
+                          className={`p-4 rounded-xl border flex flex-col justify-between gap-3 text-xs transition-colors ${
+                            u.is_active ? 'border-white/10' : 'border-rose-900/60 opacity-75'
+                          }`}
+                          style={innerStyle}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div
+                                className="w-9 h-9 rounded-xl border border-white/15 flex items-center justify-center font-black text-xs shrink-0"
+                                style={cardStyle}
+                              >
+                                {getInitials(u.first_name, u.last_name)}
+                              </div>
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-bold text-sm truncate">
+                                    {u.first_name} {u.last_name}
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${meta.badgeClass}`}
+                                  >
+                                    {meta.label}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 text-[11px]">
+                                  {isSuper ? (
+                                    <span className="inline-flex items-center gap-1 text-purple-300 font-semibold">
+                                      <Globe size={11} /> Alcance global (todas las comunidades)
+                                    </span>
+                                  ) : missingCommunity ? (
+                                    <span className="inline-flex items-center gap-1 text-amber-300 font-semibold">
+                                      <AlertTriangle size={11} /> Sin barrio asignado
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 opacity-85">
+                                      <Building2 size={11} className="text-sky-400" /> {u.country_name}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <span
+                              className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border shrink-0 ${
+                                u.is_active
+                                  ? 'bg-emerald-950/75 text-emerald-300 border-emerald-700/70'
+                                  : 'bg-rose-950/75 text-rose-300 border-rose-700/70'
+                              }`}
+                            >
+                              {u.is_active ? 'Activo' : 'Inactivo'}
+                            </span>
+                          </div>
+
+                          <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                            <div className="space-y-0.5 min-w-0 opacity-80 text-[11px]">
+                              <p className="flex items-center gap-1.5 truncate">
+                                <Mail size={11} className="shrink-0 opacity-70" />
+                                <span className="truncate">{u.email}</span>
+                              </p>
+                              <p className="flex items-center gap-3 flex-wrap">
+                                <span className="inline-flex items-center gap-1">
+                                  <IdCard size={11} className="opacity-70" /> DNI: {u.dni || '—'}
+                                </span>
+                                {u.phone && (
+                                  <span className="inline-flex items-center gap-1">
+                                    <Phone size={11} className="opacity-70" /> {u.phone}
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(u)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/15 font-bold text-xs hover:opacity-90 cursor-pointer shrink-0"
+                              style={cardStyle}
+                            >
+                              <Edit3 size={12} />
+                              <span>Editar</span>
+                            </button>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            </div>
+          )}
         </div>
       )}
 
       {/* ========================================================================
-          MODAL: ALTA DE NUEVA CUENTA PRIVILEGIADA (CTA CONTEXTUAL + LABELS CLAROS)
+          MODAL: ALTA DE NUEVA CUENTA PRIVILEGIADA
          ======================================================================== */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/75 flex items-center justify-center p-4 z-50">
