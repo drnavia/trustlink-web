@@ -502,10 +502,11 @@ function MainAppContent() {
                 <button
                   type="button"
                   onClick={() => setCurrentView('local_admin')}
-                  className={navBtnClass(currentView === 'local_admin')}
-                  style={
-                    currentView === 'local_admin' ? { backgroundColor: '#D97706' } : undefined
-                  }
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
+                    currentView === 'local_admin'
+                      ? 'bg-indigo-600 text-white border-indigo-400/80 shadow-md'
+                      : 'bg-black/25 hover:bg-black/35 border-white/15 opacity-90 hover:opacity-100'
+                  }`}
                 >
                   <ShieldAlert size={13} /> Admin Barrio
                 </button>
