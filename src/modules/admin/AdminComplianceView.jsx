@@ -716,11 +716,11 @@ export default function AdminComplianceView() {
         icon={<UserCheck size={22} />}
         iconColorClass="text-emerald-400"
         title="Prestadores"
-        subtitle="Auditoría consolidada por identidad, vigencia documental, membresías y reclamos."
+        subtitle="Compliance por identidad, vigencia documental, membresías y reclamos."
         tabs={[
           {
             id: 'compliance',
-            label: 'Auditoría de Prestadores',
+            label: 'Compliance',
             icon: <ShieldCheck size={14} />,
             count: auditSummary.totalPeople,
           },
@@ -738,13 +738,6 @@ export default function AdminComplianceView() {
           fetchDisputes();
         }}
         refreshing={loading}
-        rightSlot={
-          auditSummary.totalPendingSpecs > 0 ? (
-            <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/45 bg-amber-500/15 text-amber-200">
-              {auditSummary.totalPendingSpecs} pendiente(s)
-            </span>
-          ) : null
-        }
         cardStyle={cardStyle}
         innerStyle={innerStyle}
       />

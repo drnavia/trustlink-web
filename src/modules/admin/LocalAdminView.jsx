@@ -150,9 +150,10 @@ function consolidatePersonalAlerts(alerts) {
  *
  * @param {Object} [props] - Propiedades opcionales del componente.
  * @param {boolean} [props.embedded=false] - Si es `true`, omite el contenedor de página y encabezado propio.
+ * @param {number} [props.refreshKey=0] - Contador externo opcional para disparar recarga desde `CommunitiesAdminView`.
  * @returns {JSX.Element} Vista operativa de administración local.
  */
-export default function LocalAdminView({ embedded = false } = {}) {
+export default function LocalAdminView({ embedded = false, refreshKey = 0 } = {}) {
   const { user } = useAuth();
   const { brand } = useBranding();
   const isSuperadmin = user?.role === 'superadmin';
@@ -376,6 +377,14 @@ export default function LocalAdminView({ embedded = false } = {}) {
   useEffect(() => {
     fetchLocalData(user?.country_id ? String(user.country_id) : isSuperadmin ? '1' : '');
   }, [fetchLocalData, user?.country_id, isSuperadmin]);
+
+  // Permite refrescar Operación Local desde el botón Actualizar de la cabecera padre (Comunidades)
+  useEffect(() => {
+    if (refreshKey > 0) {
+      fetchLocalData(selectedCountryId || (user?.country_id ? String(user.country_id) : isSuperadmin ? '1' : ''));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshKey]);
 
   /**
    * Abre el modal de nueva suspensión local limpiando selección previa para evitar errores.

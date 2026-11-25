@@ -596,7 +596,7 @@ export default function UserManagementView() {
         icon={<Users size={22} />}
         iconColorClass="text-indigo-300"
         title="Usuarios"
-        subtitle="Directorio completo de cuentas generales (residentes, prestadores y duales) y cuentas privilegiadas."
+        subtitle="Cuentas generales de comunidad y roles privilegiados."
         tabs={[
           {
             id: 'community',

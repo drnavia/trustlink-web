@@ -46,7 +46,7 @@ export default function AdminPageHeader({
       className="border border-white/10 p-5 sm:p-6 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4"
       style={cardStyle}
     >
-      <div className="flex items-center gap-3.5 min-w-0">
+      <div className="flex items-center gap-3.5 min-w-0 flex-1">
         <div
           className={`p-3 rounded-xl border border-white/15 shrink-0 ${iconColorClass}`}
           style={innerStyle}
@@ -55,16 +55,16 @@ export default function AdminPageHeader({
         </div>
         <div className="min-w-0">
           <h2 className="text-xl font-black tracking-tight truncate">{title}</h2>
-          <p className="text-xs opacity-80 mt-0.5">{subtitle}</p>
+          <p className="text-xs opacity-80 mt-0.5 line-clamp-2">{subtitle}</p>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap lg:flex-nowrap items-center gap-2 shrink-0">
         {tabs.length > 0 && (
           <div
             role="tablist"
             aria-label={`Secciones de ${title}`}
-            className="inline-flex items-center p-1 rounded-xl border border-white/15 gap-1 overflow-x-auto max-w-full"
+            className="inline-flex items-center p-1 rounded-xl border border-white/15 gap-1 overflow-x-auto max-w-full shrink-0"
             style={innerStyle}
           >
             {tabs.map((tab) => {
@@ -76,7 +76,7 @@ export default function AdminPageHeader({
                   role="tab"
                   aria-selected={isSelected}
                   onClick={() => onTabChange?.(tab.id)}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                     isSelected
                       ? 'bg-indigo-600 text-white shadow-sm'
                       : 'opacity-80 hover:opacity-100'
@@ -100,7 +100,7 @@ export default function AdminPageHeader({
             type="button"
             onClick={onRefresh}
             disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-white/15 text-xs font-bold hover:opacity-90 cursor-pointer disabled:opacity-50 shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-white/15 text-xs font-bold whitespace-nowrap hover:opacity-90 cursor-pointer disabled:opacity-50 shrink-0"
             style={innerStyle}
             title="Actualizar datos"
           >

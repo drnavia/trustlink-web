@@ -620,7 +620,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
     if (rawStatus === 'cancelled') {
       return {
         key: 'cancelled',
-        label: 'cancelado',
+        label: 'Cancelado',
         sublabel: null,
         badgeClass: 'bg-slate-800 text-slate-300 border-slate-700',
       };
@@ -628,7 +628,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
     if (rawStatus === 'used') {
       return {
         key: 'used',
-        label: 'usado',
+        label: 'Usado',
         sublabel: null,
         badgeClass: 'bg-sky-950 text-sky-300 border-sky-800',
       };
@@ -636,23 +636,23 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
     if (rawStatus === 'expired' || (rawStatus === 'pending' && isPastEnd)) {
       return {
         key: 'expired',
-        label: 'vencido',
-        sublabel: rawStatus === 'pending' && isPastEnd ? 'fin superado' : null,
+        label: 'Vencido',
+        sublabel: rawStatus === 'pending' && isPastEnd ? 'Fin superado' : null,
         badgeClass: 'bg-amber-950 text-amber-300 border-amber-700',
       };
     }
     if (rawStatus === 'pending' && isBeforeStart) {
       return {
         key: 'pending',
-        label: 'pendiente',
-        sublabel: 'aún no inicia',
+        label: 'Pendiente',
+        sublabel: 'Aún no inicia',
         badgeClass: 'bg-indigo-950 text-indigo-300 border-indigo-800',
       };
     }
     return {
       key: 'pending',
-      label: 'pendiente',
-      sublabel: 'vigente',
+      label: 'Pendiente',
+      sublabel: 'Vigente',
       badgeClass: 'bg-emerald-950 text-emerald-300 border-emerald-800',
     };
   };
@@ -718,7 +718,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
           icon={<Activity size={22} strokeWidth={1.8} />}
           iconColorClass="text-emerald-400"
           title="Sistema"
-          subtitle="Salud técnica en vivo, pases QR, sandbox de garita, catálogo de endpoints y apariencia white-label."
+          subtitle="Salud técnica, pases QR, endpoints y apariencia white-label."
           tabs={[
             { id: 'health', label: 'Salud y Pases', icon: <Activity size={13} /> },
             {
@@ -761,7 +761,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {/* Tarjeta 1: Salud del servidor Backend, latencia HTTP y detalle técnico */}
               <section
-                className="border border-white/10 p-5 rounded-2xl shadow-sm space-y-3"
+                className="border border-white/10 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-3"
                 style={cardStyle}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -843,7 +843,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
 
               {/* Tarjeta 2: Conectividad, latencia y conteos principales en PostgreSQL */}
               <section
-                className="border border-white/10 p-5 rounded-2xl shadow-sm space-y-3"
+                className="border border-white/10 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-3"
                 style={cardStyle}
               >
                 <div className="flex items-center justify-between">
@@ -882,11 +882,14 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
                     <span className="font-mono">{metrics.approved_providers ?? 0}</span>
                   </div>
                 </div>
+                <div className="text-[11px] opacity-70 pt-0.5">
+                  Motor relacional activo · consultas sincronizadas
+                </div>
               </section>
 
               {/* Tarjeta 3: Resumen operativo de claves activas, barrios e intentos en API Externa */}
               <section
-                className="border border-white/10 p-5 rounded-2xl shadow-sm space-y-3"
+                className="border border-white/10 p-5 rounded-2xl shadow-sm flex flex-col justify-between gap-3"
                 style={cardStyle}
               >
                 <div className="flex items-center justify-between">
@@ -951,7 +954,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
               <div>
                 <h3 className="text-sm font-bold">Pases QR Recientes ({passTotalCount})</h3>
                 <p className="text-xs opacity-80 mt-0.5">
-                  Vigencia In/Out ({activeTimeZone}), copia de token, envío al sandbox y cancelación.
+                  Vigencia Desde/Hasta (horario local), copia de token, envío al sandbox y cancelación.
                 </p>
               </div>
 
@@ -1028,7 +1031,7 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
                         <th className="py-2.5 px-3 font-semibold">Pase</th>
                         <th className="py-2.5 px-3 font-semibold">Prestador</th>
                         <th className="py-2.5 px-3 font-semibold">Barrio / Lote</th>
-                        <th className="py-2.5 px-3 font-semibold">Vigencia (In / Out)</th>
+                        <th className="py-2.5 px-3 font-semibold">Vigencia (Desde / Hasta)</th>
                         <th className="py-2.5 px-3 font-semibold">Estado</th>
                         <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
                       </tr>
@@ -1062,10 +1065,10 @@ export default function SystemHealthDashboard({ initialTab = 'health', onNavigat
                             </td>
                             <td className="py-2.5 px-3 text-[11px] font-mono">
                               <div>
-                                In: {formatDateTime(pass.start_time, activeTimeZone, pass.start_utc_ms)}
+                                Desde: {formatDateTime(pass.start_time, activeTimeZone, pass.start_utc_ms)}
                               </div>
                               <div>
-                                Out: {formatDateTime(pass.end_time, activeTimeZone, pass.end_utc_ms)}
+                                Hasta: {formatDateTime(pass.end_time, activeTimeZone, pass.end_utc_ms)}
                               </div>
                             </td>
                             <td className="py-2.5 px-3">

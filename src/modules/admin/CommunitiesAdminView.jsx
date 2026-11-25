@@ -75,6 +75,7 @@ export default function CommunitiesAdminView() {
 
   // Pestañas internas: 'b2b' | 'keys' | 'local_ops'
   const [activeTab, setActiveTab] = useState('b2b');
+  const [localOpsRefreshKey, setLocalOpsRefreshKey] = useState(0);
 
   // Estado de listado, filtros y paginación estándar (6 / 12 / 24 / 50) de Comunidades
   const [countries, setCountries] = useState([]);
@@ -227,6 +228,9 @@ export default function CommunitiesAdminView() {
   }, [fetchAllCountriesForSelector, fetchCountries, fetchIntegrations]);
 
   const handleRefreshAll = async () => {
+    if (activeTab === 'local_ops') {
+      setLocalOpsRefreshKey((prev) => prev + 1);
+    }
     await Promise.all([
       fetchAllCountriesForSelector(),
       fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
@@ -518,7 +522,7 @@ export default function CommunitiesAdminView() {
         icon={<Building2 size={22} />}
         iconColorClass="text-emerald-400"
         title="Comunidades"
-        subtitle="Barrios adheridos, licencias B2B, claves API de garita, alertas y suspensiones locales."
+        subtitle="Barrios adheridos, licencias B2B, claves API y operación local."
         tabs={[
           {
             id: 'b2b',
@@ -540,7 +544,7 @@ export default function CommunitiesAdminView() {
         ]}
         activeTab={activeTab}
         onTabChange={setActiveTab}
-        onRefresh={activeTab === 'local_ops' ? undefined : handleRefreshAll}
+        onRefresh={handleRefreshAll}
         refreshing={loadingCountries || loadingIntegrations}
         cardStyle={cardStyle}
         innerStyle={innerStyle}
@@ -879,7 +883,7 @@ export default function CommunitiesAdminView() {
                                 </span>
                               </div>
                               <div className="text-[11px] opacity-80 font-mono">
-                                QR mes: {monthlyUsed} / {monthlyQuota ? monthlyQuota : '∞'}
+                                QR mes: {monthlyUsed}{monthlyQuota ? ` / ${monthlyQuota}` : ' (sin tope)'}
                                 {c.subscription_ends_at
                                   ? ` · vto ${new Date(c.subscription_ends_at).toLocaleDateString('es-AR')}`
                                   : ''}
@@ -1183,7 +1187,7 @@ export default function CommunitiesAdminView() {
       )}
 
       {/* ==================== PESTAÑA 3: OPERACIÓN LOCAL ==================== */}
-      {activeTab === 'local_ops' && <LocalAdminView embedded />}
+      {activeTab === 'local_ops' && <LocalAdminView embedded refreshKey={localOpsRefreshKey} />}
     </div>
   );
 }
