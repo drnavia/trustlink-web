@@ -190,6 +190,8 @@ export default function ProviderDashboard() {
 
   // Estado global del perfil del prestador, historial documental, membresía Socio Verificado, ficha comercial y Q&A
   const [profileData, setProfileData] = useState({
+    dni: null,
+    dni_document_url: null,
     identity_verified: false,
     identity_verified_at: null,
     trust_level: 0,
@@ -371,6 +373,8 @@ export default function ProviderDashboard() {
           service_bio: '',
         };
         setProfileData({
+          dni: data.dni || null,
+          dni_document_url: data.dni_document_url || null,
           identity_verified: Boolean(data.identity_verified),
           identity_verified_at: data.identity_verified_at || null,
           trust_level: Number(data.trust_level ?? data.trust_badge?.level ?? 0),
@@ -829,8 +833,44 @@ export default function ProviderDashboard() {
     setErrorMsg('');
     setSuccessMsg('');
 
+    const normalizedType = docType.toLowerCase();
+    const isDni = normalizedType.includes('dni') || normalizedType.includes('identidad');
+
+    // Carga o actualización del documento de identidad (DNI) a nivel cuenta
+    if (isDni) {
+      try {
+        const response = await fetch(`${API_BASE}/api/v1/providers/identity/document`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({ dni_document_url: docUrl.trim() }),
+        });
+        const data = await response.json();
+        if (response.ok) {
+          setSuccessMsg(
+            data.message || 'Documento de identidad (DNI) cargado para validación de Administración.'
+          );
+          setDocUrl('');
+          setDocValidFrom('');
+          setDocValidTo('');
+          setShowDocForm(false);
+          await fetchProviderProfile();
+        } else {
+          setErrorMsg(data.error || 'No se pudo guardar el documento de identidad.');
+        }
+      } catch (error) {
+        console.error('Error al cargar DNI:', error);
+        setErrorMsg('Error de conexión con el servidor.');
+      } finally {
+        setSavingDoc(false);
+      }
+      return;
+    }
+
     const baseProfile = profileData.providers[0] || {};
-    const isArt = docType.toLowerCase().includes('art') || docType.toLowerCase().includes('seguro');
+    const isArt = normalizedType.includes('art') || normalizedType.includes('seguro');
 
     const docFields = isArt
       ? {
@@ -1654,6 +1694,7 @@ export default function ProviderDashboard() {
     );
     const isAllRejected = rows.length > 0 && rows.every((r) => r.status === 'rejected');
     const identityVerified = Boolean(profileData.identity_verified) || hasApprovedCompliance;
+    const hasDniDoc = Boolean(profileData.dni_document_url);
     const isVerifiedMember = Boolean(profileData.membership?.is_verified_member);
     const providerInputsComplete = criminalOk && artOk && hasDirectoryEligibleSpecialty;
     const isFullyVerified =
@@ -1787,14 +1828,16 @@ export default function ProviderDashboard() {
       visibilityHeadline = 'Tu compliance está aprobado pero ocultaste tus especialidades';
       summaryHint = 'Activá la visibilidad de al menos 1 especialidad para volver a aparecer ante residentes.';
     } else if (!hasDirectoryEligibleSpecialty && !identityVerified) {
-      summaryHint =
-        'Paso 1: agregá al menos 1 especialidad visible y aguardá la validación de tu DNI por Administración para aparecer como Nivel 1 (Perfil Básico).';
+      summaryHint = hasDniDoc
+        ? 'Ya cargaste tu DNI (en revisión por Administración). Agregá al menos 1 especialidad visible para aparecer en Nivel 1 apenas validen tu DNI.'
+        : 'Paso 1: cargá tu DNI y agregá al menos 1 especialidad visible para aparecer como Nivel 1 (Perfil Básico).';
     } else if (!hasDirectoryEligibleSpecialty) {
       summaryHint =
         'Tu DNI ya está validado: agregá al menos 1 especialidad visible para aparecer inmediatamente en el directorio (Nivel 1).';
     } else if (!identityVerified) {
-      summaryHint =
-        'Ya cargaste especialidad: tu DNI está pendiente de validación por Administración. Mientras tanto podés adelantar Antecedentes y ART para subir directo a Nivel 4.';
+      summaryHint = hasDniDoc
+        ? 'Ya cargaste tu DNI y especialidad: Administración TrustLink lo revisará para validar tu DNI y activar tu Nivel 1. Mientras tanto podés adelantar Antecedentes y ART.'
+        : 'Ya cargaste especialidad: cargá tu DNI en el paso N1 para que Administración pueda validarlo y activar tu Nivel 1. Mientras tanto podés adelantar Antecedentes y ART.';
     }
 
     return {
@@ -1808,6 +1851,7 @@ export default function ProviderDashboard() {
       hasVisibleSpecialty: hasDirectoryEligibleSpecialty,
       visibleSpecsCount,
       identityVerified,
+      hasDniDoc,
       isVerifiedMember,
       hasApprovedCompliance,
       isAllRejected,
@@ -1824,6 +1868,7 @@ export default function ProviderDashboard() {
     };
   }, [
     profileData.providers,
+    profileData.dni_document_url,
     profileData.identity_verified,
     profileData.membership,
     profileData.trust_badge,
@@ -2127,29 +2172,43 @@ export default function ProviderDashboard() {
               statusLabel:
                 directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
                   ? 'Logrado'
-                  : directoryReadiness.hasVisibleSpecialty
-                    ? 'Falta validar DNI'
-                    : directoryReadiness.identityVerified
-                      ? 'Falta rubro'
-                      : 'Pendiente',
+                  : !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
+                    ? 'Falta DNI'
+                    : !directoryReadiness.identityVerified && directoryReadiness.hasDniDoc
+                      ? 'DNI en revisión'
+                      : 'Falta rubro',
               statusTone:
                 directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
                   ? 'done'
-                  : 'pending',
-              detail: !directoryReadiness.hasVisibleSpecialty
-                ? 'Agregá o activá al menos 1 especialidad visible.'
-                : !directoryReadiness.identityVerified
-                  ? 'Especialidad lista. Administración validará tu DNI.'
-                  : 'DNI validado y especialidad visible en directorio.',
-              cta: !directoryReadiness.hasVisibleSpecialty
+                  : !directoryReadiness.identityVerified && directoryReadiness.hasDniDoc
+                    ? 'info'
+                    : 'pending',
+              detail:
+                directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
+                  ? 'DNI validado y especialidad visible en directorio.'
+                  : !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
+                    ? directoryReadiness.hasVisibleSpecialty
+                      ? 'Especialidad lista. Cargá tu DNI para que Administración lo valide.'
+                      : 'Cargá tu DNI y agregá al menos 1 especialidad visible.'
+                    : !directoryReadiness.identityVerified && directoryReadiness.hasDniDoc
+                      ? directoryReadiness.hasVisibleSpecialty
+                        ? 'DNI cargado. Administración lo revisará para activar Nivel 1.'
+                        : 'DNI cargado (en revisión). Ahora agregá 1 especialidad visible.'
+                      : 'DNI validado. Agregá o activá al menos 1 especialidad visible.',
+              cta: !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
                 ? {
-                    label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
-                    onClick: () => {
-                      setActiveStep('credentials');
-                      if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
-                    },
+                    label: 'Cargar DNI',
+                    onClick: () => openDocModal('Documento de Identidad (DNI)'),
                   }
-                : null,
+                : !directoryReadiness.hasVisibleSpecialty
+                  ? {
+                      label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
+                      onClick: () => {
+                        setActiveStep('credentials');
+                        if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
+                      },
+                    }
+                  : null,
             },
             {
               num: 2,
@@ -2942,7 +3001,7 @@ export default function ProviderDashboard() {
                   <span>Documentación Personal</span>
                 </h2>
                 <p className="text-xs opacity-75">
-                  Antecedentes penales, póliza ART/seguro y fechas de vigencia.
+                  DNI, antecedentes penales, póliza ART/seguro y fechas de vigencia.
                 </p>
               </div>
               <button
@@ -2956,14 +3015,14 @@ export default function ProviderDashboard() {
               </button>
             </div>
 
-            {/* Formulario desplegable de carga de nuevo documento de compliance */}
+            {/* Formulario desplegable de carga de nuevo documento de compliance o DNI */}
             {showDocForm && (
               <form
                 onSubmit={handleCreateDocument}
                 className="p-4 rounded-xl border border-slate-800/70 space-y-3 text-xs"
                 style={innerStyle}
               >
-                <p className="font-bold">Nuevo Documento de Compliance</p>
+                <p className="font-bold">Cargar Documento Personal</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <select
                     value={docType}
@@ -2971,6 +3030,7 @@ export default function ProviderDashboard() {
                     className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                     style={cardStyle}
                   >
+                    <option value="Documento de Identidad (DNI)">Documento de Identidad (DNI)</option>
                     <option value="Antecedentes Penales">Antecedentes Penales</option>
                     <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
                   </select>
@@ -2979,33 +3039,39 @@ export default function ProviderDashboard() {
                     required
                     value={docUrl}
                     onChange={(e) => setDocUrl(e.target.value)}
-                    placeholder="URL o enlace del documento"
+                    placeholder={
+                      docType === 'Documento de Identidad (DNI)'
+                        ? 'URL de foto/PDF de tu DNI (frente y dorso)'
+                        : 'URL o enlace del documento'
+                    }
                     className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                     style={cardStyle}
                   />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
-                    <input
-                      type="date"
-                      value={docValidFrom}
-                      onChange={(e) => setDocValidFrom(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                      style={cardStyle}
-                    />
+                {docType !== 'Documento de Identidad (DNI)' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                      <input
+                        type="date"
+                        value={docValidFrom}
+                        onChange={(e) => setDocValidFrom(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                        style={cardStyle}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
+                      <input
+                        type="date"
+                        value={docValidTo}
+                        onChange={(e) => setDocValidTo(e.target.value)}
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                        style={cardStyle}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
-                    <input
-                      type="date"
-                      value={docValidTo}
-                      onChange={(e) => setDocValidTo(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                      style={cardStyle}
-                    />
-                  </div>
-                </div>
+                )}
                 <div className="flex justify-end gap-2 pt-1">
                   <button
                     type="button"
@@ -3027,17 +3093,85 @@ export default function ProviderDashboard() {
               </form>
             )}
 
-            {/* Encabezado y las 2 tarjetas de Documentación Personal Vigente (Antecedentes + ART) */}
+            {/* Encabezado y tarjetas de Documentación Personal Vigente (DNI + Antecedentes + ART) */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className={listHeaderTitleClass}>
                 <ShieldCheck size={13} className="opacity-80" /> DOCUMENTACIÓN VIGENTE
               </span>
               <span className={listCounterBadgeClass} style={innerStyle}>
-                {personalDocumentsSummary.loadedCount}/2 cargado(s)
+                {personalDocumentsSummary.loadedCount + (profileData.dni_document_url ? 1 : 0)}/3 cargado(s)
               </span>
             </div>
 
             <div className="space-y-3">
+              {/* Tarjeta 0: Documento de Identidad (DNI) para Nivel 1 */}
+              <div
+                className="p-4 rounded-xl border border-slate-800/70 space-y-2 text-xs"
+                style={innerStyle}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">
+                        Documento de Identidad (DNI{profileData.dni ? ` ${profileData.dni}` : ''})
+                      </span>
+                      {directoryReadiness.identityVerified ? (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-950/80 text-emerald-300 border-emerald-700/60">
+                          DNI Validado ✓
+                        </span>
+                      ) : profileData.dni_document_url ? (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-sky-950/80 text-sky-200 border-sky-600/60">
+                          En revisión
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-600/50 bg-amber-950/60 text-amber-200">
+                          Pendiente de carga
+                        </span>
+                      )}
+                    </div>
+                    {profileData.dni_document_url ? (
+                      <a
+                        href={profileData.dni_document_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block text-[11px] text-sky-300 underline underline-offset-2 truncate"
+                      >
+                        {profileData.dni_document_url}
+                      </a>
+                    ) : (
+                      <p className="opacity-75">
+                        {directoryReadiness.identityVerified
+                          ? 'Tu identidad ya fue validada por Administración. Podés adjuntar tu DNI si deseás mantener el respaldo.'
+                          : 'Adjuntá tu DNI (frente y dorso) para que Administración lo valide y habilite tu Nivel 1 (Perfil Básico).'}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDocType('Documento de Identidad (DNI)');
+                      setDocUrl(profileData.dni_document_url || '');
+                      setShowDocForm(true);
+                    }}
+                    className={
+                      profileData.dni_document_url
+                        ? rowActionBtnClass
+                        : 'text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer shrink-0'
+                    }
+                    style={profileData.dni_document_url ? cardStyle : { backgroundColor: primaryColor }}
+                  >
+                    {profileData.dni_document_url ? (
+                      <>
+                        <Edit3 size={12} /> Actualizar
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={12} /> Cargar
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
               {personalDocumentsSummary.currentDocs.map((docItem) => {
                 const isEditingDoc = editingDocKey === docItem.key;
                 const validity = docItem.isMissing
