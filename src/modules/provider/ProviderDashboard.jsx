@@ -1927,7 +1927,7 @@ export default function ProviderDashboard() {
                         : alert.days_remaining === 0
                         ? 'Vence hoy'
                         : `Vence en ${alert.days_remaining} día(s)`}{' '}
-                      ({alert.expiry_date})
+                      ({formatDateShort(alert.expiry_date)})
                     </p>
                   </div>
                   <button
@@ -1944,7 +1944,7 @@ export default function ProviderDashboard() {
         </div>
       )}
 
-      {/* Checklist guiado de activación destacado semánticamente (ámbar acción / rojo alerta / celeste revisión) */}
+      {/* Checklist guiado de activación con la misma estética sobria que "Atención documental" */}
       {!loading && !directoryReadiness.isVisibleInDirectory && (() => {
         const isDangerCallout =
           directoryReadiness.isAllRejected ||
@@ -1955,20 +1955,20 @@ export default function ProviderDashboard() {
           directoryReadiness.providerInputsComplete &&
           !directoryReadiness.hasApprovedCompliance;
         const calloutBoxClass = isDangerCallout
-          ? 'border-rose-500/65 border-l-4 border-l-rose-400 bg-rose-950/35 text-rose-50'
+          ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
           : isWaitingOpsCallout
-            ? 'border-sky-500/55 border-l-4 border-l-sky-400 bg-sky-950/30 text-sky-50'
-            : 'border-amber-500/65 border-l-4 border-l-amber-400 bg-amber-950/35 text-amber-50';
+            ? 'border-sky-700/75 bg-sky-950/35 text-sky-100'
+            : 'border-amber-700/80 bg-amber-950/35 text-amber-100';
         const calloutBadgeClass = isDangerCallout
-          ? 'border-rose-400/60 bg-rose-500/20 text-rose-200'
+          ? 'border-rose-700/70 bg-black/25 text-rose-200'
           : isWaitingOpsCallout
-            ? 'border-sky-400/55 bg-sky-500/20 text-sky-200'
-            : 'border-amber-400/60 bg-amber-500/20 text-amber-200';
+            ? 'border-sky-700/70 bg-black/25 text-sky-200'
+            : 'border-amber-700/70 bg-black/25 text-amber-200';
         const calloutProgressClass = isDangerCallout
-          ? 'bg-rose-400'
+          ? 'bg-rose-400/90'
           : isWaitingOpsCallout
-            ? 'bg-sky-400'
-            : 'bg-amber-400';
+            ? 'bg-sky-400/90'
+            : 'bg-amber-400/90';
         const calloutIconClass = isDangerCallout
           ? 'text-rose-400'
           : isWaitingOpsCallout
@@ -1977,44 +1977,37 @@ export default function ProviderDashboard() {
 
         return (
         <section
-          className={`rounded-2xl p-4 sm:p-5 border shadow-sm space-y-3.5 text-xs ${calloutBoxClass}`}
+          className={`rounded-2xl p-4 border space-y-2.5 text-xs ${calloutBoxClass}`}
         >
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div className="flex items-start gap-2.5">
-              <AlertCircle size={18} className={`shrink-0 mt-0.5 ${calloutIconClass}`} />
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-sm font-black">
-                    Requisitos para aparecer en el Portal de Residentes
-                  </h2>
-                  <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${calloutBadgeClass}`}>
-                    {directoryReadiness.completedCount} / 4 completados
-                  </span>
-                </div>
-                <p className="text-xs opacity-90 mt-0.5">{directoryReadiness.summaryHint}</p>
-              </div>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 font-bold">
+              <AlertCircle size={16} className={`shrink-0 ${calloutIconClass}`} />
+              <span>Requisitos para aparecer en el Portal de Residentes</span>
+              <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${calloutBadgeClass}`}>
+                {directoryReadiness.completedCount} / 4 completados
+              </span>
             </div>
+            <span className="text-[11px] opacity-85">{directoryReadiness.summaryHint}</span>
           </div>
 
-          {/* Barra de progreso visual de alta visibilidad */}
-          <div className="h-2 w-full rounded-full overflow-hidden bg-black/40 border border-white/15">
+          {/* Barra de progreso sobria */}
+          <div className="h-1.5 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
             <div
               className={`h-full transition-all ${calloutProgressClass}`}
               style={{ width: `${Math.max(8, Math.round((directoryReadiness.completedCount / 4) * 100))}%` }}
             />
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
             {/* Paso 1: Antecedentes Penales */}
             <div
-              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+              className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${
                 directoryReadiness.criminalOk
-                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  ? 'border-emerald-700/50 bg-emerald-950/25'
                   : directoryReadiness.criminalExpired
-                    ? 'border-rose-700/60 bg-rose-950/25'
-                    : 'border-white/10'
+                    ? 'border-rose-700/60 bg-rose-950/30'
+                    : 'bg-black/25 border-white/10'
               }`}
-              style={directoryReadiness.criminalOk || directoryReadiness.criminalExpired ? undefined : innerStyle}
             >
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
@@ -2022,10 +2015,10 @@ export default function ProviderDashboard() {
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       directoryReadiness.criminalOk
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
                         : directoryReadiness.criminalExpired
-                          ? 'bg-rose-950 text-rose-300 border-rose-700'
-                          : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-700/70'
+                          : 'bg-black/30 text-amber-200 border-amber-700/60'
                     }`}
                   >
                     {directoryReadiness.criminalOk
@@ -2035,7 +2028,7 @@ export default function ProviderDashboard() {
                         : 'Falta'}
                   </span>
                 </div>
-                <p className="text-[11px] opacity-75">
+                <p className="text-[11px] opacity-80">
                   {directoryReadiness.criminalOk
                     ? 'Certificado personal cargado y vigente.'
                     : directoryReadiness.criminalExpired
@@ -2051,23 +2044,22 @@ export default function ProviderDashboard() {
                     setDocType('Antecedentes Penales');
                     setShowDocForm(true);
                   }}
-                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
                 >
-                  {directoryReadiness.criminalExpired ? 'Renovar ahora' : 'Cargar ahora'}
+                  {directoryReadiness.criminalExpired ? 'Renovar' : 'Cargar'}
                 </button>
               )}
             </div>
 
             {/* Paso 2: Póliza ART / Seguro */}
             <div
-              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+              className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${
                 directoryReadiness.artOk
-                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  ? 'border-emerald-700/50 bg-emerald-950/25'
                   : directoryReadiness.artExpired
-                    ? 'border-rose-700/60 bg-rose-950/25'
-                    : 'border-white/10'
+                    ? 'border-rose-700/60 bg-rose-950/30'
+                    : 'bg-black/25 border-white/10'
               }`}
-              style={directoryReadiness.artOk || directoryReadiness.artExpired ? undefined : innerStyle}
             >
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
@@ -2075,10 +2067,10 @@ export default function ProviderDashboard() {
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       directoryReadiness.artOk
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
                         : directoryReadiness.artExpired
-                          ? 'bg-rose-950 text-rose-300 border-rose-700'
-                          : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-700/70'
+                          : 'bg-black/30 text-amber-200 border-amber-700/60'
                     }`}
                   >
                     {directoryReadiness.artOk
@@ -2088,7 +2080,7 @@ export default function ProviderDashboard() {
                         : 'Falta'}
                   </span>
                 </div>
-                <p className="text-[11px] opacity-75">
+                <p className="text-[11px] opacity-80">
                   {directoryReadiness.artOk
                     ? 'Cobertura personal cargada y vigente.'
                     : directoryReadiness.artExpired
@@ -2104,25 +2096,20 @@ export default function ProviderDashboard() {
                     setDocType('Póliza ART / Seguro');
                     setShowDocForm(true);
                   }}
-                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
                 >
-                  {directoryReadiness.artExpired ? 'Renovar ahora' : 'Cargar ahora'}
+                  {directoryReadiness.artExpired ? 'Renovar' : 'Cargar'}
                 </button>
               )}
             </div>
 
             {/* Paso 3: Especialidad visible */}
             <div
-              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+              className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${
                 directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
-                  ? 'border-emerald-700/50 bg-emerald-950/20'
-                  : 'border-white/10'
+                  ? 'border-emerald-700/50 bg-emerald-950/25'
+                  : 'bg-black/25 border-white/10'
               }`}
-              style={
-                directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
-                  ? undefined
-                  : innerStyle
-              }
             >
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
@@ -2130,8 +2117,8 @@ export default function ProviderDashboard() {
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
-                        : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
+                        : 'bg-black/30 text-amber-200 border-amber-700/60'
                     }`}
                   >
                     {directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
@@ -2141,7 +2128,7 @@ export default function ProviderDashboard() {
                         : 'Falta'}
                   </span>
                 </div>
-                <p className="text-[11px] opacity-75">
+                <p className="text-[11px] opacity-80">
                   {directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
                     ? 'Rubro configurado para el directorio.'
                     : directoryReadiness.hasSpecialty
@@ -2156,27 +2143,22 @@ export default function ProviderDashboard() {
                     setActiveStep('credentials');
                     if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
                   }}
-                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
                 >
-                  {directoryReadiness.hasSpecialty ? 'Activar visibilidad' : 'Agregar rubro'}
+                  {directoryReadiness.hasSpecialty ? 'Activar' : 'Agregar'}
                 </button>
               )}
             </div>
 
             {/* Paso 4: Validación de Administración TrustLink */}
             <div
-              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+              className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${
                 directoryReadiness.hasApprovedCompliance
-                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  ? 'border-emerald-700/50 bg-emerald-950/25'
                   : directoryReadiness.isAllRejected
-                    ? 'border-rose-700/60 bg-rose-950/25'
-                    : 'border-white/10'
+                    ? 'border-rose-700/60 bg-rose-950/30'
+                    : 'bg-black/25 border-white/10'
               }`}
-              style={
-                directoryReadiness.hasApprovedCompliance || directoryReadiness.isAllRejected
-                  ? undefined
-                  : innerStyle
-              }
             >
               <div className="space-y-0.5">
                 <div className="flex items-center justify-between gap-1">
@@ -2184,12 +2166,12 @@ export default function ProviderDashboard() {
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
                       directoryReadiness.hasApprovedCompliance
-                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
                         : directoryReadiness.isAllRejected
-                          ? 'bg-rose-950 text-rose-300 border-rose-700'
+                          ? 'bg-rose-950/80 text-rose-300 border-rose-700/70'
                           : directoryReadiness.providerInputsComplete
-                            ? 'bg-sky-950 text-sky-300 border-sky-700'
-                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                            ? 'bg-sky-950/80 text-sky-300 border-sky-700/70'
+                            : 'bg-black/30 text-slate-300 border-white/15'
                     }`}
                   >
                     {directoryReadiness.hasApprovedCompliance
@@ -2201,7 +2183,7 @@ export default function ProviderDashboard() {
                           : 'En espera'}
                   </span>
                 </div>
-                <p className="text-[11px] opacity-75">
+                <p className="text-[11px] opacity-80">
                   {directoryReadiness.hasApprovedCompliance
                     ? 'Compliance validado por TrustLink.'
                     : directoryReadiness.isAllRejected
