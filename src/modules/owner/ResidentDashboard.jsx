@@ -86,6 +86,41 @@ const QUICK_SPECIALTIES = [
 /** Cantidad máxima de tarjetas de Pases QR visibles por página en el listado. */
 const PASSES_PER_PAGE = 6;
 
+/** Cantidad máxima de chips de especialidad visibles por tarjeta antes de agrupar con "+N más". */
+const MAX_VISIBLE_CARD_SPECIALTIES = 3;
+
+/**
+ * Extrae y deduplica todas las especialidades habilitadas de un prestador del directorio,
+ * priorizando el arreglo `specialties` del backend y usando `specialties_label` o `specialty` como respaldo.
+ *
+ * @param {Object} provider - Registro consolidado del prestador devuelto por `/api/v1/providers/directory`.
+ * @returns {string[]} Lista ordenada y sin duplicados de rubros habilitados.
+ */
+const getProviderSpecialties = (provider) => {
+  const collected = [];
+  const pushUnique = (value) => {
+    const clean = String(value || '').trim();
+    if (!clean) return;
+    if (!collected.some((item) => item.toLowerCase() === clean.toLowerCase())) {
+      collected.push(clean);
+    }
+  };
+
+  if (Array.isArray(provider?.specialties) && provider.specialties.length > 0) {
+    provider.specialties.forEach(pushUnique);
+  } else if (provider?.specialties_label) {
+    String(provider.specialties_label)
+      .split(/[·,|/]/)
+      .forEach(pushUnique);
+  } else if (provider?.specialty) {
+    String(provider.specialty)
+      .split(/[·,|/]/)
+      .forEach(pushUnique);
+  }
+
+  return collected.length > 0 ? collected : ['Servicio Verificado'];
+};
+
 /**
  * Convierte una instancia de Date al formato local `YYYY-MM-DDTHH:mm`
  * requerido por inputs HTML de tipo `datetime-local`.
@@ -519,17 +554,15 @@ export default function ResidentDashboard({ onNavigate }) {
     return map;
   }, [myVisits]);
 
-  // Lista deduplicada de especialidades combinando chips rápidos y rubros reales de la base de datos
+  // Lista deduplicada de especialidades combinando chips rápidos y todos los rubros habilitados en BD
   const availableSpecialties = useMemo(() => {
     const dbSpecialties = new Set();
     providers.forEach((p) => {
-      const raw = String(p.specialty || '').trim();
-      if (!raw) return;
-      raw
-        .split(/[·,|/]/)
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .forEach((part) => dbSpecialties.add(part));
+      getProviderSpecialties(p).forEach((spec) => {
+        if (spec && spec !== 'Servicio Verificado') {
+          dbSpecialties.add(spec);
+        }
+      });
     });
 
     const combined = ['Todos'];
@@ -550,14 +583,15 @@ export default function ResidentDashboard({ onNavigate }) {
     [searchTerm]
   );
 
-  // Aplica filtros de especialidad, Socio Verificado, Favoritos, Disponible hoy, Urgencias 24h, búsqueda por síntomas y ordenamiento
+  // Aplica filtros de especialidad (sobre todos los rubros del prestador), Socio Verificado, Favoritos, Disponible hoy, Urgencias 24h, búsqueda por síntomas y ordenamiento
   const filteredProviders = useMemo(() => {
+    const selectedSpecLower = selectedSpecialty.toLowerCase();
     const list = providers.filter((p) => {
-      const specialty = String(p.specialty || '').toLowerCase();
+      const providerSpecs = getProviderSpecialties(p);
 
       const matchesSpecialty =
         selectedSpecialty === 'Todos' ||
-        specialty.includes(selectedSpecialty.toLowerCase());
+        providerSpecs.some((spec) => spec.toLowerCase().includes(selectedSpecLower));
 
       const matchesMember = !onlyVerifiedMembers || Boolean(p.is_verified_member);
       const matchesFavorite = !onlyFavorites || Boolean(p.is_favorite);
@@ -1741,6 +1775,20 @@ export default function ResidentDashboard({ onNavigate }) {
                     ? 'Recibo común'
                     : null;
 
+                // Ordena las especialidades habilitadas promoviendo primero la que coincide con el filtro activo
+                const rawSpecialties = getProviderSpecialties(provider);
+                const selectedFilterKey = selectedSpecialty.toLowerCase();
+                const orderedSpecialties =
+                  selectedSpecialty === 'Todos'
+                    ? rawSpecialties
+                    : [...rawSpecialties].sort((a, b) => {
+                        const aMatch = a.toLowerCase().includes(selectedFilterKey) ? 0 : 1;
+                        const bMatch = b.toLowerCase().includes(selectedFilterKey) ? 0 : 1;
+                        return aMatch - bMatch;
+                      });
+                const visibleSpecialties = orderedSpecialties.slice(0, MAX_VISIBLE_CARD_SPECIALTIES);
+                const extraSpecialties = orderedSpecialties.slice(MAX_VISIBLE_CARD_SPECIALTIES);
+
                 return (
                   <article
                     key={providerId}
@@ -1750,12 +1798,9 @@ export default function ResidentDashboard({ onNavigate }) {
                     style={innerStyle}
                   >
                     <div className="space-y-3">
-                      {/* Insignias de especialidad, membresía, urgencias 24h, disponibilidad hoy, favorito y calificación */}
+                      {/* Fila superior: señales operativas (membresía, urgencias, disponibilidad) + favorito y calificación */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                            {provider.specialty || 'Servicio Verificado'}
-                          </span>
                           {isVerifiedMember && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
                               <Award size={11} className="text-amber-300 shrink-0" />
@@ -1812,18 +1857,51 @@ export default function ResidentDashboard({ onNavigate }) {
                         </div>
                       </div>
 
-                      {/* Identidad, métricas y accesos a Reseñas y Preguntas Públicas (Q&A) */}
+                      {/* Identidad, rubros habilitados, métricas y accesos a Reseñas y Q&A */}
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <h3 className="text-sm font-bold">{fullName}</h3>
-                          <p className="text-xs opacity-75 mt-0.5">
-                            {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
-                            {Array.isArray(provider.vehicles) && provider.vehicles.length > 0
-                              ? ` · ${provider.vehicles.length} vehículo(s)`
-                              : ''}
-                          </p>
+                        <div className="min-w-0 space-y-1.5">
+                          <div>
+                            <h3 className="text-sm font-bold leading-snug">{fullName}</h3>
+                            <p className="text-xs opacity-75 mt-0.5">
+                              {jobsCount} {jobsCount === 1 ? 'trabajo registrado' : 'trabajos registrados'}
+                              {Array.isArray(provider.vehicles) && provider.vehicles.length > 0
+                                ? ` · ${provider.vehicles.length} vehículo(s)`
+                                : ''}
+                            </p>
+                          </div>
+
+                          {/* Franja dedicada de especialidades habilitadas (máx. 3 chips + "+N más" con tooltip) */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {visibleSpecialties.map((spec) => {
+                              const isHighlighted =
+                                selectedSpecialty !== 'Todos' &&
+                                spec.toLowerCase().includes(selectedFilterKey);
+                              return (
+                                <span
+                                  key={spec}
+                                  className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                                    isHighlighted
+                                      ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                                      : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                                  }`}
+                                >
+                                  {spec}
+                                </span>
+                              );
+                            })}
+                            {extraSpecialties.length > 0 && (
+                              <span
+                                title={`Otros rubros habilitados: ${extraSpecialties.join(', ')}`}
+                                className="text-[11px] font-semibold px-2 py-0.5 rounded-md border border-white/15 opacity-85"
+                                style={cardStyle}
+                              >
+                                +{extraSpecialties.length} más
+                              </span>
+                            )}
+                          </div>
+
                           {provider.service_bio && (
-                            <p className="text-[11px] opacity-85 mt-1 line-clamp-2">
+                            <p className="text-[11px] opacity-85 line-clamp-2">
                               {provider.service_bio}
                             </p>
                           )}
@@ -3621,9 +3699,11 @@ export default function ResidentDashboard({ onNavigate }) {
                   Preguntas y Respuestas Públicas
                 </p>
                 <h3 className="text-base font-black mt-0.5">
-                  {qaModalProvider.first_name} {qaModalProvider.last_name} ·{' '}
-                  {qaModalProvider.specialty || 'Prestador Verificado'}
+                  {qaModalProvider.first_name} {qaModalProvider.last_name}
                 </h3>
+                <p className="text-[11px] font-semibold text-emerald-300 mt-0.5">
+                  {getProviderSpecialties(qaModalProvider).join(' · ')}
+                </p>
                 {qaModalProvider.response_label && (
                   <p className="text-[11px] text-sky-300 mt-0.5">{qaModalProvider.response_label}</p>
                 )}
