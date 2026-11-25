@@ -54,6 +54,7 @@ import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import ProviderTrustBadge from '../../components/ProviderTrustBadge';
 import {
   HomeProtectedBadge,
   ReputationThermometer,
@@ -340,6 +341,7 @@ export default function ResidentDashboard({
     return '';
   });
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
+  const [onlyVerified, setOnlyVerified] = useState(false);
   const [onlyVerifiedMembers, setOnlyVerifiedMembers] = useState(false);
   const [onlyFavorites, setOnlyFavorites] = useState(false);
   const [onlyAvailableToday, setOnlyAvailableToday] = useState(false);
@@ -891,6 +893,10 @@ export default function ResidentDashboard({
         selectedSpecialty === 'Todos' ||
         providerSpecs.some((spec) => spec.toLowerCase().includes(selectedSpecLower));
 
+      const matchesVerified =
+        !onlyVerified ||
+        Boolean(p.is_verified) ||
+        Number(p.trust_level ?? (p.trust_badge?.level ?? 4)) >= 4;
       const matchesMember = !onlyVerifiedMembers || Boolean(p.is_verified_member);
       const matchesFavorite = !onlyFavorites || Boolean(p.is_favorite);
       const matchesAvailableToday = !onlyAvailableToday || Boolean(p.available_today);
@@ -899,6 +905,7 @@ export default function ResidentDashboard({
 
       return (
         matchesSpecialty &&
+        matchesVerified &&
         matchesMember &&
         matchesFavorite &&
         matchesAvailableToday &&
@@ -917,6 +924,8 @@ export default function ResidentDashboard({
       if (directorySortBy === 'jobs') {
         return Number(b.total_jobs ?? b.completed_jobs ?? 0) - Number(a.total_jobs ?? a.completed_jobs ?? 0);
       }
+      const trustDiff = Number(b.trust_level ?? 0) - Number(a.trust_level ?? 0);
+      if (trustDiff !== 0) return trustDiff;
       const memberDiff = Number(Boolean(b.is_verified_member)) - Number(Boolean(a.is_verified_member));
       if (memberDiff !== 0) return memberDiff;
       const repDiff = Number(b.reputation?.score || 0) - Number(a.reputation?.score || 0);
@@ -927,6 +936,7 @@ export default function ResidentDashboard({
     providers,
     searchTerm,
     selectedSpecialty,
+    onlyVerified,
     onlyVerifiedMembers,
     onlyFavorites,
     onlyAvailableToday,
@@ -2145,6 +2155,21 @@ export default function ResidentDashboard({
 
               <button
                 type="button"
+                onClick={() => setOnlyVerified((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                  onlyVerified
+                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                    : 'border-white/15 opacity-80 hover:opacity-100'
+                }`}
+                style={onlyVerified ? undefined : innerStyle}
+                title="Mostrar solo prestadores con Nivel 4 (Verificado) o Nivel 5 (Socio Verificado)"
+              >
+                <ShieldCheck size={12} />
+                <span>Solo Verificados</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setOnlyVerifiedMembers((prev) => !prev)}
                 className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
                   onlyVerifiedMembers
@@ -2272,10 +2297,22 @@ export default function ResidentDashboard({
                       {/* Fila superior: señales operativas (membresía, urgencias, disponibilidad) + favorito y calificación */}
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          {isVerifiedMember && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
-                              <Award size={11} className="text-amber-300 shrink-0" />
-                              <span>{membershipBadgeLabel}</span>
+                          {provider.trust_badge ? (
+                            <ProviderTrustBadge trust={provider.trust_badge} />
+                          ) : (
+                            isVerifiedMember && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-lg border border-amber-400/45 bg-amber-500/15 text-amber-200">
+                                <Award size={11} className="text-amber-300 shrink-0" />
+                                <span>{membershipBadgeLabel}</span>
+                              </span>
+                            )
+                          )}
+                          {provider.can_issue_pass === false && !hasExpiredDocs && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-lg border border-white/15 bg-black/25 opacity-85"
+                              title="Podés consultar y pedir presupuesto; para emitir Pase QR en garita el prestador debe completar su Nivel Verificado"
+                            >
+                              <span>Consultas · Sin Pase QR aún</span>
                             </span>
                           )}
                           {acceptsEmergencies && !hasExpiredDocs && (

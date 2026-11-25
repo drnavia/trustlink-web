@@ -56,6 +56,7 @@ import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import ProviderCalendarManager from '../../components/ProviderCalendarManager';
+import ProviderTrustBadge from '../../components/ProviderTrustBadge';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
@@ -1786,13 +1787,17 @@ export default function ProviderDashboard() {
           </p>
         </div>
 
-        {/* Insignia Socio Verificado, scoring promedio, estado del perfil y recarga manual */}
+        {/* Insignia de Confianza Progresiva (Nivel 0..5), scoring promedio, estado del perfil y recarga manual */}
         <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
-          {profileData.membership?.is_verified_member && (
-            <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-400/50 bg-amber-500/15 text-amber-200 inline-flex items-center gap-1.5">
-              <Award size={13} className="text-amber-300" />
-              <span>{profileData.membership.badge_label || 'Socio Verificado'}</span>
-            </span>
+          {profileData.trust_badge ? (
+            <ProviderTrustBadge trust={profileData.trust_badge} showLevel />
+          ) : (
+            profileData.membership?.is_verified_member && (
+              <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-400/50 bg-amber-500/15 text-amber-200 inline-flex items-center gap-1.5">
+                <Award size={13} className="text-amber-300" />
+                <span>{profileData.membership.badge_label || 'Socio Verificado'}</span>
+              </span>
+            )
           )}
           <span
             className="text-xs font-bold px-3 py-2 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5"
@@ -1982,12 +1987,18 @@ export default function ProviderDashboard() {
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 font-bold">
               <AlertCircle size={16} className={`shrink-0 ${calloutIconClass}`} />
-              <span>Requisitos para aparecer en el Portal de Residentes</span>
+              <span>
+                {profileData.trust_badge?.visible_in_directory
+                  ? `Nivel ${profileData.trust_level || 1}/5 (${profileData.trust_badge.label}) — Subí a Verificado para habilitar Pases QR`
+                  : 'Requisitos para aparecer en el Portal de Residentes'}
+              </span>
               <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${calloutBadgeClass}`}>
                 {directoryReadiness.completedCount} / 4 completados
               </span>
             </div>
-            <span className="text-[11px] opacity-85">{directoryReadiness.summaryHint}</span>
+            <span className="text-[11px] opacity-85">
+              {profileData.trust_badge?.next_step_hint || directoryReadiness.summaryHint}
+            </span>
           </div>
 
           {/* Barra de progreso sobria */}
@@ -2587,18 +2598,28 @@ export default function ProviderDashboard() {
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowMembershipPlans((prev) => !prev)}
-              className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0 self-start sm:self-auto transition-opacity hover:opacity-95"
-              style={{ backgroundColor: primaryColor }}
-            >
-              {showMembershipPlans
-                ? 'Ocultar planes'
-                : profileData.membership?.is_verified_member
-                ? 'Renovar / Cambiar plan'
-                : 'Ver planes'}
-            </button>
+            {Number(profileData.trust_level ?? (directoryReadiness.isVisibleInDirectory ? 4 : 0)) >= 4 ||
+            profileData.membership?.is_verified_member ? (
+              <button
+                type="button"
+                onClick={() => setShowMembershipPlans((prev) => !prev)}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0 self-start sm:self-auto transition-opacity hover:opacity-95"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {showMembershipPlans
+                  ? 'Ocultar planes'
+                  : profileData.membership?.is_verified_member
+                    ? 'Renovar / Cambiar plan'
+                    : 'Ver planes'}
+              </button>
+            ) : (
+              <span
+                className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 opacity-80 shrink-0 self-start sm:self-auto"
+                title="Primero necesitás alcanzar el Nivel 4 (Verificado) con documentación aprobada"
+              >
+                Requiere Nivel 4 (Verificado)
+              </span>
+            )}
           </div>
 
           {/* Grilla desplegable de planes disponibles para activar o extender la membresía */}

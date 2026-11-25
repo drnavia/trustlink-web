@@ -41,6 +41,7 @@ import {
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import AdminListToolbar from '../../components/admin/AdminListToolbar';
 import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import ProviderTrustBadge from '../../components/ProviderTrustBadge';
 import { paginateItems } from '../../utils/adminPagination';
 
 /**
@@ -149,6 +150,7 @@ export default function AdminComplianceView() {
   const [updatingUserComplianceId, setUpdatingUserComplianceId] = useState(null);
   const [confirmRejectKey, setConfirmRejectKey] = useState(null);
   const [updatingMembershipUserId, setUpdatingMembershipUserId] = useState(null);
+  const [updatingIdentityUserId, setUpdatingIdentityUserId] = useState(null);
 
   // Estados de reclamos post-servicio
   const [disputes, setDisputes] = useState([]);
@@ -191,6 +193,7 @@ export default function AdminComplianceView() {
           dni: row.dni || '-',
           email: row.email || '',
           phone: row.phone || '',
+          identity_verified: Boolean(row.identity_verified),
           user_is_active: row.user_is_active !== false,
           is_verified_member: Boolean(row.is_verified_member),
           membership_tier: row.membership_tier || null,
@@ -262,17 +265,42 @@ export default function AdminComplianceView() {
         const hasCriminalOk = Boolean(criminalUrl) && crimExpMeta.tone !== 'danger';
         const hasArtOk = Boolean(insuranceUrl) && artExpMeta.tone !== 'danger';
         const hasAnySpecialty = sortedSpecs.length > 0;
+        const identityVerified = Boolean(person.identity_verified) || approvedSpecs.length > 0;
         const hasVisibleApprovedSpec = sortedSpecs.some(
           (s) =>
             s.status === 'approved' &&
             s.specialty_approval_status === 'approved' &&
             s.is_visible_in_directory !== false
         );
+        const hasVisibleEligibleSpec = sortedSpecs.some(
+          (s) =>
+            (s.status === 'approved' || (identityVerified && s.status === 'pending')) &&
+            s.specialty_approval_status === 'approved' &&
+            s.is_visible_in_directory !== false
+        );
+        const isAllRejected = sortedSpecs.length > 0 && sortedSpecs.every((s) => s.status === 'rejected');
+        const hasExpired = crimExpMeta.tone === 'danger' || artExpMeta.tone === 'danger';
         const isVisibleInResidentPortal =
-          person.user_is_active !== false &&
-          hasVisibleApprovedSpec &&
-          crimExpMeta.tone !== 'danger' &&
-          artExpMeta.tone !== 'danger';
+          person.user_is_active !== false && !isAllRejected && hasVisibleEligibleSpec;
+
+        let trustBadge;
+        if (person.user_is_active === false || isAllRejected) {
+          trustBadge = { level: 0, label: isAllRejected ? 'Rechazado' : 'Suspendida', tone: 'danger' };
+        } else if (!identityVerified || !hasVisibleEligibleSpec) {
+          trustBadge = { level: 0, label: 'Sin habilitar', tone: 'slate' };
+        } else if (approvedSpecs.length > 0 && hasExpired) {
+          trustBadge = { level: hasCriminalOk || hasArtOk ? 2 : 1, label: 'Doc. vencida', tone: 'danger' };
+        } else if (approvedSpecs.length > 0 && person.is_verified_member) {
+          trustBadge = { level: 5, label: 'Socio Verificado', tone: 'gold' };
+        } else if (approvedSpecs.length > 0) {
+          trustBadge = { level: 4, label: 'Verificado', tone: 'emerald' };
+        } else if (hasCriminalOk && hasArtOk) {
+          trustBadge = { level: 3, label: 'Doc. en validación', tone: 'teal' };
+        } else if (hasCriminalOk || hasArtOk) {
+          trustBadge = { level: 2, label: hasCriminalOk ? 'Antecedentes al día' : 'ART al día', tone: 'sky' };
+        } else {
+          trustBadge = { level: 1, label: 'Perfil Básico', tone: 'slate' };
+        }
 
         const missingReasons = [];
         if (person.user_is_active === false) missingReasons.push('Cuenta suspendida');
@@ -308,6 +336,8 @@ export default function AdminComplianceView() {
           criminal_record_expiry: criminalExpiry,
           insurance_policy_url: insuranceUrl,
           insurance_expiry: insuranceExpiry,
+          identity_verified: identityVerified,
+          trust_badge: trustBadge,
           readiness: {
             hasCriminal: Boolean(criminalUrl),
             hasCriminalOk,
@@ -573,6 +603,37 @@ export default function AdminComplianceView() {
    * @param {number} [days=30] - Cantidad de días de vigencia para activación o extensión.
    * @returns {Promise<void>}
    */
+  /**
+   * Valida o revoca la identidad básica (DNI) del prestador (Fase 6.1) para habilitar Nivel 1 (Perfil Básico).
+   */
+  const handleToggleIdentity = async (userId, verified) => {
+    setUpdatingIdentityUserId(userId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/identity/verify`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify({ user_id: userId, verified }),
+      });
+      const data = await response.json();
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Estado de identidad actualizado.');
+        await fetchAllProviders();
+      } else {
+        setErrorMsg(data.error || 'No se pudo actualizar la validación de identidad.');
+      }
+    } catch (error) {
+      console.error('Error al validar identidad:', error);
+      setErrorMsg('Error de conexión al validar identidad.');
+    } finally {
+      setUpdatingIdentityUserId(null);
+    }
+  };
+
   const handleManageMembership = async (userId, action, days = 30) => {
     setUpdatingMembershipUserId(userId);
     setErrorMsg('');
@@ -914,6 +975,7 @@ export default function AdminComplianceView() {
                       <div className="min-w-0 space-y-0.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-sm font-black truncate">{person.full_name}</h4>
+                          <ProviderTrustBadge trust={person.trust_badge} showLevel compact />
                           <span
                             className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${personStatusMeta.cls}`}
                           >
@@ -1223,6 +1285,7 @@ export default function AdminComplianceView() {
                         <td className="py-3 px-3 space-y-1">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-xs">{person.full_name}</span>
+                            <ProviderTrustBadge trust={person.trust_badge} showLevel compact />
                             <span
                               className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${personStatusMeta.cls}`}
                             >
@@ -1359,7 +1422,30 @@ export default function AdminComplianceView() {
                         <td className="py-3 px-3 text-right">
                           {person.user_id && hasProfile ? (
                             <div className="inline-flex flex-col items-end gap-2">
-                              {renderPersonComplianceActions(person)}
+                              <div className="flex flex-wrap items-center justify-end gap-1.5">
+                                {!person.isPersonApproved && (
+                                  <button
+                                    type="button"
+                                    disabled={updatingIdentityUserId === person.user_id}
+                                    onClick={() =>
+                                      handleToggleIdentity(person.user_id, !person.identity_verified)
+                                    }
+                                    className={`px-2 py-1 rounded-lg text-[10px] font-bold border cursor-pointer disabled:opacity-45 ${
+                                      person.identity_verified
+                                        ? 'border-sky-500/40 bg-sky-950/50 text-sky-200 hover:bg-sky-900/60'
+                                        : 'border-indigo-400/50 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
+                                    }`}
+                                    title={
+                                      person.identity_verified
+                                        ? 'Identidad validada (Nivel 1 habilitado). Clic para revocar.'
+                                        : 'Validar DNI para habilitar Perfil Básico (Nivel 1) en el directorio'
+                                    }
+                                  >
+                                    {person.identity_verified ? 'ID Validado ✓' : 'Validar ID'}
+                                  </button>
+                                )}
+                                {renderPersonComplianceActions(person)}
+                              </div>
                               {person.is_verified_member ? (
                                 <div className="flex items-center gap-1">
                                   <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
@@ -1401,6 +1487,22 @@ export default function AdminComplianceView() {
                             </div>
                           ) : (
                             <div className="inline-flex flex-col items-end gap-1.5">
+                              {person.user_id && (
+                                <button
+                                  type="button"
+                                  disabled={updatingIdentityUserId === person.user_id}
+                                  onClick={() =>
+                                    handleToggleIdentity(person.user_id, !person.identity_verified)
+                                  }
+                                  className={`px-2 py-1 rounded-lg text-[10px] font-bold border cursor-pointer disabled:opacity-45 ${
+                                    person.identity_verified
+                                      ? 'border-sky-500/40 bg-sky-950/50 text-sky-200'
+                                      : 'border-indigo-400/50 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
+                                  }`}
+                                >
+                                  {person.identity_verified ? 'ID Validado ✓' : 'Validar ID'}
+                                </button>
+                              )}
                               <span className="text-[10px] opacity-70">Esperando carga</span>
                               {person.phone && (
                                 <a
