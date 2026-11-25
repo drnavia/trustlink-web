@@ -1599,15 +1599,114 @@ export default function ProviderDashboard() {
   ).length;
 
   const primaryProfile = profileData.providers[0] || null;
-  // Estado consolidado de compliance a nivel persona (prioriza aprobado si ya posee credenciales activas)
-  const overallComplianceStatus = useMemo(() => {
+  const [todayStartMs] = useState(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  });
+  // Evaluación en vivo de los 4 requisitos reales para figurar en el Portal de Residentes
+  const directoryReadiness = useMemo(() => {
     const rows = profileData.providers || [];
-    if (rows.length === 0) return 'pending';
-    if (rows.some((r) => r.status === 'approved')) return 'approved';
-    if (rows.every((r) => r.status === 'rejected')) return 'rejected';
-    return 'pending';
-  }, [profileData.providers]);
-  const overallComplianceMeta = getAuditStatusMeta(overallComplianceStatus);
+    const currentDocs = personalDocumentsSummary.currentDocs || [];
+    const criminalDoc = currentDocs.find((d) => d.slot === 'criminal');
+    const artDoc = currentDocs.find((d) => d.slot === 'insurance');
+
+    const isDateExpired = (rawDate) => {
+      if (!rawDate) return false;
+      const d = new Date(rawDate);
+      if (Number.isNaN(d.getTime())) return false;
+      d.setHours(0, 0, 0, 0);
+      return d.getTime() < todayStartMs;
+    };
+
+    const hasCriminal = Boolean(criminalDoc && !criminalDoc.isMissing);
+    const criminalExpired = hasCriminal && isDateExpired(criminalDoc?.validTo);
+    const criminalOk = hasCriminal && !criminalExpired;
+
+    const hasArt = Boolean(artDoc && !artDoc.isMissing);
+    const artExpired = hasArt && isDateExpired(artDoc?.validTo);
+    const artOk = hasArt && !artExpired;
+
+    const hasSpecialty = rows.length > 0;
+    const visibleSpecsCount = rows.filter((r) => r.is_visible_in_directory !== false).length;
+    const hasVisibleSpecialty = visibleSpecsCount > 0;
+    const hasApprovedCompliance = rows.some((r) => r.status === 'approved');
+    const hasApprovedVisibleSpecialty = rows.some(
+      (r) =>
+        r.status === 'approved' &&
+        String(r.specialty_approval_status || 'approved').toLowerCase() === 'approved' &&
+        r.is_visible_in_directory !== false
+    );
+    const isAllRejected = rows.length > 0 && rows.every((r) => r.status === 'rejected');
+    const providerInputsComplete = criminalOk && artOk && hasSpecialty;
+    const isVisibleInDirectory =
+      hasApprovedCompliance && hasApprovedVisibleSpecialty && criminalOk && artOk;
+
+    const completedCount =
+      (criminalOk ? 1 : 0) +
+      (artOk ? 1 : 0) +
+      (hasSpecialty && hasVisibleSpecialty ? 1 : 0) +
+      (hasApprovedCompliance ? 1 : 0);
+
+    let badgeLabel = 'Perfil incompleto';
+    let badgeTone = 'neutral';
+    let summaryHint =
+      'Completá los requisitos pendientes abajo para pasar a revisión y figurar en el Portal de Residentes.';
+
+    if (isAllRejected) {
+      badgeLabel = 'Rechazado';
+      badgeTone = 'danger';
+      summaryHint =
+        'Tu solicitud fue rechazada por Administración. Actualizá tu documentación o rubros para volver a evaluación.';
+    } else if (isVisibleInDirectory) {
+      badgeLabel = 'Visible en directorio';
+      badgeTone = 'success';
+      summaryHint = 'Tu perfil está aprobado y visible para todos los residentes.';
+    } else if (hasApprovedCompliance && (criminalExpired || artExpired)) {
+      badgeLabel = 'Doc. vencida';
+      badgeTone = 'danger';
+      summaryHint =
+        'Tu compliance está aprobado, pero tenés documentación personal vencida. Renoválas para volver a operar en garita.';
+    } else if (hasApprovedCompliance && !hasApprovedVisibleSpecialty) {
+      badgeLabel = 'Oculto en directorio';
+      badgeTone = 'warning';
+      summaryHint =
+        'Tu compliance está aprobado, pero no tenés especialidades activas y visibles para residentes.';
+    } else if (providerInputsComplete) {
+      badgeLabel = 'En revisión';
+      badgeTone = 'warning';
+      summaryHint =
+        'Ya completaste tu documentación y especialidad. Administración TrustLink está revisando tu perfil para habilitarte.';
+    } else {
+      const missingCount = 3 - ((criminalOk ? 1 : 0) + (artOk ? 1 : 0) + (hasSpecialty ? 1 : 0));
+      summaryHint = `Todavía no pasás a revisión: te ${missingCount === 1 ? 'falta 1 paso' : `faltan ${missingCount} pasos`} obligatorios para figurar en el Portal de Residentes.`;
+    }
+
+    return {
+      hasCriminal,
+      criminalExpired,
+      criminalOk,
+      hasArt,
+      artExpired,
+      artOk,
+      hasSpecialty,
+      hasVisibleSpecialty,
+      visibleSpecsCount,
+      hasApprovedCompliance,
+      isAllRejected,
+      providerInputsComplete,
+      isVisibleInDirectory,
+      completedCount,
+      badgeLabel,
+      badgeTone,
+      summaryHint,
+    };
+  }, [profileData.providers, personalDocumentsSummary.currentDocs, todayStartMs]);
+
+  const overallComplianceMeta = {
+    label: directoryReadiness.badgeLabel,
+    tone: directoryReadiness.badgeTone,
+  };
   // Scoring unificado con el motor de reputación (evita desfasaje frente a "Mi Reputación")
   const headerScoring = Number(
     profileData.reputation?.rating_avg ?? primaryProfile?.rating_avg ?? 0
@@ -1707,9 +1806,12 @@ export default function ProviderDashboard() {
               overallComplianceMeta.tone === 'success'
                 ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
                 : overallComplianceMeta.tone === 'danger'
-                ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
-                : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
+                  ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
+                  : overallComplianceMeta.tone === 'neutral'
+                    ? 'bg-slate-800/80 text-slate-200 border-slate-600/60'
+                    : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
             }`}
+            title={directoryReadiness.summaryHint}
           >
             Estado: {overallComplianceMeta.label}
           </span>
@@ -1840,6 +1942,246 @@ export default function ProviderDashboard() {
             })}
           </div>
         </div>
+      )}
+
+      {/* Checklist guiado de activación: muestra qué falta para figurar en el Portal de Residentes */}
+      {!loading && !directoryReadiness.isVisibleInDirectory && (
+        <section
+          className="rounded-2xl p-4 sm:p-5 border border-indigo-500/35 shadow-sm space-y-3.5 text-xs"
+          style={cardStyle}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-black">
+                  Requisitos para aparecer en el Portal de Residentes
+                </h2>
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-400/45 bg-indigo-500/15 text-indigo-200">
+                  {directoryReadiness.completedCount} / 4 completados
+                </span>
+              </div>
+              <p className="text-xs opacity-80 mt-0.5">{directoryReadiness.summaryHint}</p>
+            </div>
+          </div>
+
+          {/* Barra de progreso visual */}
+          <div className="h-1.5 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
+            <div
+              className="h-full bg-indigo-500 transition-all"
+              style={{ width: `${Math.round((directoryReadiness.completedCount / 4) * 100)}%` }}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {/* Paso 1: Antecedentes Penales */}
+            <div
+              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+                directoryReadiness.criminalOk
+                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  : directoryReadiness.criminalExpired
+                    ? 'border-rose-700/60 bg-rose-950/25'
+                    : 'border-white/10'
+              }`}
+              style={directoryReadiness.criminalOk || directoryReadiness.criminalExpired ? undefined : innerStyle}
+            >
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold">1. Antecedentes</span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      directoryReadiness.criminalOk
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        : directoryReadiness.criminalExpired
+                          ? 'bg-rose-950 text-rose-300 border-rose-700'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                    }`}
+                  >
+                    {directoryReadiness.criminalOk
+                      ? 'Cargado'
+                      : directoryReadiness.criminalExpired
+                        ? 'Vencido'
+                        : 'Falta'}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  {directoryReadiness.criminalOk
+                    ? 'Certificado personal cargado y vigente.'
+                    : directoryReadiness.criminalExpired
+                      ? 'Vencido: renovalo para habilitar ingresos.'
+                      : 'Obligatorio para validar tu identidad.'}
+                </p>
+              </div>
+              {!directoryReadiness.criminalOk && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveStep('credentials');
+                    setDocType('Antecedentes Penales');
+                    setShowDocForm(true);
+                  }}
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                >
+                  {directoryReadiness.criminalExpired ? 'Renovar ahora' : 'Cargar ahora'}
+                </button>
+              )}
+            </div>
+
+            {/* Paso 2: Póliza ART / Seguro */}
+            <div
+              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+                directoryReadiness.artOk
+                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  : directoryReadiness.artExpired
+                    ? 'border-rose-700/60 bg-rose-950/25'
+                    : 'border-white/10'
+              }`}
+              style={directoryReadiness.artOk || directoryReadiness.artExpired ? undefined : innerStyle}
+            >
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold">2. Póliza ART</span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      directoryReadiness.artOk
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        : directoryReadiness.artExpired
+                          ? 'bg-rose-950 text-rose-300 border-rose-700'
+                          : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                    }`}
+                  >
+                    {directoryReadiness.artOk
+                      ? 'Cargada'
+                      : directoryReadiness.artExpired
+                        ? 'Vencida'
+                        : 'Falta'}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  {directoryReadiness.artOk
+                    ? 'Cobertura personal cargada y vigente.'
+                    : directoryReadiness.artExpired
+                      ? 'Póliza vencida: renovala para operar.'
+                      : 'Seguro ART o accidentes personales.'}
+                </p>
+              </div>
+              {!directoryReadiness.artOk && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveStep('credentials');
+                    setDocType('Póliza ART / Seguro');
+                    setShowDocForm(true);
+                  }}
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                >
+                  {directoryReadiness.artExpired ? 'Renovar ahora' : 'Cargar ahora'}
+                </button>
+              )}
+            </div>
+
+            {/* Paso 3: Especialidad visible */}
+            <div
+              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+                directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
+                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  : 'border-white/10'
+              }`}
+              style={
+                directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
+                  ? undefined
+                  : innerStyle
+              }
+            >
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold">3. Especialidad</span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        : 'bg-amber-950/80 text-amber-300 border-amber-700/70'
+                    }`}
+                  >
+                    {directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
+                      ? `${directoryReadiness.visibleSpecsCount} activa(s)`
+                      : directoryReadiness.hasSpecialty
+                        ? 'Oculta'
+                        : 'Falta'}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  {directoryReadiness.hasSpecialty && directoryReadiness.hasVisibleSpecialty
+                    ? 'Rubro configurado para el directorio.'
+                    : directoryReadiness.hasSpecialty
+                      ? 'Activá la visibilidad de al menos 1 rubro.'
+                      : 'Agregá al menos 1 oficio o servicio.'}
+                </p>
+              </div>
+              {(!directoryReadiness.hasSpecialty || !directoryReadiness.hasVisibleSpecialty) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveStep('credentials');
+                    if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
+                  }}
+                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                >
+                  {directoryReadiness.hasSpecialty ? 'Activar visibilidad' : 'Agregar rubro'}
+                </button>
+              )}
+            </div>
+
+            {/* Paso 4: Validación de Administración TrustLink */}
+            <div
+              className={`rounded-xl p-3 border flex flex-col justify-between gap-2 ${
+                directoryReadiness.hasApprovedCompliance
+                  ? 'border-emerald-700/50 bg-emerald-950/20'
+                  : directoryReadiness.isAllRejected
+                    ? 'border-rose-700/60 bg-rose-950/25'
+                    : 'border-white/10'
+              }`}
+              style={
+                directoryReadiness.hasApprovedCompliance || directoryReadiness.isAllRejected
+                  ? undefined
+                  : innerStyle
+              }
+            >
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="font-bold">4. Aprobación</span>
+                  <span
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      directoryReadiness.hasApprovedCompliance
+                        ? 'bg-emerald-950 text-emerald-300 border-emerald-700'
+                        : directoryReadiness.isAllRejected
+                          ? 'bg-rose-950 text-rose-300 border-rose-700'
+                          : directoryReadiness.providerInputsComplete
+                            ? 'bg-sky-950 text-sky-300 border-sky-700'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                    }`}
+                  >
+                    {directoryReadiness.hasApprovedCompliance
+                      ? 'Aprobado'
+                      : directoryReadiness.isAllRejected
+                        ? 'Rechazado'
+                        : directoryReadiness.providerInputsComplete
+                          ? 'En revisión'
+                          : 'En espera'}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  {directoryReadiness.hasApprovedCompliance
+                    ? 'Compliance validado por TrustLink.'
+                    : directoryReadiness.isAllRejected
+                      ? 'Revisá y recargá tu documentación.'
+                      : directoryReadiness.providerInputsComplete
+                        ? 'En revisión por Administración TrustLink.'
+                        : 'Se habilita al completar los pasos 1 a 3.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
       )}
 
       {/* Bloque A: Mi Reputación en el Directorio (visible solo en Paso 1 Credenciales y Paso 6 Reseñas) */}

@@ -25,6 +25,9 @@ import {
   List,
   CheckCheck,
   Calendar,
+  Eye,
+  EyeOff,
+  MessageCircle,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -187,6 +190,8 @@ export default function AdminComplianceView() {
           full_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || row.email || 'Prestador',
           dni: row.dni || '-',
           email: row.email || '',
+          phone: row.phone || '',
+          user_is_active: row.user_is_active !== false,
           is_verified_member: Boolean(row.is_verified_member),
           membership_tier: row.membership_tier || null,
           membership_ends_at: row.membership_ends_at || null,
@@ -203,6 +208,7 @@ export default function AdminComplianceView() {
           is_custom_specialty: Boolean(row.is_custom_specialty),
           custom_specialty_description: row.custom_specialty_description || null,
           specialty_approval_status: String(row.specialty_approval_status || 'approved').toLowerCase(),
+          is_visible_in_directory: row.is_visible_in_directory !== false,
           criminal_record_url: row.criminal_record_url || null,
           criminal_record_expiry: row.criminal_record_expiry || null,
           insurance_policy_url: row.insurance_policy_url || row.art_insurance_url || null,
@@ -246,6 +252,46 @@ export default function AdminComplianceView() {
           sortedSpecs[0] ||
           null;
 
+        const criminalUrl = docCriminal?.criminal_record_url || null;
+        const criminalExpiry = docCriminal?.criminal_record_expiry || null;
+        const insuranceUrl = docInsurance?.insurance_policy_url || null;
+        const insuranceExpiry = docInsurance?.insurance_expiry || null;
+        const crimExpMeta = getDocExpiryMeta(criminalExpiry);
+        const artExpMeta = getDocExpiryMeta(insuranceExpiry);
+
+        const hasCriminalOk = Boolean(criminalUrl) && crimExpMeta.tone !== 'danger';
+        const hasArtOk = Boolean(insuranceUrl) && artExpMeta.tone !== 'danger';
+        const hasAnySpecialty = sortedSpecs.length > 0;
+        const hasVisibleApprovedSpec = sortedSpecs.some(
+          (s) =>
+            s.status === 'approved' &&
+            s.specialty_approval_status === 'approved' &&
+            s.is_visible_in_directory !== false
+        );
+        const isVisibleInResidentPortal =
+          person.user_is_active !== false &&
+          hasVisibleApprovedSpec &&
+          crimExpMeta.tone !== 'danger' &&
+          artExpMeta.tone !== 'danger';
+
+        const missingReasons = [];
+        if (person.user_is_active === false) missingReasons.push('Cuenta suspendida');
+        if (!criminalUrl) missingReasons.push('Falta Antecedentes');
+        else if (crimExpMeta.tone === 'danger') missingReasons.push('Antecedentes vencidos');
+        if (!insuranceUrl) missingReasons.push('Falta Póliza ART');
+        else if (artExpMeta.tone === 'danger') missingReasons.push('Póliza ART vencida');
+        if (!hasAnySpecialty) missingReasons.push('Falta especialidad');
+        else if (!hasVisibleApprovedSpec && approvedSpecs.length > 0) {
+          missingReasons.push('Especialidades ocultas en directorio');
+        }
+        if (hasAnySpecialty && !isPersonApproved && approvedSpecs.length === 0) {
+          missingReasons.push(
+            hasCriminalOk && hasArtOk
+              ? 'Listo para revisión de Administración'
+              : 'Pendiente de aprobación de Administración'
+          );
+        }
+
         return {
           ...person,
           specialties: sortedSpecs,
@@ -258,10 +304,22 @@ export default function AdminComplianceView() {
           rejectedCount: rejectedSpecs.length,
           isPersonApproved,
           primaryStatus,
-          criminal_record_url: docCriminal?.criminal_record_url || null,
-          criminal_record_expiry: docCriminal?.criminal_record_expiry || null,
-          insurance_policy_url: docInsurance?.insurance_policy_url || null,
-          insurance_expiry: docInsurance?.insurance_expiry || null,
+          criminal_record_url: criminalUrl,
+          criminal_record_expiry: criminalExpiry,
+          insurance_policy_url: insuranceUrl,
+          insurance_expiry: insuranceExpiry,
+          readiness: {
+            hasCriminal: Boolean(criminalUrl),
+            hasCriminalOk,
+            criminalExpired: crimExpMeta.tone === 'danger',
+            hasArt: Boolean(insuranceUrl),
+            hasArtOk,
+            artExpired: artExpMeta.tone === 'danger',
+            hasAnySpecialty,
+            hasVisibleApprovedSpec,
+            isVisibleInResidentPortal,
+            missingReasons,
+          },
         };
       })
       .sort((a, b) => {
@@ -859,6 +917,21 @@ export default function AdminComplianceView() {
                           >
                             {personStatusMeta.label}
                           </span>
+                          {person.readiness?.isVisibleInResidentPortal ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-700/70 bg-emerald-950/60 text-emerald-300"
+                              title="Este prestador aparece en el buscador del Portal de Residentes"
+                            >
+                              <Eye size={10} /> Visible en Residentes
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-700 bg-slate-900/70 text-slate-300"
+                              title={person.readiness?.missingReasons?.join(' · ') || 'No visible en el directorio'}
+                            >
+                              <EyeOff size={10} /> No visible en Residentes
+                            </span>
+                          )}
                           {person.is_verified_member && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
                               <Award size={10} /> Socio
@@ -975,11 +1048,50 @@ export default function AdminComplianceView() {
                       </div>
                     ) : (
                       <div
-                        className="rounded-xl p-3 border border-white/10 flex items-center justify-between gap-2"
+                        className="rounded-xl p-3.5 border border-white/10 space-y-2.5"
                         style={cardStyle}
                       >
-                        <span className="opacity-75 italic">
-                          Cuenta registrada como prestador — aún no cargó documentación ni especialidades.
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] font-semibold opacity-90">
+                            Bloqueado por el prestador — aún no requiere acción de Administración
+                          </span>
+                          {person.phone && (
+                            <a
+                              href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
+                                `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tus Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                              )}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600/85 hover:bg-emerald-500 text-white shrink-0"
+                            >
+                              <MessageCircle size={11} /> Recordar por WhatsApp
+                            </a>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
+                          <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
+                            ✗ Antecedentes
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
+                            ✗ Póliza ART
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
+                            ✗ Especialidad
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full border border-slate-700 bg-slate-800/70 text-slate-300">
+                            En espera: Aprobación Ops
+                          </span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Resumen compacto de requisitos faltantes cuando tiene perfil pero no es visible aún */}
+                    {hasProfile && !person.readiness?.isVisibleInResidentPortal && (
+                      <div
+                        className="rounded-xl px-3 py-2 border border-amber-700/40 bg-amber-950/20 flex flex-wrap items-center justify-between gap-2 text-[11px]"
+                      >
+                        <span className="font-semibold text-amber-200">
+                          Para figurar en Residentes: {person.readiness?.missingReasons?.join(' · ')}
                         </span>
                       </div>
                     )}
@@ -1095,6 +1207,16 @@ export default function AdminComplianceView() {
                               className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${personStatusMeta.cls}`}
                             >
                               {personStatusMeta.label}
+                            </span>
+                            <span
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                person.readiness?.isVisibleInResidentPortal
+                                  ? 'border-emerald-700/70 bg-emerald-950/60 text-emerald-300'
+                                  : 'border-slate-700 bg-slate-900/70 text-slate-300'
+                              }`}
+                              title={person.readiness?.missingReasons?.join(' · ') || ''}
+                            >
+                              {person.readiness?.isVisibleInResidentPortal ? 'Visible' : 'No visible'}
                             </span>
                           </div>
                           <div className="text-[11px] opacity-75 font-mono">DNI {person.dni}</div>
