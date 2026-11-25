@@ -297,15 +297,15 @@ function MainAppContent() {
     }
   }, [isAuthenticated, user, initialQrToken, canSeeSecurity, canSeeResident, canSeeProvider, setCurrentView]);
 
-  // Abre automáticamente la sub-barra de Modo Maestro al navegar a una vista de gobernanza
+  // Sincroniza la sub-barra de Administración: se abre en vistas admin y se repliega al cambiar a otro portal/cuenta
   useEffect(() => {
-    if (isAuthenticated && isSuperadmin && MASTER_VIEWS.has(currentView)) {
-      setMasterModeOpen(true);
+    if (isAuthenticated && isSuperadmin) {
+      setMasterModeOpen(MASTER_VIEWS.has(currentView));
     }
   }, [isAuthenticated, isSuperadmin, currentView]);
 
   /**
-   * Cierra la sesión global, repliega el menú de Modo Maestro y regresa a la portada pública.
+   * Cierra la sesión global, repliega el menú de Administración y regresa a la portada pública.
    */
   const handleLogout = () => {
     logout();
@@ -327,25 +327,55 @@ function MainAppContent() {
     (brand?.brandSubtitle || 'Red de Confianza Residencial').trim() ||
     'Red de Confianza Residencial';
 
-  /**
-   * Devuelve las clases Tailwind de un botón de navegación según si su vista está activa.
-   * @param {boolean} isActive - Indica si corresponde a la vista actual.
-   * @returns {string}
-   */
-  const navBtnClass = (isActive) =>
-    `inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-all cursor-pointer ${
-      isActive
-        ? 'text-white shadow-md'
-        : 'bg-black/25 hover:bg-black/35 border border-white/15 opacity-90 hover:opacity-100'
-    }`;
+  // Detecta tema oscuro vs. claro para adaptar bordes, hover y acentos suaves en toda la barra superior
+  const isDarkTheme = brand?.darkMode !== false;
+  const isMasterViewActive = MASTER_VIEWS.has(currentView);
 
   /**
-   * Devuelve el estilo inline del color de acento para resaltar el botón del módulo activo.
-   * @param {boolean} isActive - Indica si corresponde a la vista actual.
-   * @returns {React.CSSProperties|undefined}
+   * Devuelve las clases Tailwind sobrias (*soft tinted*) para botones de navegación en Zona 1 y Zona 2,
+   * evitando colores neón y garantizando legibilidad tanto en presets Dark como Light.
+   * @param {boolean} isActive - Indica si corresponde a la vista activa.
+   * @param {boolean} [isExpanded=false] - Indica si un menú desplegable está abierto sin vista activa dentro.
+   * @returns {string}
    */
-  const navBtnStyle = (isActive) =>
-    isActive ? { backgroundColor: brand?.accentColor || '#10B981' } : undefined;
+  const navBtnClass = (isActive, isExpanded = false) => {
+    const base =
+      'inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-semibold whitespace-nowrap shrink-0 border transition-all cursor-pointer';
+    if (isActive) {
+      return `${base} font-bold ${
+        isDarkTheme
+          ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/50 shadow-xs'
+          : 'bg-indigo-600/12 text-indigo-950 border-indigo-500/40 shadow-xs'
+      }`;
+    }
+    if (isExpanded) {
+      return `${base} ${
+        isDarkTheme
+          ? 'bg-white/8 border-white/20 opacity-100'
+          : 'bg-black/6 border-black/15 opacity-100'
+      }`;
+    }
+    return `${base} border-transparent ${
+      isDarkTheme
+        ? 'bg-transparent hover:bg-white/8 hover:border-white/12 opacity-80 hover:opacity-100'
+        : 'bg-transparent hover:bg-black/6 hover:border-black/12 opacity-80 hover:opacity-100'
+    }`;
+  };
+
+  // Clases sobrias para el botón `Salir`: atenuado en reposo, rojo sutil solo en hover/focus
+  const logoutBtnClass = isDarkTheme
+    ? 'bg-transparent border-white/12 opacity-65 hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-200 hover:border-rose-400/45 focus-visible:opacity-100 focus-visible:bg-rose-500/15 focus-visible:text-rose-200'
+    : 'bg-transparent border-black/12 opacity-65 hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-700 hover:border-rose-400/50 focus-visible:opacity-100 focus-visible:bg-rose-500/10 focus-visible:text-rose-700';
+
+  // Clases adaptables al tema para el botón `Mi Cuenta`
+  const accountBtnClass = (isActive) =>
+    isActive
+      ? isDarkTheme
+        ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/50 shadow-xs'
+        : 'bg-indigo-600/12 text-indigo-950 border-indigo-500/40 shadow-xs'
+      : isDarkTheme
+        ? 'bg-white/5 hover:bg-white/10 border-white/12 opacity-90 hover:opacity-100'
+        : 'bg-black/5 hover:bg-black/8 border-black/12 opacity-90 hover:opacity-100';
 
   return (
     <div
@@ -355,9 +385,11 @@ function MainAppContent() {
         color: brand?.platformTextColor || '#F1F5F9',
       }}
     >
-      {/* ZONA 1: Barra de Navegación Superior (Adaptable Web y Celular) */}
+      {/* ZONA 1: Barra de Navegación Superior (Adaptable Web y Celular, Dark y Light) */}
       <header
-        className="border-b border-black/20 px-4 sm:px-6 py-2.5 md:py-3 sticky top-0 z-40 shadow-lg"
+        className={`border-b px-4 sm:px-6 py-2.5 md:py-3 sticky top-0 z-40 shadow-sm ${
+          isDarkTheme ? 'border-white/10' : 'border-black/10'
+        }`}
         style={{
           backgroundColor: brand?.menuBgColor || '#020617',
           color: brand?.menuTextColor || '#E2E8F0',
@@ -382,7 +414,7 @@ function MainAppContent() {
                 />
               ) : (
                 <div
-                  className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow shrink-0"
+                  className="w-8 h-8 md:w-9 md:h-9 rounded-xl bg-emerald-600/90 text-white flex items-center justify-center shadow-xs shrink-0"
                   aria-hidden="true"
                 >
                   <ShieldCheck size={18} />
@@ -394,40 +426,44 @@ function MainAppContent() {
                   <span className="font-black text-sm md:text-base tracking-tight truncate max-w-28.75 sm:max-w-none">
                     {displayBrandName}
                   </span>
-                  <span className="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-black/25 font-semibold border border-white/15">
+                  <span
+                    className={`hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                      isDarkTheme
+                        ? 'bg-white/8 border-white/12 opacity-90'
+                        : 'bg-black/6 border-black/12 opacity-85'
+                    }`}
+                  >
                     {displayBrandBadge}
                   </span>
                 </div>
-                <p className="hidden sm:block text-[10px] opacity-75 truncate">
+                <p className="hidden sm:block text-[10px] opacity-70 truncate">
                   {displayBrandSubtitle}
                 </p>
               </div>
             </button>
 
-            {/* En móvil (< md): Quién está logueado (acceso a Mi Cuenta) + Salir en una línea compacta */}
+            {/* En móvil (< md): Quién está logueado (acceso a Mi Cuenta) + Salir atenuado */}
             <div className="flex md:hidden items-center gap-1.5 shrink-0">
               {isAuthenticated && user ? (
                 <>
                   <button
                     type="button"
                     onClick={() => setCurrentView('account')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold max-w-38.75 cursor-pointer transition-all ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold border max-w-38.75 cursor-pointer transition-all ${accountBtnClass(
                       currentView === 'account'
-                        ? 'bg-emerald-600 text-white border border-emerald-400 shadow-sm'
-                        : 'bg-slate-900/90 border border-emerald-500/30 text-emerald-300 hover:bg-slate-800'
-                    }`}
+                    )}`}
                     title={`Mi Cuenta — ${displayUserName} (${userRole})`}
                   >
-                    <User size={12} className="shrink-0" />
+                    <User size={12} className="shrink-0 opacity-80" />
                     <span className="truncate">{displayUserName}</span>
-                    <span className="opacity-75 font-medium text-[10px] shrink-0">
+                    <span className="opacity-70 font-medium text-[10px] shrink-0">
                       · Cuenta
                     </span>
                   </button>
                   <button
                     type="button"
                     onClick={handleLogout}
-                    className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1 rounded-xl text-[11px] font-bold cursor-pointer shrink-0"
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer shrink-0 ${logoutBtnClass}`}
                     title="Cerrar sesión"
                   >
                     <LogOut size={12} />
@@ -440,15 +476,13 @@ function MainAppContent() {
                     type="button"
                     onClick={() => setCurrentView('login')}
                     className={navBtnClass(currentView === 'login')}
-                    style={navBtnStyle(currentView === 'login')}
                   >
                     <LogIn size={12} /> Ingresar
                   </button>
                   <button
                     type="button"
                     onClick={() => setCurrentView('register')}
-                    className={navBtnClass(currentView === 'register')}
-                    style={navBtnStyle(currentView === 'register')}
+                    className={navBtnClass(true)}
                   >
                     <UserPlus size={12} /> Registro
                   </button>
@@ -461,14 +495,13 @@ function MainAppContent() {
           {isAuthenticated && (
             <nav
               aria-label="Navegación principal"
-              className="flex items-center gap-1.5 overflow-x-auto flex-nowrap py-0.5 md:py-0"
+              className="flex items-center gap-1 overflow-x-auto flex-nowrap py-0.5 md:py-0"
             >
               {canSeeResident && (
                 <button
                   type="button"
                   onClick={() => setCurrentView('resident')}
                   className={navBtnClass(currentView === 'resident')}
-                  style={navBtnStyle(currentView === 'resident')}
                   title="Portal Residente"
                 >
                   <Home size={13} /> {isSuperadmin ? 'Residente' : 'Portal Residente'}
@@ -480,7 +513,6 @@ function MainAppContent() {
                   type="button"
                   onClick={() => setCurrentView('provider')}
                   className={navBtnClass(currentView === 'provider')}
-                  style={navBtnStyle(currentView === 'provider')}
                   title="Portal Prestador"
                 >
                   <Wrench size={13} /> {isSuperadmin ? 'Prestador' : 'Portal Prestador'}
@@ -492,7 +524,6 @@ function MainAppContent() {
                   type="button"
                   onClick={() => setCurrentView('security')}
                   className={navBtnClass(currentView === 'security')}
-                  style={navBtnStyle(currentView === 'security')}
                   title="Consola Garita"
                 >
                   <QrCode size={13} /> {isSuperadmin ? 'Garita' : 'Consola Garita'}
@@ -503,11 +534,7 @@ function MainAppContent() {
                 <button
                   type="button"
                   onClick={() => setCurrentView('local_admin')}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
-                    currentView === 'local_admin'
-                      ? 'bg-indigo-600 text-white border-indigo-400/80 shadow-md'
-                      : 'bg-black/25 hover:bg-black/35 border-white/15 opacity-90 hover:opacity-100'
-                  }`}
+                  className={navBtnClass(currentView === 'local_admin')}
                 >
                   <ShieldAlert size={13} /> Admin Barrio
                 </button>
@@ -518,62 +545,65 @@ function MainAppContent() {
                   type="button"
                   onClick={() => setMasterModeOpen((prev) => !prev)}
                   aria-expanded={masterModeOpen}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 md:px-3 rounded-xl text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 border transition-all cursor-pointer ${
-                    masterModeOpen || MASTER_VIEWS.has(currentView)
-                      ? 'bg-indigo-600 text-white border-indigo-400 shadow-md'
-                      : 'bg-indigo-950/75 text-indigo-100 border-indigo-700/70 hover:bg-indigo-900'
-                  }`}
+                  className={navBtnClass(isMasterViewActive, masterModeOpen && !isMasterViewActive)}
                 >
                   <Layers size={13} />
                   <span>Administración</span>
                   <ChevronDown
                     size={13}
-                    className={`transition-transform ${masterModeOpen ? 'rotate-180' : ''}`}
+                    className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
                   />
                 </button>
               )}
             </nav>
           )}
 
-          {/* En escritorio (>= md): Quién está logueado (acceso a Mi Cuenta) + Salir */}
-          <div className="hidden md:flex items-center gap-2.5 shrink-0">
+          {/* En escritorio (>= md): Quién está logueado (acceso a Mi Cuenta) + separador + Salir atenuado */}
+          <div className="hidden md:flex items-center gap-2 shrink-0">
             {isAuthenticated && user ? (
               <>
                 <button
                   type="button"
                   onClick={() => setCurrentView('account')}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs shadow-sm cursor-pointer transition-all ${
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border cursor-pointer transition-all ${accountBtnClass(
                     currentView === 'account'
-                      ? 'bg-emerald-600 text-white border border-emerald-400'
-                      : 'bg-slate-900/90 border border-slate-700/80 hover:border-emerald-500/50'
-                  }`}
+                  )}`}
                   title={`Abrir Mi Cuenta (${displayUserName} · ${userRole})`}
                 >
-                  <span className="w-5 h-5 rounded-full bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-300 shrink-0">
-                    <User size={12} />
-                  </span>
                   <span
-                    className={`font-bold ${
-                      currentView === 'account' ? 'text-white' : 'text-emerald-300'
+                    className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                      currentView === 'account'
+                        ? isDarkTheme
+                          ? 'bg-indigo-400/20 border-indigo-300/40 text-indigo-200'
+                          : 'bg-indigo-600/15 border-indigo-500/35 text-indigo-800'
+                        : isDarkTheme
+                          ? 'bg-white/10 border-white/15 opacity-85'
+                          : 'bg-black/8 border-black/15 opacity-80'
                     }`}
                   >
-                    {displayUserName}
+                    <User size={11} />
                   </span>
+                  <span className="font-semibold">{displayUserName}</span>
                   <span
-                    className={`text-[11px] px-2 py-0.5 rounded-full font-semibold border ${
-                      currentView === 'account'
-                        ? 'bg-black/20 text-white border-white/25'
-                        : 'bg-slate-800 text-slate-300 border-slate-700'
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                      isDarkTheme
+                        ? 'bg-white/8 border-white/12 opacity-80'
+                        : 'bg-black/6 border-black/12 opacity-75'
                     }`}
                   >
                     Mi Cuenta
                   </span>
                 </button>
 
+                <span
+                  className={`h-5 w-px ${isDarkTheme ? 'bg-white/12' : 'bg-black/12'}`}
+                  aria-hidden="true"
+                />
+
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="inline-flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white border border-rose-500/50 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"
+                  className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${logoutBtnClass}`}
                   title="Cerrar sesión"
                 >
                   <LogOut size={13} /> Salir
@@ -585,15 +615,13 @@ function MainAppContent() {
                   type="button"
                   onClick={() => setCurrentView('login')}
                   className={navBtnClass(currentView === 'login')}
-                  style={navBtnStyle(currentView === 'login')}
                 >
                   <LogIn size={13} /> Iniciar Sesión
                 </button>
                 <button
                   type="button"
                   onClick={() => setCurrentView('register')}
-                  className={navBtnClass(currentView === 'register')}
-                  style={navBtnStyle(currentView === 'register')}
+                  className={navBtnClass(true)}
                 >
                   <UserPlus size={13} /> Registrarse
                 </button>
@@ -603,10 +631,12 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* ZONA 2: Sub-menú de Administración Global (alineado a la izquierda, orden por dominio y acento uniforme) */}
+      {/* ZONA 2: Sub-menú de Administración Global (alineado a la izquierda, orden por dominio y acento sobrio) */}
       {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
-          className="border-b border-black/20 px-4 sm:px-6 py-2"
+          className={`border-b px-4 sm:px-6 py-2 ${
+            isDarkTheme ? 'border-white/10' : 'border-black/10'
+          }`}
           style={{
             backgroundColor: brand?.submenuBgColor || '#090D16',
             color: brand?.submenuTextColor || '#CBD5E1',
@@ -614,7 +644,7 @@ function MainAppContent() {
         >
           <nav
             aria-label="Submenú de Administración"
-            className="max-w-6xl w-full mx-auto flex items-center gap-1.5 overflow-x-auto md:flex-wrap text-xs"
+            className="max-w-6xl w-full mx-auto flex items-center gap-1 overflow-x-auto md:flex-wrap text-xs"
           >
             {[
               { id: 'metrics', label: 'Métricas', Icon: BarChart3 },
@@ -631,11 +661,7 @@ function MainAppContent() {
                   key={id}
                   type="button"
                   onClick={() => setCurrentView(id)}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] md:text-xs font-bold whitespace-nowrap shrink-0 transition-colors cursor-pointer ${
-                    isActive
-                      ? 'bg-indigo-600 text-white shadow-sm'
-                      : 'bg-black/20 hover:bg-black/35 border border-white/15 opacity-85 hover:opacity-100'
-                  }`}
+                  className={navBtnClass(isActive)}
                 >
                   <Icon size={13} /> {label}
                 </button>
