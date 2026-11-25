@@ -1808,8 +1808,8 @@ export default function ProviderDashboard() {
                 : overallComplianceMeta.tone === 'danger'
                   ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
                   : overallComplianceMeta.tone === 'neutral'
-                    ? 'bg-slate-800/80 text-slate-200 border-slate-600/60'
-                    : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
+                    ? 'bg-amber-950/75 text-amber-200 border-amber-500/65'
+                    : 'bg-sky-950/70 text-sky-200 border-sky-500/55'
             }`}
             title={directoryReadiness.summaryHint}
           >
@@ -1944,31 +1944,63 @@ export default function ProviderDashboard() {
         </div>
       )}
 
-      {/* Checklist guiado de activación: muestra qué falta para figurar en el Portal de Residentes */}
-      {!loading && !directoryReadiness.isVisibleInDirectory && (
+      {/* Checklist guiado de activación destacado semánticamente (ámbar acción / rojo alerta / celeste revisión) */}
+      {!loading && !directoryReadiness.isVisibleInDirectory && (() => {
+        const isDangerCallout =
+          directoryReadiness.isAllRejected ||
+          (directoryReadiness.hasApprovedCompliance &&
+            (directoryReadiness.criminalExpired || directoryReadiness.artExpired));
+        const isWaitingOpsCallout =
+          !isDangerCallout &&
+          directoryReadiness.providerInputsComplete &&
+          !directoryReadiness.hasApprovedCompliance;
+        const calloutBoxClass = isDangerCallout
+          ? 'border-rose-500/65 border-l-4 border-l-rose-400 bg-rose-950/35 text-rose-50'
+          : isWaitingOpsCallout
+            ? 'border-sky-500/55 border-l-4 border-l-sky-400 bg-sky-950/30 text-sky-50'
+            : 'border-amber-500/65 border-l-4 border-l-amber-400 bg-amber-950/35 text-amber-50';
+        const calloutBadgeClass = isDangerCallout
+          ? 'border-rose-400/60 bg-rose-500/20 text-rose-200'
+          : isWaitingOpsCallout
+            ? 'border-sky-400/55 bg-sky-500/20 text-sky-200'
+            : 'border-amber-400/60 bg-amber-500/20 text-amber-200';
+        const calloutProgressClass = isDangerCallout
+          ? 'bg-rose-400'
+          : isWaitingOpsCallout
+            ? 'bg-sky-400'
+            : 'bg-amber-400';
+        const calloutIconClass = isDangerCallout
+          ? 'text-rose-400'
+          : isWaitingOpsCallout
+            ? 'text-sky-400'
+            : 'text-amber-400';
+
+        return (
         <section
-          className="rounded-2xl p-4 sm:p-5 border border-indigo-500/35 shadow-sm space-y-3.5 text-xs"
-          style={cardStyle}
+          className={`rounded-2xl p-4 sm:p-5 border shadow-sm space-y-3.5 text-xs ${calloutBoxClass}`}
         >
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-sm font-black">
-                  Requisitos para aparecer en el Portal de Residentes
-                </h2>
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border border-indigo-400/45 bg-indigo-500/15 text-indigo-200">
-                  {directoryReadiness.completedCount} / 4 completados
-                </span>
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={18} className={`shrink-0 mt-0.5 ${calloutIconClass}`} />
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-black">
+                    Requisitos para aparecer en el Portal de Residentes
+                  </h2>
+                  <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${calloutBadgeClass}`}>
+                    {directoryReadiness.completedCount} / 4 completados
+                  </span>
+                </div>
+                <p className="text-xs opacity-90 mt-0.5">{directoryReadiness.summaryHint}</p>
               </div>
-              <p className="text-xs opacity-80 mt-0.5">{directoryReadiness.summaryHint}</p>
             </div>
           </div>
 
-          {/* Barra de progreso visual */}
-          <div className="h-1.5 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
+          {/* Barra de progreso visual de alta visibilidad */}
+          <div className="h-2 w-full rounded-full overflow-hidden bg-black/40 border border-white/15">
             <div
-              className="h-full bg-indigo-500 transition-all"
-              style={{ width: `${Math.round((directoryReadiness.completedCount / 4) * 100)}%` }}
+              className={`h-full transition-all ${calloutProgressClass}`}
+              style={{ width: `${Math.max(8, Math.round((directoryReadiness.completedCount / 4) * 100))}%` }}
             />
           </div>
 
@@ -2019,7 +2051,7 @@ export default function ProviderDashboard() {
                     setDocType('Antecedentes Penales');
                     setShowDocForm(true);
                   }}
-                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
                 >
                   {directoryReadiness.criminalExpired ? 'Renovar ahora' : 'Cargar ahora'}
                 </button>
@@ -2072,7 +2104,7 @@ export default function ProviderDashboard() {
                     setDocType('Póliza ART / Seguro');
                     setShowDocForm(true);
                   }}
-                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
                 >
                   {directoryReadiness.artExpired ? 'Renovar ahora' : 'Cargar ahora'}
                 </button>
@@ -2124,7 +2156,7 @@ export default function ProviderDashboard() {
                     setActiveStep('credentials');
                     if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
                   }}
-                  className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 border border-indigo-400/50 cursor-pointer"
+                  className="self-start px-3 py-1.5 rounded-lg text-[11px] font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-xs cursor-pointer transition-colors"
                 >
                   {directoryReadiness.hasSpecialty ? 'Activar visibilidad' : 'Agregar rubro'}
                 </button>
@@ -2182,7 +2214,8 @@ export default function ProviderDashboard() {
             </div>
           </div>
         </section>
-      )}
+        );
+      })()}
 
       {/* Bloque A: Mi Reputación en el Directorio (visible solo en Paso 1 Credenciales y Paso 6 Reseñas) */}
       {!loading &&

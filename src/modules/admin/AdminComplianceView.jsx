@@ -138,9 +138,9 @@ export default function AdminComplianceView() {
     color: brand.innerTextColor || DEFAULT_BRANDING_CONFIG.innerTextColor,
   };
 
-  // Pestaña activa ('compliance' | 'disputes') y modo de visualización ('cards' | 'table')
+  // Pestaña activa ('compliance' | 'disputes') y modo de visualización ('table' por defecto para escalar a 100+ cuentas)
   const [activeTab, setActiveTab] = useState('compliance');
-  const [viewMode, setViewMode] = useState('cards');
+  const [viewMode, setViewMode] = useState('table');
 
   // Datos crudos desde la API y estados de acciones en curso
   const [providers, setProviders] = useState([]);
@@ -846,28 +846,28 @@ export default function AdminComplianceView() {
             }}
             actions={
               <div
-                className="inline-flex items-center p-0.5 rounded-xl border border-white/15"
+                className="inline-flex items-center gap-1 p-0.5 rounded-xl border border-white/15"
                 style={innerStyle}
               >
                 <button
                   type="button"
-                  onClick={() => setViewMode('cards')}
-                  title="Vista tarjetas agrupadas"
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
-                    viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'opacity-75 hover:opacity-100'
-                  }`}
-                >
-                  <LayoutGrid size={13} /> Tarjetas
-                </button>
-                <button
-                  type="button"
                   onClick={() => setViewMode('table')}
-                  title="Vista tabla compacta"
+                  title="Vista tabla compacta (recomendada para grandes nóminas)"
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
                     viewMode === 'table' ? 'bg-indigo-600 text-white' : 'opacity-75 hover:opacity-100'
                   }`}
                 >
                   <List size={13} /> Tabla
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('cards')}
+                  title="Vista tarjetas simétricas"
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
+                    viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'opacity-75 hover:opacity-100'
+                  }`}
+                >
+                  <LayoutGrid size={13} /> Tarjetas
                 </button>
               </div>
             }
@@ -890,8 +890,8 @@ export default function AdminComplianceView() {
               No hay prestadores que coincidan con el filtro seleccionado.
             </div>
           ) : viewMode === 'cards' ? (
-            /* VISTA A: TARJETAS CONSOLIDADAS POR PERSONA (compliance único + chips estándar + moderación custom) */
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            /* VISTA A: TARJETAS SIMÉTRICAS DE ALTURA UNIFORME (3 bandas fijas: cabecera, cuerpo flex-1, pie mt-auto) */
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
               {pagedPeople.pageItems.map((person) => {
                 const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                 const artMeta = getDocExpiryMeta(person.insurance_expiry);
@@ -900,11 +900,13 @@ export default function AdminComplianceView() {
                   person.isPersonApproved ? 'approved' : person.primaryStatus,
                   'compliance'
                 );
+                const visibleStandardSpecs = person.standardSpecs.slice(0, 3);
+                const hiddenStandardCount = Math.max(0, person.standardSpecs.length - 3);
 
                 return (
                   <article
                     key={person.user_key}
-                    className="rounded-xl p-4 sm:p-5 border border-white/10 space-y-3.5 text-xs"
+                    className="rounded-xl p-4 sm:p-5 border border-white/10 flex flex-col justify-between gap-3.5 text-xs h-full"
                     style={innerStyle}
                   >
                     {/* Cabecera de persona: Identidad + Estado de compliance personal + Membresía */}
@@ -983,6 +985,8 @@ export default function AdminComplianceView() {
                       )}
                     </div>
 
+                    {/* Banda central flexible: documentos, rubros y requisitos */}
+                    <div className="space-y-3 flex-1">
                     {/* Documentación personal consolidada con semáforo de vencimiento visible */}
                     {hasProfile ? (
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1051,23 +1055,9 @@ export default function AdminComplianceView() {
                         className="rounded-xl p-3.5 border border-white/10 space-y-2.5"
                         style={cardStyle}
                       >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] font-semibold opacity-90">
-                            Bloqueado por el prestador — aún no requiere acción de Administración
-                          </span>
-                          {person.phone && (
-                            <a
-                              href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
-                                `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tus Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
-                              )}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600/85 hover:bg-emerald-500 text-white shrink-0"
-                            >
-                              <MessageCircle size={11} /> Recordar por WhatsApp
-                            </a>
-                          )}
-                        </div>
+                        <p className="text-[11px] font-semibold opacity-85">
+                          Faltan requisitos obligatorios del prestador para pasar a revisión:
+                        </p>
                         <div className="flex flex-wrap gap-1.5 text-[10px] font-bold">
                           <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
                             ✗ Antecedentes
@@ -1103,7 +1093,7 @@ export default function AdminComplianceView() {
                           Especialidades de catálogo ({person.standardSpecs.length})
                         </span>
                         <div className="flex flex-wrap gap-1.5">
-                          {person.standardSpecs.map((spec) => {
+                          {visibleStandardSpecs.map((spec) => {
                             const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
                             return (
                               <span
@@ -1120,6 +1110,15 @@ export default function AdminComplianceView() {
                               </span>
                             );
                           })}
+                          {hiddenStandardCount > 0 && (
+                            <span
+                              className="inline-flex items-center px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-bold opacity-80"
+                              style={cardStyle}
+                              title={person.standardSpecs.slice(3).map((s) => s.specialty).join(' · ')}
+                            >
+                              +{hiddenStandardCount} más
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
@@ -1161,17 +1160,38 @@ export default function AdminComplianceView() {
                       </div>
                     )}
 
-                    {/* Pie de tarjeta: 1 única barra de auditoría de compliance personal por prestador */}
-                    {hasProfile && (
-                      <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] opacity-75">
-                          {person.isPersonApproved
-                            ? 'Compliance personal verificado'
-                            : 'Validá Antecedentes + ART para aprobar al prestador'}
-                        </span>
-                        {renderPersonComplianceActions(person)}
+                    </div>
+
+                    {/* Banda inferior fija al pie en 1 línea para todas las tarjetas (simetría visual) */}
+                    <div className="mt-auto pt-3 border-t border-white/10 flex items-center justify-between gap-2">
+                      <span className="text-[11px] opacity-75 truncate">
+                        {!hasProfile
+                          ? 'Esperando carga del prestador'
+                          : person.isPersonApproved
+                            ? 'Compliance verificado'
+                            : person.readiness?.hasCriminalOk && person.readiness?.hasArtOk
+                              ? 'Listo para aprobar'
+                              : 'Falta documentación vigente'}
+                      </span>
+                      <div className="shrink-0">
+                        {hasProfile ? (
+                          renderPersonComplianceActions(person)
+                        ) : person.phone ? (
+                          <a
+                            href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
+                              `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tus Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600/85 hover:bg-emerald-500 text-white"
+                          >
+                            <MessageCircle size={11} /> Recordar por WhatsApp
+                          </a>
+                        ) : (
+                          <span className="text-[11px] opacity-60">Sin teléfono</span>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </article>
                 );
               })}
@@ -1268,16 +1288,23 @@ export default function AdminComplianceView() {
                               </div>
                             </>
                           ) : (
-                            <span className="text-[11px] opacity-65 italic">Sin perfil</span>
+                            <div className="flex flex-wrap gap-1 text-[10px] font-bold">
+                              <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
+                                ✗ Antec.
+                              </span>
+                              <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
+                                ✗ ART
+                              </span>
+                            </div>
                           )}
                         </td>
 
-                        <td className="py-3 px-3 space-y-2">
+                        <td className="py-3 px-3 space-y-1.5">
                           {hasProfile ? (
                             <>
                               {person.standardSpecs.length > 0 && (
                                 <div className="flex flex-wrap gap-1">
-                                  {person.standardSpecs.map((spec) => (
+                                  {person.standardSpecs.slice(0, 3).map((spec) => (
                                     <span
                                       key={spec.provider_id}
                                       className="px-2 py-0.5 rounded-md border border-white/15 text-[10px] font-semibold"
@@ -1286,8 +1313,23 @@ export default function AdminComplianceView() {
                                       {spec.specialty}
                                     </span>
                                   ))}
+                                  {person.standardSpecs.length > 3 && (
+                                    <span
+                                      className="px-2 py-0.5 rounded-md border border-white/15 text-[10px] font-bold opacity-80"
+                                      style={cardStyle}
+                                      title={person.standardSpecs.slice(3).map((s) => s.specialty).join(' · ')}
+                                    >
+                                      +{person.standardSpecs.length - 3} más
+                                    </span>
+                                  )}
                                 </div>
                               )}
+                              {!person.readiness?.isVisibleInResidentPortal &&
+                                person.readiness?.missingReasons?.length > 0 && (
+                                  <p className="text-[10px] text-amber-300/90">
+                                    {person.readiness.missingReasons.join(' · ')}
+                                  </p>
+                                )}
                               {person.customSpecs.map((spec) => (
                                 <div
                                   key={spec.provider_id}
@@ -1358,7 +1400,21 @@ export default function AdminComplianceView() {
                               )}
                             </div>
                           ) : (
-                            <span className="opacity-50">—</span>
+                            <div className="inline-flex flex-col items-end gap-1.5">
+                              <span className="text-[10px] opacity-70">Esperando carga</span>
+                              {person.phone && (
+                                <a
+                                  href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
+                                    `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tus Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                                  )}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-600/85 hover:bg-emerald-500 text-white"
+                                >
+                                  <MessageCircle size={10} /> Recordar
+                                </a>
+                              )}
+                            </div>
                           )}
                         </td>
                       </tr>
