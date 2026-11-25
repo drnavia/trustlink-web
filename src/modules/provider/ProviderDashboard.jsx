@@ -306,11 +306,13 @@ export default function ProviderDashboard() {
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
-  // Paso 4: Solicitudes de Visita — pedidos entrantes y borradores de respuesta
+  // Paso 4: Solicitudes de Visita — pedidos entrantes, borradores de respuesta y repactación de horario
   const [incomingVisits, setIncomingVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
   const [respondingVisitId, setRespondingVisitId] = useState(null);
+  const [reschedulingVisitId, setReschedulingVisitId] = useState(null);
+  const [rescheduleDateDraft, setRescheduleDateDraft] = useState('');
 
   // Paso 5: Pases QR — listado asignado, búsqueda, filtro por estado, paginación y modal de detalle
   const [assignedPasses, setAssignedPasses] = useState([]);
@@ -1389,17 +1391,46 @@ export default function ProviderDashboard() {
   };
 
   /**
-   * Responde a una solicitud de visita entrante confirmando o rechazando disponibilidad,
-   * adjuntando opcionalmente un mensaje al hilo y resincronizando visitas y agenda.
+   * Abre el panel inline para repactar fecha y horario de una solicitud de visita,
+   * precargando la fecha actual solicitada en formato local `YYYY-MM-DDTHH:mm`.
+   * @param {Object} visit - Solicitud de visita seleccionada.
+   */
+  const openVisitReschedule = (visit) => {
+    const baseDate = visit?.preferred_date ? new Date(visit.preferred_date) : new Date(Date.now() + 2 * 3600000);
+    const safe = Number.isNaN(baseDate.getTime()) ? new Date(Date.now() + 2 * 3600000) : baseDate;
+    const pad = (n) => String(n).padStart(2, '0');
+    const formatted = `${safe.getFullYear()}-${pad(safe.getMonth() + 1)}-${pad(safe.getDate())}T${pad(safe.getHours())}:${pad(safe.getMinutes())}`;
+    setReschedulingVisitId(visit.id);
+    setRescheduleDateDraft(formatted);
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  /**
+   * Responde a una solicitud de visita entrante confirmando (`confirm`), repactando un nuevo
+   * día/horario (`propose` -> pasa a `pending_resident`) o rechazando (`decline`), y resincroniza
+   * visitas y agenda viva.
    * @param {number|string} visitId - Identificador de la solicitud de visita.
-   * @param {'confirm'|'decline'} action - Decisión operativa del prestador.
+   * @param {'confirm'|'propose'|'decline'} action - Decisión operativa del prestador.
+   * @param {string} [proposedLocalDateTime=''] - Nueva fecha/hora local cuando `action === 'propose'`.
    * @returns {Promise<void>}
    */
-  const handleRespondVisit = async (visitId, action) => {
+  const handleRespondVisit = async (visitId, action, proposedLocalDateTime = '') => {
+    if (action === 'propose' && !String(proposedLocalDateTime || '').trim()) {
+      setErrorMsg('Elegí la nueva fecha y horario que querés proponerle al residente.');
+      return;
+    }
+
     setRespondingVisitId(visitId);
     setErrorMsg('');
     setSuccessMsg('');
     const replyText = String(visitReplyDrafts[visitId] || '').trim();
+    const parsedProposed =
+      action === 'propose' && proposedLocalDateTime ? new Date(proposedLocalDateTime) : null;
+    const isoProposed =
+      parsedProposed && !Number.isNaN(parsedProposed.getTime())
+        ? parsedProposed.toISOString()
+        : proposedLocalDateTime || undefined;
 
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/${visitId}/respond`, {
@@ -1410,6 +1441,7 @@ export default function ProviderDashboard() {
         },
         body: JSON.stringify({
           action,
+          preferred_date: action === 'propose' ? isoProposed : undefined,
           reply_text: replyText || undefined,
         }),
       });
@@ -1417,6 +1449,10 @@ export default function ProviderDashboard() {
       if (response.ok) {
         setSuccessMsg(data.message || 'Respuesta registrada en la visita.');
         setVisitReplyDrafts((prev) => ({ ...prev, [visitId]: '' }));
+        if (action === 'propose' || action === 'confirm' || action === 'decline') {
+          setReschedulingVisitId(null);
+          setRescheduleDateDraft('');
+        }
         await Promise.all([fetchIncomingVisits(), fetchProviderSchedule()]);
       } else {
         setErrorMsg(data.error || 'No se pudo actualizar la visita.');
@@ -3521,7 +3557,7 @@ export default function ProviderDashboard() {
             </button>
           </div>
 
-          {/* Listado de visitas solicitadas por residentes */}
+          {/* Listado de visitas solicitadas por residentes con máquina bilateral de acuerdo */}
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
           ) : incomingVisits.length === 0 ? (
@@ -3536,94 +3572,257 @@ export default function ProviderDashboard() {
               {incomingVisits.map((visit) => {
                 const statusLower = String(visit.status || '').toLowerCase();
                 const isConfirmed = statusLower === 'confirmed';
+                const isPendingProvider = statusLower === 'pending_provider' || statusLower === 'pending';
+                const isPendingResident = statusLower === 'pending_resident';
+                const isClosed = statusLower === 'declined' || statusLower === 'cancelled';
+                const isRescheduling = reschedulingVisitId === visit.id;
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+
+                const cardBorderCls = isPendingProvider
+                  ? 'border-amber-500/45'
+                  : isPendingResident
+                  ? 'border-sky-500/40'
+                  : isConfirmed
+                  ? 'border-emerald-500/40'
+                  : 'border-slate-800/70 opacity-85';
+
+                const badgeCls = isConfirmed
+                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                  : isPendingResident
+                  ? 'bg-sky-950/80 text-sky-200 border-sky-500/50'
+                  : isClosed
+                  ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                  : 'bg-amber-950/80 text-amber-200 border-amber-600/60';
+
+                const badgeLabel = isConfirmed
+                  ? 'Acordada · En agenda'
+                  : isPendingResident
+                  ? 'Contrapropuesta enviada'
+                  : statusLower === 'declined'
+                  ? 'Sin disponibilidad'
+                  : statusLower === 'cancelled'
+                  ? 'Cancelada por residente'
+                  : 'Pendiente de tu respuesta';
 
                 return (
                   <article
                     key={visit.id}
-                    className={ITEM_CARD_CLASS}
+                    className={`rounded-2xl p-4 border flex flex-col justify-between gap-3 text-xs ${cardBorderCls}`}
                     style={innerStyle}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-sm">
-                          Visita #{visit.id} · {visit.owner_name || 'Residente'}
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div className="space-y-0.5 min-w-0">
+                          <span className="font-bold text-sm">
+                            Visita #{visit.id} · {visit.owner_name || 'Residente'}
+                          </span>
+                          <p className="opacity-80">
+                            Domicilio: <strong>{visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}</strong>
+                          </p>
+                        </div>
+                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>
+                          {badgeLabel}
                         </span>
-                        <p className="opacity-80 mt-0.5">
-                          Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
-                          Horario: {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
-                        </p>
                       </div>
-                      <span
-                        className={`text-[10px] font-bold px-2.5 py-1 rounded-full border ${
-                          isConfirmed
-                            ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                            : statusLower === 'declined'
-                            ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                            : 'bg-amber-950/80 text-amber-300 border-amber-700/60'
-                        }`}
+
+                      {/* Franja horaria destacada según la fase del acuerdo */}
+                      <div
+                        className="rounded-xl px-3 py-2 border border-white/10 flex items-center justify-between gap-2 flex-wrap"
+                        style={cardStyle}
                       >
-                        {isConfirmed
-                          ? 'Disponibilidad Confirmada'
-                          : statusLower === 'declined'
-                          ? 'Sin Disponibilidad'
-                          : 'Pendiente de Confirmación'}
-                      </span>
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <Clock size={13} className="text-emerald-400 shrink-0" />
+                          <span>
+                            {isConfirmed
+                              ? 'Horario acordado:'
+                              : isPendingResident
+                              ? 'Horario que propusiste:'
+                              : 'Horario solicitado:'}
+                          </span>
+                        </span>
+                        <span className="font-bold">
+                          {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                        </span>
+                      </div>
+
+                      {/* Hilo de mensajes intercambiados entre residente y prestador */}
+                      {msgs.length > 0 && (
+                        <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5 max-h-32 overflow-y-auto">
+                          {msgs.map((m, idx) => (
+                            <p key={m.id || idx} className="text-xs leading-relaxed">
+                              <strong
+                                className={`uppercase text-[10px] mr-1.5 ${
+                                  m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                                }`}
+                              >
+                                {m.sender_role === 'provider' ? 'Vos:' : 'Residente:'}
+                              </strong>
+                              <span>{m.text}</span>
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
 
-                    {/* Hilo de mensajes intercambiados entre residente y prestador */}
-                    {msgs.length > 0 && (
-                      <div className="rounded-lg p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
-                        {msgs.map((m, idx) => (
-                          <p key={m.id || idx} className="text-xs">
-                            <strong className="uppercase text-[10px] opacity-75 mr-1.5">
-                              {m.sender_role === 'provider' ? 'Prestador:' : 'Residente:'}
-                            </strong>
-                            <span>{m.text}</span>
-                          </p>
-                        ))}
-                      </div>
-                    )}
+                    {/* Zona de decisión contextual según estado */}
+                    <div className="pt-2.5 border-t border-white/10 space-y-2.5">
+                      {isConfirmed ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
+                          <span className="inline-flex items-center gap-1.5 font-semibold">
+                            <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                            <span>Horario reservado en tu agenda. El residente ya puede emitir el Pase QR.</span>
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('schedule')}
+                            className="px-2.5 py-1 rounded-lg font-bold border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-950/80 cursor-pointer shrink-0"
+                          >
+                            Ver en 3. Agenda
+                          </button>
+                        </div>
+                      ) : isClosed ? (
+                        <p className="text-[11px] opacity-70">
+                          Solicitud cerrada ({badgeLabel.toLowerCase()}).
+                        </p>
+                      ) : (
+                        <>
+                          {isPendingResident && !isRescheduling && (
+                            <div className="rounded-xl p-2.5 border border-sky-500/35 bg-sky-950/30 text-sky-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                              <span>
+                                Esperando que el residente confirme tu contrapropuesta o sugiera otro turno.
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => openVisitReschedule(visit)}
+                                className="px-2.5 py-1 rounded-lg font-bold border border-sky-400/45 hover:bg-sky-900/50 cursor-pointer shrink-0"
+                              >
+                                Cambiar propuesta
+                              </button>
+                            </div>
+                          )}
 
-                    {/* Respuesta opcional al hilo y acciones para confirmar o rechazar la visita */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
-                      <input
-                        type="text"
-                        value={visitReplyDrafts[visit.id] || ''}
-                        onChange={(e) =>
-                          setVisitReplyDrafts((prev) => ({
-                            ...prev,
-                            [visit.id]: e.target.value,
-                          }))
-                        }
-                        placeholder="Escribí un mensaje o aclaración para el residente..."
-                        className="flex-1 px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                        style={cardStyle}
-                      />
-
-                      <button
-                        type="button"
-                        disabled={respondingVisitId === visit.id}
-                        onClick={() => handleRespondVisit(visit.id, 'confirm')}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        {respondingVisitId === visit.id
-                          ? 'Guardando...'
-                          : isConfirmed
-                          ? 'Confirmada'
-                          : 'Confirmar Disponibilidad'}
-                      </button>
-
-                      <button
-                        type="button"
-                        disabled={respondingVisitId === visit.id}
-                        onClick={() => handleRespondVisit(visit.id, 'decline')}
-                        className={rowActionBtnClass}
-                        style={cardStyle}
-                      >
-                        Sin disponibilidad
-                      </button>
+                          {/* Panel inline: Repactar fecha y horario */}
+                          {isRescheduling ? (
+                            <div
+                              className="rounded-xl p-3 border border-sky-500/40 bg-sky-950/20 space-y-2.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-bold text-sky-200 flex items-center gap-1.5">
+                                  <Calendar size={13} /> Proponer nuevo día y horario
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => setReschedulingVisitId(null)}
+                                  className="opacity-70 hover:opacity-100 cursor-pointer"
+                                >
+                                  <X size={14} />
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <div>
+                                  <label className="block text-[10px] opacity-80 mb-1">
+                                    Nueva fecha y hora propuesta
+                                  </label>
+                                  <input
+                                    type="datetime-local"
+                                    value={rescheduleDateDraft}
+                                    onChange={(e) => setRescheduleDateDraft(e.target.value)}
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[10px] opacity-80 mb-1">
+                                    Mensaje aclaratorio (opcional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={visitReplyDrafts[visit.id] || ''}
+                                    onChange={(e) =>
+                                      setVisitReplyDrafts((prev) => ({
+                                        ...prev,
+                                        [visit.id]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="Ej: Ese día estoy en obra, ¿te sirve a las 15:00?"
+                                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                    style={cardStyle}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setReschedulingVisitId(null)}
+                                  className={rowActionBtnClass}
+                                  style={cardStyle}
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={respondingVisitId === visit.id}
+                                  onClick={() =>
+                                    handleRespondVisit(visit.id, 'propose', rescheduleDateDraft)
+                                  }
+                                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                                  style={{ backgroundColor: primaryColor }}
+                                >
+                                  {respondingVisitId === visit.id
+                                    ? 'Enviando...'
+                                    : 'Enviar propuesta al residente'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : isPendingProvider ? (
+                            <div className="space-y-2">
+                              <input
+                                type="text"
+                                value={visitReplyDrafts[visit.id] || ''}
+                                onChange={(e) =>
+                                  setVisitReplyDrafts((prev) => ({
+                                    ...prev,
+                                    [visit.id]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Mensaje opcional para el residente..."
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                style={cardStyle}
+                              />
+                              <div className="flex flex-wrap items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={respondingVisitId === visit.id}
+                                  onClick={() => handleRespondVisit(visit.id, 'decline')}
+                                  className="px-3 py-2 rounded-xl text-xs font-bold border border-rose-500/40 bg-rose-950/30 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-50"
+                                >
+                                  Sin disponibilidad
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={respondingVisitId === visit.id}
+                                  onClick={() => openVisitReschedule(visit)}
+                                  className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-500/45 bg-sky-950/35 text-sky-200 hover:bg-sky-950/65 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                >
+                                  <Calendar size={13} /> Repactar horario
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={respondingVisitId === visit.id}
+                                  onClick={() => handleRespondVisit(visit.id, 'confirm')}
+                                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                                  style={{ backgroundColor: primaryColor }}
+                                >
+                                  <CheckCircle2 size={13} />
+                                  {respondingVisitId === visit.id
+                                    ? 'Guardando...'
+                                    : 'Confirmar horario'}
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      )}
                     </div>
                   </article>
                 );

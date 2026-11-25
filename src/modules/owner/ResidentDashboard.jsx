@@ -206,11 +206,19 @@ const buildPassWhatsAppUrl = (passItem) => {
 };
 
 /**
- * Traduce el estado de una solicitud de visita en metadatos de presentación
- * (etiqueta, estilos del badge y banderas booleanas de confirmación/rechazo).
+ * Traduce el estado de una solicitud de visita en metadatos de presentación claros
+ * para el circuito de acuerdo mutuo (`pending_provider` ↔ `pending_resident` → `confirmed`).
  *
  * @param {Object|null|undefined} visit - Última solicitud de visita asociada a un prestador.
- * @returns {{ label: string, badgeClass: string, isConfirmed: boolean, isDeclined: boolean }} Metadatos de estado.
+ * @returns {{
+ *   label: string,
+ *   badgeClass: string,
+ *   isConfirmed: boolean,
+ *   isPendingProvider: boolean,
+ *   isPendingResident: boolean,
+ *   isDeclined: boolean,
+ *   isClosed: boolean
+ * }} Metadatos de estado.
  */
 const getVisitStatusMeta = (visit) => {
   if (!visit) {
@@ -218,31 +226,65 @@ const getVisitStatusMeta = (visit) => {
       label: 'Sin contacto previo',
       badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-700',
       isConfirmed: false,
+      isPendingProvider: false,
+      isPendingResident: false,
       isDeclined: false,
+      isClosed: true,
     };
   }
   const st = String(visit.status || '').toLowerCase();
   if (st === 'confirmed') {
     return {
-      label: 'Disponibilidad Confirmada',
-      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      label: 'Acordada · Lista para QR',
+      badgeClass: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40',
       isConfirmed: true,
+      isPendingProvider: false,
+      isPendingResident: false,
       isDeclined: false,
+      isClosed: false,
+    };
+  }
+  if (st === 'pending_resident') {
+    return {
+      label: 'Contrapropuesta · Confirmá horario',
+      badgeClass: 'bg-sky-500/15 text-sky-200 border-sky-400/50',
+      isConfirmed: false,
+      isPendingProvider: false,
+      isPendingResident: true,
+      isDeclined: false,
+      isClosed: false,
     };
   }
   if (st === 'declined') {
     return {
-      label: 'Sin Disponibilidad',
-      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/30',
+      label: 'Sin disponibilidad',
+      badgeClass: 'bg-rose-500/15 text-rose-300 border-rose-500/35',
       isConfirmed: false,
+      isPendingProvider: false,
+      isPendingResident: false,
       isDeclined: true,
+      isClosed: true,
+    };
+  }
+  if (st === 'cancelled') {
+    return {
+      label: 'Cancelada',
+      badgeClass: 'bg-slate-800/80 text-slate-300 border-slate-700',
+      isConfirmed: false,
+      isPendingProvider: false,
+      isPendingResident: false,
+      isDeclined: false,
+      isClosed: true,
     };
   }
   return {
-    label: 'Pendiente de Confirmación',
-    badgeClass: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+    label: 'Esperando al prestador',
+    badgeClass: 'bg-amber-500/15 text-amber-200 border-amber-500/40',
     isConfirmed: false,
+    isPendingProvider: true,
+    isPendingResident: false,
     isDeclined: false,
+    isClosed: false,
   };
 };
 
@@ -334,6 +376,14 @@ export default function ResidentDashboard({
   const [visitAvailability, setVisitAvailability] = useState(null);
   const [loadingVisitAvailability, setLoadingVisitAvailability] = useState(false);
   const [selectedVisitAvailDay, setSelectedVisitAvailDay] = useState('');
+  // Acuerdo mutuo en Paso 2 (aceptar contrapropuesta o proponer otro horario desde agenda viva)
+  const [visitActionFeedback, setVisitActionFeedback] = useState({ type: '', text: '' });
+  const [respondingResidentVisitId, setRespondingResidentVisitId] = useState(null);
+  const [counterVisitId, setCounterVisitId] = useState(null);
+  const [counterVisitDate, setCounterVisitDate] = useState('');
+  const [counterAvailability, setCounterAvailability] = useState(null);
+  const [loadingCounterAvail, setLoadingCounterAvail] = useState(false);
+  const [selectedCounterDay, setSelectedCounterDay] = useState('');
 
   // Emisión de pase QR vinculado a un prestador
   const [qrModalProvider, setQrModalProvider] = useState(null);
@@ -1098,6 +1148,11 @@ export default function ResidentDashboard({
 
     setSavingVisit(true);
     setVisitFeedback({ type: '', text: '' });
+    const parsedPreferred = visitDate ? new Date(visitDate) : null;
+    const preferredIso =
+      parsedPreferred && !Number.isNaN(parsedPreferred.getTime())
+        ? parsedPreferred.toISOString()
+        : visitDate || null;
     try {
       const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests`, {
         method: 'POST',
@@ -1106,7 +1161,7 @@ export default function ResidentDashboard({
           provider_id: providerId,
           fraction_number: visitFraction.trim() || null,
           lot_number: visitLot.trim() || null,
-          preferred_date: visitDate || null,
+          preferred_date: preferredIso,
           notes: visitNotes.trim(),
         }),
       });
@@ -1116,7 +1171,7 @@ export default function ResidentDashboard({
           type: 'success',
           text:
             data.message ||
-            'Solicitud enviada al prestador. Podés seguir la confirmación en el paso 2. Visitas.',
+            'Solicitud enviada al prestador. Podés seguir el acuerdo en el Paso 2. Visitas.',
         });
         await fetchMyVisits();
       } else {
@@ -1133,6 +1188,116 @@ export default function ResidentDashboard({
       });
     } finally {
       setSavingVisit(false);
+    }
+  };
+
+  /**
+   * Abre el selector inline de "Proponer otro horario" dentro del Paso 2 (Visitas)
+   * consultando la agenda viva de 7 días del prestador para que el residente elija
+   * únicamente entre franjas realmente disponibles.
+   *
+   * @param {Object} visit - Solicitud de visita sobre la cual contraproponer horario.
+   * @returns {Promise<void>}
+   */
+  const openResidentCounterPropose = async (visit) => {
+    setCounterVisitId(visit.id);
+    const base = visit?.preferred_date ? new Date(visit.preferred_date) : new Date(Date.now() + 2 * 3600000);
+    setCounterVisitDate(toLocalDateTimeInput(Number.isNaN(base.getTime()) ? new Date(Date.now() + 2 * 3600000) : base));
+    setCounterAvailability(null);
+    setSelectedCounterDay('');
+    setVisitActionFeedback({ type: '', text: '' });
+
+    const matchedProv = providers.find(
+      (p) =>
+        Number(p.provider_id || p.id) === Number(visit.provider_id) ||
+        (Array.isArray(p.provider_ids) && p.provider_ids.map(Number).includes(Number(visit.provider_id)))
+    );
+    const providerUserId = Number(visit.provider_user_id || matchedProv?.user_id);
+    if (!providerUserId) return;
+
+    setLoadingCounterAvail(true);
+    try {
+      const tzOffset = new Date().getTimezoneOffset();
+      const res = await fetch(
+        `${API_BASE}/api/v1/passes/schedule/availability/${providerUserId}?days=7&tz_offset=${tzOffset}`,
+        { headers: getAuthHeaders() }
+      );
+      const data = await res.json();
+      if (res.ok && Array.isArray(data.days)) {
+        setCounterAvailability(data);
+        const firstOpen =
+          data.days.find((d) => d.is_working && d.available_count > 0) ||
+          data.days.find((d) => d.is_working) ||
+          data.days[0];
+        setSelectedCounterDay(firstOpen?.date || '');
+      }
+    } catch (error) {
+      console.error('Error al cargar disponibilidad para contrapropuesta:', error);
+    } finally {
+      setLoadingCounterAvail(false);
+    }
+  };
+
+  /**
+   * Envía la respuesta del residente sobre una visita en negociación:
+   * - `accept`: acepta la contrapropuesta del prestador -> estado `confirmed` y habilita Pase QR.
+   * - `propose`: propone otro día/horario -> vuelve a `pending_provider`.
+   * - `cancel`: cancela la solicitud de visita.
+   *
+   * @param {number|string} visitId - ID de la visita.
+   * @param {'accept'|'propose'|'cancel'} action - Acción del residente.
+   * @param {string} [localDateTime=''] - Fecha/hora local cuando `action === 'propose'`.
+   * @returns {Promise<void>}
+   */
+  const handleResidentVisitResponse = async (visitId, action, localDateTime = '') => {
+    if (action === 'propose' && !String(localDateTime || '').trim()) {
+      setVisitActionFeedback({
+        type: 'error',
+        text: 'Seleccioná una fecha y horario disponible de la agenda del prestador.',
+      });
+      return;
+    }
+    setRespondingResidentVisitId(visitId);
+    setVisitActionFeedback({ type: '', text: '' });
+
+    const parsed = action === 'propose' && localDateTime ? new Date(localDateTime) : null;
+    const isoDate =
+      parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : localDateTime || undefined;
+    const replyText = String(followupDrafts[visitId] || '').trim();
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/passes/visit-requests/${visitId}/resident-respond`, {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          action,
+          preferred_date: action === 'propose' ? isoDate : undefined,
+          reply_text: replyText || undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setVisitActionFeedback({
+          type: 'success',
+          text: data.message || 'Estado de la visita actualizado.',
+        });
+        setFollowupDrafts((prev) => ({ ...prev, [visitId]: '' }));
+        setCounterVisitId(null);
+        await fetchMyVisits();
+      } else {
+        setVisitActionFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo actualizar la visita.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al responder visita desde residente:', error);
+      setVisitActionFeedback({
+        type: 'error',
+        text: 'Error de conexión al responder la visita.',
+      });
+    } finally {
+      setRespondingResidentVisitId(null);
     }
   };
 
@@ -1166,26 +1331,30 @@ export default function ResidentDashboard({
 
   /**
    * Abre el modal de emisión de Pase QR para un prestador determinado,
-   * precargando ubicación, primer vehículo registrado y una ventana horaria de 8 horas.
+   * precargando automáticamente el domicilio del residente (Fracción/Manzana y Lote bloqueados),
+   * el primer vehículo registrado y la ventana horaria desde la visita acordada (+2h por defecto, editable).
    *
    * @param {Object} provider - Prestador al que se le emitirá el pase.
-   * @param {{ fraction?: string, lot?: string, preferredDate?: string }} [prefill={}] - Datos opcionales desde una visita previa.
+   * @param {{ fraction?: string, lot?: string, preferredDate?: string, vehiclePlate?: string }} [prefill={}] - Datos opcionales desde una visita acordada.
    */
   const openQrModalForProvider = (provider, prefill = {}) => {
     setQrModalProvider(provider);
-    setFractionNumber(prefill.fraction ?? user?.fraction_number ?? '');
-    setLotNumber(prefill.lot ?? user?.lot_number ?? '');
+    setFractionNumber(user?.fraction_number ?? prefill.fraction ?? '');
+    setLotNumber(user?.lot_number ?? prefill.lot ?? '');
     const providerVehicles = Array.isArray(provider?.vehicles) ? provider.vehicles : [];
     setSelectedVehiclePlate(prefill.vehiclePlate ?? providerVehicles[0]?.plate ?? '');
     setSelectedEmployeeIds([]);
-    const baseStart = prefill.preferredDate
+    const hasAgreedDate = Boolean(prefill.preferredDate);
+    const baseStart = hasAgreedDate
       ? new Date(prefill.preferredDate)
       : new Date(Date.now() - 10 * 60 * 1000);
     const validStart = Number.isNaN(baseStart.getTime())
       ? new Date(Date.now() - 10 * 60 * 1000)
       : baseStart;
+    // Si proviene de una visita acordada, precarga una ventana de 2 horas desde el horario pactado
+    const defaultDurationMs = hasAgreedDate ? 2 * 60 * 60 * 1000 : 4 * 60 * 60 * 1000;
     setStartTime(toLocalDateTimeInput(validStart));
-    setEndTime(toLocalDateTimeInput(new Date(validStart.getTime() + 8 * 60 * 60 * 1000)));
+    setEndTime(toLocalDateTimeInput(new Date(validStart.getTime() + defaultDurationMs)));
     setPassFeedback({ type: '', text: '', qrToken: '' });
   };
 
@@ -1988,7 +2157,12 @@ export default function ResidentDashboard({
                   'Prestador Verificado';
                 const rating = Number(provider.rating_avg || 0).toFixed(1);
                 const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
-                const activeVisit = latestVisitByProvider[providerId];
+                const providerIdsList =
+                  Array.isArray(provider.provider_ids) && provider.provider_ids.length > 0
+                    ? provider.provider_ids.map(Number)
+                    : [providerId];
+                const activeVisit =
+                  providerIdsList.map((pid) => latestVisitByProvider[pid]).find(Boolean) || null;
                 const visitMeta = getVisitStatusMeta(activeVisit);
                 const isVerifiedMember = Boolean(provider.is_verified_member);
                 const membershipBadgeLabel =
@@ -2262,45 +2436,76 @@ export default function ResidentDashboard({
                       </div>
                     </div>
 
-                    {/* Acciones: Solicitar Visita / Ir a 2. Visitas + Generar QR */}
+                    {/* Acciones condicionadas por acuerdo mutuo: Solicitar Visita -> Acordar -> Emitir Pase QR */}
                     <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                      {activeVisit ? (
-                        <button
-                          type="button"
-                          onClick={() => setActiveStep('visits')}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
-                          style={cardStyle}
-                        >
-                          <Calendar size={13} className="text-emerald-400" />
-                          <span>Ir a 2. Visitas</span>
-                        </button>
+                      {visitMeta.isConfirmed ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('visits')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                            style={cardStyle}
+                          >
+                            <Calendar size={13} className="text-emerald-400" />
+                            <span>Ver acuerdo</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openQrModalForProvider(provider, {
+                                preferredDate: activeVisit?.preferred_date,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <QrCode size={14} />
+                            <span>Emitir Pase QR</span>
+                          </button>
+                        </>
+                      ) : visitMeta.isPendingResident ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('visits')}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
+                          >
+                            <Calendar size={13} />
+                            <span>Confirmar nuevo horario (2. Visitas)</span>
+                          </button>
+                        </>
+                      ) : visitMeta.isPendingProvider ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('visits')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
+                          >
+                            <Clock size={13} />
+                            <span>Seguimiento (2. Visitas)</span>
+                          </button>
+
+                          <span
+                            title="El Pase QR se habilita automáticamente cuando vos y el prestador acuerden fecha y horario"
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/10 opacity-55 select-none"
+                            style={cardStyle}
+                          >
+                            <QrCode size={13} />
+                            <span>QR al acordar</span>
+                          </span>
+                        </>
                       ) : (
                         <button
                           type="button"
                           onClick={() => openVisitModalForProvider(provider)}
-                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
-                          style={cardStyle}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                          style={{ backgroundColor: primaryColor }}
                         >
-                          <MessageSquare size={13} />
-                          <span>Solicitar Visita</span>
+                          <Calendar size={14} />
+                          <span>Solicitar Visita (ver horarios disponibles)</span>
                         </button>
                       )}
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openQrModalForProvider(provider, {
-                            fraction: activeVisit?.fraction_number,
-                            lot: activeVisit?.lot_number,
-                            preferredDate: activeVisit?.preferred_date,
-                          })
-                        }
-                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                        style={{ backgroundColor: primaryColor }}
-                      >
-                        <QrCode size={14} />
-                        <span>{visitMeta.isConfirmed ? 'Emitir Pase QR' : 'Generar QR'}</span>
-                      </button>
                     </div>
                   </article>
                 );
@@ -2310,7 +2515,7 @@ export default function ResidentDashboard({
         </section>
       )}
 
-      {/* PASO 2: VISITAS — CONFIRMACIÓN BIDIRECCIONAL Y SEGUIMIENTO */}
+      {/* PASO 2: VISITAS — ACUERDO BILATERAL DE FECHA/HORA Y HABILITACIÓN DE PASE QR */}
       {activeStep === 'visits' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
           {/* Encabezado de agenda de visitas y botón de refresco */}
@@ -2318,10 +2523,10 @@ export default function ResidentDashboard({
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                 <Calendar size={18} className="text-emerald-400 shrink-0" />
-                <span>Visitas Solicitadas y Confirmación de Disponibilidad</span>
+                <span>Visitas y Acuerdo de Horario</span>
               </h2>
               <p className="text-xs opacity-75">
-                Conversá con el prestador, verificá si confirmó disponibilidad y emití el Pase QR cuando esté acordada.
+                Acordá fecha y hora con el prestador. Al confirmarse por ambas partes se bloquea su agenda y se habilita el Pase QR automático para tu domicilio.
               </p>
             </div>
 
@@ -2334,6 +2539,25 @@ export default function ResidentDashboard({
               <RefreshCw size={14} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
             </button>
           </div>
+
+          {visitActionFeedback.text && (
+            <div
+              className={`rounded-xl p-3 text-xs border flex items-center justify-between gap-2 ${
+                visitActionFeedback.type === 'success'
+                  ? 'border-emerald-700/70 bg-emerald-950/50 text-emerald-200'
+                  : 'border-rose-800/70 bg-rose-950/50 text-rose-200'
+              }`}
+            >
+              <span>{visitActionFeedback.text}</span>
+              <button
+                type="button"
+                onClick={() => setVisitActionFeedback({ type: '', text: '' })}
+                className="opacity-70 hover:opacity-100 cursor-pointer"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          )}
 
           {/* Estados de carga, agenda vacía o tarjetas de solicitudes de visita */}
           {loadingVisits ? (
@@ -2358,31 +2582,46 @@ export default function ResidentDashboard({
               {myVisits.map((visit) => {
                 const meta = getVisitStatusMeta(visit);
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+                const isCountering = counterVisitId === visit.id;
                 const matchedProvider = providers.find(
-                  (p) => Number(p.provider_id || p.id) === Number(visit.provider_id)
+                  (p) =>
+                    Number(p.provider_id || p.id) === Number(visit.provider_id) ||
+                    (Array.isArray(p.provider_ids) &&
+                      p.provider_ids.map(Number).includes(Number(visit.provider_id)))
                 ) || {
                   id: visit.provider_id,
                   provider_id: visit.provider_id,
+                  user_id: visit.provider_user_id,
                   first_name: visit.provider_name || 'Prestador',
                   last_name: '',
                 };
 
+                const cardBorderCls = meta.isPendingResident
+                  ? 'border-sky-400/55 ring-1 ring-sky-400/20'
+                  : meta.isConfirmed
+                  ? 'border-emerald-500/45'
+                  : meta.isPendingProvider
+                  ? 'border-amber-500/35'
+                  : 'border-white/10 opacity-85';
+
                 return (
                   <article
                     key={visit.id}
-                    className={ITEM_CARD_CLASS}
+                    className={`rounded-2xl p-4 border flex flex-col justify-between gap-3 text-xs ${cardBorderCls}`}
                     style={innerStyle}
                   >
                     <div className="space-y-3">
-                      {/* Cabecera de la visita con destino, horario y estado de confirmación */}
+                      {/* Cabecera de la visita con destino automático y estado del acuerdo */}
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div>
+                        <div className="space-y-0.5 min-w-0">
                           <span className="font-bold text-sm">
                             Visita #{visit.id} · {visit.provider_name || `Prestador #${visit.provider_id}`}
                           </span>
-                          <p className="opacity-80 mt-0.5">
-                            Destino: {visit.fraction_number || '—'} / {visit.lot_number || '—'} ·
-                            Horario: {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                          <p className="opacity-80">
+                            Tu domicilio (automático):{' '}
+                            <strong>
+                              {visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}
+                            </strong>
                           </p>
                         </div>
                         <span
@@ -2392,12 +2631,173 @@ export default function ResidentDashboard({
                         </span>
                       </div>
 
+                      {/* Franja horaria destacada según la fase actual */}
+                      <div
+                        className="rounded-xl px-3 py-2 border border-white/10 flex items-center justify-between gap-2 flex-wrap"
+                        style={cardStyle}
+                      >
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <Clock size={13} className="text-emerald-400 shrink-0" />
+                          <span>
+                            {meta.isConfirmed
+                              ? 'Fecha y hora acordada:'
+                              : meta.isPendingResident
+                              ? 'Nuevo horario propuesto por el prestador:'
+                              : 'Fecha y hora solicitada:'}
+                          </span>
+                        </span>
+                        <span className="font-bold">
+                          {visit.preferred_date ? formatDateTimeAR(visit.preferred_date) : 'A convenir'}
+                        </span>
+                      </div>
+
+                      {/* Bloque destacado de decisión cuando el prestador repactó otro horario */}
+                      {meta.isPendingResident && (
+                        <div className="rounded-xl p-3 border border-sky-400/45 bg-sky-950/35 space-y-2.5">
+                          <p className="text-sky-100 font-semibold">
+                            El prestador propuso repactar la visita. Si te queda bien, aceptá para acordar la visita y habilitar el Pase QR.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              disabled={respondingResidentVisitId === visit.id}
+                              onClick={() => handleResidentVisitResponse(visit.id, 'accept')}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              <CheckCircle2 size={13} />
+                              {respondingResidentVisitId === visit.id
+                                ? 'Confirmando...'
+                                : 'Aceptar horario y habilitar QR'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={respondingResidentVisitId === visit.id}
+                              onClick={() =>
+                                isCountering
+                                  ? setCounterVisitId(null)
+                                  : openResidentCounterPropose(visit)
+                              }
+                              className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-400/45 text-sky-100 hover:bg-sky-900/40 cursor-pointer"
+                            >
+                              {isCountering ? 'Cerrar agenda' : 'Proponer otro horario'}
+                            </button>
+                          </div>
+
+                          {/* Selector inline de agenda viva del prestador para contraproponer */}
+                          {isCountering && (
+                            <div
+                              className="rounded-xl p-3 border border-white/15 space-y-2.5 mt-1"
+                              style={cardStyle}
+                            >
+                              <p className="font-bold text-[11px] flex items-center gap-1.5">
+                                <Calendar size={12} className="text-emerald-400" />
+                                <span>Elegí un horario libre de la agenda del prestador</span>
+                              </p>
+
+                              {loadingCounterAvail ? (
+                                <p className="text-[11px] opacity-75">Consultando disponibilidad...</p>
+                              ) : counterAvailability && Array.isArray(counterAvailability.days) ? (
+                                (() => {
+                                  const dayObj =
+                                    counterAvailability.days.find((d) => d.date === selectedCounterDay) ||
+                                    counterAvailability.days[0];
+                                  return (
+                                    <div className="space-y-2">
+                                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                                        {counterAvailability.days.map((day) => {
+                                          const picked = dayObj?.date === day.date;
+                                          const parts = String(day.date || '').split('-');
+                                          return (
+                                            <button
+                                              key={day.date}
+                                              type="button"
+                                              onClick={() => setSelectedCounterDay(day.date)}
+                                              className={`px-2 py-1 rounded-lg border text-[10px] font-bold shrink-0 cursor-pointer ${
+                                                picked
+                                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                                  : day.is_working
+                                                  ? 'border-white/15'
+                                                  : 'border-white/10 opacity-45'
+                                              }`}
+                                              style={picked ? undefined : innerStyle}
+                                            >
+                                              {day.short_label} {parts[2]}/{parts[1]} (
+                                              {day.is_working ? `${day.available_count}` : '0'})
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+
+                                      {dayObj && dayObj.is_working && dayObj.slots.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                                          {dayObj.slots.map((slot) => {
+                                            const val = `${dayObj.date}T${slot.time}`;
+                                            const avail = slot.status === 'available';
+                                            const chosen = counterVisitDate === val;
+                                            return (
+                                              <button
+                                                key={slot.start_iso}
+                                                type="button"
+                                                disabled={!avail}
+                                                onClick={() => setCounterVisitDate(val)}
+                                                className={`px-2 py-1 rounded font-mono text-[10px] font-bold border ${
+                                                  chosen
+                                                    ? 'border-emerald-300 text-white cursor-pointer'
+                                                    : avail
+                                                    ? 'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 cursor-pointer'
+                                                    : 'border-white/10 opacity-35 line-through cursor-not-allowed'
+                                                }`}
+                                                style={chosen ? { backgroundColor: primaryColor } : undefined}
+                                              >
+                                                {slot.time}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      ) : (
+                                        <p className="text-[11px] opacity-75">Sin franjas libres este día.</p>
+                                      )}
+                                    </div>
+                                  );
+                                })()
+                              ) : null}
+
+                              <div className="flex flex-col sm:flex-row gap-2">
+                                <input
+                                  type="datetime-local"
+                                  value={counterVisitDate}
+                                  onChange={(e) => setCounterVisitDate(e.target.value)}
+                                  className="flex-1 px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs"
+                                  style={innerStyle}
+                                />
+                                <button
+                                  type="button"
+                                  disabled={respondingResidentVisitId === visit.id}
+                                  onClick={() =>
+                                    handleResidentVisitResponse(visit.id, 'propose', counterVisitDate)
+                                  }
+                                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
+                                  style={{ backgroundColor: primaryColor }}
+                                >
+                                  Enviar nueva propuesta
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Historial de mensajes intercambiados entre residente y prestador */}
                       {msgs.length > 0 && (
-                        <div className="rounded-lg p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto">
+                        <div className="rounded-xl p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto">
                           {msgs.map((m, idx) => (
-                            <p key={m.id || idx} className="text-xs">
-                              <strong className="uppercase text-[10px] opacity-75 mr-1.5">
+                            <p key={m.id || idx} className="text-xs leading-relaxed">
+                              <strong
+                                className={`uppercase text-[10px] mr-1.5 ${
+                                  m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                                }`}
+                              >
                                 {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
                               </strong>
                               <span>{m.text}</span>
@@ -2407,50 +2807,81 @@ export default function ResidentDashboard({
                       )}
                     </div>
 
-                    {/* Mensajería de seguimiento y botón directo para emitir Pase QR precargado */}
-                    <div className="pt-3 border-t border-white/10 space-y-2">
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={followupDrafts[visit.id] || ''}
-                          onChange={(e) =>
-                            setFollowupDrafts((prev) => ({
-                              ...prev,
-                              [visit.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Escribí un mensaje para coordinar horario..."
-                          className={`flex-1 ${FIELD_INPUT_CLASS}`}
-                          style={cardStyle}
-                        />
+                    {/* Mensajería + acción de Pase QR habilitada únicamente con acuerdo mutuo (`confirmed`) */}
+                    <div className="pt-3 border-t border-white/10 space-y-2.5">
+                      {!meta.isClosed && (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={followupDrafts[visit.id] || ''}
+                            onChange={(e) =>
+                              setFollowupDrafts((prev) => ({
+                                ...prev,
+                                [visit.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="Escribí un mensaje para el prestador..."
+                            className={`flex-1 ${FIELD_INPUT_CLASS}`}
+                            style={cardStyle}
+                          />
 
-                        <button
-                          type="button"
-                          disabled={sendingFollowupId === visit.id}
-                          onClick={() => handleSendFollowupMessage(visit.id)}
-                          className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer shrink-0"
-                          style={cardStyle}
-                        >
-                          <Send size={13} /> Enviar
-                        </button>
-                      </div>
+                          <button
+                            type="button"
+                            disabled={sendingFollowupId === visit.id}
+                            onClick={() => handleSendFollowupMessage(visit.id)}
+                            className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer shrink-0"
+                            style={cardStyle}
+                          >
+                            <Send size={13} /> Enviar
+                          </button>
+                        </div>
+                      )}
 
-                      <div className="flex justify-end">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openQrModalForProvider(matchedProvider, {
-                              fraction: visit.fraction_number,
-                              lot: visit.lot_number,
-                              preferredDate: visit.preferred_date,
-                            })
-                          }
-                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          <QrCode size={14} /> Emitir Pase QR
-                        </button>
-                      </div>
+                      {meta.isConfirmed ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-[11px] text-emerald-300 font-semibold inline-flex items-center gap-1">
+                            <CheckCircle2 size={13} /> Acuerdo confirmado · Domicilio y horario precargados
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openQrModalForProvider(matchedProvider, {
+                                preferredDate: visit.preferred_date,
+                              })
+                            }
+                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <QrCode size={14} /> Emitir Pase QR
+                          </button>
+                        </div>
+                      ) : meta.isPendingProvider ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                          <span className="opacity-75">
+                            El Pase QR se habilita cuando el prestador confirme el horario.
+                          </span>
+                          <button
+                            type="button"
+                            disabled={respondingResidentVisitId === visit.id}
+                            onClick={() => handleResidentVisitResponse(visit.id, 'cancel')}
+                            className="text-rose-300 hover:text-rose-200 font-bold cursor-pointer"
+                          >
+                            Cancelar solicitud
+                          </button>
+                        </div>
+                      ) : meta.isClosed ? (
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                          <span className="opacity-70">Esta solicitud ya fue cerrada.</span>
+                          <button
+                            type="button"
+                            onClick={() => openVisitModalForProvider(matchedProvider)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Calendar size={12} /> Solicitar nueva visita
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   </article>
                 );
