@@ -20,7 +20,8 @@ import {
   ShieldAlert,
   Users,
   Building2,
-  Palette,
+  BarChart3,
+  ClipboardList,
   Activity,
   ChevronDown,
 } from 'lucide-react';
@@ -36,11 +37,12 @@ const AccountView = lazy(() => import('./modules/auth/AccountView'));
 const ResidentDashboard = lazy(() => import('./modules/owner/ResidentDashboard'));
 const ProviderDashboard = lazy(() => import('./modules/provider/ProviderDashboard'));
 const SecurityScanner = lazy(() => import('./modules/security/SecurityScanner'));
+const AnalyticsDashboardView = lazy(() => import('./modules/admin/AnalyticsDashboardView'));
 const AdminComplianceView = lazy(() => import('./modules/admin/AdminComplianceView'));
 const LocalAdminView = lazy(() => import('./modules/admin/LocalAdminView'));
 const CommunitiesAdminView = lazy(() => import('./modules/admin/CommunitiesAdminView'));
 const UserManagementView = lazy(() => import('./modules/admin/UserManagementView'));
-const BrandingSettingsView = lazy(() => import('./modules/branding/BrandingSettingsView'));
+const AuditView = lazy(() => import('./modules/admin/AuditView'));
 const SystemHealthDashboard = lazy(() => import('./modules/admin/SystemHealthDashboard'));
 
 // Conjunto de vistas permitidas para sincronización con el hash de la URL (#vista)
@@ -53,18 +55,22 @@ const VALID_VIEWS = new Set([
   'provider',
   'payments',
   'security',
+  'metrics',
   'admin',
   'local_admin',
   'users_master',
+  'audit',
   'branding_master',
   'health',
 ]);
 
-// Subconjunto de vistas de gobernanza central que despliegan la barra de Modo Maestro
+// Subconjunto de vistas de Administración Global que despliegan el sub-menú
 const MASTER_VIEWS = new Set([
+  'metrics',
   'admin',
   'local_admin',
   'users_master',
+  'audit',
   'branding_master',
   'health',
 ]);
@@ -609,13 +615,15 @@ function MainAppContent() {
             className="max-w-6xl w-full mx-auto flex items-center gap-1.5 overflow-x-auto md:flex-wrap text-xs"
           >
             {[
-              { id: 'users_master', label: 'Métricas y Usuarios', Icon: Users },
+              { id: 'metrics', label: 'Métricas', Icon: BarChart3 },
               { id: 'admin', label: 'Prestadores', Icon: UserCheck },
               { id: 'local_admin', label: 'Comunidades', Icon: Building2 },
-              { id: 'health', label: 'Auditoría y Sistema', Icon: Activity },
-              { id: 'branding_master', label: 'Marca y Estilo', Icon: Palette },
+              { id: 'users_master', label: 'Usuarios', Icon: Users },
+              { id: 'audit', label: 'Auditoría', Icon: ClipboardList },
+              { id: 'health', label: 'Sistema', Icon: Activity },
             ].map(({ id, label, Icon }) => {
-              const isActive = currentView === id;
+              const isActive =
+                currentView === id || (id === 'health' && currentView === 'branding_master');
               return (
                 <button
                   key={id}
@@ -694,6 +702,10 @@ function MainAppContent() {
         )}
 
         {/* Vistas de Administración Global (Superadmin) y Administración Local (Admin Barrio) */}
+        {isSuperadmin && currentView === 'metrics' && (
+          <AnalyticsDashboardView onNavigate={setCurrentView} />
+        )}
+
         {isSuperadmin && currentView === 'admin' && <AdminComplianceView />}
 
         {isSuperadmin && currentView === 'local_admin' && <CommunitiesAdminView />}
@@ -702,10 +714,13 @@ function MainAppContent() {
 
         {isSuperadmin && currentView === 'users_master' && <UserManagementView />}
 
-        {isSuperadmin && currentView === 'branding_master' && <BrandingSettingsView />}
+        {isSuperadmin && currentView === 'audit' && <AuditView />}
 
-        {isSuperadmin && currentView === 'health' && (
-          <SystemHealthDashboard onNavigate={setCurrentView} />
+        {isSuperadmin && (currentView === 'health' || currentView === 'branding_master') && (
+          <SystemHealthDashboard
+            initialTab={currentView === 'branding_master' ? 'appearance' : 'health'}
+            onNavigate={setCurrentView}
+          />
         )}
         </Suspense>
       </main>

@@ -20,9 +20,6 @@ import {
   FileText,
   UserCheck,
   AlertCircle,
-  RefreshCw,
-  Search,
-  X,
   Award,
   LayoutGrid,
   List,
@@ -38,6 +35,10 @@ import {
   FIELD_INPUT_CLASS,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
+import AdminPageHeader from '../../components/admin/AdminPageHeader';
+import AdminListToolbar from '../../components/admin/AdminListToolbar';
+import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import { paginateItems } from '../../utils/adminPagination';
 
 /**
  * Prioridad de ordenamiento visual por estado de compliance para mostrar
@@ -151,11 +152,19 @@ export default function AdminComplianceView() {
   const [resolutionDrafts, setResolutionDrafts] = useState({});
   const [resolvingDisputeId, setResolvingDisputeId] = useState(null);
 
-  // Mensajes de feedback operativo y filtros de búsqueda/estado
+  // Mensajes de feedback operativo, filtros y paginación homologada (6 / 12 / 24 / 50)
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [compliancePage, setCompliancePage] = useState(1);
+  const [compliancePageSize, setCompliancePageSize] = useState(6);
+
+  // Filtros y paginación homologada (6 / 12 / 24 / 50) para Reclamos y Garantía
+  const [disputeSearch, setDisputeSearch] = useState('');
+  const [disputeStatusFilter, setDisputeStatusFilter] = useState('all');
+  const [disputePage, setDisputePage] = useState(1);
+  const [disputePageSize, setDisputePageSize] = useState(6);
 
   /**
    * Agrupa las filas de `GET /api/v1/providers/all` por identidad única de persona (`user_id`),
@@ -313,6 +322,49 @@ export default function AdminComplianceView() {
       return matchesStatus && matchesQuery;
     });
   }, [groupedPeople, searchTerm, statusFilter]);
+
+  // Paginación homologada (6 / 12 / 24 / 50) para Compliance de Prestadores
+  const pagedPeople = useMemo(
+    () => paginateItems(filteredPeople, compliancePage, compliancePageSize),
+    [filteredPeople, compliancePage, compliancePageSize]
+  );
+
+  // Contadores, filtrado y paginación homologada (6 / 12 / 24 / 50) para Reclamos
+  const disputeCounts = useMemo(
+    () =>
+      disputes.reduce(
+        (acc, d) => {
+          acc.all += 1;
+          if (d.status === 'open' || d.status === 'in_review') acc.open += 1;
+          else if (d.status === 'resolved') acc.resolved += 1;
+          else acc.rejected += 1;
+          return acc;
+        },
+        { all: 0, open: 0, resolved: 0, rejected: 0 }
+      ),
+    [disputes]
+  );
+
+  const filteredDisputes = useMemo(() => {
+    const q = disputeSearch.trim().toLowerCase();
+    return disputes.filter((d) => {
+      if (disputeStatusFilter === 'open' && d.status !== 'open' && d.status !== 'in_review') {
+        return false;
+      }
+      if (disputeStatusFilter === 'resolved' && d.status !== 'resolved') return false;
+      if (disputeStatusFilter === 'rejected' && d.status !== 'rejected') return false;
+      if (!q) return true;
+      const hay = `${d.id || ''} ${d.contract_id || ''} ${d.reason || ''} ${d.details || ''} ${
+        d.owner_name || ''
+      } ${d.provider_name || ''} ${d.provider_specialty || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [disputes, disputeSearch, disputeStatusFilter]);
+
+  const pagedDisputes = useMemo(
+    () => paginateItems(filteredDisputes, disputePage, disputePageSize),
+    [filteredDisputes, disputePage, disputePageSize]
+  );
 
   /**
    * Consulta al backend el listado completo de prestadores y sus documentos de compliance.
@@ -659,95 +711,43 @@ export default function AdminComplianceView() {
 
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Encabezado ejecutivo con métricas reales (personas vs especialidades) y pestañas */}
-      <section
-        className="p-5 sm:p-6 rounded-2xl border border-white/10 shadow-sm space-y-4"
-        style={cardStyle}
-      >
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 rounded-xl border border-white/15 text-emerald-400" style={innerStyle}>
-              <UserCheck size={22} />
-            </div>
-            <div>
-              <h2 className="text-xl font-black">Compliance y Operaciones</h2>
-              <p className="text-xs opacity-80 mt-0.5">
-                Auditoría consolidada por prestador, vigencia documental, membresías y mediación de reclamos.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
-            <span
-              className="text-xs font-bold px-3 py-2 rounded-xl border border-white/15"
-              style={innerStyle}
-            >
-              {auditSummary.totalPeople} prestador(es) · {auditSummary.totalSpecialties} rubro(s)
+      {/* Encabezado unificado (AdminPageHeader) */}
+      <AdminPageHeader
+        icon={<UserCheck size={22} />}
+        iconColorClass="text-emerald-400"
+        title="Prestadores"
+        subtitle="Auditoría consolidada por identidad, vigencia documental, membresías y reclamos."
+        tabs={[
+          {
+            id: 'compliance',
+            label: 'Auditoría de Prestadores',
+            icon: <ShieldCheck size={14} />,
+            count: auditSummary.totalPeople,
+          },
+          {
+            id: 'disputes',
+            label: 'Reclamos y Garantía',
+            icon: <AlertCircle size={14} className={openDisputesCount > 0 ? 'text-rose-300' : ''} />,
+            count: disputes.length,
+          },
+        ]}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        onRefresh={() => {
+          fetchAllProviders();
+          fetchDisputes();
+        }}
+        refreshing={loading}
+        rightSlot={
+          auditSummary.totalPendingSpecs > 0 ? (
+            <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/45 bg-amber-500/15 text-amber-200">
+              {auditSummary.totalPendingSpecs} pendiente(s)
             </span>
-            {auditSummary.totalPendingSpecs > 0 && (
-              <span className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/45 bg-amber-500/15 text-amber-200">
-                {auditSummary.totalPendingSpecs} pendiente(s)
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                fetchAllProviders();
-                fetchDisputes();
-              }}
-              disabled={loading}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer transition-opacity hover:opacity-90"
-              style={innerStyle}
-            >
-              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-              Actualizar
-            </button>
-          </div>
-        </div>
-
-        {/* Pestañas superiores: separa Compliance de Reclamos para eliminar scroll vacío */}
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/10">
-          <button
-            type="button"
-            onClick={() => setActiveTab('compliance')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-              activeTab === 'compliance'
-                ? 'bg-emerald-600 text-white border-transparent shadow-sm'
-                : 'border-white/15 opacity-80 hover:opacity-100'
-            }`}
-            style={activeTab === 'compliance' ? undefined : innerStyle}
-          >
-            <ShieldCheck size={14} />
-            <span>Auditoría de Prestadores</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
-              {auditSummary.totalPeople}
-            </span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('disputes')}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
-              activeTab === 'disputes'
-                ? 'bg-emerald-600 text-white border-transparent shadow-sm'
-                : 'border-white/15 opacity-80 hover:opacity-100'
-            }`}
-            style={activeTab === 'disputes' ? undefined : innerStyle}
-          >
-            <AlertCircle size={14} className={openDisputesCount > 0 ? 'text-rose-300' : ''} />
-            <span>Reclamos y Garantía</span>
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                openDisputesCount > 0
-                  ? 'bg-rose-500/80 text-white'
-                  : 'bg-black/25'
-              }`}
-            >
-              {disputes.length}
-            </span>
-          </button>
-        </div>
-      </section>
+          ) : null
+        }
+        cardStyle={cardStyle}
+        innerStyle={innerStyle}
+      />
 
       {/* Banners de feedback operativo (errores y confirmaciones) */}
       {errorMsg && (
@@ -767,42 +767,33 @@ export default function AdminComplianceView() {
       {/* PESTAÑA 1: AUDITORÍA CONSOLIDADA POR PERSONA */}
       {activeTab === 'compliance' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          {/* Barra superior: título, buscador y selector Tarjetas vs Tabla */}
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-white/10 pb-3.5">
-            <div className="flex items-center gap-2">
-              <ShieldCheck size={17} className="text-emerald-400 shrink-0" />
-              <h3 className="text-sm font-bold">Prestadores agrupados por identidad</h3>
-              <span className="text-xs opacity-70">({filteredPeople.length})</span>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              {/* Buscador por nombre, DNI, correo o especialidad */}
-              <div className="relative flex-1 md:w-72">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por nombre, DNI, email o rubro..."
-                  className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
-                  style={innerStyle}
-                />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                    aria-label="Limpiar búsqueda"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-
-              {/* Selector de vista: Tarjetas agrupadas o Tabla compacta */}
+          <AdminListToolbar
+            searchValue={searchTerm}
+            onSearchChange={(val) => {
+              setSearchTerm(val);
+              setCompliancePage(1);
+            }}
+            searchPlaceholder="Buscar por nombre, DNI, correo o rubro..."
+            chips={[
+              { id: 'all', label: 'Todos', count: auditSummary.all },
+              { id: 'pending', label: 'Pendientes', count: auditSummary.pending },
+              { id: 'custom_pending', label: 'Rubros personalizados', count: auditSummary.custom_pending },
+              { id: 'approved', label: 'Aprobados', count: auditSummary.approved },
+              { id: 'rejected', label: 'Rechazados', count: auditSummary.rejected },
+              { id: 'sin_perfil', label: 'Sin perfil', count: auditSummary.sin_perfil },
+            ]}
+            activeChip={statusFilter}
+            onChipChange={(chip) => {
+              setStatusFilter(chip);
+              setCompliancePage(1);
+            }}
+            hasActiveFilters={Boolean(searchTerm.trim() || statusFilter !== 'all')}
+            onResetFilters={() => {
+              setSearchTerm('');
+              setStatusFilter('all');
+              setCompliancePage(1);
+            }}
+            actions={
               <div
                 className="inline-flex items-center p-0.5 rounded-xl border border-white/15"
                 style={innerStyle}
@@ -812,7 +803,7 @@ export default function AdminComplianceView() {
                   onClick={() => setViewMode('cards')}
                   title="Vista tarjetas agrupadas"
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
-                    viewMode === 'cards' ? 'bg-emerald-600 text-white' : 'opacity-75 hover:opacity-100'
+                    viewMode === 'cards' ? 'bg-indigo-600 text-white' : 'opacity-75 hover:opacity-100'
                   }`}
                 >
                   <LayoutGrid size={13} /> Tarjetas
@@ -822,46 +813,15 @@ export default function AdminComplianceView() {
                   onClick={() => setViewMode('table')}
                   title="Vista tabla compacta"
                   className={`px-2.5 py-1.5 rounded-lg text-xs font-bold inline-flex items-center gap-1 cursor-pointer ${
-                    viewMode === 'table' ? 'bg-emerald-600 text-white' : 'opacity-75 hover:opacity-100'
+                    viewMode === 'table' ? 'bg-indigo-600 text-white' : 'opacity-75 hover:opacity-100'
                   }`}
                 >
                   <List size={13} /> Tabla
                 </button>
               </div>
-            </div>
-          </div>
-
-          {/* Filtros rápidos por estado de compliance personal y rubros personalizados */}
-          <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-1">
-            {[
-              { id: 'all', label: 'Todos', count: auditSummary.all },
-              { id: 'pending', label: 'Pendientes', count: auditSummary.pending },
-              { id: 'custom_pending', label: 'Rubros personalizados', count: auditSummary.custom_pending },
-              { id: 'approved', label: 'Aprobados', count: auditSummary.approved },
-              { id: 'rejected', label: 'Rechazados', count: auditSummary.rejected },
-              { id: 'sin_perfil', label: 'Sin perfil', count: auditSummary.sin_perfil },
-            ].map((chip) => {
-              const active = statusFilter === chip.id;
-              return (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => setStatusFilter(chip.id)}
-                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1.5 ${
-                    active
-                      ? 'bg-emerald-600 text-white border-transparent shadow-sm'
-                      : 'border-white/15 opacity-80 hover:opacity-100'
-                  }`}
-                  style={active ? undefined : innerStyle}
-                >
-                  <span>{chip.label}</span>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
-                    {chip.count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+            }
+            innerStyle={innerStyle}
+          />
 
           {/* Estado de carga, vacío o listado según vista seleccionada */}
           {loading ? (
@@ -881,7 +841,7 @@ export default function AdminComplianceView() {
           ) : viewMode === 'cards' ? (
             /* VISTA A: TARJETAS CONSOLIDADAS POR PERSONA (compliance único + chips estándar + moderación custom) */
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-              {filteredPeople.map((person) => {
+              {pagedPeople.pageItems.map((person) => {
                 const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                 const artMeta = getDocExpiryMeta(person.insurance_expiry);
                 const hasProfile = person.specialties.length > 0;
@@ -1124,7 +1084,7 @@ export default function AdminComplianceView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
-                  {filteredPeople.map((person) => {
+                  {pagedPeople.pageItems.map((person) => {
                     const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                     const artMeta = getDocExpiryMeta(person.insurance_expiry);
                     const hasProfile = person.specialties.length > 0;
@@ -1293,45 +1253,72 @@ export default function AdminComplianceView() {
               </table>
             </div>
           )}
+
+          <AdminPaginationBar
+            page={pagedPeople.safePage}
+            totalPages={pagedPeople.totalPages}
+            totalItems={pagedPeople.totalItems}
+            pageSize={compliancePageSize}
+            onPageChange={setCompliancePage}
+            onPageSizeChange={(nextSize) => {
+              setCompliancePageSize(nextSize);
+              setCompliancePage(1);
+            }}
+            itemLabel="prestador(es)"
+            innerStyle={innerStyle}
+          />
         </section>
       )}
 
       {/* PESTAÑA 2: RECLAMOS Y GARANTÍA POST-SERVICIO */}
       {activeTab === 'disputes' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-3">
-            <div className="flex items-center gap-2">
-              <AlertCircle size={17} className="text-amber-400 shrink-0" />
-              <div>
-                <h3 className="text-sm font-bold">
-                  Reclamos y Garantía Post-Servicio ({disputes.length})
-                </h3>
-                <p className="text-[11px] opacity-75">
-                  Mediación centralizada de Operaciones TrustLink sobre contratos con reclamo abierto.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={fetchDisputes}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
-              style={innerStyle}
-            >
-              <RefreshCw size={12} /> Actualizar
-            </button>
-          </div>
+          <AdminListToolbar
+            searchValue={disputeSearch}
+            onSearchChange={(val) => {
+              setDisputeSearch(val);
+              setDisputePage(1);
+            }}
+            searchPlaceholder="Buscar por #reclamo, contrato, residente, prestador o motivo..."
+            chips={[
+              { id: 'all', label: 'Todos', count: disputeCounts.all },
+              { id: 'open', label: 'Abiertos', count: disputeCounts.open },
+              { id: 'resolved', label: 'Resueltos', count: disputeCounts.resolved },
+              { id: 'rejected', label: 'Desestimados', count: disputeCounts.rejected },
+            ]}
+            activeChip={disputeStatusFilter}
+            onChipChange={(chip) => {
+              setDisputeStatusFilter(chip);
+              setDisputePage(1);
+            }}
+            hasActiveFilters={Boolean(disputeSearch.trim() || disputeStatusFilter !== 'all')}
+            onResetFilters={() => {
+              setDisputeSearch('');
+              setDisputeStatusFilter('all');
+              setDisputePage(1);
+            }}
+            innerStyle={innerStyle}
+          />
 
-          {disputes.length === 0 ? (
+          {pagedDisputes.pageItems.length === 0 ? (
             <div
               className="text-center py-8 rounded-xl border border-white/10 text-xs opacity-75"
               style={innerStyle}
             >
-              No hay reclamos post-servicio registrados en la plataforma.
+              No hay reclamos post-servicio que coincidan con los filtros actuales.
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
-              {disputes.map((d) => {
+              {pagedDisputes.pageItems.map((d) => {
                 const isOpen = d.status === 'open' || d.status === 'in_review';
+                const statusLabel =
+                  d.status === 'open'
+                    ? 'Abierto'
+                    : d.status === 'in_review'
+                    ? 'En revisión'
+                    : d.status === 'resolved'
+                    ? 'Resuelto'
+                    : 'Desestimado';
                 return (
                   <div
                     key={d.id}
@@ -1344,7 +1331,7 @@ export default function AdminComplianceView() {
                           Reclamo #{d.id} · Contrato #{d.contract_id}
                         </span>
                         <span
-                          className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                             isOpen
                               ? 'bg-rose-950/70 text-rose-200 border-rose-700'
                               : d.status === 'resolved'
@@ -1352,7 +1339,7 @@ export default function AdminComplianceView() {
                               : 'bg-slate-800 text-slate-300 border-slate-700'
                           }`}
                         >
-                          {d.status}
+                          {statusLabel}
                         </span>
                       </div>
                       <p className="text-xs font-semibold text-amber-300">{d.reason}</p>
@@ -1405,6 +1392,20 @@ export default function AdminComplianceView() {
               })}
             </div>
           )}
+
+          <AdminPaginationBar
+            page={pagedDisputes.safePage}
+            totalPages={pagedDisputes.totalPages}
+            totalItems={pagedDisputes.totalItems}
+            pageSize={disputePageSize}
+            onPageChange={setDisputePage}
+            onPageSizeChange={(nextSize) => {
+              setDisputePageSize(nextSize);
+              setDisputePage(1);
+            }}
+            itemLabel="reclamo(s)"
+            innerStyle={innerStyle}
+          />
         </section>
       )}
     </div>

@@ -7,7 +7,7 @@
  * @location /trustlink-web/src/modules/admin/LocalAdminView.jsx
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   ShieldAlert,
   Building2,
@@ -25,6 +25,9 @@ import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContex
 import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS, SECTION_CARD_CLASS } from '../../config/uiTokens';
 import { downloadCsv } from '../../utils/csvExport';
+import AdminListToolbar from '../../components/admin/AdminListToolbar';
+import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import { paginateItems } from '../../utils/adminPagination';
 
 /**
  * Consola local de administración de comunidad/barrio.
@@ -70,6 +73,67 @@ export default function LocalAdminView({ embedded = false } = {}) {
   const [submitting, setSubmitting] = useState(false);
   const [liftingId, setLiftingId] = useState(null);
   const [feedback, setFeedback] = useState(null);
+
+  // Filtros y paginación homologada (6 / 12 / 24 / 50) para Alertas y Suspensiones
+  const [alertSearch, setAlertSearch] = useState('');
+  const [alertSeverityFilter, setAlertSeverityFilter] = useState('all');
+  const [alertPage, setAlertPage] = useState(1);
+  const [alertPageSize, setAlertPageSize] = useState(6);
+
+  const [suspSearch, setSuspSearch] = useState('');
+  const [suspStatusFilter, setSuspStatusFilter] = useState('all');
+  const [suspPage, setSuspPage] = useState(1);
+  const [suspPageSize, setSuspPageSize] = useState(6);
+
+  const filteredAlerts = useMemo(() => {
+    const q = alertSearch.trim().toLowerCase();
+    return expiryAlerts.filter((a) => {
+      if (alertSeverityFilter === 'expired' && a.severity !== 'expired') return false;
+      if (alertSeverityFilter === 'expiring_soon' && a.severity === 'expired') return false;
+      if (!q) return true;
+      const hay = `${a.title || ''} ${a.subtitle || ''} ${a.provider_name || ''} ${
+        a.provider_email || ''
+      }`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [expiryAlerts, alertSearch, alertSeverityFilter]);
+
+  const pagedAlerts = useMemo(
+    () => paginateItems(filteredAlerts, alertPage, alertPageSize),
+    [filteredAlerts, alertPage, alertPageSize]
+  );
+
+  const suspCounts = useMemo(
+    () =>
+      suspensions.reduce(
+        (acc, item) => {
+          acc.all += 1;
+          if (item.status === 'active') acc.active += 1;
+          else acc.lifted += 1;
+          return acc;
+        },
+        { all: 0, active: 0, lifted: 0 }
+      ),
+    [suspensions]
+  );
+
+  const filteredSuspensions = useMemo(() => {
+    const q = suspSearch.trim().toLowerCase();
+    return suspensions.filter((item) => {
+      if (suspStatusFilter === 'active' && item.status !== 'active') return false;
+      if (suspStatusFilter === 'lifted' && item.status === 'active') return false;
+      if (!q) return true;
+      const hay = `${item.country_name || ''} ${item.provider_first_name || ''} ${
+        item.provider_last_name || ''
+      } ${item.specialty || ''} ${item.reason || ''}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [suspensions, suspSearch, suspStatusFilter]);
+
+  const pagedSuspensions = useMemo(
+    () => paginateItems(filteredSuspensions, suspPage, suspPageSize),
+    [filteredSuspensions, suspPage, suspPageSize]
+  );
 
   /**
    * Construye el encabezado de autorización Bearer utilizando el JWT almacenado localmente.
@@ -469,14 +533,11 @@ export default function LocalAdminView({ embedded = false } = {}) {
         </form>
       </section>
 
-      {/* Zona 4: Alertas proactivas de vencimiento documental */}
-      <section
-        className="border border-black/20 p-6 rounded-2xl space-y-4"
-        style={cardStyle}
-      >
+      {/* Zona 4: Alertas proactivas de vencimiento documental con barra estándar y paginación 6/12/24/50 */}
+      <section className={SECTION_CARD_CLASS} style={cardStyle}>
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <Clock size={17} className="text-amber-400" />
+            <Clock size={17} className="text-amber-400 shrink-0" />
             <div>
               <h3 className="text-sm font-bold">
                 Alertas de Vencimiento Documental (ART, Antecedentes, Seguros y Cuadrilla)
@@ -493,44 +554,71 @@ export default function LocalAdminView({ embedded = false } = {}) {
             <span className="px-2.5 py-1 rounded-full border border-amber-700/70 bg-amber-950/60 text-amber-200">
               {expirySummary.expiring_soon} por vencer
             </span>
-            {/* Botón de exportación CSV de alertas documentales */}
-            {expiryAlerts.length > 0 && (
-              <button
-                type="button"
-                onClick={() =>
-                  downloadCsv(
-                    `trustlink-vencimientos-${new Date().toISOString().slice(0, 10)}.csv`,
-                    [
-                      { key: 'title', label: 'Documento' },
-                      { key: 'provider_name', label: 'Prestador' },
-                      { key: 'provider_email', label: 'Email' },
-                      { key: 'severity', label: 'Severidad' },
-                      { key: 'expiry_date', label: 'Fecha Vencimiento' },
-                      { key: 'days_remaining', label: 'Dias Restantes' },
-                    ],
-                    expiryAlerts
-                  )
-                }
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border border-white/15 cursor-pointer hover:opacity-90"
-                style={innerStyle}
-              >
-                <Download size={12} /> CSV
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Estado vacío o grilla de hasta 10 alertas prioritarias con aviso por WhatsApp */}
-        {expiryAlerts.length === 0 ? (
+        <AdminListToolbar
+          searchValue={alertSearch}
+          onSearchChange={(val) => {
+            setAlertSearch(val);
+            setAlertPage(1);
+          }}
+          searchPlaceholder="Buscar documento, prestador o correo..."
+          chips={[
+            { id: 'all', label: 'Todas', count: expiryAlerts.length },
+            { id: 'expired', label: 'Vencidas', count: expirySummary.expired },
+            { id: 'expiring_soon', label: 'Por vencer', count: expirySummary.expiring_soon },
+          ]}
+          activeChip={alertSeverityFilter}
+          onChipChange={(chip) => {
+            setAlertSeverityFilter(chip);
+            setAlertPage(1);
+          }}
+          hasActiveFilters={Boolean(alertSearch.trim() || alertSeverityFilter !== 'all')}
+          onResetFilters={() => {
+            setAlertSearch('');
+            setAlertSeverityFilter('all');
+            setAlertPage(1);
+          }}
+          actions={
+            <button
+              type="button"
+              disabled={filteredAlerts.length === 0}
+              onClick={() =>
+                downloadCsv(
+                  `trustlink-vencimientos-${new Date().toISOString().slice(0, 10)}.csv`,
+                  [
+                    { key: 'title', label: 'Documento' },
+                    { key: 'provider_name', label: 'Prestador' },
+                    { key: 'provider_email', label: 'Email' },
+                    { key: 'severity', label: 'Severidad' },
+                    { key: 'expiry_date', label: 'Fecha Vencimiento' },
+                    { key: 'days_remaining', label: 'Dias Restantes' },
+                  ],
+                  filteredAlerts
+                )
+              }
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-white/15 font-bold cursor-pointer hover:opacity-90 disabled:opacity-40"
+              style={innerStyle}
+            >
+              <Download size={13} /> Exportar CSV
+            </button>
+          }
+          innerStyle={innerStyle}
+        />
+
+        {pagedAlerts.pageItems.length === 0 ? (
           <div
-            className="text-center py-5 rounded-xl border border-black/20 text-xs opacity-80"
+            className="text-center py-6 rounded-xl border border-white/10 text-xs opacity-80"
             style={innerStyle}
           >
-            Toda la documentación con fecha cargada se encuentra vigente (+30 días).
+            {expiryAlerts.length === 0
+              ? 'Toda la documentación con fecha cargada se encuentra vigente (+30 días).'
+              : 'Sin alertas que coincidan con el filtro aplicado.'}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {expiryAlerts.slice(0, 10).map((alert) => {
+            {pagedAlerts.pageItems.map((alert) => {
               const isExpired = alert.severity === 'expired';
               return (
                 <div
@@ -576,21 +664,55 @@ export default function LocalAdminView({ embedded = false } = {}) {
             })}
           </div>
         )}
+
+        <AdminPaginationBar
+          page={pagedAlerts.safePage}
+          totalPages={pagedAlerts.totalPages}
+          totalItems={pagedAlerts.totalItems}
+          pageSize={alertPageSize}
+          onPageChange={setAlertPage}
+          onPageSizeChange={(nextSize) => {
+            setAlertPageSize(nextSize);
+            setAlertPage(1);
+          }}
+          itemLabel="alerta(s)"
+          innerStyle={innerStyle}
+        />
       </section>
 
-      {/* Zona 4: Listado de suspensiones locales */}
-      <section
-        className="border border-black/20 p-6 rounded-2xl space-y-4"
-        style={cardStyle}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-sm font-bold">
-            Historial de reportes y suspensiones locales ({suspensions.length})
-          </h3>
-          {/* Botón de exportación CSV del historial de suspensiones locales */}
-          {suspensions.length > 0 && (
+      {/* Zona 4: Listado de suspensiones locales con barra estándar y paginación 6/12/24/50 */}
+      <section className={SECTION_CARD_CLASS} style={cardStyle}>
+        <h3 className="text-sm font-bold">
+          Historial de reportes y suspensiones locales ({suspensions.length})
+        </h3>
+
+        <AdminListToolbar
+          searchValue={suspSearch}
+          onSearchChange={(val) => {
+            setSuspSearch(val);
+            setSuspPage(1);
+          }}
+          searchPlaceholder="Buscar prestador, comunidad, rubro o motivo..."
+          chips={[
+            { id: 'all', label: 'Todas', count: suspCounts.all },
+            { id: 'active', label: 'Activas', count: suspCounts.active },
+            { id: 'lifted', label: 'Levantadas', count: suspCounts.lifted },
+          ]}
+          activeChip={suspStatusFilter}
+          onChipChange={(chip) => {
+            setSuspStatusFilter(chip);
+            setSuspPage(1);
+          }}
+          hasActiveFilters={Boolean(suspSearch.trim() || suspStatusFilter !== 'all')}
+          onResetFilters={() => {
+            setSuspSearch('');
+            setSuspStatusFilter('all');
+            setSuspPage(1);
+          }}
+          actions={
             <button
               type="button"
+              disabled={filteredSuspensions.length === 0}
               onClick={() =>
                 downloadCsv(
                   `trustlink-suspensiones-locales-${new Date().toISOString().slice(0, 10)}.csv`,
@@ -600,7 +722,7 @@ export default function LocalAdminView({ embedded = false } = {}) {
                     {
                       key: 'provider',
                       label: 'Prestador',
-                      format: (s) => `${s.first_name || ''} ${s.last_name || ''}`.trim(),
+                      format: (s) => `${s.provider_first_name || ''} ${s.provider_last_name || ''}`.trim(),
                     },
                     { key: 'specialty', label: 'Especialidad' },
                     { key: 'reason', label: 'Motivo' },
@@ -608,37 +730,37 @@ export default function LocalAdminView({ embedded = false } = {}) {
                     { key: 'created_at', label: 'Fecha Registro' },
                     { key: 'lifted_at', label: 'Fecha Levantamiento' },
                   ],
-                  suspensions
+                  filteredSuspensions
                 )
               }
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold border border-white/15 cursor-pointer hover:opacity-90"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90 disabled:opacity-40"
               style={innerStyle}
             >
-              <Download size={12} /> Exportar CSV
+              <Download size={13} /> Exportar CSV
             </button>
-          )}
-        </div>
+          }
+          innerStyle={innerStyle}
+        />
 
-        {/* Estados de carga, vacío o tabla interactiva de suspensiones locales */}
         {loading ? (
           <div
-            className="text-center py-6 rounded-xl border border-black/20 text-xs"
+            className="text-center py-6 rounded-xl border border-white/10 text-xs"
             style={innerStyle}
           >
             Cargando registros...
           </div>
-        ) : suspensions.length === 0 ? (
+        ) : pagedSuspensions.pageItems.length === 0 ? (
           <div
-            className="text-center py-6 rounded-xl border border-black/20 text-xs opacity-80"
+            className="text-center py-6 rounded-xl border border-white/10 text-xs opacity-80"
             style={innerStyle}
           >
-            No hay suspensiones ni reportes locales registrados para esta comunidad.
+            No hay suspensiones ni reportes locales para los filtros aplicados.
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-black/20" style={innerStyle}>
+          <div className="overflow-x-auto rounded-xl border border-white/10" style={innerStyle}>
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-black/20 opacity-80">
+                <tr className="border-b border-white/10 opacity-80">
                   <th className="py-2.5 px-3 font-semibold">ID</th>
                   <th className="py-2.5 px-3 font-semibold">Comunidad</th>
                   <th className="py-2.5 px-3 font-semibold">Prestador</th>
@@ -647,9 +769,9 @@ export default function LocalAdminView({ embedded = false } = {}) {
                   <th className="py-2.5 px-3 font-semibold text-right">Acción</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-black/15">
-                {suspensions.map((item) => (
-                  <tr key={item.id} className="hover:bg-black/10">
+              <tbody className="divide-y divide-white/5">
+                {pagedSuspensions.pageItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-white/5">
                     <td className="py-2.5 px-3 font-mono">#{item.id}</td>
                     <td className="py-2.5 px-3 font-semibold">
                       {item.country_name || `Barrio #${item.country_id}`}
@@ -663,11 +785,11 @@ export default function LocalAdminView({ embedded = false } = {}) {
                     <td className="py-2.5 px-3">
                       {item.status === 'active' ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/80 text-amber-300 border border-amber-700">
-                          suspendido local
+                          Suspendido local
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950/80 text-emerald-300 border border-emerald-700">
-                          levantada
+                          Levantada
                         </span>
                       )}
                     </td>
@@ -684,7 +806,7 @@ export default function LocalAdminView({ embedded = false } = {}) {
                           <span>{liftingId === item.id ? 'Levantando...' : 'Levantar'}</span>
                         </button>
                       ) : (
-                        <span className="text-[11px] opacity-60">-</span>
+                        <span className="text-[11px] opacity-60">—</span>
                       )}
                     </td>
                   </tr>
@@ -693,6 +815,20 @@ export default function LocalAdminView({ embedded = false } = {}) {
             </table>
           </div>
         )}
+
+        <AdminPaginationBar
+          page={pagedSuspensions.safePage}
+          totalPages={pagedSuspensions.totalPages}
+          totalItems={pagedSuspensions.totalItems}
+          pageSize={suspPageSize}
+          onPageChange={setSuspPage}
+          onPageSizeChange={(nextSize) => {
+            setSuspPageSize(nextSize);
+            setSuspPage(1);
+          }}
+          itemLabel="registro(s)"
+          innerStyle={innerStyle}
+        />
       </section>
     </div>
   );

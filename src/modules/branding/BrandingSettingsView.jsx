@@ -134,7 +134,7 @@ const getContrastRatio = (hexA, hexB) => {
  * Panel maestro de configuración de colores, presets de piel, logo e identidad institucional.
  * Permite previsualizar cambios en tiempo real sobre toda la aplicación y persistirlos en PostgreSQL.
  */
-export default function BrandingSettingsView() {
+export default function BrandingSettingsView({ embedded = false } = {}) {
   const {
     brand,
     defaults,
@@ -539,14 +539,20 @@ export default function BrandingSettingsView() {
     (formState.brandSubtitle || '').trim() || DEFAULT_BRANDING_CONFIG.brandSubtitle;
 
   return (
-    <div className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans">
+    <div
+      className={
+        embedded
+          ? 'space-y-6 font-sans'
+          : 'max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 md:py-8 space-y-6 font-sans'
+      }
+    >
       <form
         onSubmit={handleSave}
         className="w-full p-5 sm:p-6 md:p-8 rounded-2xl border border-white/10 shadow-sm space-y-6"
         style={cardStyle}
       >
         {/* Encabezado */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-black/20 gap-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between pb-5 border-b border-white/10 gap-4">
           <div className="flex items-center gap-3">
             <div
               className="p-3 rounded-xl border border-white/15 text-emerald-400"
