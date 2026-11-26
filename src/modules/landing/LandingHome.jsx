@@ -151,7 +151,7 @@ const ACTOR_BENEFITS = [
     badge: 'Residentes',
     title: 'Contratá sin depender de WhatsApp',
     points: [
-      'Directorio verificado con DNI, antecedentes y ART/seguro vigentes.',
+      'Directorio verificado con DNI, ART/seguro y antecedentes vigentes.',
       'Pases QR en segundos con destino, franja horaria y ayudantes declarados.',
       'Historial del hogar con acuerdos claros y reseñas de vecinos reales.',
     ],
@@ -419,8 +419,8 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
             Servicios verificados y accesos sin fricción para tu comunidad
           </h1>
           <p className="text-sm sm:text-base opacity-80 leading-relaxed max-w-2xl">
-            Explorá prestadores auditados por DNI, antecedentes y ART antes de registrarte. Cuando
-            estés listo, coordiná la visita y emití tu Pase QR para garita en segundos.
+            Explorá prestadores auditados por DNI, póliza ART y antecedentes antes de registrarte.
+            Cuando estés listo, coordiná la visita y emití tu Pase QR para garita en segundos.
           </p>
         </div>
 
@@ -559,7 +559,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
                 </div>
               </div>
               <p className="text-xs opacity-75 leading-relaxed">
-                Validá tu DNI, antecedentes y ART una sola vez y recibí consultas de toda la red.
+                Validá tu DNI, póliza ART y antecedentes una sola vez y recibí consultas de toda la red.
               </p>
             </div>
             <button
@@ -1028,7 +1028,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
             {
               step: '01',
               title: 'Elegís un perfil con respaldo',
-              desc: 'Comparás nivel N1–N5, checks de DNI/Antecedentes/ART, reseñas de vecinos y disponibilidad.',
+              desc: 'Comparás nivel N1–N5, checks de DNI/ART/Antecedentes, reseñas de vecinos y disponibilidad.',
             },
             {
               step: '02',
@@ -1114,7 +1114,7 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
             <div className="space-y-1">
               <h3 className="text-sm font-bold">Compliance Centralizado</h3>
               <p className="text-xs opacity-75 leading-relaxed">
-                DNI, antecedentes penales, póliza ART o accidentes personales, vehículos y cuadrilla
+                DNI, póliza ART o accidentes personales, antecedentes penales, vehículos y cuadrilla
                 auditados por TrustLink para toda la red.
               </p>
             </div>

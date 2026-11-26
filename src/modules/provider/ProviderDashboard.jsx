@@ -241,7 +241,7 @@ export default function ProviderDashboard() {
 
   // Paso 1: Credenciales — alta de documentación de compliance (Antecedentes / ART)
   const [showDocForm, setShowDocForm] = useState(false);
-  const [docType, setDocType] = useState('Antecedentes Penales');
+  const [docType, setDocType] = useState('Póliza ART / Seguro');
   const [docUrl, setDocUrl] = useState('');
   const [docValidFrom, setDocValidFrom] = useState('');
   const [docValidTo, setDocValidTo] = useState('');
@@ -712,14 +712,14 @@ export default function ProviderDashboard() {
 
     const slotConfig = [
       {
-        slot: 'criminal',
-        field: 'criminal',
-        docType: 'Antecedentes Penales',
-      },
-      {
         slot: 'insurance',
         field: 'art',
         docType: 'Póliza ART / Seguro',
+      },
+      {
+        slot: 'criminal',
+        field: 'criminal',
+        docType: 'Antecedentes Penales',
       },
     ];
 
@@ -1852,7 +1852,7 @@ export default function ProviderDashboard() {
       visibilityHeadline = `Ya sos visible en el directorio como "${resolvedTrustBadge.label}" (sin Pase QR aún)`;
       summaryHint =
         resolvedTrustBadge.next_step_hint ||
-        'Cargá tus Antecedentes Penales y Póliza ART vigentes para subir a Nivel 4 (Verificado) y habilitar Pases QR.';
+        'Cargá tu Póliza ART y Antecedentes Penales vigentes para subir a Nivel 4 (Verificado) y habilitar Pases QR.';
     } else if (hasApprovedCompliance && !hasDirectoryEligibleSpecialty) {
       visibilityLabel = 'Oculto · Sin rubro visible';
       visibilityTone = 'warning';
@@ -2293,17 +2293,17 @@ export default function ProviderDashboard() {
                     : 'pending',
               detail:
                 docsLoadedCount >= 1
-                  ? directoryReadiness.criminalOk
-                    ? 'Antecedentes Penales vigentes cargados.'
-                    : 'Póliza ART vigente cargada.'
-                  : 'Cargá Antecedentes Penales o Póliza ART vigente.',
+                  ? directoryReadiness.artOk
+                    ? 'Póliza ART vigente cargada.'
+                    : 'Antecedentes Penales vigentes cargados.'
+                  : 'Cargá Póliza ART o Antecedentes Penales vigentes.',
               cta:
                 docsLoadedCount === 0
                   ? {
-                      label: directoryReadiness.criminalExpired
-                        ? 'Renovar Antecedentes'
-                        : 'Cargar Antecedentes',
-                      onClick: () => openDocModal('Antecedentes Penales'),
+                      label: directoryReadiness.artExpired
+                        ? 'Renovar ART'
+                        : 'Cargar ART',
+                      onClick: () => openDocModal('Póliza ART / Seguro'),
                     }
                   : null,
             },
@@ -2318,7 +2318,7 @@ export default function ProviderDashboard() {
                   ? directoryReadiness.hasApprovedCompliance
                     ? 'Logrado'
                     : 'En revisión'
-                  : directoryReadiness.criminalExpired || directoryReadiness.artExpired
+                  : directoryReadiness.artExpired || directoryReadiness.criminalExpired
                     ? 'Vencido'
                     : `Falta ${2 - docsLoadedCount}`,
               statusTone:
@@ -2326,12 +2326,12 @@ export default function ProviderDashboard() {
                   ? directoryReadiness.hasApprovedCompliance
                     ? 'done'
                     : 'info'
-                  : directoryReadiness.criminalExpired || directoryReadiness.artExpired
+                  : directoryReadiness.artExpired || directoryReadiness.criminalExpired
                     ? 'danger'
                     : 'pending',
               detail:
                 docsLoadedCount === 2
-                  ? 'Antecedentes + ART vigentes cargados.'
+                  ? 'ART + Antecedentes vigentes cargados.'
                   : !directoryReadiness.artOk
                     ? 'Cargá tu Póliza ART / Seguro vigente.'
                     : 'Cargá tus Antecedentes Penales vigentes.',
@@ -2378,7 +2378,7 @@ export default function ProviderDashboard() {
                 ? 'Compliance aprobado: habilitado para Pases QR en garita.'
                 : directoryReadiness.providerInputsComplete
                   ? 'TrustLink está auditando tu documentación.'
-                  : 'Se habilita al aprobar Antecedentes + ART vigentes.',
+                  : 'Se habilita al aprobar ART + Antecedentes vigentes.',
               cta: null,
             },
             {
@@ -2689,7 +2689,7 @@ export default function ProviderDashboard() {
                   <span>Documentación Personal</span>
                 </h2>
                 <p className="text-xs opacity-75">
-                  DNI, antecedentes penales, póliza ART/seguro y fechas de vigencia.
+                  DNI, póliza ART/seguro, antecedentes penales y fechas de vigencia.
                 </p>
               </div>
               <button
@@ -2719,8 +2719,8 @@ export default function ProviderDashboard() {
                     style={cardStyle}
                   >
                     <option value="Documento de Identidad (DNI)">Documento de Identidad (DNI)</option>
-                    <option value="Antecedentes Penales">Antecedentes Penales</option>
                     <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
+                    <option value="Antecedentes Penales">Antecedentes Penales</option>
                   </select>
                   <input
                     type="text"
@@ -3217,7 +3217,7 @@ export default function ProviderDashboard() {
                     </div>
                   ) : (
                     <p className="text-[11px] text-emerald-300 opacity-90">
-                      Rubro de catálogo estándar: si tu compliance personal (Antecedentes + ART) ya está aprobado, queda activo inmediatamente.
+                      Rubro de catálogo estándar: si tu compliance personal (ART + Antecedentes) ya está aprobado, queda activo inmediatamente.
                     </p>
                   )}
 

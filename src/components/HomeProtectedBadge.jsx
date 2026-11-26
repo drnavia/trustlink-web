@@ -126,7 +126,7 @@ export function HomeProtectedBadge({ variant = 'compact' }) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] opacity-90">
         <div className="rounded-xl p-2.5 bg-black/25 border border-white/10">
           <strong className="block text-emerald-300">1. Ingreso verificado</strong>
-          DNI, antecedentes y póliza ART validados al momento de escanear en garita.
+          DNI, póliza ART y antecedentes validados al momento de escanear en garita.
         </div>
         <div className="rounded-xl p-2.5 bg-black/25 border border-white/10">
           <strong className="block text-emerald-300">2. Pago y conformidad</strong>

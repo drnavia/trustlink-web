@@ -61,13 +61,13 @@ const TRUST_SCALE_ITEMS = [
     level: 2,
     label: 'Respaldo Parcial',
     tone: 'sky',
-    desc: 'Antecedentes o ART vigentes cargados. Solo consultas, aún sin Pase QR.',
+    desc: 'Póliza ART o Antecedentes vigentes cargados. Solo consultas, aún sin Pase QR.',
   },
   {
     level: 3,
     label: 'Doc. en validación',
     tone: 'teal',
-    desc: 'Antecedentes y ART cargados, en cola de aprobación de TrustLink.',
+    desc: 'Póliza ART y Antecedentes cargados, en cola de aprobación de TrustLink.',
   },
   {
     level: 4,
@@ -182,16 +182,6 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
       title: identityOk ? 'Identidad (DNI) validada' : 'Identidad (DNI) pendiente de validación',
     },
     {
-      key: 'criminal',
-      label: 'Antecedentes',
-      state: criminalExpired ? 'expired' : criminalOk ? 'ok' : 'pending',
-      title: criminalExpired
-        ? 'Antecedentes Penales vencidos'
-        : criminalOk
-          ? 'Antecedentes Penales vigentes'
-          : 'Antecedentes Penales aún no cargados',
-    },
-    {
       key: 'art',
       label: 'ART',
       state: artExpired ? 'expired' : artOk ? 'ok' : 'pending',
@@ -200,6 +190,16 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
         : artOk
           ? 'Póliza ART / Seguro vigente'
           : 'Póliza ART / Seguro aún no cargada',
+    },
+    {
+      key: 'criminal',
+      label: 'Antecedentes',
+      state: criminalExpired ? 'expired' : criminalOk ? 'ok' : 'pending',
+      title: criminalExpired
+        ? 'Antecedentes Penales vencidos'
+        : criminalOk
+          ? 'Antecedentes Penales vigentes'
+          : 'Antecedentes Penales aún no cargados',
     },
     {
       key: 'qr',
@@ -259,7 +259,7 @@ export function TrustLevelMeter({ level = 0, isDanger = false }) {
   const segmentTitles = [
     'N1 · Perfil Básico (DNI + Especialidad)',
     'N2 · Respaldo Parcial (1 doc. vigente)',
-    'N3 · Doc. Completa (Antecedentes + ART)',
+    'N3 · Doc. Completa (ART + Antecedentes)',
     'N4 · Verificado TrustLink (Habilita Pase QR)',
     'N5 · Socio Verificado (Prioridad + Insignia dorada)',
   ];

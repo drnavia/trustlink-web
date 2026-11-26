@@ -383,10 +383,10 @@ export default function AdminComplianceView() {
             person.dni_document_url ? 'DNI cargado · falta validar DNI' : 'Falta cargar/validar DNI'
           );
         }
-        if (!criminalUrl) missingReasons.push('Falta Antecedentes');
-        else if (crimExpMeta.isExpired) missingReasons.push('Antecedentes vencidos');
         if (!insuranceUrl) missingReasons.push('Falta Póliza ART');
         else if (artExpMeta.isExpired) missingReasons.push('Póliza ART vencida');
+        if (!criminalUrl) missingReasons.push('Falta Antecedentes');
+        else if (crimExpMeta.isExpired) missingReasons.push('Antecedentes vencidos');
         if (!hasAnySpecialty) missingReasons.push('Falta especialidad');
         else if (!hasVisibleApprovedSpec && approvedSpecs.length > 0) {
           missingReasons.push('Especialidades ocultas en directorio');
@@ -924,13 +924,13 @@ export default function AdminComplianceView() {
     const canApproveLevel4 = hasCriminalOk && hasArtOk;
 
     const waitingDocsLabel =
-      person.readiness?.criminalExpired || person.readiness?.artExpired
+      person.readiness?.artExpired || person.readiness?.criminalExpired
         ? 'Renovar docs vencidos'
-        : !hasCriminal && !hasArt
-          ? 'Esperando Antec. y ART'
-          : !hasCriminal
-            ? 'Esperando Antecedentes'
-            : 'Esperando Póliza ART';
+        : !hasArt && !hasCriminal
+          ? 'Esperando ART y Antec.'
+          : !hasArt
+            ? 'Esperando Póliza ART'
+            : 'Esperando Antecedentes';
 
     const canRejectOrRevoke =
       person.isPersonApproved ||
@@ -944,14 +944,14 @@ export default function AdminComplianceView() {
               type="button"
               onClick={() => handleUpdateUserCompliance(person.user_id, 'approved')}
               disabled={isBusy}
-              title="Aprueba Antecedentes + ART vigentes y sube al prestador a Nivel 4 (Verificado + Pases QR)"
+              title="Aprueba Póliza ART + Antecedentes vigentes y sube al prestador a Nivel 4 (Verificado + Pases QR)"
               className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
             >
               <CheckCheck size={13} /> {isBusy ? 'Aprobando...' : 'Aprobar Verificado (→ N4)'}
             </button>
           ) : (
             <span
-              title="Para aprobar a Nivel 4 (Verificado) el prestador primero debe cargar Antecedentes Penales y Póliza ART vigentes"
+              title="Para aprobar a Nivel 4 (Verificado) el prestador primero debe cargar Póliza ART y Antecedentes Penales vigentes"
               className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border border-white/12 bg-black/25 opacity-80 whitespace-nowrap"
             >
               {waitingDocsLabel}
@@ -1300,40 +1300,6 @@ export default function AdminComplianceView() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-bold text-[11px] inline-flex items-center gap-1">
-                            <FileText size={12} className="text-sky-400 shrink-0" />
-                            Antecedentes
-                          </span>
-                          {person.criminal_record_url && (
-                            <a
-                              href={person.criminal_record_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[11px] font-bold text-sky-300 underline underline-offset-2 hover:text-sky-200"
-                            >
-                              Abrir PDF
-                            </a>
-                          )}
-                        </div>
-                        {person.criminal_record_url ? (
-                          <div
-                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
-                          >
-                            <Calendar size={10} className="shrink-0" />
-                            <span>{criminalMeta.label}</span>
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
-                            ✗ Falta cargar
-                          </span>
-                        )}
-                      </div>
-
-                      <div
-                        className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
-                        style={cardStyle}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-[11px] inline-flex items-center gap-1">
                             <FileText size={12} className="text-emerald-400 shrink-0" />
                             Póliza ART
                           </span>
@@ -1354,6 +1320,40 @@ export default function AdminComplianceView() {
                           >
                             <Calendar size={10} className="shrink-0" />
                             <span>{artMeta.label}</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                            ✗ Falta cargar
+                          </span>
+                        )}
+                      </div>
+
+                      <div
+                        className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
+                        style={cardStyle}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-[11px] inline-flex items-center gap-1">
+                            <FileText size={12} className="text-sky-400 shrink-0" />
+                            Antecedentes
+                          </span>
+                          {person.criminal_record_url && (
+                            <a
+                              href={person.criminal_record_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-bold text-sky-300 underline underline-offset-2 hover:text-sky-200"
+                            >
+                              Abrir PDF
+                            </a>
+                          )}
+                        </div>
+                        {person.criminal_record_url ? (
+                          <div
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
+                          >
+                            <Calendar size={10} className="shrink-0" />
+                            <span>{criminalMeta.label}</span>
                           </div>
                         ) : (
                           <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
@@ -1489,7 +1489,7 @@ export default function AdminComplianceView() {
                         ) : person.phone ? (
                           <a
                             href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
-                              `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tu DNI, Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                              `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tu DNI, Póliza ART, Antecedentes Penales y tu especialidad desde tu Portal Prestador.`
                             )}`}
                             target="_blank"
                             rel="noreferrer"
@@ -1595,29 +1595,6 @@ export default function AdminComplianceView() {
                             </span>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5">
-                            {person.criminal_record_url ? (
-                              <>
-                                <a
-                                  href={person.criminal_record_url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[11px] font-bold text-sky-300 underline"
-                                >
-                                  Antec.
-                                </a>
-                                <span
-                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
-                                >
-                                  {criminalMeta.label}
-                                </span>
-                              </>
-                            ) : (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
-                                ✗ Falta Antecedentes
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-1.5">
                             {person.insurance_policy_url ? (
                               <>
                                 <a
@@ -1637,6 +1614,29 @@ export default function AdminComplianceView() {
                             ) : (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
                                 ✗ Falta Póliza ART
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {person.criminal_record_url ? (
+                              <>
+                                <a
+                                  href={person.criminal_record_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] font-bold text-sky-300 underline"
+                                >
+                                  Antec.
+                                </a>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
+                                >
+                                  {criminalMeta.label}
+                                </span>
+                              </>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                                ✗ Falta Antecedentes
                               </span>
                             )}
                           </div>
@@ -1793,7 +1793,7 @@ export default function AdminComplianceView() {
                               {person.phone && (
                                 <a
                                   href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
-                                    `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tu DNI, Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                                    `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tu DNI, Póliza ART, Antecedentes Penales y tu especialidad desde tu Portal Prestador.`
                                   )}`}
                                   target="_blank"
                                   rel="noreferrer"
