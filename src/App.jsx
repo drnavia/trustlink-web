@@ -39,6 +39,7 @@ import {
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
 import { AuthProvider, useAuth } from './modules/auth/AuthContext';
+import { VerifiedSeal } from './components/ProviderTrustBadge';
 
 // Carga diferida (code-splitting) de cada módulo para reducir el bundle inicial
 const LandingHome = lazy(() => import('./modules/landing/LandingHome'));
@@ -1546,18 +1547,20 @@ function MainAppContent() {
           <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
             {/* Izquierda: Ancla compacta de nivel de confianza y scoring */}
             <div className="inline-flex items-center gap-2 py-1.5 text-[11px] sm:text-xs font-medium opacity-90 min-w-0">
-              <ShieldCheck
-                size={13}
-                className={`shrink-0 ${
-                  Number(providerHeaderMeta.trustLevel) >= 4
-                    ? 'text-emerald-400'
-                    : Number(providerHeaderMeta.trustLevel) >= 3
+              {Number(providerHeaderMeta.trustLevel) >= 4 ? (
+                <VerifiedSeal size={15} />
+              ) : (
+                <ShieldCheck
+                  size={13}
+                  className={`shrink-0 ${
+                    Number(providerHeaderMeta.trustLevel) >= 3
                       ? 'text-teal-400'
                       : isDarkTheme
                         ? 'text-sky-400'
                         : 'text-sky-600'
-                }`}
-              />
+                  }`}
+                />
+              )}
               <span className="truncate font-semibold">
                 {providerHeaderMeta.trustLevel > 0
                   ? `N${providerHeaderMeta.trustLevel} · ${providerHeaderMeta.trustLabel}`

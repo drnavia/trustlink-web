@@ -82,6 +82,42 @@ const TRUST_SCALE_ITEMS = [
 ];
 
 /**
+ * Sello oficial de verificación estilo X / Instagram (celeste/azul `#1D9BF0` con tilde blanco).
+ * Reservado exclusivamente para prestadores en **Nivel 4 (Verificado TrustLink)**.
+ */
+export function VerifiedSeal({
+  size = 16,
+  title = 'Verificado TrustLink (N4) · Documentación cotejada',
+  className = '',
+}) {
+  return (
+    <span
+      title={title}
+      aria-label={title}
+      className={`inline-flex items-center justify-center shrink-0 align-middle ${className}`}
+    >
+      <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        aria-hidden="true"
+      >
+        <path
+          d="M22.25 12c0-1.43-.88-2.67-2.19-3.34.46-1.39.2-2.9-.81-3.91s-2.52-1.27-3.91-.81c-.66-1.31-1.91-2.19-3.34-2.19s-2.67.88-3.33 2.19c-1.4-.46-2.91-.2-3.92.81s-1.26 2.52-.8 3.91c-1.31.67-2.2 1.91-2.2 3.34s.89 2.67 2.2 3.34c-.46 1.39-.21 2.9.8 3.91s2.52 1.26 3.91.81c.67 1.31 1.91 2.19 3.34 2.19s2.68-.88 3.34-2.19c1.39.45 2.9.2 3.91-.81s1.27-2.52.81-3.91c1.31-.67 2.19-1.91 2.19-3.34z"
+          fill="#1D9BF0"
+        />
+        <path
+          d="M10.54 16.2L6.8 12.46l1.41-1.42 2.33 2.33 5.25-5.25 1.41 1.42-6.66 6.66z"
+          fill="#FFFFFF"
+        />
+      </svg>
+    </span>
+  );
+}
+
+/**
  * Renderiza la insignia de nivel de confianza del prestador (`0..4`).
  */
 export default function ProviderTrustBadge({
@@ -94,8 +130,12 @@ export default function ProviderTrustBadge({
   if (!trust || !trust.label) return null;
 
   const toneKey = trust.tone && TONE_STYLES[trust.tone] ? trust.tone : 'slate';
-  const { cls, Icon } = TONE_STYLES[toneKey];
   const levelNum = Math.min(4, Math.max(0, Number(trust.level ?? 0)));
+  const isOfficialN4 = levelNum >= 4 && toneKey !== 'danger';
+  const { cls: baseCls, Icon } = TONE_STYLES[toneKey];
+  const cls = isOfficialN4
+    ? 'border-sky-400/60 bg-sky-500/18 text-sky-100 shadow-xs shadow-sky-500/10'
+    : baseCls;
   const tooltip = [
     `Nivel ${levelNum}/4 · ${trust.label}`,
     trust.sublabel,
@@ -117,7 +157,11 @@ export default function ProviderTrustBadge({
       title={tooltip}
       className={`inline-flex items-center rounded-lg border font-bold whitespace-nowrap shrink-0 ${cls} ${sizeClass}`}
     >
-      <Icon size={iconSize} className="shrink-0" />
+      {isOfficialN4 ? (
+        <VerifiedSeal size={iconSize + 3} title={tooltip} />
+      ) : (
+        <Icon size={iconSize} className="shrink-0" />
+      )}
       {showLevel && <span className="opacity-80 font-mono">N{levelNum}</span>}
       <span>{trust.label}</span>
       {showScale && (
@@ -331,7 +375,7 @@ export function TrustLevelsGuide({ innerStyle, onClose }) {
             key={item.level}
             className={`rounded-xl p-2.5 border space-y-1.5 ${
               item.level === 4
-                ? 'border-emerald-500/45 bg-emerald-500/10'
+                ? 'border-sky-400/50 bg-sky-500/10'
                 : item.level === 3
                   ? 'border-teal-400/40 bg-teal-500/10'
                   : 'border-white/10 bg-black/20'

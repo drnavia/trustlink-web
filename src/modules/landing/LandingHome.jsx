@@ -39,6 +39,7 @@ import ProviderTrustBadge, {
   FeaturedPartnerBadge,
   TrustChecksStrip,
   TrustLevelsGuide,
+  VerifiedSeal,
 } from '../../components/ProviderTrustBadge';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 
@@ -715,10 +716,10 @@ export default function LandingHome({
                 : 'border-white/12 opacity-80 hover:opacity-100'
             }`}
             style={onlyVerified ? undefined : innerStyle}
-            title="Mostrar solo prestadores Nivel 4–5 habilitados para Pase QR"
+            title="Mostrar solo prestadores Nivel 3 (Pase QR habilitado) y Nivel 4 (Verificado) con documentación vigente"
           >
             <ShieldCheck size={12} />
-            <span>Solo Verificados (QR)</span>
+            <span>Con Pase QR (N3–N4)</span>
           </button>
 
           <button
@@ -847,7 +848,7 @@ export default function LandingHome({
                       {/* 1. Insignia N1–N4 + Destacado (Eje Comercial) + Rating */}
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                          <ProviderTrustBadge trust={prov.trust_badge} showScale compact />
+                          <ProviderTrustBadge trust={prov.trust_badge} compact />
                           {isFeatured && <FeaturedPartnerBadge compact />}
                         </div>
                         <span
@@ -867,10 +868,11 @@ export default function LandingHome({
                         </span>
                       </div>
 
-                      {/* 2. Nombre + Rubros */}
+                      {/* 2. Nombre (+ tilde N4 estilo Instagram/X) + Rubros */}
                       <div className="space-y-1.5">
-                        <h3 className="text-sm sm:text-base font-extrabold leading-snug truncate">
-                          {prov.display_name}
+                        <h3 className="text-sm sm:text-base font-extrabold leading-snug inline-flex items-center gap-1.5 max-w-full">
+                          <span className="truncate">{prov.display_name}</span>
+                          {level >= 4 && !prov.has_expired_docs && <VerifiedSeal size={16} />}
                         </h3>
                         <div className="flex flex-wrap items-center gap-1">
                           {specs.slice(0, 3).map((spec) => (

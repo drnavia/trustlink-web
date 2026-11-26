@@ -60,6 +60,7 @@ import ProviderCalendarManager from '../../components/ProviderCalendarManager';
 import ProviderTrustBadge, {
   FeaturedPartnerBadge,
   TrustChecksStrip,
+  VerifiedSeal,
 } from '../../components/ProviderTrustBadge';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
@@ -820,7 +821,6 @@ export default function ProviderDashboard({
 
       const resolvedUrl = latestVersion?.document_url || profUrl || '';
       const resolvedFrom = latestVersion?.valid_from || latestVersion?.created_at || profFrom || null;
-      const resolvedTo = latestVersion?.valid_to || profTo || null;
       const resolvedMetadata =
         (latestVersion?.metadata && typeof latestVersion.metadata === 'object'
           ? latestVersion.metadata
@@ -835,6 +835,14 @@ export default function ProviderDashboard({
             resolvedFrom ||
             null
           : null;
+      let resolvedTo = latestVersion?.valid_to || profTo || null;
+      if (slot === 'criminal' && !resolvedTo && resolvedIssuedAt) {
+        const issuedDate = new Date(resolvedIssuedAt);
+        if (!Number.isNaN(issuedDate.getTime())) {
+          issuedDate.setDate(issuedDate.getDate() + 180);
+          resolvedTo = issuedDate.toISOString().slice(0, 10);
+        }
+      }
       const resolvedAuditStatus =
         latestVersion?.status || fallbackProf?.status || primaryProf?.status || 'pending';
       const isMissing = !resolvedUrl && !resolvedTo && !resolvedIssuedAt;
@@ -2546,12 +2554,7 @@ export default function ProviderDashboard({
                           : 'Cargar Antecedentes',
                         onClick: () => openDocModal('Antecedentes Penales'),
                       }
-                    : isQrReadyOrHigher && !directoryReadiness.isFeaturedPartner
-                      ? {
-                          label: 'Ver Plan Destacado',
-                          onClick: () => setShowMembershipPlans(true),
-                        }
-                      : null;
+                    : null;
 
           const levelSteps = [
             {
@@ -2709,11 +2712,10 @@ export default function ProviderDashboard({
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap font-bold">
-                    {isQrReadyOrHigher ? (
-                      <CheckCircle2
-                        size={15}
-                        className={level >= 4 ? 'text-emerald-400 shrink-0' : 'text-teal-400 shrink-0'}
-                      />
+                    {isQrReadyOrHigher && level >= 4 ? (
+                      <VerifiedSeal size={17} />
+                    ) : isQrReadyOrHigher ? (
+                      <CheckCircle2 size={15} className="text-teal-400 shrink-0" />
                     ) : (
                       <AlertCircle
                         size={15}
@@ -2730,7 +2732,7 @@ export default function ProviderDashboard({
                       Nivel {level} / 4 · {directoryReadiness.resolvedTrustBadge?.label}
                     </span>
                     <span className="text-[11px] font-semibold opacity-80">
-                      — {directoryReadiness.visibilityLabel}
+                      — {level >= 4 && isQrReadyOrHigher ? 'Pase QR habilitado' : directoryReadiness.visibilityLabel}
                     </span>
                     {directoryReadiness.isFeaturedPartner && <FeaturedPartnerBadge compact />}
                   </div>
@@ -3687,20 +3689,26 @@ export default function ProviderDashboard({
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-sm">{displayDocTitle}</span>
-                            <span
-                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                validity.tone === 'success'
-                                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                                  : validity.tone === 'warning'
-                                  ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
-                                  : validity.tone === 'danger'
-                                  ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                                  : 'border-slate-700'
-                              }`}
-                              style={validity.tone === 'neutral' ? cardStyle : undefined}
-                            >
-                              {validity.label}
-                            </span>
+                            {docItem.validTo ? (
+                              <span
+                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                  validity.tone === 'success'
+                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
+                                    : validity.tone === 'warning'
+                                    ? 'bg-amber-950/80 text-amber-300 border-amber-700/60'
+                                    : validity.tone === 'danger'
+                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
+                                    : 'border-slate-700'
+                                }`}
+                                style={validity.tone === 'neutral' ? cardStyle : undefined}
+                              >
+                                {validity.label}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-600/50 bg-amber-950/60 text-amber-200">
+                                Falta vencimiento
+                              </span>
+                            )}
                             <span
                               className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                 auditMeta.tone === 'success'
@@ -3744,23 +3752,40 @@ export default function ProviderDashboard({
                                 .join(' · ')}
                             </p>
                           )}
-                          {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
                           <p className="opacity-75">
                             {docItem.slot === 'criminal'
-                              ? `Vigencia calculada (estándar 180d): hasta ${formatDateShort(docItem.validTo)}`
-                              : `Vigencia: ${formatDateShort(docItem.validFrom)} → ${formatDateShort(docItem.validTo)}`}
+                              ? docItem.validTo
+                                ? `Vigencia calculada (estándar 180d): hasta ${formatDateShort(docItem.validTo)}`
+                                : 'Cargá la fecha de emisión para calcular vigencia por barrio.'
+                              : docItem.validTo
+                                ? `Vigencia: ${formatDateShort(docItem.validFrom)} → ${formatDateShort(docItem.validTo)}`
+                                : `Desde ${formatDateShort(docItem.validFrom)} · Cargá la fecha de vencimiento con "Renovar / Editar"`}
                           </p>
-                          {docItem.slot === 'criminal' && (
-                            <a
-                              href={CRIMINAL_RECORD_OFFICIAL_URL}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 pt-0.5"
-                            >
-                              <span>Tramitar / renovar en Argentina.gob.ar</span>
-                              <ExternalLink size={11} />
-                            </a>
-                          )}
+                          <div className="flex flex-wrap items-center gap-3 pt-0.5">
+                            {docItem.url && (
+                              <a
+                                href={docItem.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title={docItem.url}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-300 hover:text-emerald-200 underline underline-offset-2"
+                              >
+                                <span>Ver comprobante PDF</span>
+                                <ExternalLink size={11} />
+                              </a>
+                            )}
+                            {docItem.slot === 'criminal' && (
+                              <a
+                                href={CRIMINAL_RECORD_OFFICIAL_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2"
+                              >
+                                <span>Tramitar / renovar en Argentina.gob.ar</span>
+                                <ExternalLink size={11} />
+                              </a>
+                            )}
+                          </div>
                         </div>
 
                         <button
@@ -4054,7 +4079,7 @@ export default function ProviderDashboard({
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3">
                           <div className="space-y-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-sm">{p.specialty}</span>
@@ -4071,43 +4096,50 @@ export default function ProviderDashboard({
                                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-500/45 bg-amber-950/60 text-amber-200">
                                   Rubro en revisión
                                 </span>
-                              ) : !isHidden && directoryReadiness.canIssuePass && p.status === 'approved' ? (
+                              ) : isHidden ? (
+                                <span
+                                  className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700 opacity-85"
+                                  style={cardStyle}
+                                >
+                                  Oculta en directorio
+                                </span>
+                              ) : directoryReadiness.canIssuePass && p.status === 'approved' ? (
                                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-950/80 text-emerald-300 border-emerald-700/60">
                                   Pase QR activo
                                 </span>
-                              ) : !isHidden && directoryReadiness.isVisibleInDirectory ? (
+                              ) : directoryReadiness.isVisibleInDirectory ? (
                                 <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-sky-950/70 text-sky-200 border-sky-600/55">
                                   Solo consultas
                                 </span>
-                              ) : !isHidden ? (
+                              ) : (
                                 <span
                                   className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
                                   style={cardStyle}
                                 >
                                   Pendiente de validación
                                 </span>
-                              ) : null}
-                              <span
-                                className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
-                                style={cardStyle}
-                              >
-                                {isHidden ? 'Oculta' : 'Visible'}
-                              </span>
+                              )}
                             </div>
                             {p.is_custom_specialty && p.custom_specialty_description && (
                               <p className="text-[11px] opacity-85 italic">
                                 &ldquo;{p.custom_specialty_description}&rdquo;
                               </p>
                             )}
-                            <p className="opacity-75">
-                              {p.status === 'approved'
-                                ? 'Habilitada y visible según tu configuración en el directorio.'
-                                : p.is_custom_specialty && p.specialty_approval_status === 'pending'
-                                ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
-                                : directoryReadiness.isVisibleInDirectory && !isHidden
-                                ? 'Visible para consultas (Nivel 1–3). Al aprobar tu documentación habilitará Pases QR.'
-                                : 'Se publicará en el directorio al validar tu DNI o documentación.'}
-                            </p>
+                            {(isHidden ||
+                              p.status !== 'approved' ||
+                              (p.is_custom_specialty &&
+                                p.specialty_approval_status === 'pending')) && (
+                              <p className="opacity-75 text-[11px]">
+                                {isHidden
+                                  ? 'Oculta manualmente: los residentes no verán este rubro hasta que lo vuelvas a mostrar.'
+                                  : p.is_custom_specialty &&
+                                      p.specialty_approval_status === 'pending'
+                                    ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
+                                    : directoryReadiness.isVisibleInDirectory
+                                      ? 'Visible para consultas (Nivel 1–2). Al aprobar documentación habilitará Pases QR.'
+                                      : 'Se publicará en el directorio al validar tu DNI y documentación.'}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">

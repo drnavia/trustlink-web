@@ -60,6 +60,7 @@ import ProviderTrustBadge, {
   FeaturedPartnerBadge,
   TrustChecksStrip,
   TrustLevelsGuide,
+  VerifiedSeal,
 } from '../../components/ProviderTrustBadge';
 import {
   HomeProtectedBadge,
@@ -2858,10 +2859,10 @@ export default function ResidentDashboard({
                   : 'border-white/12 opacity-80 hover:opacity-100'
               }`}
               style={onlyVerified ? undefined : innerStyle}
-              title="Mostrar solo prestadores con Nivel 4 (Verificado) o Nivel 5 (Socio Verificado) habilitados para Pase QR"
+              title="Mostrar solo prestadores Nivel 3 (Pase QR habilitado) y Nivel 4 (Verificado) con documentación vigente"
             >
               <ShieldCheck size={12} />
-              <span>Solo Verificados (QR)</span>
+              <span>Con Pase QR (N3–N4)</span>
             </button>
 
             <button
@@ -3034,7 +3035,7 @@ export default function ResidentDashboard({
                   : isFeaturedPartner
                     ? 'border-amber-400/40 bg-amber-500/12'
                     : trustLevel >= 4
-                      ? 'border-emerald-500/35 bg-emerald-500/10'
+                      ? 'border-sky-400/40 bg-sky-500/10'
                       : trustLevel === 3
                         ? 'border-teal-500/35 bg-teal-500/10'
                         : 'border-white/10 bg-black/15';
@@ -3043,7 +3044,7 @@ export default function ResidentDashboard({
                   : isFeaturedPartner
                     ? 'border-amber-400/55 ring-1 ring-amber-400/20'
                     : trustLevel >= 4
-                      ? 'border-emerald-500/40'
+                      ? 'border-sky-400/45'
                       : trustLevel === 3
                         ? 'border-teal-500/40'
                         : 'border-white/10';
@@ -3074,7 +3075,7 @@ export default function ResidentDashboard({
                         className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${headerBandClass}`}
                       >
                         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                          <ProviderTrustBadge trust={cardTrust} showScale compact />
+                          <ProviderTrustBadge trust={cardTrust} compact />
                           {isFeaturedPartner && !hasExpiredDocs && (
                             <FeaturedPartnerBadge compact label={membershipBadgeLabel} />
                           )}
@@ -3118,9 +3119,10 @@ export default function ResidentDashboard({
                           <button
                             type="button"
                             onClick={() => openProviderProfile(provider, 'overview')}
-                            className="text-left text-sm sm:text-base font-extrabold leading-snug hover:underline cursor-pointer block truncate w-full"
+                            className="inline-flex items-center gap-1.5 max-w-full text-left text-sm sm:text-base font-extrabold leading-snug hover:underline cursor-pointer"
                           >
-                            {fullName}
+                            <span className="truncate">{fullName}</span>
+                            {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={16} />}
                           </button>
 
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -3190,10 +3192,18 @@ export default function ResidentDashboard({
                         {activeVisit && (
                           <div className="pt-0.5">
                             <span
-                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitMeta.badgeClass}`}
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                                visitMeta.isConfirmed && !canIssueQrForCard
+                                  ? 'border-amber-500/45 bg-amber-950/45 text-amber-200'
+                                  : visitMeta.badgeClass
+                              }`}
                             >
                               <Calendar size={10} />
-                              <span>{visitMeta.label}</span>
+                              <span>
+                                {visitMeta.isConfirmed && !canIssueQrForCard
+                                  ? 'Visita acordada · Pendiente N3 para QR'
+                                  : visitMeta.label}
+                              </span>
                             </span>
                           </div>
                         )}
@@ -3234,8 +3244,7 @@ export default function ResidentDashboard({
                           <button
                             type="button"
                             onClick={() => openServicesView('visits')}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 opacity-85 hover:opacity-100 cursor-pointer"
-                            style={innerStyle}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
                           >
                             <Calendar size={13} />
                             <span>Ver acuerdo</span>
@@ -3282,10 +3291,9 @@ export default function ResidentDashboard({
                         <button
                           type="button"
                           onClick={() => openVisitModalForProvider(provider)}
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/20 hover:opacity-95 cursor-pointer"
-                          style={innerStyle}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
                         >
-                          <Calendar size={13} className="opacity-80" />
+                          <Calendar size={13} />
                           <span>Consultar</span>
                         </button>
                       )}
@@ -5702,7 +5710,10 @@ export default function ResidentDashboard({
                           : 'Nuevo'}
                       </span>
                     </div>
-                    <h3 className="text-lg font-black tracking-tight">{fullName}</h3>
+                    <h3 className="text-lg font-black tracking-tight inline-flex items-center gap-2">
+                      <span>{fullName}</span>
+                      {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={19} />}
+                    </h3>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {specialties.map((spec) => (
                         <span
