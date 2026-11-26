@@ -369,6 +369,7 @@ export default function ResidentDashboard({
   // Solicitudes / coordinación de visita del residente
   const [myVisits, setMyVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitStatusFilter, setVisitStatusFilter] = useState('all');
   const [visitModalProvider, setVisitModalProvider] = useState(null);
   const [visitFraction, setVisitFraction] = useState('');
   const [visitLot, setVisitLot] = useState('');
@@ -431,6 +432,7 @@ export default function ResidentDashboard({
   // Contratos / Pagos / Nueva Orden desde Pase QR / Conformidad / Comprobante / Reclamos
   const [contracts, setContracts] = useState([]);
   const [loadingContracts, setLoadingContracts] = useState(false);
+  const [contractStatusFilter, setContractStatusFilter] = useState('all');
   const [gatewayConfig, setGatewayConfig] = useState({
     gateway_mode: 'mock',
     sandbox: false,
@@ -454,6 +456,7 @@ export default function ResidentDashboard({
   // Reseñas y reputación cruzada (con micro-tags tocables por contrato)
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(false);
+  const [reviewStatusFilter, setReviewStatusFilter] = useState('all');
   const [ratingByContract, setRatingByContract] = useState({});
   const [commentByContract, setCommentByContract] = useState({});
   const [reviewTagsByContract, setReviewTagsByContract] = useState({});
@@ -1874,10 +1877,101 @@ export default function ResidentDashboard({
     }
   };
 
-  // Contador de contratos con pago pendiente para el acceso rápido en la cabecera del portal
+  // Contadores accionables y filtros derivados por paso (evita recalcular dentro del JSX)
   const pendingContractsCount = contracts.filter(
     (c) => String(c.status || '').toLowerCase() === 'pending'
   ).length;
+
+  const pendingResidentVisitsCount = myVisits.filter(
+    (v) => String(v.status || '').toLowerCase() === 'pending_resident'
+  ).length;
+
+  const hasActiveDirectoryFilters = Boolean(
+    searchTerm.trim() ||
+      selectedSpecialty !== 'Todos' ||
+      onlyFavorites ||
+      onlyAvailableToday ||
+      onlyEmergencies ||
+      onlyVerified ||
+      onlyVerifiedMembers
+  );
+
+  const resetDirectoryFilters = () => {
+    setSearchTerm('');
+    setSelectedSpecialty('Todos');
+    setOnlyFavorites(false);
+    setOnlyAvailableToday(false);
+    setOnlyEmergencies(false);
+    setOnlyVerified(false);
+    setOnlyVerifiedMembers(false);
+  };
+
+  const { visitFilterCounts, filteredMyVisits } = useMemo(() => {
+    const counts = myVisits.reduce(
+      (acc, v) => {
+        const st = String(v.status || '').toLowerCase();
+        acc.all += 1;
+        if (st === 'pending_resident') acc.to_confirm += 1;
+        else if (st === 'confirmed') acc.confirmed += 1;
+        else if (st === 'declined' || st === 'cancelled') acc.closed += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { all: 0, to_confirm: 0, pending: 0, confirmed: 0, closed: 0 }
+    );
+    const list = myVisits.filter((v) => {
+      const st = String(v.status || '').toLowerCase();
+      if (visitStatusFilter === 'to_confirm') return st === 'pending_resident';
+      if (visitStatusFilter === 'pending') return st === 'pending_provider' || st === 'pending';
+      if (visitStatusFilter === 'confirmed') return st === 'confirmed';
+      if (visitStatusFilter === 'closed') return st === 'declined' || st === 'cancelled';
+      return true;
+    });
+    return { visitFilterCounts: counts, filteredMyVisits: list };
+  }, [myVisits, visitStatusFilter]);
+
+  const { contractFilterCounts, filteredContracts } = useMemo(() => {
+    const counts = contracts.reduce(
+      (acc, c) => {
+        const st = String(c.status || '').toLowerCase();
+        const hasDispute = Number(c.open_disputes_count || 0) > 0;
+        acc.all += 1;
+        if (st === 'completed') acc.completed += 1;
+        else acc.active += 1;
+        if (hasDispute) acc.disputes += 1;
+        return acc;
+      },
+      { all: 0, active: 0, completed: 0, disputes: 0 }
+    );
+    const list = contracts.filter((c) => {
+      const st = String(c.status || '').toLowerCase();
+      const hasDispute = Number(c.open_disputes_count || 0) > 0;
+      if (contractStatusFilter === 'active') return st !== 'completed';
+      if (contractStatusFilter === 'completed') return st === 'completed';
+      if (contractStatusFilter === 'disputes') return hasDispute;
+      return true;
+    });
+    return { contractFilterCounts: counts, filteredContracts: list };
+  }, [contracts, contractStatusFilter]);
+
+  const { reviewFilterCounts, filteredReviewContracts } = useMemo(() => {
+    const counts = reviewContracts.reduce(
+      (acc, item) => {
+        acc.all += 1;
+        if (item.provider_review_rating) acc.rated += 1;
+        else acc.unrated += 1;
+        return acc;
+      },
+      { all: 0, unrated: 0, rated: 0 }
+    );
+    const list = reviewContracts.filter((item) => {
+      const rated = Boolean(item.provider_review_rating);
+      if (reviewStatusFilter === 'unrated') return !rated;
+      if (reviewStatusFilter === 'rated') return rated;
+      return true;
+    });
+    return { reviewFilterCounts: counts, filteredReviewContracts: list };
+  }, [reviewContracts, reviewStatusFilter]);
 
   // Definición del flujo guiado de 5 pasos con sus contadores e íconos respectivos
   const steps = [
@@ -1892,7 +1986,7 @@ export default function ResidentDashboard({
       id: 'visits',
       stepNumber: 2,
       label: 'Visitas',
-      count: myVisits.length,
+      count: pendingResidentVisitsCount || myVisits.length,
       icon: Calendar,
     },
     {
@@ -1905,7 +1999,7 @@ export default function ResidentDashboard({
     {
       id: 'payments',
       stepNumber: 4,
-      label: 'Visitas y Pagos',
+      label: 'Pagos y Servicios',
       count: contracts.length,
       icon: CreditCard,
     },
@@ -1913,38 +2007,53 @@ export default function ResidentDashboard({
       id: 'reviews',
       stepNumber: 5,
       label: 'Reseñas',
-      count: reviewContracts.length,
+      count: reviewFilterCounts.unrated || reviewContracts.length,
       icon: MessageSquare,
     },
   ];
 
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Cabecera principal del Portal Residente con alerta de pagos pendientes y refresco global */}
+      {/* Cabecera principal del Portal Residente con alertas accionables y refresco global */}
       <div
-        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
         style={cardStyle}
       >
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
             <ShieldCheck size={14} />
             <span>Portal Residente</span>
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
             <Users size={20} className="text-emerald-400 shrink-0" />
-            <span>Servicios verificados y pases de ingreso</span>
+            <span>Prestadores, visitas y pases QR</span>
           </h1>
           <p className="text-xs sm:text-sm opacity-80">
-            Coordiná disponibilidad con el prestador, confirmá visitas, emití pases QR y gestioná pagos y reseñas.
+            Compará niveles de confianza, coordiná visitas, emití pases QR y gestioná pagos y reseñas.
           </p>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+        <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap shrink-0 self-start lg:self-auto">
+          {pendingResidentVisitsCount > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setVisitStatusFilter('to_confirm');
+                setActiveStep('visits');
+              }}
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-sky-400/50 bg-sky-950/50 text-sky-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
+            >
+              {pendingResidentVisitsCount} visita(s) por confirmar
+            </button>
+          )}
           {pendingContractsCount > 0 && (
             <button
               type="button"
-              onClick={() => setActiveStep('payments')}
-              className="text-xs font-bold px-3 py-2 rounded-xl border border-amber-500/40 bg-amber-950/50 text-amber-200 cursor-pointer hover:opacity-90"
+              onClick={() => {
+                setContractStatusFilter('active');
+                setActiveStep('payments');
+              }}
+              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-amber-500/40 bg-amber-950/50 text-amber-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
             >
               {pendingContractsCount} pago(s) pendiente(s)
             </button>
@@ -1958,7 +2067,7 @@ export default function ResidentDashboard({
               fetchContractsData();
               fetchReviewsData();
             }}
-            className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
+            className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer shrink-0"
             style={innerStyle}
             title="Actualizar información del portal"
           >
@@ -2220,6 +2329,18 @@ export default function ResidentDashboard({
                 <option value="rating">Mejor calificación</option>
                 <option value="jobs">Más trabajos</option>
               </select>
+
+              {hasActiveDirectoryFilters && (
+                <button
+                  type="button"
+                  onClick={resetDirectoryFilters}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-white/20 opacity-85 hover:opacity-100 cursor-pointer"
+                  style={innerStyle}
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -2241,13 +2362,23 @@ export default function ResidentDashboard({
             </div>
           ) : filteredProviders.length === 0 ? (
             <div
-              className="rounded-xl p-8 border border-white/10 text-center space-y-2"
+              className="rounded-xl p-8 border border-white/10 text-center space-y-2.5"
               style={innerStyle}
             >
               <p className="text-sm font-bold">No se encontraron prestadores con ese filtro</p>
               <p className="text-xs opacity-75">
-                Probá limpiar el buscador o seleccionar otra especialidad.
+                Probá limpiar los filtros activos o seleccionar otra especialidad.
               </p>
+              {hasActiveDirectoryFilters && (
+                <button
+                  type="button"
+                  onClick={resetDirectoryFilters}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <RotateCcw size={12} /> Limpiar filtros
+                </button>
+              )}
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
@@ -2555,97 +2686,125 @@ export default function ResidentDashboard({
                         )}
                       </div>
 
-                      {/* Estado limpio de contacto y confirmación */}
-                      <div
-                        className="rounded-xl p-3 text-xs space-y-1.5 border border-white/10"
-                        style={cardStyle}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-semibold opacity-80">Estado de visita:</span>
-                          <span
-                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${visitMeta.badgeClass}`}
-                          >
-                            {visitMeta.label}
-                          </span>
+                      {/* Contacto y estado de visita (solo muestra caja completa si ya existe una solicitud activa) */}
+                      {activeVisit ? (
+                        <div
+                          className="rounded-xl p-3 text-xs space-y-1.5 border border-white/10"
+                          style={cardStyle}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold opacity-80">Estado de visita:</span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${visitMeta.badgeClass}`}
+                            >
+                              {visitMeta.label}
+                            </span>
+                          </div>
+                          <p className="truncate opacity-80">
+                            ✉️ {provider.email || '—'} · 📞 {provider.phone || 'Sin teléfono'}
+                          </p>
                         </div>
-                        <p className="truncate opacity-80">
+                      ) : (
+                        <p className="text-[11px] truncate opacity-75 px-0.5">
                           ✉️ {provider.email || '—'} · 📞 {provider.phone || 'Sin teléfono'}
                         </p>
-                      </div>
-                    </div>
-
-                    {/* Acciones condicionadas por acuerdo mutuo: Solicitar Visita -> Acordar -> Emitir Pase QR */}
-                    <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                      {visitMeta.isConfirmed ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setActiveStep('visits')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
-                            style={cardStyle}
-                          >
-                            <Calendar size={13} className="text-emerald-400" />
-                            <span>Ver acuerdo</span>
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openQrModalForProvider(provider, {
-                                preferredDate: activeVisit?.preferred_date,
-                                preferredEndDate: activeVisit?.preferred_end_date,
-                              })
-                            }
-                            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                            style={{ backgroundColor: primaryColor }}
-                          >
-                            <QrCode size={14} />
-                            <span>Emitir Pase QR</span>
-                          </button>
-                        </>
-                      ) : visitMeta.isPendingResident ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setActiveStep('visits')}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
-                          >
-                            <Calendar size={13} />
-                            <span>Confirmar nuevo horario (2. Visitas)</span>
-                          </button>
-                        </>
-                      ) : visitMeta.isPendingProvider ? (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setActiveStep('visits')}
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
-                          >
-                            <Clock size={13} />
-                            <span>Seguimiento (2. Visitas)</span>
-                          </button>
-
-                          <span
-                            title="El Pase QR se habilita automáticamente cuando vos y el prestador acuerden fecha y horario"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/10 opacity-55 select-none"
-                            style={cardStyle}
-                          >
-                            <QrCode size={13} />
-                            <span>QR al acordar</span>
-                          </span>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => openVisitModalForProvider(provider)}
-                          className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          <Calendar size={14} />
-                          <span>Solicitar Visita (ver horarios disponibles)</span>
-                        </button>
                       )}
                     </div>
+
+                    {/* Acciones condicionadas por acuerdo mutuo y Nivel 4 (Pase QR solo si can_issue_pass) */}
+                    {(() => {
+                      const canIssueQrForCard =
+                        provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 4;
+                      return (
+                        <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                          {visitMeta.isConfirmed ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setActiveStep('visits')}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <Calendar size={13} className="text-emerald-400" />
+                                <span>Ver acuerdo</span>
+                              </button>
+
+                              {canIssueQrForCard ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openQrModalForProvider(provider, {
+                                      preferredDate: activeVisit?.preferred_date,
+                                      preferredEndDate: activeVisit?.preferred_end_date,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                                  style={{ backgroundColor: primaryColor }}
+                                >
+                                  <QrCode size={14} />
+                                  <span>Emitir Pase QR</span>
+                                </button>
+                              ) : (
+                                <span
+                                  title="Este prestador debe completar su documentación vigente (Nivel 4 Verificado) para emitir Pases QR en garita"
+                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
+                                >
+                                  <QrCode size={13} />
+                                  <span>QR requiere Nivel 4</span>
+                                </span>
+                              )}
+                            </>
+                          ) : visitMeta.isPendingResident ? (
+                            <button
+                              type="button"
+                              onClick={() => setActiveStep('visits')}
+                              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
+                            >
+                              <Calendar size={13} />
+                              <span>Confirmar nuevo horario (2. Visitas)</span>
+                            </button>
+                          ) : visitMeta.isPendingProvider ? (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setActiveStep('visits')}
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
+                              >
+                                <Clock size={13} />
+                                <span>Seguimiento (2. Visitas)</span>
+                              </button>
+
+                              <span
+                                title={
+                                  canIssueQrForCard
+                                    ? 'El Pase QR se habilita automáticamente cuando vos y el prestador acuerden fecha y horario'
+                                    : 'Prestador en Nivel 1–3: podrás coordinar consultas; el Pase QR requiere Nivel 4 Verificado'
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/10 opacity-55 select-none"
+                                style={cardStyle}
+                              >
+                                <QrCode size={13} />
+                                <span>{canIssueQrForCard ? 'QR al acordar' : 'Solo consultas'}</span>
+                              </span>
+                            </>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openVisitModalForProvider(provider)}
+                              className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              <Calendar size={14} />
+                              <span>
+                                {canIssueQrForCard
+                                  ? 'Solicitar Visita (ver horarios disponibles)'
+                                  : 'Consultar / Pedir presupuesto'}
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </article>
                 );
               })}
@@ -2698,27 +2857,66 @@ export default function ResidentDashboard({
             </div>
           )}
 
+          {/* Chips de filtro rápido de visitas por estado */}
+          {myVisits.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todas', count: visitFilterCounts.all },
+                { id: 'to_confirm', label: 'Por confirmar', count: visitFilterCounts.to_confirm },
+                { id: 'pending', label: 'Esperando prestador', count: visitFilterCounts.pending },
+                { id: 'confirmed', label: 'Acordadas', count: visitFilterCounts.confirmed },
+                { id: 'closed', label: 'Cerradas', count: visitFilterCounts.closed },
+              ].map((chip) => {
+                const active = visitStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setVisitStatusFilter(chip.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Estados de carga, agenda vacía o tarjetas de solicitudes de visita */}
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas...</p>
-          ) : myVisits.length === 0 ? (
+          ) : filteredMyVisits.length === 0 ? (
             <div
               className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10 space-y-2"
               style={innerStyle}
             >
-              <p className="font-bold">Todavía no coordinaste visitas con prestadores.</p>
-              <button
-                type="button"
-                onClick={() => setActiveStep('providers')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
-                style={{ backgroundColor: primaryColor }}
-              >
-                Ir a 1. Prestadores
-              </button>
+              <p className="font-bold">
+                {myVisits.length === 0
+                  ? 'Todavía no coordinaste visitas con prestadores.'
+                  : 'No hay visitas en el estado seleccionado.'}
+              </p>
+              {myVisits.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveStep('providers')}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  Ir a 1. Prestadores
+                </button>
+              )}
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
-              {myVisits.map((visit) => {
+              {filteredMyVisits.map((visit) => {
                 const meta = getVisitStatusMeta(visit);
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
                 const isCountering = counterVisitId === visit.id;
@@ -2998,22 +3196,38 @@ export default function ResidentDashboard({
 
                       {meta.isConfirmed ? (
                         <div className="flex flex-wrap items-center justify-between gap-2">
-                          <span className="text-[11px] text-emerald-300 font-semibold inline-flex items-center gap-1">
-                            <CheckCircle2 size={13} /> Acuerdo confirmado · Domicilio y horario precargados
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openQrModalForProvider(matchedProvider, {
-                                preferredDate: visit.preferred_date,
-                                preferredEndDate: visit.preferred_end_date,
-                              })
-                            }
-                            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
-                            style={{ backgroundColor: primaryColor }}
-                          >
-                            <QrCode size={14} /> Emitir Pase QR
-                          </button>
+                          {matchedProvider.can_issue_pass === false || matchedProvider.has_expired_docs ? (
+                            <>
+                              <span className="text-[11px] text-amber-200 font-semibold inline-flex items-center gap-1">
+                                <AlertCircle size={13} /> Acuerdo confirmado · Prestador aún sin Nivel 4 para Pase QR
+                              </span>
+                              <span
+                                title="El prestador debe tener su documentación vigente y aprobada (Nivel 4 Verificado) para habilitar Pase QR"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
+                              >
+                                <QrCode size={13} /> QR requiere Nivel 4
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className="text-[11px] text-emerald-300 font-semibold inline-flex items-center gap-1">
+                                <CheckCircle2 size={13} /> Acuerdo confirmado · Domicilio y horario precargados
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openQrModalForProvider(matchedProvider, {
+                                    preferredDate: visit.preferred_date,
+                                    preferredEndDate: visit.preferred_end_date,
+                                  })
+                                }
+                                className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
+                                style={{ backgroundColor: primaryColor }}
+                              >
+                                <QrCode size={14} /> Emitir Pase QR
+                              </button>
+                            </>
+                          )}
                         </div>
                       ) : meta.isPendingProvider ? (
                         <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
@@ -3067,17 +3281,36 @@ export default function ResidentDashboard({
             </div>
 
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <input
-                type="text"
-                value={passSearch}
-                onChange={(e) => {
-                  setPassSearch(e.target.value);
-                  setPassesPage(1);
-                }}
-                placeholder="Buscar por prestador, lote o token..."
-                className={`w-full sm:w-64 ${FIELD_INPUT_CLASS}`}
-                style={innerStyle}
-              />
+              <div className="relative flex-1 sm:w-64">
+                <Search
+                  size={14}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={passSearch}
+                  onChange={(e) => {
+                    setPassSearch(e.target.value);
+                    setPassesPage(1);
+                  }}
+                  placeholder="Buscar por prestador, lote o token..."
+                  className={`w-full pl-8 pr-8 ${FIELD_INPUT_CLASS}`}
+                  style={innerStyle}
+                />
+                {passSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPassSearch('');
+                      setPassesPage(1);
+                    }}
+                    aria-label="Limpiar búsqueda de pases"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
+              </div>
               <select
                 value={passStatusFilter}
                 onChange={(e) => {
@@ -3093,6 +3326,15 @@ export default function ResidentDashboard({
                 <option value="expired">Vencido</option>
                 <option value="cancelled">Cancelado</option>
               </select>
+              <button
+                type="button"
+                onClick={fetchMyPasses}
+                className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer self-end sm:self-auto"
+                style={innerStyle}
+                title="Actualizar pases QR"
+              >
+                <RefreshCw size={15} className={loadingPasses ? 'animate-spin' : ''} />
+              </button>
             </div>
           </div>
 
@@ -3319,7 +3561,7 @@ export default function ResidentDashboard({
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                 <CreditCard size={18} className="text-emerald-400 shrink-0" />
-                <span>Visitas y Órdenes de Pago</span>
+                <span>Pagos y Servicios</span>
               </h2>
               <p className="text-xs opacity-75">
                 Generá órdenes desde tus pases QR, aboná con desglose transparente (
@@ -3511,22 +3753,57 @@ export default function ResidentDashboard({
             </div>
           )}
 
+          {/* Chips de filtro rápido por estado de contrato/pago */}
+          {contracts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todos', count: contractFilterCounts.all },
+                { id: 'active', label: 'Pendientes / En curso', count: contractFilterCounts.active },
+                { id: 'completed', label: 'Completados', count: contractFilterCounts.completed },
+                ...(contractFilterCounts.disputes > 0
+                  ? [{ id: 'disputes', label: 'Con reclamo', count: contractFilterCounts.disputes }]
+                  : []),
+              ].map((chip) => {
+                const active = contractStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setContractStatusFilter(chip.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Estados de carga, sin contratos o grilla de órdenes de pago */}
           {loadingContracts ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando contratos y pagos...</p>
-          ) : contracts.length === 0 ? (
+          ) : filteredContracts.length === 0 ? (
             <div
               className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10 space-y-3"
               style={innerStyle}
             >
               <p>
-                No hay órdenes de pago registradas todavía. Usá &ldquo;+ Nueva Orden de Pago&rdquo;
-                arriba o generá una orden desde tus Pases QR en el Paso 3.
+                {contracts.length === 0
+                  ? 'No hay órdenes de pago registradas todavía. Usá "+ Nueva Orden de Pago" arriba o generá una orden desde tus Pases QR en el Paso 3.'
+                  : 'No hay contratos en el estado seleccionado.'}
               </p>
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
-              {contracts.map((contract) => {
+              {filteredContracts.map((contract) => {
                 const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
                 const feePercent = Number(gatewayConfig.platform_fee_percent ?? 7);
                 const feeAmount = Number(((totalAmount * feePercent) / 100).toFixed(2));
@@ -3711,19 +3988,52 @@ export default function ResidentDashboard({
             </div>
           )}
 
+          {/* Chips de filtro rápido: Por calificar / Ya calificadas / Todas */}
+          {reviewContracts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todas', count: reviewFilterCounts.all },
+                { id: 'unrated', label: 'Por calificar', count: reviewFilterCounts.unrated },
+                { id: 'rated', label: 'Ya calificadas', count: reviewFilterCounts.rated },
+              ].map((chip) => {
+                const active = reviewStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setReviewStatusFilter(chip.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Estados de carga, sin contratos calificables o tarjetas de reseñas cruzadas */}
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando reseñas...</p>
-          ) : reviewContracts.length === 0 ? (
+          ) : filteredReviewContracts.length === 0 ? (
             <div
               className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
               style={innerStyle}
             >
-              Todavía no tenés contratos habilitados para calificar.
+              {reviewContracts.length === 0
+                ? 'Todavía no tenés contratos habilitados para calificar.'
+                : 'No hay reseñas en el filtro seleccionado.'}
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
-              {reviewContracts.map((item) => {
+              {filteredReviewContracts.map((item) => {
                 const cid = item.contract_id ?? item.id;
                 const providerDisplay =
                   `${item.provider_first_name || ''} ${item.provider_last_name || ''}`.trim() ||
