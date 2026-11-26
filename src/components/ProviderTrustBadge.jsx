@@ -246,6 +246,61 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
 }
 
 /**
+ * Barra compacta de 5 segmentos (`N1..N5`) para visualizar de un golpe de vista
+ * en qué estadio de confianza progresiva se encuentra un prestador (ideal para Compliance).
+ *
+ * @param {Object} props - Propiedades del componente.
+ * @param {number} [props.level=0] - Nivel actual (`0..5`).
+ * @param {boolean} [props.isDanger=false] - Si la cuenta está suspendida, rechazada o con doc. vencida.
+ * @returns {JSX.Element} Indicador segmentado `N1..N5`.
+ */
+export function TrustLevelMeter({ level = 0, isDanger = false }) {
+  const numericLevel = Math.max(0, Math.min(5, Number(level || 0)));
+  const segmentTitles = [
+    'N1 · Perfil Básico (DNI + Especialidad)',
+    'N2 · Respaldo Parcial (1 doc. vigente)',
+    'N3 · Doc. Completa (Antecedentes + ART)',
+    'N4 · Verificado TrustLink (Habilita Pase QR)',
+    'N5 · Socio Verificado (Prioridad + Insignia dorada)',
+  ];
+  const segmentColors = [
+    'bg-slate-400',
+    'bg-sky-400',
+    'bg-teal-400',
+    'bg-emerald-400',
+    'bg-amber-400',
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-1"
+      role="img"
+      aria-label={`Progreso de confianza nivel ${numericLevel} de 5`}
+    >
+      {segmentTitles.map((segTitle, idx) => {
+        const stepNum = idx + 1;
+        const isLit = !isDanger && stepNum <= numericLevel;
+        const isDangerLit = isDanger && stepNum <= Math.max(1, numericLevel);
+        return (
+          <span
+            key={segTitle}
+            title={segTitle}
+            className={`h-1.5 w-6 rounded-full transition-all ${
+              isDangerLit
+                ? 'bg-rose-500/80'
+                : isLit
+                  ? segmentColors[idx]
+                  : 'bg-white/12'
+            }`}
+          />
+        );
+      })}
+      <span className="text-[10px] font-mono opacity-75 ml-1">N{numericLevel}/5</span>
+    </div>
+  );
+}
+
+/**
  * Guía rápida desplegable de los 5 niveles de confianza del directorio TrustLink,
  * diseñada para que el residente entienda en segundos la diferencia entre Perfil Básico,
  * Verificado y Socio Verificado.

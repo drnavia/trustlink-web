@@ -44,6 +44,7 @@ import AdminListToolbar from '../../components/admin/AdminListToolbar';
 import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
 import ProviderTrustBadge, {
   TrustChecksStrip,
+  TrustLevelMeter,
   TrustLevelsGuide,
 } from '../../components/ProviderTrustBadge';
 import { paginateItems } from '../../utils/adminPagination';
@@ -438,21 +439,28 @@ export default function AdminComplianceView() {
       });
   }, [providers]);
 
-  // Métricas reales separando personas únicas, compliance pendiente y especialidades personalizadas en revisión
+  // Métricas reales sobre cuentas activas (separando suspendidas en su propio chip)
   const auditSummary = useMemo(() => {
     const counts = {
-      totalPeople: groupedPeople.length,
+      totalPeople: 0,
       totalSpecialties: 0,
-      all: groupedPeople.length,
+      all: 0,
       pending: 0,
       custom_pending: 0,
       approved: 0,
       rejected: 0,
       sin_perfil: 0,
+      suspended: 0,
       totalPendingSpecs: 0,
     };
 
     groupedPeople.forEach((person) => {
+      if (person.user_is_active === false) {
+        counts.suspended += 1;
+        return;
+      }
+      counts.totalPeople += 1;
+      counts.all += 1;
       counts.totalSpecialties += person.specialties.length;
       counts.totalPendingSpecs += person.pendingCount;
       if (person.pendingCount > 0) counts.pending += 1;
@@ -475,6 +483,13 @@ export default function AdminComplianceView() {
   const filteredPeople = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return groupedPeople.filter((person) => {
+      const isSuspended = person.user_is_active === false;
+      if (statusFilter === 'suspended') {
+        if (!isSuspended) return false;
+      } else if (isSuspended) {
+        return false;
+      }
+
       let matchesStatus = true;
       if (statusFilter === 'pending') matchesStatus = person.pendingCount > 0;
       else if (statusFilter === 'custom_pending') matchesStatus = person.pendingCustomSpecs.length > 0;
@@ -845,34 +860,105 @@ export default function AdminComplianceView() {
   };
 
   /**
-   * Renderiza la acción única de compliance personal a nivel persona (`user_id`):
-   * `Aprobar Prestador` cuando tiene compliance/rubros estándar pendientes y `Rechazar / Revocar`
-   * discreto en 2 clics.
+   * Calcula la etiqueta única y clara de visibilidad en el Portal de Residentes para una persona.
+   *
+   * @param {Object} person - Persona prestadora agrupada.
+   * @returns {{ label: string, cls: string, visible: boolean }}
+   */
+  const getVisibilityPillMeta = (person) => {
+    if (person.user_is_active === false) {
+      return {
+        label: 'Cuenta suspendida',
+        cls: 'border-rose-600/60 bg-rose-950/60 text-rose-200',
+        visible: false,
+      };
+    }
+    if (person.trust_badge?.can_issue_pass) {
+      return {
+        label: 'Visible + Pase QR',
+        cls: 'border-emerald-700/70 bg-emerald-950/60 text-emerald-300',
+        visible: true,
+      };
+    }
+    if (person.readiness?.isVisibleInResidentPortal) {
+      return {
+        label: 'Solo consultas',
+        cls: 'border-sky-600/60 bg-sky-950/55 text-sky-200',
+        visible: true,
+      };
+    }
+    return {
+      label: 'Oculto',
+      cls: 'border-slate-700 bg-slate-900/70 text-slate-300',
+      visible: false,
+    };
+  };
+
+  /**
+   * Renderiza las acciones explícitas de compliance personal (`user_id`) según el estadio real:
+   * - Solo habilita `Aprobar Verificado (→ N4)` cuando el prestador cargó Antecedentes + ART vigentes.
+   * - Si faltan documentos, muestra claramente qué espera (`Esperando Antec. y ART`) en vez de un botón verde engañoso.
+   * - Etiquetas explícitas `Rechazar docs` / `Revocar N4` con confirmación en 2 clics.
    *
    * @param {Object} person - Persona prestadora agrupada.
    * @returns {JSX.Element|null}
    */
   const renderPersonComplianceActions = (person) => {
     if (!person.user_id || person.specialties.length === 0) return null;
+    if (person.user_is_active === false) {
+      return (
+        <span className="text-[10px] font-bold px-2 py-1 rounded-lg border border-rose-700/60 bg-rose-950/50 text-rose-200">
+          Suspendida
+        </span>
+      );
+    }
+
     const isBusy = updatingUserComplianceId === person.user_id;
     const rejectKey = `user-${person.user_id}`;
     const isConfirmingReject = confirmRejectKey === rejectKey;
     const needsPersonalApproval = !person.isPersonApproved;
+    const hasCriminal = Boolean(person.readiness?.hasCriminal);
+    const hasArt = Boolean(person.readiness?.hasArt);
+    const hasCriminalOk = Boolean(person.readiness?.hasCriminalOk);
+    const hasArtOk = Boolean(person.readiness?.hasArtOk);
+    const canApproveLevel4 = hasCriminalOk && hasArtOk;
+
+    const waitingDocsLabel =
+      person.readiness?.criminalExpired || person.readiness?.artExpired
+        ? 'Renovar docs vencidos'
+        : !hasCriminal && !hasArt
+          ? 'Esperando Antec. y ART'
+          : !hasCriminal
+            ? 'Esperando Antecedentes'
+            : 'Esperando Póliza ART';
+
+    const canRejectOrRevoke =
+      person.isPersonApproved ||
+      (person.primaryStatus !== 'rejected' && (hasCriminal || hasArt));
 
     return (
-      <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-        {needsPersonalApproval && (
-          <button
-            type="button"
-            onClick={() => handleUpdateUserCompliance(person.user_id, 'approved')}
-            disabled={isBusy}
-            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
-          >
-            <CheckCheck size={13} /> {isBusy ? 'Aprobando...' : 'Aprobar Prestador'}
-          </button>
-        )}
+      <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+        {needsPersonalApproval &&
+          (canApproveLevel4 ? (
+            <button
+              type="button"
+              onClick={() => handleUpdateUserCompliance(person.user_id, 'approved')}
+              disabled={isBusy}
+              title="Aprueba Antecedentes + ART vigentes y sube al prestador a Nivel 4 (Verificado + Pases QR)"
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+            >
+              <CheckCheck size={13} /> {isBusy ? 'Aprobando...' : 'Aprobar Verificado (→ N4)'}
+            </button>
+          ) : (
+            <span
+              title="Para aprobar a Nivel 4 (Verificado) el prestador primero debe cargar Antecedentes Penales y Póliza ART vigentes"
+              className="px-2.5 py-1.5 rounded-lg text-[10px] font-semibold border border-white/12 bg-black/25 opacity-80 whitespace-nowrap"
+            >
+              {waitingDocsLabel}
+            </span>
+          ))}
 
-        {person.primaryStatus !== 'rejected' &&
+        {canRejectOrRevoke &&
           (isConfirmingReject ? (
             <div className="inline-flex items-center gap-1">
               <button
@@ -881,7 +967,7 @@ export default function AdminComplianceView() {
                 disabled={isBusy}
                 className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
               >
-                Confirmar rechazo
+                {person.isPersonApproved ? 'Confirmar revocación' : 'Confirmar rechazo'}
               </button>
               <button
                 type="button"
@@ -897,9 +983,14 @@ export default function AdminComplianceView() {
               type="button"
               onClick={() => setConfirmRejectKey(rejectKey)}
               disabled={isBusy}
+              title={
+                person.isPersonApproved
+                  ? 'Revoca el Nivel 4 (Verificado) y pausa la emisión de Pases QR'
+                  : 'Rechaza la documentación cargada y solicita recarga al prestador'
+              }
               className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
             >
-              <XCircle size={12} /> {person.isPersonApproved ? 'Revocar' : 'Rechazar'}
+              <XCircle size={12} /> {person.isPersonApproved ? 'Revocar N4' : 'Rechazar docs'}
             </button>
           ))}
       </div>
@@ -968,9 +1059,12 @@ export default function AdminComplianceView() {
               { id: 'all', label: 'Todos', count: auditSummary.all },
               { id: 'pending', label: 'Pendientes', count: auditSummary.pending },
               { id: 'custom_pending', label: 'Rubros personalizados', count: auditSummary.custom_pending },
-              { id: 'approved', label: 'Aprobados', count: auditSummary.approved },
+              { id: 'approved', label: 'Verificados (N4–N5)', count: auditSummary.approved },
               { id: 'rejected', label: 'Rechazados', count: auditSummary.rejected },
               { id: 'sin_perfil', label: 'Sin perfil', count: auditSummary.sin_perfil },
+              ...(auditSummary.suspended > 0
+                ? [{ id: 'suspended', label: 'Suspendidas', count: auditSummary.suspended }]
+                : []),
             ]}
             activeChip={statusFilter}
             onChipChange={(chip) => {
@@ -1057,10 +1151,18 @@ export default function AdminComplianceView() {
                 const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                 const artMeta = getDocExpiryMeta(person.insurance_expiry);
                 const hasProfile = person.specialties.length > 0;
-                const personStatusMeta = getUnifiedStatusMeta(
-                  person.isPersonApproved ? 'approved' : person.primaryStatus,
-                  'compliance'
+                const hasExpired = Boolean(
+                  person.readiness?.criminalExpired || person.readiness?.artExpired
                 );
+                const isDangerState =
+                  person.user_is_active === false ||
+                  person.trust_badge?.tone === 'danger' ||
+                  hasExpired;
+                const visPill = getVisibilityPillMeta(person);
+                const canGrantSocio =
+                  person.user_is_active !== false &&
+                  Number(person.trust_badge?.level || 0) >= 4 &&
+                  !hasExpired;
                 const visibleStandardSpecs = person.standardSpecs.slice(0, 3);
                 const hiddenStandardCount = Math.max(0, person.standardSpecs.length - 3);
 
@@ -1070,33 +1172,20 @@ export default function AdminComplianceView() {
                     className="rounded-xl p-4 sm:p-5 border border-white/10 flex flex-col justify-between gap-3.5 text-xs h-full"
                     style={innerStyle}
                   >
-                    {/* Cabecera de persona: Identidad + Estado de compliance personal + Membresía */}
+                    {/* Cabecera de persona: Identidad + Estadio N1-N5 + Visibilidad real + Membresía (solo N4+) */}
                     <div className="flex flex-wrap items-start justify-between gap-2 pb-3 border-b border-white/10">
-                      <div className="min-w-0 space-y-0.5">
+                      <div className="min-w-0 space-y-1.5">
                         <div className="flex flex-wrap items-center gap-2">
                           <h4 className="text-sm font-black truncate">{person.full_name}</h4>
                           <ProviderTrustBadge trust={person.trust_badge} showLevel compact />
                           <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${personStatusMeta.cls}`}
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${visPill.cls}`}
+                            title={person.readiness?.missingReasons?.join(' · ') || visPill.label}
                           >
-                            {personStatusMeta.label}
+                            {visPill.visible ? <Eye size={10} /> : <EyeOff size={10} />}
+                            {visPill.label}
                           </span>
-                          {person.readiness?.isVisibleInResidentPortal ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-700/70 bg-emerald-950/60 text-emerald-300"
-                              title="Este prestador aparece en el buscador del Portal de Residentes"
-                            >
-                              <Eye size={10} /> Visible en Residentes
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-700 bg-slate-900/70 text-slate-300"
-                              title={person.readiness?.missingReasons?.join(' · ') || 'No visible en el directorio'}
-                            >
-                              <EyeOff size={10} /> No visible en Residentes
-                            </span>
-                          )}
-                          {person.is_verified_member && (
+                          {person.is_verified_member && person.user_is_active !== false && (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200">
                               <Award size={10} /> Socio
                               {person.membership_ends_at
@@ -1105,22 +1194,27 @@ export default function AdminComplianceView() {
                             </span>
                           )}
                         </div>
+                        <TrustLevelMeter
+                          level={person.trust_badge?.level}
+                          isDanger={isDangerState}
+                        />
                         <p className="text-[11px] opacity-80 truncate">
                           DNI <strong className="font-mono">{person.dni}</strong> · {person.email}
                         </p>
                       </div>
 
-                      {/* Acción comercial única por persona (estilo outline discreto) */}
-                      {person.user_id && hasProfile && (
+                      {/* Acción comercial Socio Verificado: solo habilitada a partir de Nivel 4 (o si ya es Socio) */}
+                      {person.user_id && hasProfile && (canGrantSocio || person.is_verified_member) && (
                         <div className="flex items-center gap-1.5 shrink-0">
                           {!person.is_verified_member ? (
                             <button
                               type="button"
                               onClick={() => handleManageMembership(person.user_id, 'activate', 30)}
                               disabled={updatingMembershipUserId === person.user_id}
+                              title="Activar membresía Socio Verificado por 30 días (sube a Nivel 5)"
                               className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2.5 py-1 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
                             >
-                              <Award size={11} /> Socio 30d
+                              <Award size={11} /> Socio 30d (→ N5)
                             </button>
                           ) : (
                             <>
@@ -1152,14 +1246,12 @@ export default function AdminComplianceView() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <TrustChecksStrip
                         trust={person.trust_badge}
-                        hasExpiredDocs={
-                          person.readiness?.criminalExpired || person.readiness?.artExpired
-                        }
+                        hasExpiredDocs={hasExpired}
                         compact
                       />
                     </div>
 
-                    {/* Documentación personal consolidada (DNI + Antecedentes + ART) */}
+                    {/* Documentación personal consolidada (DNI + Antecedentes + ART sin ruido de "Sin vencimiento") */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <div
                         className="rounded-xl p-2.5 border border-white/10 space-y-1.5"
@@ -1211,7 +1303,7 @@ export default function AdminComplianceView() {
                             <FileText size={12} className="text-sky-400 shrink-0" />
                             Antecedentes
                           </span>
-                          {person.criminal_record_url ? (
+                          {person.criminal_record_url && (
                             <a
                               href={person.criminal_record_url}
                               target="_blank"
@@ -1220,16 +1312,20 @@ export default function AdminComplianceView() {
                             >
                               Abrir PDF
                             </a>
-                          ) : (
-                            <span className="text-[10px] opacity-60">Sin archivo</span>
                           )}
                         </div>
-                        <div
-                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
-                        >
-                          <Calendar size={10} className="shrink-0" />
-                          <span>{criminalMeta.label}</span>
-                        </div>
+                        {person.criminal_record_url ? (
+                          <div
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
+                          >
+                            <Calendar size={10} className="shrink-0" />
+                            <span>{criminalMeta.label}</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                            ✗ Falta cargar
+                          </span>
+                        )}
                       </div>
 
                       <div
@@ -1241,7 +1337,7 @@ export default function AdminComplianceView() {
                             <FileText size={12} className="text-emerald-400 shrink-0" />
                             Póliza ART
                           </span>
-                          {person.insurance_policy_url ? (
+                          {person.insurance_policy_url && (
                             <a
                               href={person.insurance_policy_url}
                               target="_blank"
@@ -1250,16 +1346,20 @@ export default function AdminComplianceView() {
                             >
                               Abrir PDF
                             </a>
-                          ) : (
-                            <span className="text-[10px] opacity-60">Sin archivo</span>
                           )}
                         </div>
-                        <div
-                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${artMeta.badgeClass}`}
-                        >
-                          <Calendar size={10} className="shrink-0" />
-                          <span>{artMeta.label}</span>
-                        </div>
+                        {person.insurance_policy_url ? (
+                          <div
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${artMeta.badgeClass}`}
+                          >
+                            <Calendar size={10} className="shrink-0" />
+                            <span>{artMeta.label}</span>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                            ✗ Falta cargar
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -1361,27 +1461,29 @@ export default function AdminComplianceView() {
                               : 'Falta documentación vigente'}
                       </span>
                       <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
-                        {person.user_id && !person.isPersonApproved && (
-                          <button
-                            type="button"
-                            disabled={updatingIdentityUserId === person.user_id}
-                            onClick={() =>
-                              handleToggleIdentity(person.user_id, !person.identity_verified)
-                            }
-                            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer disabled:opacity-45 ${
-                              person.identity_verified
-                                ? 'border-sky-500/40 bg-sky-950/50 text-sky-200 hover:bg-sky-900/60'
-                                : 'border-indigo-400/50 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
-                            }`}
-                            title={
-                              person.identity_verified
-                                ? 'DNI validado (Nivel 1 habilitado). Clic para revocar.'
-                                : 'Validar DNI para habilitar Perfil Básico (Nivel 1) en el directorio'
-                            }
-                          >
-                            {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI'}
-                          </button>
-                        )}
+                        {person.user_id &&
+                          person.user_is_active !== false &&
+                          !person.isPersonApproved && (
+                            <button
+                              type="button"
+                              disabled={updatingIdentityUserId === person.user_id}
+                              onClick={() =>
+                                handleToggleIdentity(person.user_id, !person.identity_verified)
+                              }
+                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer disabled:opacity-45 ${
+                                person.identity_verified
+                                  ? 'border-sky-500/40 bg-sky-950/50 text-sky-200 hover:bg-sky-900/60'
+                                  : 'border-indigo-400/50 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
+                              }`}
+                              title={
+                                person.identity_verified
+                                  ? 'DNI validado (Nivel 1 habilitado). Clic para revocar.'
+                                  : 'Validar DNI para habilitar Perfil Básico (Nivel 1) en el directorio'
+                              }
+                            >
+                              {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI (→ N1)'}
+                            </button>
+                          )}
                         {hasProfile ? (
                           renderPersonComplianceActions(person)
                         ) : person.phone ? (
@@ -1410,10 +1512,10 @@ export default function AdminComplianceView() {
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-white/10 opacity-75 text-[11px] uppercase">
-                    <th className="py-2.5 px-3">Prestador</th>
-                    <th className="py-2.5 px-3">Documentación / Vigencia</th>
+                    <th className="py-2.5 px-3">Prestador y Estadio N1–N5</th>
+                    <th className="py-2.5 px-3">Documentación</th>
                     <th className="py-2.5 px-3">Rubros y Moderación</th>
-                    <th className="py-2.5 px-3 text-right">Compliance y Socio</th>
+                    <th className="py-2.5 px-3 text-right">Próxima Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/10">
@@ -1421,43 +1523,44 @@ export default function AdminComplianceView() {
                     const criminalMeta = getDocExpiryMeta(person.criminal_record_expiry);
                     const artMeta = getDocExpiryMeta(person.insurance_expiry);
                     const hasProfile = person.specialties.length > 0;
-                    const personStatusMeta = getUnifiedStatusMeta(
-                      person.isPersonApproved ? 'approved' : person.primaryStatus,
-                      'compliance'
+                    const hasExpired = Boolean(
+                      person.readiness?.criminalExpired || person.readiness?.artExpired
                     );
+                    const isDangerState =
+                      person.user_is_active === false ||
+                      person.trust_badge?.tone === 'danger' ||
+                      hasExpired;
+                    const visPill = getVisibilityPillMeta(person);
+                    const canGrantSocio =
+                      person.user_is_active !== false &&
+                      Number(person.trust_badge?.level || 0) >= 4 &&
+                      !hasExpired;
 
                     return (
                       <tr key={person.user_key} className="align-top hover:bg-white/5">
                         <td className="py-3 px-3 space-y-1.5">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span className="font-bold text-xs">{person.full_name}</span>
-                            <ProviderTrustBadge trust={person.trust_badge} showLevel showScale compact />
+                            <ProviderTrustBadge trust={person.trust_badge} showLevel compact />
                             <span
-                              className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${personStatusMeta.cls}`}
+                              className={`inline-flex items-center gap-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${visPill.cls}`}
+                              title={person.readiness?.missingReasons?.join(' · ') || visPill.label}
                             >
-                              {personStatusMeta.label}
-                            </span>
-                            <span
-                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
-                                person.readiness?.isVisibleInResidentPortal
-                                  ? 'border-emerald-700/70 bg-emerald-950/60 text-emerald-300'
-                                  : 'border-slate-700 bg-slate-900/70 text-slate-300'
-                              }`}
-                              title={person.readiness?.missingReasons?.join(' · ') || ''}
-                            >
-                              {person.readiness?.isVisibleInResidentPortal ? 'Visible' : 'No visible'}
+                              {visPill.visible ? <Eye size={9} /> : <EyeOff size={9} />}
+                              {visPill.label}
                             </span>
                           </div>
+                          <TrustLevelMeter
+                            level={person.trust_badge?.level}
+                            isDanger={isDangerState}
+                          />
                           <TrustChecksStrip
                             trust={person.trust_badge}
-                            hasExpiredDocs={
-                              person.readiness?.criminalExpired || person.readiness?.artExpired
-                            }
+                            hasExpiredDocs={hasExpired}
                             compact
                           />
-                          <div className="text-[11px] opacity-75 font-mono">DNI {person.dni}</div>
-                          <div className="text-[11px] opacity-70 truncate max-w-44">
-                            {person.email}
+                          <div className="text-[11px] opacity-75 font-mono">
+                            DNI {person.dni} · <span className="font-sans opacity-90">{person.email}</span>
                           </div>
                         </td>
 
@@ -1473,7 +1576,7 @@ export default function AdminComplianceView() {
                                 Ver DNI
                               </a>
                             ) : (
-                              <span className="text-[11px] opacity-60">Sin archivo DNI</span>
+                              <span className="text-[11px] opacity-60">DNI</span>
                             )}
                             <span
                               className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -1485,63 +1588,58 @@ export default function AdminComplianceView() {
                               }`}
                             >
                               {person.identity_verified
-                                ? 'DNI Validado'
+                                ? 'DNI Validado ✓'
                                 : person.dni_document_url
                                   ? 'En revisión'
                                   : 'Pendiente'}
                             </span>
                           </div>
-                          {hasProfile ? (
-                            <>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {person.criminal_record_url ? (
-                                  <a
-                                    href={person.criminal_record_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[11px] font-bold text-sky-300 underline"
-                                  >
-                                    Antec.
-                                  </a>
-                                ) : (
-                                  <span className="text-[11px] opacity-60">Sin Antec.</span>
-                                )}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {person.criminal_record_url ? (
+                              <>
+                                <a
+                                  href={person.criminal_record_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] font-bold text-sky-300 underline"
+                                >
+                                  Antec.
+                                </a>
                                 <span
                                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${criminalMeta.badgeClass}`}
                                 >
                                   {criminalMeta.label}
                                 </span>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                {person.insurance_policy_url ? (
-                                  <a
-                                    href={person.insurance_policy_url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-[11px] font-bold text-emerald-300 underline"
-                                  >
-                                    ART
-                                  </a>
-                                ) : (
-                                  <span className="text-[11px] opacity-60">Sin ART</span>
-                                )}
+                              </>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                                ✗ Falta Antecedentes
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {person.insurance_policy_url ? (
+                              <>
+                                <a
+                                  href={person.insurance_policy_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-[11px] font-bold text-emerald-300 underline"
+                                >
+                                  ART
+                                </a>
                                 <span
                                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${artMeta.badgeClass}`}
                                 >
                                   {artMeta.label}
                                 </span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="flex flex-wrap gap-1 text-[10px] font-bold">
-                              <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
-                                ✗ Antec.
+                              </>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-700/55 bg-amber-950/40 text-amber-200">
+                                ✗ Falta Póliza ART
                               </span>
-                              <span className="px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-300">
-                                ✗ ART
-                              </span>
-                            </div>
-                          )}
+                            )}
+                          </div>
                         </td>
 
                         <td className="py-3 px-3 space-y-1.5">
@@ -1605,7 +1703,7 @@ export default function AdminComplianceView() {
                           {person.user_id && hasProfile ? (
                             <div className="inline-flex flex-col items-end gap-2">
                               <div className="flex flex-wrap items-center justify-end gap-1.5">
-                                {!person.isPersonApproved && (
+                                {person.user_is_active !== false && !person.isPersonApproved && (
                                   <button
                                     type="button"
                                     disabled={updatingIdentityUserId === person.user_id}
@@ -1623,7 +1721,7 @@ export default function AdminComplianceView() {
                                         : 'Validar DNI para habilitar Perfil Básico (Nivel 1) en el directorio'
                                     }
                                   >
-                                    {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI'}
+                                    {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI (→ N1)'}
                                   </button>
                                 )}
                                 {renderPersonComplianceActions(person)}
@@ -1654,22 +1752,23 @@ export default function AdminComplianceView() {
                                     Revocar
                                   </button>
                                 </div>
-                              ) : (
+                              ) : canGrantSocio ? (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     handleManageMembership(person.user_id, 'activate', 30)
                                   }
                                   disabled={updatingMembershipUserId === person.user_id}
+                                  title="Activar membresía Socio Verificado por 30 días (sube a Nivel 5)"
                                   className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2.5 py-1 rounded-lg text-[10px] inline-flex items-center gap-1 cursor-pointer"
                                 >
-                                  <Award size={10} /> Socio 30d
+                                  <Award size={10} /> Socio 30d (→ N5)
                                 </button>
-                              )}
+                              ) : null}
                             </div>
                           ) : (
                             <div className="inline-flex flex-col items-end gap-1.5">
-                              {person.user_id && (
+                              {person.user_id && person.user_is_active !== false && (
                                 <button
                                   type="button"
                                   disabled={updatingIdentityUserId === person.user_id}
@@ -1687,14 +1786,14 @@ export default function AdminComplianceView() {
                                       : 'Validar DNI del prestador'
                                   }
                                 >
-                                  {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI'}
+                                  {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI (→ N1)'}
                                 </button>
                               )}
-                              <span className="text-[10px] opacity-70">Esperando carga</span>
+                              <span className="text-[10px] opacity-70">Esperando especialidad</span>
                               {person.phone && (
                                 <a
                                   href={`https://wa.me/${String(person.phone).replace(/\D/g, '')}?text=${encodeURIComponent(
-                                    `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tus Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
+                                    `Hola ${person.first_name || person.full_name}, te escribimos desde TrustLink. Para aparecer visible en el Portal de Residentes solo te falta cargar tu DNI, Antecedentes Penales, Póliza ART y tu especialidad desde tu Portal Prestador.`
                                   )}`}
                                   target="_blank"
                                   rel="noreferrer"
