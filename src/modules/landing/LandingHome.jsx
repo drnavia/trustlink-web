@@ -189,12 +189,30 @@ const ACTOR_BENEFITS = [
  * @param {() => void} props.onGoRegister Callback para navegar a la vista de registro de cuenta.
  * @returns {JSX.Element} Portada pública comercial e interactiva de TrustLink.
  */
-export default function LandingHome({ onGoLogin, onGoRegister }) {
+export default function LandingHome({
+  onGoLogin,
+  onGoRegister,
+  externalSearchTerm,
+  onExternalSearchChange,
+  searchSubmitNonce = 0,
+  useGlobalHeaderSearch = false,
+}) {
   const { brand } = useBranding();
   const showcaseRef = useRef(null);
   const actorsRef = useRef(null);
 
-  const [searchTerm, setSearchTerm] = useState('');
+  const [internalSearchTerm, setInternalSearchTerm] = useState('');
+  const isControlledSearch = typeof onExternalSearchChange === 'function';
+  const searchTerm = isControlledSearch ? String(externalSearchTerm ?? '') : internalSearchTerm;
+  const setSearchTerm = (nextOrUpdater) => {
+    const nextValue =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(searchTerm) : nextOrUpdater;
+    if (isControlledSearch) {
+      onExternalSearchChange(nextValue);
+    } else {
+      setInternalSearchTerm(nextValue);
+    }
+  };
   const [selectedService, setSelectedService] = useState('');
   const [showcaseFilter, setShowcaseFilter] = useState('all'); // 'all' | 'verified' | 'socio' | 'emergencies'
   const [showAllShowcase, setShowAllShowcase] = useState(false);
@@ -273,6 +291,24 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
     }
     onGoRegister();
   };
+
+  // Sincroniza el envío desde el buscador global de Zona 1 (desplaza suavemente a la vidriera en vivo)
+  useEffect(() => {
+    if (!searchSubmitNonce) return;
+    const query = (searchTerm || selectedService || '').trim();
+    try {
+      if (query) {
+        sessionStorage.setItem('trustlink_initial_service_query', query);
+      } else {
+        sessionStorage.removeItem('trustlink_initial_service_query');
+      }
+    } catch {
+      // Ignorar
+    }
+    setShowAllShowcase(false);
+    scrollToSection(showcaseRef);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchSubmitNonce]);
 
   /** Envía el buscador: filtra la vidriera en vivo y desplaza hacia los resultados sin forzar login. */
   const handleSearchSubmit = (e) => {
@@ -424,51 +460,53 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
           </p>
         </div>
 
-        {/* Buscador inteligente en vivo por síntoma, problema o rubro */}
+        {/* Buscador en Hero (solo si no está activo el buscador global de Zona 1) + sugerencias y atajos rápidos */}
         <form onSubmit={handleSearchSubmit} className="space-y-3">
-          <div className="flex flex-col sm:flex-row gap-2.5">
-            <div className="relative flex-1">
-              <Search
-                size={17}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-              />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  if (selectedService && e.target.value !== selectedService) {
-                    setSelectedService('');
-                  }
-                }}
-                placeholder="¿Qué necesitás resolver? Ej: pérdida de agua, salta la térmica, piletero..."
-                className={`w-full pl-10 pr-9 py-3 rounded-xl text-sm border ${subtleBorder} focus:outline-none focus:ring-2 focus:ring-emerald-500/60`}
-                style={innerStyle}
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedService('');
+          {!useGlobalHeaderSearch && (
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <Search
+                  size={17}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    if (selectedService && e.target.value !== selectedService) {
+                      setSelectedService('');
+                    }
                   }}
-                  aria-label="Limpiar búsqueda"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg opacity-65 hover:opacity-100 cursor-pointer"
-                >
-                  <X size={15} />
-                </button>
-              )}
-            </div>
+                  placeholder="¿Qué necesitás resolver? Ej: pérdida de agua, salta la térmica, piletero..."
+                  className={`w-full pl-10 pr-9 py-3 rounded-xl text-sm border ${subtleBorder} focus:outline-none focus:ring-2 focus:ring-emerald-500/60`}
+                  style={innerStyle}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchTerm('');
+                      setSelectedService('');
+                    }}
+                    aria-label="Limpiar búsqueda"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-lg opacity-65 hover:opacity-100 cursor-pointer"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
 
-            <button
-              type="submit"
-              className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white shadow-md transition-opacity hover:opacity-95 cursor-pointer shrink-0"
-              style={{ backgroundColor: primaryColor }}
-            >
-              <span>Ver prestadores</span>
-              <ArrowRight size={16} />
-            </button>
-          </div>
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-bold text-white shadow-md transition-opacity hover:opacity-95 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <span>Ver prestadores</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
 
           {/* Sugerencias inteligentes por síntoma mientras el visitante escribe */}
           {symptomSuggestions.length > 0 && (
@@ -487,27 +525,41 @@ export default function LandingHome({ onGoLogin, onGoRegister }) {
             </div>
           )}
 
-          {/* Atajos rápidos de rubros populares */}
-          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-[11px] font-semibold opacity-70 mr-1">Búsquedas frecuentes:</span>
-            {POPULAR_SERVICES.map((service) => {
-              const isSelected = selectedService === service;
-              return (
-                <button
-                  key={service}
-                  type="button"
-                  onClick={() => handleQuickServiceSelect(service, true)}
-                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
-                      : `${subtleBorder} opacity-85 hover:opacity-100`
-                  }`}
-                  style={!isSelected ? innerStyle : undefined}
-                >
-                  {service}
-                </button>
-              );
-            })}
+          {/* Atajos rápidos de rubros populares + acceso directo a vidriera */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-semibold opacity-70 mr-1">Búsquedas frecuentes:</span>
+              {POPULAR_SERVICES.map((service) => {
+                const isSelected = selectedService === service;
+                return (
+                  <button
+                    key={service}
+                    type="button"
+                    onClick={() => handleQuickServiceSelect(service, true)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all cursor-pointer ${
+                      isSelected
+                        ? 'border-emerald-400 bg-emerald-500/20 text-emerald-200'
+                        : `${subtleBorder} opacity-85 hover:opacity-100`
+                    }`}
+                    style={!isSelected ? innerStyle : undefined}
+                  >
+                    {service}
+                  </button>
+                );
+              })}
+            </div>
+
+            {useGlobalHeaderSearch && (
+              <button
+                type="button"
+                onClick={() => scrollToSection(showcaseRef)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <span>Ver prestadores</span>
+                <ArrowRight size={14} />
+              </button>
+            )}
           </div>
         </form>
       </div>

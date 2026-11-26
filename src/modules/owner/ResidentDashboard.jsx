@@ -298,6 +298,15 @@ export default function ResidentDashboard({
   onNavigate,
   initialStep = null,
   onConsumedInitialStep,
+  useGlobalHeader = false,
+  externalSearchTerm,
+  onExternalSearchChange,
+  externalActiveStep,
+  onExternalStepChange,
+  externalOnlyFavorites,
+  onExternalOnlyFavoritesChange,
+  onHeaderMetaChange,
+  refreshNonce = 0,
 }) {
   // Contextos globales de marca y sesión del residente autenticado
   const { brand } = useBranding();
@@ -311,7 +320,25 @@ export default function ResidentDashboard({
   };
 
   // Paso activo del flujo simplificado de 3 pestañas: 'providers' | 'services' | 'passes'
-  const [activeStep, setActiveStep] = useState(() => resolveNormalizedStep(initialStep));
+  // Puede ser controlado externamente por la barra superior de 2 filas (App.jsx)
+  const [internalActiveStep, setInternalActiveStep] = useState(() =>
+    resolveNormalizedStep(initialStep)
+  );
+  const isControlledStep =
+    typeof onExternalStepChange === 'function' && Boolean(externalActiveStep);
+  const activeStep = isControlledStep
+    ? resolveNormalizedStep(externalActiveStep)
+    : internalActiveStep;
+  const setActiveStep = (nextOrUpdater) => {
+    const nextRaw =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(activeStep) : nextOrUpdater;
+    const normalized = resolveNormalizedStep(nextRaw);
+    if (isControlledStep) {
+      onExternalStepChange(normalized);
+    } else {
+      setInternalActiveStep(normalized);
+    }
+  };
 
   // Filtros unificados de "2. Mis Servicios" (estilo "Mis Compras")
   const [servicesFilter, setServicesFilter] = useState(() => {
@@ -340,6 +367,7 @@ export default function ResidentDashboard({
         onConsumedInitialStep();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialStep, onConsumedInitialStep]);
 
   // Directorio de prestadores, filtros, ordenamiento y modal de reseñas públicas
@@ -347,7 +375,7 @@ export default function ResidentDashboard({
   const [loadingProviders, setLoadingProviders] = useState(true);
   const [providersError, setProvidersError] = useState('');
   // Si el usuario llegó desde una búsqueda rápida externa, consume y limpia el término precargado
-  const [searchTerm, setSearchTerm] = useState(() => {
+  const [internalSearchTerm, setInternalSearchTerm] = useState(() => {
     const saved = sessionStorage.getItem('trustlink_initial_service_query');
     if (saved && saved.trim()) {
       sessionStorage.removeItem('trustlink_initial_service_query');
@@ -355,10 +383,34 @@ export default function ResidentDashboard({
     }
     return '';
   });
+  const isControlledSearch =
+    typeof onExternalSearchChange === 'function' && externalSearchTerm !== undefined;
+  const searchTerm = isControlledSearch ? String(externalSearchTerm ?? '') : internalSearchTerm;
+  const setSearchTerm = (nextOrUpdater) => {
+    const nextValue =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(searchTerm) : nextOrUpdater;
+    if (isControlledSearch) {
+      onExternalSearchChange(nextValue);
+    } else {
+      setInternalSearchTerm(nextValue);
+    }
+  };
   const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
   const [onlyVerified, setOnlyVerified] = useState(false);
   const [onlyVerifiedMembers, setOnlyVerifiedMembers] = useState(false);
-  const [onlyFavorites, setOnlyFavorites] = useState(false);
+  const [internalOnlyFavorites, setInternalOnlyFavorites] = useState(false);
+  const isControlledFavorites =
+    typeof onExternalOnlyFavoritesChange === 'function' && externalOnlyFavorites !== undefined;
+  const onlyFavorites = isControlledFavorites ? Boolean(externalOnlyFavorites) : internalOnlyFavorites;
+  const setOnlyFavorites = (nextOrUpdater) => {
+    const nextValue =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(onlyFavorites) : nextOrUpdater;
+    if (isControlledFavorites) {
+      onExternalOnlyFavoritesChange(Boolean(nextValue));
+    } else {
+      setInternalOnlyFavorites(Boolean(nextValue));
+    }
+  };
   const [onlyAvailableToday, setOnlyAvailableToday] = useState(false);
   const [onlyEmergencies, setOnlyEmergencies] = useState(false);
   const [showTrustGuide, setShowTrustGuide] = useState(false);
@@ -676,6 +728,16 @@ export default function ResidentDashboard({
     fetchReviewsData();
   }, []);
 
+  // Recarga bajo demanda disparada desde el botón de actualizar en la Zona 2 global
+  useEffect(() => {
+    if (!refreshNonce) return;
+    fetchVerifiedProviders();
+    fetchMyVisits();
+    fetchMyPasses();
+    fetchContractsData();
+    fetchReviewsData();
+  }, [refreshNonce]);
+
   // Consulta la disponibilidad viva de 7 días (sin datos privados) al abrir el modal "Solicitar Visita"
   useEffect(() => {
     const providerUserId = Number(visitModalProvider?.user_id);
@@ -758,6 +820,7 @@ export default function ResidentDashboard({
     } catch {
       // Ignora URLs malformadas
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Pases elegibles para generar una orden de pago: excluye cancelados y prioriza Utilizados > Vigentes > Vencidos
@@ -2246,6 +2309,35 @@ export default function ResidentDashboard({
     [providers]
   );
 
+  const favoritesCount = useMemo(
+    () => providers.filter((p) => Boolean(p.is_favorite)).length,
+    [providers]
+  );
+
+  // Publica contadores vivos hacia la Zona 2 de la barra superior (App.jsx)
+  useEffect(() => {
+    if (typeof onHeaderMetaChange !== 'function') return;
+    onHeaderMetaChange({
+      providersCount: filteredProviders.length,
+      servicesActionCount: servicesCounts.action,
+      servicesTotalCount: servicesCounts.all,
+      passesCount: myPasses.length,
+      favoritesCount,
+      refreshing: loadingProviders || loadingVisits || loadingPasses || loadingContracts,
+    });
+  }, [
+    onHeaderMetaChange,
+    filteredProviders.length,
+    servicesCounts.action,
+    servicesCounts.all,
+    myPasses.length,
+    favoritesCount,
+    loadingProviders,
+    loadingVisits,
+    loadingPasses,
+    loadingContracts,
+  ]);
+
   // Definición de la navegación simplificada en 3 pestañas (Opción A: Prestadores · Mis Servicios · Pases QR)
   const steps = [
     {
@@ -2273,97 +2365,100 @@ export default function ResidentDashboard({
 
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Cabecera compacta y personal del Portal Residente (1 línea principal + refresco único) */}
-      <div
-        className="rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5"
-        style={cardStyle}
-      >
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
-          <h1 className="text-lg sm:text-xl font-extrabold tracking-tight truncate">
-            {user?.first_name ? `Hola, ${user.first_name}` : 'Portal Residente'}
-          </h1>
-          {residentLocationLabel && (
-            <span
-              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-white/15 opacity-90"
-              style={innerStyle}
-            >
-              <MapPin size={11} className="text-emerald-400 shrink-0" />
-              <span>{residentLocationLabel}</span>
-            </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
-          {pendingResidentVisitsCount > 0 && (
-            <button
-              type="button"
-              onClick={() => openServicesView('visits')}
-              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-sky-400/50 bg-sky-950/50 text-sky-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
-            >
-              {pendingResidentVisitsCount} visita(s) por confirmar
-            </button>
-          )}
-          {pendingContractsCount > 0 && (
-            <button
-              type="button"
-              onClick={() => openServicesView('contracts')}
-              className="text-xs font-bold px-3 py-1.5 rounded-xl border border-amber-500/40 bg-amber-950/50 text-amber-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
-            >
-              {pendingContractsCount} pago(s) pendiente(s)
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              fetchVerifiedProviders();
-              fetchMyVisits();
-              fetchMyPasses();
-              fetchContractsData();
-              fetchReviewsData();
-            }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0"
-            style={innerStyle}
-            title="Actualizar toda la información del portal"
+      {/* Cabecera local + selector de 3 pestañas (se omiten cuando la barra superior de 2 filas asume esa navegación) */}
+      {!useGlobalHeader && (
+        <>
+          <div
+            className="rounded-2xl px-4 py-3.5 sm:px-5 sm:py-4 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5"
+            style={cardStyle}
           >
-            <RefreshCw size={13} className={loadingProviders ? 'animate-spin' : ''} />
-            <span className="hidden sm:inline">Actualizar</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Selector principal de 3 pestañas: Prestadores · Mis Servicios · Pases QR */}
-      <div
-        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2"
-        style={cardStyle}
-      >
-        {steps.map((step) => {
-          const IconComponent = step.icon;
-          const isActive = activeStep === step.id;
-          return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => setActiveStep(step.id)}
-              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                isActive
-                  ? 'text-white border-transparent shadow-sm'
-                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
-              }`}
-              style={isActive ? { backgroundColor: primaryColor } : innerStyle}
-            >
-              <span className="flex items-center gap-1.5 truncate">
-                <IconComponent size={14} className="shrink-0" />
-                <span className="truncate">
-                  {step.stepNumber}. {step.label}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0">
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight truncate">
+                {user?.first_name ? `Hola, ${user.first_name}` : 'Portal Residente'}
+              </h1>
+              {residentLocationLabel && (
+                <span
+                  className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-white/15 opacity-90"
+                  style={innerStyle}
+                >
+                  <MapPin size={11} className="text-emerald-400 shrink-0" />
+                  <span>{residentLocationLabel}</span>
                 </span>
-              </span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
-                {step.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">
+              {pendingResidentVisitsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openServicesView('visits')}
+                  className="text-xs font-bold px-3 py-1.5 rounded-xl border border-sky-400/50 bg-sky-950/50 text-sky-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
+                >
+                  {pendingResidentVisitsCount} visita(s) por confirmar
+                </button>
+              )}
+              {pendingContractsCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => openServicesView('contracts')}
+                  className="text-xs font-bold px-3 py-1.5 rounded-xl border border-amber-500/40 bg-amber-950/50 text-amber-200 cursor-pointer hover:opacity-90 whitespace-nowrap"
+                >
+                  {pendingContractsCount} pago(s) pendiente(s)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  fetchVerifiedProviders();
+                  fetchMyVisits();
+                  fetchMyPasses();
+                  fetchContractsData();
+                  fetchReviewsData();
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0"
+                style={innerStyle}
+                title="Actualizar toda la información del portal"
+              >
+                <RefreshCw size={13} className={loadingProviders ? 'animate-spin' : ''} />
+                <span className="hidden sm:inline">Actualizar</span>
+              </button>
+            </div>
+          </div>
+
+          <div
+            className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-1 sm:grid-cols-3 gap-2"
+            style={cardStyle}
+          >
+            {steps.map((step) => {
+              const IconComponent = step.icon;
+              const isActive = activeStep === step.id;
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => setActiveStep(step.id)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    isActive
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'border-slate-800/70 opacity-85 hover:opacity-100'
+                  }`}
+                  style={isActive ? { backgroundColor: primaryColor } : innerStyle}
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <IconComponent size={14} className="shrink-0" />
+                    <span className="truncate">
+                      {step.stepNumber}. {step.label}
+                    </span>
+                  </span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
+                    {step.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       {/* PASO 1: DIRECTORIO DE PRESTADORES (enfocado en búsqueda rápida + tarjetas escaneables en 3s) */}
       {activeStep === 'providers' && (
@@ -2446,62 +2541,127 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Buscador protagonista inmediato + ordenamiento + escala N1–N5 en una sola fila */}
-          <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
-            <div className="relative flex-1">
-              <Search
-                size={16}
-                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-              />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="¿Qué necesitás resolver hoy? Ej: pérdida de agua, salta la térmica, electricista..."
-                className={`w-full pl-10 pr-9 py-2.5 ${FIELD_INPUT_CLASS}`}
-                style={innerStyle}
-              />
-              {searchTerm && (
+          {/* Barra de utilidades del directorio (evita duplicar el buscador cuando está en Zona 1) */}
+          {useGlobalHeader ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
+                  {onlyFavorites ? 'Tus prestadores favoritos' : 'Directorio de prestadores'}
+                </h2>
+                <span className="text-xs opacity-65 font-semibold">
+                  ({filteredProviders.length})
+                </span>
+                {searchTerm.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                    title="Quitar texto de búsqueda"
+                  >
+                    <span>“{searchTerm.trim()}”</span>
+                    <X size={11} />
+                  </button>
+                )}
+                {onlyFavorites && (
+                  <button
+                    type="button"
+                    onClick={() => setOnlyFavorites(false)}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-rose-400/40 bg-rose-500/15 text-rose-200 hover:bg-rose-500/25 cursor-pointer"
+                    title="Volver a ver todos los prestadores"
+                  >
+                    <Heart size={11} className="fill-current" />
+                    <span>Solo favoritos</span>
+                    <X size={11} />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={directorySortBy}
+                  onChange={(e) => setDirectorySortBy(e.target.value)}
+                  aria-label="Ordenar prestadores"
+                  className="px-3 py-2 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
+                  style={innerStyle}
+                >
+                  <option value="featured">Orden: Destacados</option>
+                  <option value="reputation">Mejor reputación</option>
+                  <option value="rating">Mejor calificación</option>
+                  <option value="jobs">Más trabajos</option>
+                </select>
+
                 <button
                   type="button"
-                  onClick={() => setSearchTerm('')}
-                  aria-label="Limpiar búsqueda"
-                  className="absolute right-3 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                  onClick={() => setShowTrustGuide((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+                    showTrustGuide
+                      ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
+                      : 'border-white/15 opacity-85 hover:opacity-100'
+                  }`}
+                  style={showTrustGuide ? undefined : innerStyle}
                 >
-                  <X size={15} />
+                  <HelpCircle size={13} className="shrink-0" />
+                  <span>Niveles N1–N5</span>
                 </button>
-              )}
+              </div>
             </div>
+          ) : (
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2">
+              <div className="relative flex-1">
+                <Search
+                  size={16}
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="¿Qué necesitás resolver hoy? Ej: pérdida de agua, salta la térmica, electricista..."
+                  className={`w-full pl-10 pr-9 py-2.5 ${FIELD_INPUT_CLASS}`}
+                  style={innerStyle}
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    aria-label="Limpiar búsqueda"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
+              </div>
 
-            <div className="flex items-center gap-2 shrink-0">
-              <select
-                value={directorySortBy}
-                onChange={(e) => setDirectorySortBy(e.target.value)}
-                aria-label="Ordenar prestadores"
-                className="px-3 py-2.5 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
-                style={innerStyle}
-              >
-                <option value="featured">Orden: Destacados</option>
-                <option value="reputation">Mejor reputación</option>
-                <option value="rating">Mejor calificación</option>
-                <option value="jobs">Más trabajos</option>
-              </select>
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={directorySortBy}
+                  onChange={(e) => setDirectorySortBy(e.target.value)}
+                  aria-label="Ordenar prestadores"
+                  className="px-3 py-2.5 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
+                  style={innerStyle}
+                >
+                  <option value="featured">Orden: Destacados</option>
+                  <option value="reputation">Mejor reputación</option>
+                  <option value="rating">Mejor calificación</option>
+                  <option value="jobs">Más trabajos</option>
+                </select>
 
-              <button
-                type="button"
-                onClick={() => setShowTrustGuide((prev) => !prev)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                  showTrustGuide
-                    ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
-                    : 'border-white/15 opacity-85 hover:opacity-100'
-                }`}
-                style={showTrustGuide ? undefined : innerStyle}
-              >
-                <HelpCircle size={13} className="shrink-0" />
-                <span>Niveles N1–N5</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTrustGuide((prev) => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+                    showTrustGuide
+                      ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
+                      : 'border-white/15 opacity-85 hover:opacity-100'
+                  }`}
+                  style={showTrustGuide ? undefined : innerStyle}
+                >
+                  <HelpCircle size={13} className="shrink-0" />
+                  <span>Niveles N1–N5</span>
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Guía desplegable de los 5 niveles de confianza */}
           {showTrustGuide && (
@@ -2610,19 +2770,21 @@ export default function ResidentDashboard({
                 <span>Urgencias 24h</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => setOnlyFavorites((prev) => !prev)}
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                  onlyFavorites
-                    ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
-                }`}
-                style={onlyFavorites ? undefined : innerStyle}
-              >
-                <Heart size={12} className={onlyFavorites ? 'fill-rose-400 text-rose-400' : ''} />
-                <span>Favoritos</span>
-              </button>
+              {!useGlobalHeader && (
+                <button
+                  type="button"
+                  onClick={() => setOnlyFavorites((prev) => !prev)}
+                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                    onlyFavorites
+                      ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
+                      : 'border-white/15 opacity-80 hover:opacity-100'
+                  }`}
+                  style={onlyFavorites ? undefined : innerStyle}
+                >
+                  <Heart size={12} className={onlyFavorites ? 'fill-rose-400 text-rose-400' : ''} />
+                  <span>Favoritos</span>
+                </button>
+              )}
 
               {(hasAnySocioMember || onlyVerifiedMembers) && (
                 <button

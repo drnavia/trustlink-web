@@ -6,7 +6,7 @@
  * @location /trustlink-web/src/App.jsx
  */
 
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import {
   Home,
   Wrench,
@@ -25,6 +25,12 @@ import {
   ClipboardList,
   Activity,
   ChevronDown,
+  Search,
+  X,
+  MapPin,
+  Heart,
+  FileText,
+  RefreshCw,
 } from 'lucide-react';
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
@@ -199,6 +205,37 @@ function MainAppContent() {
     MASTER_VIEWS.has(readViewFromHash())
   );
 
+  // Estado compartido con la barra superior de 2 filas (buscador global + navegación del residente + menú usuario)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    try {
+      const saved = sessionStorage.getItem('trustlink_initial_service_query');
+      if (saved && saved.trim()) {
+        sessionStorage.removeItem('trustlink_initial_service_query');
+        return saved.trim();
+      }
+    } catch {
+      // Ignorar si sessionStorage no está disponible
+    }
+    return '';
+  });
+  const [landingSearchSubmitNonce, setLandingSearchSubmitNonce] = useState(0);
+  const [residentTab, setResidentTab] = useState(() =>
+    readViewFromHash() === 'payments' || hasMpReturnParams() ? 'services' : 'providers'
+  );
+  const [residentFavoritesOnly, setResidentFavoritesOnly] = useState(false);
+  const [residentRefreshNonce, setResidentRefreshNonce] = useState(0);
+  const [residentHeaderMeta, setResidentHeaderMeta] = useState({
+    providersCount: 0,
+    servicesActionCount: 0,
+    servicesTotalCount: 0,
+    passesCount: 0,
+    favoritesCount: 0,
+    refreshing: false,
+  });
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef(null);
+
   /**
    * Cambia la vista activa y actualiza el historial del navegador normalizando el pathname a `/`
    * y reflejando la ruta como hash (`/#<vista>`) sin provocar recargas.
@@ -304,21 +341,108 @@ function MainAppContent() {
     }
   }, [isAuthenticated, isSuperadmin, currentView]);
 
+  // Cierra el menú desplegable de usuario al hacer clic fuera o presionar Escape
+  useEffect(() => {
+    if (!userMenuOpen) return undefined;
+    const handleOutsideClick = (event) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+        setUserMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [userMenuOpen]);
+
   /**
-   * Cierra la sesión global, repliega el menú de Administración y regresa a la portada pública.
+   * Cierra la sesión global, repliega los menús y regresa a la portada pública.
    */
   const handleLogout = () => {
     logout();
+    setUserMenuOpen(false);
     setMasterModeOpen(false);
+    setResidentFavoritesOnly(false);
+    setResidentTab('providers');
+    setGlobalSearchQuery('');
     setCurrentView('landing');
   };
 
-  // Nombre legible del usuario logueado para web y celular
+  // Nombre legible e iniciales del usuario logueado para web y celular
   const displayUserName =
     user?.first_name ||
     user?.name ||
     (user?.email ? user.email.split('@')[0] : '') ||
     'Usuario';
+
+  const displayUserFullName =
+    [user?.first_name, user?.last_name].filter(Boolean).join(' ').trim() || displayUserName;
+
+  const userInitials = useMemo(() => {
+    const parts = displayUserFullName.split(/\s+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return (parts[0] || 'U').slice(0, 2).toUpperCase();
+  }, [displayUserFullName]);
+
+  // Domicilio del residente para la Zona 2 (estilo "📍 En Barrio · Fracc. · Lote")
+  const residentLocationLabel = useMemo(() => {
+    const parts = [];
+    if (user?.country_name) parts.push(user.country_name);
+    if (user?.fraction_type && user.fraction_type !== 'na' && user?.fraction_number) {
+      const areaPrefix = user.fraction_type === 'manzana' ? 'Mz.' : 'Fracc.';
+      parts.push(`${areaPrefix} ${user.fraction_number}`);
+    }
+    if (user?.lot_number) parts.push(`Lote ${user.lot_number}`);
+    return parts.join(' · ');
+  }, [user]);
+
+  // Portales habilitados para el usuario autenticado (permite switcher limpio en menú de usuario o barra)
+  const permittedPortals = useMemo(() => {
+    if (!isAuthenticated) return [];
+    const list = [];
+    if (canSeeResident) {
+      list.push({
+        id: 'resident',
+        label: 'Portal Residente',
+        shortLabel: isSuperadmin ? 'Residente' : 'Portal Residente',
+        Icon: Home,
+      });
+    }
+    if (canSeeProvider) {
+      list.push({
+        id: 'provider',
+        label: 'Portal Prestador',
+        shortLabel: isSuperadmin ? 'Prestador' : 'Portal Prestador',
+        Icon: Wrench,
+      });
+    }
+    if (canSeeSecurity) {
+      list.push({
+        id: 'security',
+        label: 'Consola Garita',
+        shortLabel: isSuperadmin ? 'Garita' : 'Consola Garita',
+        Icon: QrCode,
+      });
+    }
+    if (isLocalAdmin) {
+      list.push({
+        id: 'local_admin',
+        label: 'Admin Barrio',
+        shortLabel: 'Admin Barrio',
+        Icon: ShieldAlert,
+      });
+    }
+    return list;
+  }, [isAuthenticated, canSeeResident, canSeeProvider, canSeeSecurity, isLocalAdmin, isSuperadmin]);
 
   // Identidad de marca en la barra superior
   const displayBrandName = (brand?.brandName || brand?.name || 'TrustLink').trim() || 'TrustLink';
@@ -330,6 +454,28 @@ function MainAppContent() {
   // Detecta tema oscuro vs. claro para adaptar bordes, hover y acentos suaves en toda la barra superior
   const isDarkTheme = brand?.darkMode !== false;
   const isMasterViewActive = MASTER_VIEWS.has(currentView);
+  const isResidentView = isAuthenticated && (currentView === 'resident' || currentView === 'payments');
+  const showGlobalSearch = currentView === 'landing' || isResidentView;
+  const showResidentSubBar = isResidentView && !(isSuperadmin && masterModeOpen);
+
+  /**
+   * Envía el buscador protagonista de Zona 1:
+   * - En Landing desplaza suavemente hacia la vidriera pública filtrada.
+   * - En Portal Residente lleva al directorio de prestadores y muestra los resultados.
+   */
+  const handleGlobalSearchSubmit = (event) => {
+    event.preventDefault();
+    if (currentView === 'landing') {
+      setLandingSearchSubmitNonce((prev) => prev + 1);
+      return;
+    }
+    if (isResidentView) {
+      setResidentTab('providers');
+      if (residentFavoritesOnly && globalSearchQuery.trim()) {
+        setResidentFavoritesOnly(false);
+      }
+    }
+  };
 
   /**
    * Devuelve las clases Tailwind sobrias (*soft tinted*) para botones de navegación en Zona 1 y Zona 2,
@@ -362,20 +508,30 @@ function MainAppContent() {
     }`;
   };
 
-  // Clases sobrias para el botón `Salir`: atenuado en reposo, rojo sutil solo en hover/focus
-  const logoutBtnClass = isDarkTheme
-    ? 'bg-transparent border-white/12 opacity-65 hover:opacity-100 hover:bg-rose-500/15 hover:text-rose-200 hover:border-rose-400/45 focus-visible:opacity-100 focus-visible:bg-rose-500/15 focus-visible:text-rose-200'
-    : 'bg-transparent border-black/12 opacity-65 hover:opacity-100 hover:bg-rose-500/10 hover:text-rose-700 hover:border-rose-400/50 focus-visible:opacity-100 focus-visible:bg-rose-500/10 focus-visible:text-rose-700';
+  // Clases livianas para los enlaces planos de Zona 2 del Portal Residente (estilo barra de utilidades MeLi)
+  const subBarLinkClass = (isActive) =>
+    `inline-flex items-center gap-1.5 py-1.5 px-1 text-xs font-semibold whitespace-nowrap shrink-0 border-b-2 transition-all cursor-pointer ${
+      isActive
+        ? isDarkTheme
+          ? 'border-emerald-400 text-emerald-300 opacity-100'
+          : 'border-emerald-600 text-emerald-800 opacity-100'
+        : 'border-transparent opacity-75 hover:opacity-100'
+    }`;
 
-  // Clases adaptables al tema para el botón `Mi Cuenta`
+  // Clases adaptables al tema para el disparador del menú de usuario
   const accountBtnClass = (isActive) =>
     isActive
       ? isDarkTheme
         ? 'bg-indigo-500/20 text-indigo-100 border-indigo-400/50 shadow-xs'
         : 'bg-indigo-600/12 text-indigo-950 border-indigo-500/40 shadow-xs'
       : isDarkTheme
-        ? 'bg-white/5 hover:bg-white/10 border-white/12 opacity-90 hover:opacity-100'
-        : 'bg-black/5 hover:bg-black/8 border-black/12 opacity-90 hover:opacity-100';
+        ? 'bg-white/6 hover:bg-white/12 border-white/12 opacity-95 hover:opacity-100'
+        : 'bg-black/5 hover:bg-black/10 border-black/12 opacity-95 hover:opacity-100';
+
+  // Estilo adaptable al tema para el buscador protagonista en Zona 1
+  const searchBarWrapperClass = isDarkTheme
+    ? 'bg-white/10 border-white/15 focus-within:border-emerald-400/60 focus-within:bg-white/12'
+    : 'bg-white border-slate-300 text-slate-900 shadow-xs focus-within:border-emerald-600';
 
   return (
     <div
@@ -385,9 +541,9 @@ function MainAppContent() {
         color: brand?.platformTextColor || '#F1F5F9',
       }}
     >
-      {/* ZONA 1: Barra de Navegación Superior (Adaptable Web y Celular, Dark y Light) */}
+      {/* ZONA 1: Barra de Navegación Superior (Fila 1: Marca · Buscador/Portales · Usuario) */}
       <header
-        className={`border-b px-4 sm:px-6 py-2.5 md:py-3 sticky top-0 z-40 shadow-sm ${
+        className={`border-b px-4 sm:px-6 py-2.5 sticky top-0 z-40 shadow-sm ${
           isDarkTheme ? 'border-white/10' : 'border-black/10'
         }`}
         style={{
@@ -395,15 +551,24 @@ function MainAppContent() {
           color: brand?.menuTextColor || '#E2E8F0',
         }}
       >
-        <div className="max-w-6xl w-full mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-2 md:gap-4">
-          {/* Fila superior en móvil / Izquierda en web: Marca + Identidad del Usuario Logueado */}
-          <div className="flex items-center justify-between gap-2 min-w-0">
-            {/* Marca / Logo */}
+        <div className="max-w-6xl w-full mx-auto flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 md:gap-4">
+            {/* Izquierda: Marca / Logo */}
             <button
               type="button"
-              onClick={() =>
-                setCurrentView(isAuthenticated ? getDefaultAuthenticatedView(user) : 'landing')
-              }
+              onClick={() => {
+                setUserMenuOpen(false);
+                if (isAuthenticated) {
+                  const target = getDefaultAuthenticatedView(user);
+                  if (target === 'resident') {
+                    setResidentTab('providers');
+                    setResidentFavoritesOnly(false);
+                  }
+                  setCurrentView(target);
+                } else {
+                  setCurrentView('landing');
+                }
+              }}
               className="flex items-center gap-2.5 cursor-pointer text-left shrink-0"
             >
               {brand?.logoUrl ? (
@@ -427,7 +592,7 @@ function MainAppContent() {
                     {displayBrandName}
                   </span>
                   <span
-                    className={`hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
+                    className={`hidden lg:inline-block text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
                       isDarkTheme
                         ? 'bg-white/8 border-white/12 opacity-90'
                         : 'bg-black/6 border-black/12 opacity-85'
@@ -436,202 +601,402 @@ function MainAppContent() {
                     {displayBrandBadge}
                   </span>
                 </div>
-                <p className="hidden sm:block text-[10px] opacity-70 truncate">
+                <p className="hidden lg:block text-[10px] opacity-70 truncate">
                   {displayBrandSubtitle}
                 </p>
               </div>
             </button>
 
-            {/* En móvil (< md): Quién está logueado (acceso a Mi Cuenta) + Salir atenuado */}
-            <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            {/* Centro (escritorio): Buscador protagonista (Landing/Residente) o Switcher de Portales (vistas operativas) */}
+            {showGlobalSearch ? (
+              <form
+                onSubmit={handleGlobalSearchSubmit}
+                role="search"
+                className="hidden md:flex flex-1 max-w-xl mx-2"
+              >
+                <div
+                  className={`flex items-center w-full rounded-xl border px-3 py-1.5 gap-2 transition-all ${searchBarWrapperClass}`}
+                >
+                  <input
+                    type="text"
+                    value={globalSearchQuery}
+                    onChange={(e) => {
+                      const nextVal = e.target.value;
+                      setGlobalSearchQuery(nextVal);
+                      if (isResidentView && residentTab !== 'providers' && nextVal.trim()) {
+                        setResidentTab('providers');
+                      }
+                    }}
+                    placeholder="¿Qué necesitás resolver? Ej: pérdida de agua, electricista..."
+                    aria-label="Buscar prestadores, rubros o problemas"
+                    className="w-full bg-transparent text-xs md:text-sm focus:outline-none placeholder:opacity-65"
+                  />
+                  {globalSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setGlobalSearchQuery('')}
+                      aria-label="Limpiar búsqueda"
+                      className="p-1 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                  <span
+                    className={`h-4 w-px shrink-0 ${isDarkTheme ? 'bg-white/15' : 'bg-slate-300'}`}
+                    aria-hidden="true"
+                  />
+                  <button
+                    type="submit"
+                    aria-label="Buscar"
+                    className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                    title="Buscar prestadores"
+                  >
+                    <Search size={15} />
+                  </button>
+                </div>
+              </form>
+            ) : (
+              isAuthenticated &&
+              (permittedPortals.length > 1 || isSuperadmin) && (
+                <nav
+                  aria-label="Navegación principal"
+                  className="hidden md:flex items-center gap-1 overflow-x-auto flex-nowrap"
+                >
+                  {permittedPortals.map(({ id, shortLabel, label, Icon }) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setCurrentView(id)}
+                      className={navBtnClass(currentView === id)}
+                      title={label}
+                    >
+                      <Icon size={13} /> {shortLabel}
+                    </button>
+                  ))}
+
+                  {isSuperadmin && (
+                    <button
+                      type="button"
+                      onClick={() => setMasterModeOpen((prev) => !prev)}
+                      aria-expanded={masterModeOpen}
+                      className={navBtnClass(
+                        isMasterViewActive,
+                        masterModeOpen && !isMasterViewActive
+                      )}
+                    >
+                      <Layers size={13} />
+                      <span>Administración</span>
+                      <ChevronDown
+                        size={13}
+                        className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  )}
+                </nav>
+              )
+            )}
+
+            {/* Derecha: Acceso Admin rápido (solo Superadmin en vista buscador) + Menú único de Usuario o Auth */}
+            <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
               {isAuthenticated && user ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => setCurrentView('account')}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold border max-w-38.75 cursor-pointer transition-all ${accountBtnClass(
-                      currentView === 'account'
-                    )}`}
-                    title={`Mi Cuenta — ${displayUserName} (${userRole})`}
-                  >
-                    <User size={12} className="shrink-0 opacity-80" />
-                    <span className="truncate">{displayUserName}</span>
-                    <span className="opacity-70 font-medium text-[10px] shrink-0">
-                      · Cuenta
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLogout}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-semibold border transition-all cursor-pointer shrink-0 ${logoutBtnClass}`}
-                    title="Cerrar sesión"
-                  >
-                    <LogOut size={12} />
-                    <span>Salir</span>
-                  </button>
+                  {showGlobalSearch && isSuperadmin && (
+                    <button
+                      type="button"
+                      onClick={() => setMasterModeOpen((prev) => !prev)}
+                      aria-expanded={masterModeOpen}
+                      className={`hidden sm:inline-flex ${navBtnClass(
+                        isMasterViewActive,
+                        masterModeOpen && !isMasterViewActive
+                      )}`}
+                      title="Abrir submenú de Administración Global"
+                    >
+                      <Layers size={13} />
+                      <span className="hidden lg:inline">Administración</span>
+                      <ChevronDown
+                        size={12}
+                        className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
+                      />
+                    </button>
+                  )}
+
+                  {/* Menú desplegable único del usuario: reemplaza [Mi Cuenta] | [Salir] */}
+                  <div className="relative" ref={userMenuRef}>
+                    <button
+                      type="button"
+                      onClick={() => setUserMenuOpen((prev) => !prev)}
+                      aria-expanded={userMenuOpen}
+                      aria-haspopup="menu"
+                      className={`inline-flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs border cursor-pointer transition-all ${accountBtnClass(
+                        userMenuOpen || currentView === 'account'
+                      )}`}
+                      title={`Menú de ${displayUserFullName}`}
+                    >
+                      <span
+                        className={`w-6 h-6 rounded-full text-[10px] font-extrabold flex items-center justify-center shrink-0 border ${
+                          isDarkTheme
+                            ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                            : 'bg-emerald-600/15 border-emerald-600/35 text-emerald-800'
+                        }`}
+                      >
+                        {userInitials}
+                      </span>
+                      <span className="font-semibold max-w-28 truncate">{displayUserName}</span>
+                      <ChevronDown
+                        size={13}
+                        className={`opacity-75 transition-transform shrink-0 ${
+                          userMenuOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {userMenuOpen && (
+                      <div
+                        role="menu"
+                        className={`absolute right-0 mt-2 w-60 rounded-2xl border shadow-2xl py-1.5 z-50 ${
+                          isDarkTheme ? 'border-white/15' : 'border-slate-200'
+                        }`}
+                        style={{
+                          backgroundColor: brand?.cardBgColor || (isDarkTheme ? '#0F172A' : '#FFFFFF'),
+                          color: brand?.cardTextColor || (isDarkTheme ? '#F1F5F9' : '#0F172A'),
+                        }}
+                      >
+                        {/* Encabezado del usuario */}
+                        <div
+                          className={`px-3.5 py-2.5 border-b ${
+                            isDarkTheme ? 'border-white/10' : 'border-slate-200'
+                          }`}
+                        >
+                          <p className="text-xs font-extrabold truncate">{displayUserFullName}</p>
+                          {user?.email && (
+                            <p className="text-[11px] opacity-65 truncate mt-0.5">{user.email}</p>
+                          )}
+                        </div>
+
+                        {/* Mi Cuenta y Domicilio */}
+                        <div className="p-1.5">
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={() => {
+                              setUserMenuOpen(false);
+                              setCurrentView('account');
+                            }}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                              currentView === 'account'
+                                ? isDarkTheme
+                                  ? 'bg-indigo-500/20 text-indigo-200'
+                                  : 'bg-indigo-50 text-indigo-900'
+                                : isDarkTheme
+                                  ? 'hover:bg-white/8'
+                                  : 'hover:bg-slate-100'
+                            }`}
+                          >
+                            <User size={14} className="opacity-80 shrink-0" />
+                            <span>Mi Cuenta y Domicilio</span>
+                          </button>
+                        </div>
+
+                        {/* Cambio rápido de portal (solo si la cuenta tiene más de un portal habilitado) */}
+                        {(permittedPortals.length > 1 || isSuperadmin) && (
+                          <div
+                            className={`px-1.5 py-1.5 border-t ${
+                              isDarkTheme ? 'border-white/10' : 'border-slate-200'
+                            }`}
+                          >
+                            <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-wider opacity-55">
+                              Cambiar de portal
+                            </p>
+                            {permittedPortals.map(({ id, label, Icon }) => {
+                              const isActivePortal =
+                                currentView === id || (id === 'resident' && currentView === 'payments');
+                              return (
+                                <button
+                                  key={id}
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setUserMenuOpen(false);
+                                    setCurrentView(id);
+                                  }}
+                                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                                    isActivePortal
+                                      ? isDarkTheme
+                                        ? 'bg-emerald-500/15 text-emerald-300'
+                                        : 'bg-emerald-50 text-emerald-800'
+                                      : isDarkTheme
+                                        ? 'hover:bg-white/8'
+                                        : 'hover:bg-slate-100'
+                                  }`}
+                                >
+                                  <span className="flex items-center gap-2.5 truncate">
+                                    <Icon size={14} className="opacity-80 shrink-0" />
+                                    <span className="truncate">{label}</span>
+                                  </span>
+                                  {isActivePortal && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                  )}
+                                </button>
+                              );
+                            })}
+                            {isSuperadmin && (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                  setUserMenuOpen(false);
+                                  setMasterModeOpen(true);
+                                  if (!isMasterViewActive) {
+                                    setCurrentView('metrics');
+                                  }
+                                }}
+                                className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                                  isMasterViewActive
+                                    ? isDarkTheme
+                                      ? 'bg-indigo-500/20 text-indigo-200'
+                                      : 'bg-indigo-50 text-indigo-900'
+                                    : isDarkTheme
+                                      ? 'hover:bg-white/8'
+                                      : 'hover:bg-slate-100'
+                                }`}
+                              >
+                                <Layers size={14} className="opacity-80 shrink-0" />
+                                <span>Administración Global</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Cerrar sesión */}
+                        <div
+                          className={`p-1.5 border-t ${
+                            isDarkTheme ? 'border-white/10' : 'border-slate-200'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            role="menuitem"
+                            onClick={handleLogout}
+                            className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                              isDarkTheme
+                                ? 'text-rose-300 hover:bg-rose-500/15'
+                                : 'text-rose-700 hover:bg-rose-50'
+                            }`}
+                          >
+                            <LogOut size={14} className="shrink-0" />
+                            <span>Cerrar sesión</span>
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1.5 md:gap-2">
                   <button
                     type="button"
                     onClick={() => setCurrentView('login')}
                     className={navBtnClass(currentView === 'login')}
                   >
-                    <LogIn size={12} /> Ingresar
+                    <LogIn size={13} />
+                    <span className="hidden sm:inline">Iniciar Sesión</span>
+                    <span className="sm:hidden">Ingresar</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setCurrentView('register')}
-                    className={navBtnClass(true)}
+                    className={navBtnClass(currentView === 'register')}
                   >
-                    <UserPlus size={12} /> Registro
+                    <UserPlus size={13} />
+                    <span className="hidden sm:inline">Registrarse</span>
+                    <span className="sm:hidden">Registro</span>
                   </button>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Módulos: una sola línea limpia en escritorio y scroll horizontal en celular */}
-          {isAuthenticated && (
-            <nav
-              aria-label="Navegación principal"
-              className="flex items-center gap-1 overflow-x-auto flex-nowrap py-0.5 md:py-0"
-            >
-              {canSeeResident && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('resident')}
-                  className={navBtnClass(currentView === 'resident')}
-                  title="Portal Residente"
-                >
-                  <Home size={13} /> {isSuperadmin ? 'Residente' : 'Portal Residente'}
-                </button>
-              )}
-
-              {canSeeProvider && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('provider')}
-                  className={navBtnClass(currentView === 'provider')}
-                  title="Portal Prestador"
-                >
-                  <Wrench size={13} /> {isSuperadmin ? 'Prestador' : 'Portal Prestador'}
-                </button>
-              )}
-
-              {canSeeSecurity && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('security')}
-                  className={navBtnClass(currentView === 'security')}
-                  title="Consola Garita"
-                >
-                  <QrCode size={13} /> {isSuperadmin ? 'Garita' : 'Consola Garita'}
-                </button>
-              )}
-
-              {isLocalAdmin && (
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('local_admin')}
-                  className={navBtnClass(currentView === 'local_admin')}
-                >
-                  <ShieldAlert size={13} /> Admin Barrio
-                </button>
-              )}
-
-              {isSuperadmin && (
-                <button
-                  type="button"
-                  onClick={() => setMasterModeOpen((prev) => !prev)}
-                  aria-expanded={masterModeOpen}
-                  className={navBtnClass(isMasterViewActive, masterModeOpen && !isMasterViewActive)}
-                >
-                  <Layers size={13} />
-                  <span>Administración</span>
-                  <ChevronDown
-                    size={13}
-                    className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
-                  />
-                </button>
-              )}
-            </nav>
-          )}
-
-          {/* En escritorio (>= md): Quién está logueado (acceso a Mi Cuenta) + separador + Salir atenuado */}
-          <div className="hidden md:flex items-center gap-2 shrink-0">
-            {isAuthenticated && user ? (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('account')}
-                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs border cursor-pointer transition-all ${accountBtnClass(
-                    currentView === 'account'
-                  )}`}
-                  title={`Abrir Mi Cuenta (${displayUserName} · ${userRole})`}
-                >
-                  <span
-                    className={`w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
-                      currentView === 'account'
-                        ? isDarkTheme
-                          ? 'bg-indigo-400/20 border-indigo-300/40 text-indigo-200'
-                          : 'bg-indigo-600/15 border-indigo-500/35 text-indigo-800'
-                        : isDarkTheme
-                          ? 'bg-white/10 border-white/15 opacity-85'
-                          : 'bg-black/8 border-black/15 opacity-80'
-                    }`}
-                  >
-                    <User size={11} />
-                  </span>
-                  <span className="font-semibold">{displayUserName}</span>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded-full font-semibold border ${
-                      isDarkTheme
-                        ? 'bg-white/8 border-white/12 opacity-80'
-                        : 'bg-black/6 border-black/12 opacity-75'
-                    }`}
-                  >
-                    Mi Cuenta
-                  </span>
-                </button>
-
-                <span
-                  className={`h-5 w-px ${isDarkTheme ? 'bg-white/12' : 'bg-black/12'}`}
-                  aria-hidden="true"
+          {/* Fila móvil complementaria en Zona 1: Buscador (Landing/Residente) o Portales (multi-portal) */}
+          {showGlobalSearch ? (
+            <form onSubmit={handleGlobalSearchSubmit} role="search" className="flex md:hidden w-full">
+              <div
+                className={`flex items-center w-full rounded-xl border px-3 py-1.5 gap-2 transition-all ${searchBarWrapperClass}`}
+              >
+                <input
+                  type="text"
+                  value={globalSearchQuery}
+                  onChange={(e) => {
+                    const nextVal = e.target.value;
+                    setGlobalSearchQuery(nextVal);
+                    if (isResidentView && residentTab !== 'providers' && nextVal.trim()) {
+                      setResidentTab('providers');
+                    }
+                  }}
+                  placeholder="¿Qué necesitás resolver? Ej: plomero, electricista..."
+                  aria-label="Buscar prestadores, rubros o problemas"
+                  className="w-full bg-transparent text-xs focus:outline-none placeholder:opacity-65"
                 />
-
+                {globalSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setGlobalSearchQuery('')}
+                    aria-label="Limpiar búsqueda"
+                    className="p-1 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
                 <button
-                  type="button"
-                  onClick={handleLogout}
-                  className={`inline-flex items-center gap-1.5 border px-2.5 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${logoutBtnClass}`}
-                  title="Cerrar sesión"
+                  type="submit"
+                  aria-label="Buscar"
+                  className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
                 >
-                  <LogOut size={13} /> Salir
-                </button>
-              </>
-            ) : (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('login')}
-                  className={navBtnClass(currentView === 'login')}
-                >
-                  <LogIn size={13} /> Iniciar Sesión
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrentView('register')}
-                  className={navBtnClass(currentView === 'register')}
-                >
-                  <UserPlus size={13} /> Registrarse
+                  <Search size={14} />
                 </button>
               </div>
-            )}
-          </div>
+            </form>
+          ) : (
+            isAuthenticated &&
+            (permittedPortals.length > 1 || isSuperadmin) && (
+              <nav
+                aria-label="Navegación principal móvil"
+                className="flex md:hidden items-center gap-1 overflow-x-auto flex-nowrap py-0.5"
+              >
+                {permittedPortals.map(({ id, shortLabel, Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setCurrentView(id)}
+                    className={navBtnClass(currentView === id)}
+                  >
+                    <Icon size={13} /> {shortLabel}
+                  </button>
+                ))}
+                {isSuperadmin && (
+                  <button
+                    type="button"
+                    onClick={() => setMasterModeOpen((prev) => !prev)}
+                    aria-expanded={masterModeOpen}
+                    className={navBtnClass(
+                      isMasterViewActive,
+                      masterModeOpen && !isMasterViewActive
+                    )}
+                  >
+                    <Layers size={13} />
+                    <span>Administración</span>
+                    <ChevronDown
+                      size={12}
+                      className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
+                    />
+                  </button>
+                )}
+              </nav>
+            )
+          )}
         </div>
       </header>
 
-      {/* ZONA 2: Sub-menú de Administración Global (alineado a la izquierda, orden por dominio y acento sobrio) */}
+      {/* ZONA 2A: Sub-menú de Administración Global (Superadmin) */}
       {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
           className={`border-b px-4 sm:px-6 py-2 ${
@@ -671,6 +1036,134 @@ function MainAppContent() {
         </div>
       )}
 
+      {/* ZONA 2B: Barra contextual del Residente (Domicilio + enlaces planos estilo MeLi) */}
+      {showResidentSubBar && (
+        <div
+          className={`border-b px-4 sm:px-6 ${
+            isDarkTheme ? 'border-white/10' : 'border-black/10'
+          }`}
+          style={{
+            backgroundColor: brand?.submenuBgColor || '#090D16',
+            color: brand?.submenuTextColor || '#CBD5E1',
+          }}
+        >
+          <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
+            {/* Domicilio clicable → Mi Cuenta */}
+            <button
+              type="button"
+              onClick={() => setCurrentView('account')}
+              className="inline-flex items-center gap-1.5 py-1.5 text-[11px] sm:text-xs font-medium opacity-85 hover:opacity-100 cursor-pointer text-left min-w-0 max-w-full"
+              title="Editar domicilio y barrio en Mi Cuenta"
+            >
+              <MapPin
+                size={13}
+                className={`shrink-0 ${isDarkTheme ? 'text-emerald-400' : 'text-emerald-600'}`}
+              />
+              <span className="truncate">
+                {residentLocationLabel || 'Completar barrio y lote'}
+              </span>
+            </button>
+
+            {/* Enlaces planos sin cajas pesadas: Prestadores · Mis Servicios · Pases QR · Favoritos · Refrescar */}
+            <nav
+              aria-label="Navegación del Portal Residente"
+              className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setResidentTab('providers');
+                  setResidentFavoritesOnly(false);
+                }}
+                className={subBarLinkClass(residentTab === 'providers' && !residentFavoritesOnly)}
+              >
+                <Users size={13} className="shrink-0 opacity-85" />
+                <span>Prestadores</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResidentTab('services')}
+                className={subBarLinkClass(residentTab === 'services')}
+              >
+                <FileText size={13} className="shrink-0 opacity-85" />
+                <span>Mis Servicios</span>
+                {residentHeaderMeta.servicesActionCount > 0 ? (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {residentHeaderMeta.servicesActionCount}
+                  </span>
+                ) : residentHeaderMeta.servicesTotalCount > 0 ? (
+                  <span className="text-[10px] opacity-60 font-semibold">
+                    ({residentHeaderMeta.servicesTotalCount})
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResidentTab('passes')}
+                className={subBarLinkClass(residentTab === 'passes')}
+              >
+                <QrCode size={13} className="shrink-0 opacity-85" />
+                <span>Pases QR</span>
+                {residentHeaderMeta.passesCount > 0 && (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({residentHeaderMeta.passesCount})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (residentTab !== 'providers') {
+                    setResidentTab('providers');
+                    setResidentFavoritesOnly(true);
+                  } else {
+                    setResidentFavoritesOnly((prev) => !prev);
+                  }
+                }}
+                className={subBarLinkClass(residentTab === 'providers' && residentFavoritesOnly)}
+              >
+                <Heart
+                  size={13}
+                  className={`shrink-0 ${
+                    residentTab === 'providers' && residentFavoritesOnly
+                      ? 'fill-current text-rose-400'
+                      : 'opacity-85'
+                  }`}
+                />
+                <span>Favoritos</span>
+                {residentHeaderMeta.favoritesCount > 0 && (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({residentHeaderMeta.favoritesCount})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResidentRefreshNonce((prev) => prev + 1)}
+                className="inline-flex items-center justify-center p-1.5 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0 transition-opacity"
+                title="Actualizar información del portal"
+                aria-label="Actualizar información del portal"
+              >
+                <RefreshCw
+                  size={13}
+                  className={residentHeaderMeta.refreshing ? 'animate-spin' : ''}
+                />
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
+
       {/* ZONA 3: Contenedor Principal de Vistas (carga diferida por módulo) */}
       <main className="flex-1 flex flex-col">
         <Suspense
@@ -686,6 +1179,10 @@ function MainAppContent() {
             onGoLogin={() => setCurrentView('login')}
             onGoRegister={() => setCurrentView('register')}
             onViewChange={setCurrentView}
+            externalSearchTerm={globalSearchQuery}
+            onExternalSearchChange={setGlobalSearchQuery}
+            searchSubmitNonce={landingSearchSubmitNonce}
+            useGlobalHeaderSearch
           />
         )}
 
@@ -710,13 +1207,22 @@ function MainAppContent() {
           <AccountView onNavigate={setCurrentView} />
         )}
 
-        {/* Portales operativos: Residente (flujo único de 5 pasos incl. Pagos y Reseñas), Prestador y Consola de Garita */}
+        {/* Portales operativos: Residente (sincronizado con barra de 2 filas), Prestador y Consola de Garita */}
         {(currentView === 'resident' || currentView === 'payments') && (
           <ResidentDashboard
             onNavigate={setCurrentView}
             onViewChange={setCurrentView}
             initialStep={currentView === 'payments' ? 'payments' : residentInitialStep}
             onConsumedInitialStep={() => setResidentInitialStep(null)}
+            useGlobalHeader
+            externalSearchTerm={globalSearchQuery}
+            onExternalSearchChange={setGlobalSearchQuery}
+            externalActiveStep={residentTab}
+            onExternalStepChange={setResidentTab}
+            externalOnlyFavorites={residentFavoritesOnly}
+            onExternalOnlyFavoritesChange={setResidentFavoritesOnly}
+            onHeaderMetaChange={setResidentHeaderMeta}
+            refreshNonce={residentRefreshNonce}
           />
         )}
 
