@@ -496,6 +496,65 @@ export const DEFAULT_BRANDING_CONFIG = {
   logoUrl: null,
 };
 
+// Clave de caché instantánea en localStorage (sincronizada con el pre-script de index.html)
+const BRANDING_CACHE_KEY = 'trustlink_branding_cache_v1';
+
+/**
+ * Lee sincrónicamente la última apariencia guardada en `localStorage` para hidratar
+ * el primer fotograma sin parpadeo del tema por defecto (0 ms FOUC).
+ * @returns {object|null} Estado de apariencia cacheado o `null` si aún no existe caché.
+ */
+function readCachedBranding() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(BRANDING_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return mapBackendBrandingToState(parsed);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persiste una copia liviana del branding vigente en `localStorage` para próximas cargas.
+ * Omite logos base64 excesivamente grandes (> 300 KB) para proteger la cuota del navegador,
+ * conservando siempre todos los colores, textos e identidad visual.
+ * @param {object} config - Estado normalizado de apariencia.
+ */
+function writeCachedBranding(config) {
+  if (typeof window === 'undefined' || !config) return;
+  try {
+    const logoSafe =
+      typeof config.logoUrl === 'string' && config.logoUrl.length > 300000
+        ? null
+        : config.logoUrl || null;
+    const toStore = {
+      brandName: config.brandName,
+      brandBadge: config.brandBadge,
+      brandSubtitle: config.brandSubtitle,
+      menuBgColor: config.menuBgColor,
+      menuTextColor: config.menuTextColor,
+      submenuBgColor: config.submenuBgColor,
+      submenuTextColor: config.submenuTextColor,
+      platformBgColor: config.platformBgColor,
+      platformTextColor: config.platformTextColor,
+      cardBgColor: config.cardBgColor,
+      cardTextColor: config.cardTextColor,
+      innerBgColor: config.innerBgColor,
+      innerTextColor: config.innerTextColor,
+      footerBgColor: config.footerBgColor,
+      footerTextColor: config.footerTextColor,
+      logoUrl: logoSafe,
+      darkMode: Boolean(config.darkMode),
+    };
+    window.localStorage.setItem(BRANDING_CACHE_KEY, JSON.stringify(toStore));
+  } catch {
+    // Ignora errores de cuota o modos privados con storage deshabilitado
+  }
+}
+
 // Contexto React compartido para consumir y mutar la configuración de marca blanca
 const BrandingContext = createContext(null);
 
@@ -568,20 +627,38 @@ const mapBackendBrandingToState = (raw = {}) => {
  * @param {{ children: React.ReactNode }} props
  */
 export const BrandingProvider = ({ children }) => {
-  // Estado activo de marca en memoria, defaults devueltos por el servidor y bandera de carga
-  const [brand, setBrand] = useState({
-    name: DEFAULT_BRANDING_CONFIG.brandName,
-    countryName: `${DEFAULT_BRANDING_CONFIG.brandName} ${DEFAULT_BRANDING_CONFIG.brandBadge}`,
-    ...DEFAULT_BRANDING_CONFIG,
-    updatedAt: null,
+  // Hidratación síncrona desde caché local para evitar parpadeo del tema por defecto al recargar
+  const [hasCachedBrand] = useState(() => Boolean(readCachedBranding()));
+  const [brand, setBrand] = useState(() => {
+    const cached = readCachedBranding();
+    if (cached) {
+      return {
+        ...cached,
+        updatedAt: null,
+      };
+    }
+    return {
+      name: DEFAULT_BRANDING_CONFIG.brandName,
+      countryName: `${DEFAULT_BRANDING_CONFIG.brandName} ${DEFAULT_BRANDING_CONFIG.brandBadge}`,
+      ...DEFAULT_BRANDING_CONFIG,
+      updatedAt: null,
+    };
   });
 
   const [defaults, setDefaults] = useState(DEFAULT_BRANDING_CONFIG);
   const [loadingBrand, setLoadingBrand] = useState(true);
+  // Tope de seguridad (1.2s) para que la primera visita absoluta sin caché jamás quede bloqueada
+  const [firstPaintReady, setFirstPaintReady] = useState(() => Boolean(readCachedBranding()));
+
+  useEffect(() => {
+    if (firstPaintReady) return undefined;
+    const timer = window.setTimeout(() => setFirstPaintReady(true), 1200);
+    return () => window.clearTimeout(timer);
+  }, [firstPaintReady]);
 
   /**
-   * Consulta la configuración vigente de apariencia desde `GET /api/v1/branding`
-   * y actualiza tanto el estado activo como los valores por defecto institucionales.
+   * Consulta la configuración vigente de apariencia desde `GET /api/v1/branding`,
+   * actualiza la caché local para futuras cargas instantáneas y sincroniza defaults.
    */
   const fetchBranding = useCallback(async () => {
     setLoadingBrand(true);
@@ -591,6 +668,7 @@ export const BrandingProvider = ({ children }) => {
 
       if (response.ok && data.branding) {
         const mapped = mapBackendBrandingToState(data.branding);
+        writeCachedBranding(mapped);
         setBrand((prev) => ({
           ...prev,
           ...mapped,
@@ -605,6 +683,7 @@ export const BrandingProvider = ({ children }) => {
       console.error('[BrandingContext] Error al cargar configuración de apariencia:', error);
     } finally {
       setLoadingBrand(false);
+      setFirstPaintReady(true);
     }
   }, []);
 
@@ -759,6 +838,7 @@ export const BrandingProvider = ({ children }) => {
 
     if (data.branding) {
       const mapped = mapBackendBrandingToState(data.branding);
+      writeCachedBranding(mapped);
       setBrand((prev) => ({
         ...prev,
         ...mapped,
@@ -778,6 +858,10 @@ export const BrandingProvider = ({ children }) => {
     return saveBranding(targetDefaults);
   };
 
+  // En primera visita absoluta sin caché previa, espera brevemente (máx. 1.2s) antes de pintar
+  // para evitar el salto visual del tema por defecto hacia el tema configurado en el servidor.
+  const waitingInitialTheme = !hasCachedBrand && loadingBrand && !firstPaintReady;
+
   return (
     <BrandingContext.Provider
       value={{
@@ -792,7 +876,22 @@ export const BrandingProvider = ({ children }) => {
         resetBranding,
       }}
     >
-      {children}
+      {waitingInitialTheme ? (
+        <div
+          className="min-h-screen flex items-center justify-center"
+          style={{
+            backgroundColor: brand.platformBgColor || '#0F172A',
+            color: brand.platformTextColor || '#F1F5F9',
+          }}
+        >
+          <div className="flex flex-col items-center gap-3 text-xs opacity-80">
+            <div className="w-8 h-8 rounded-full border-2 border-emerald-400/30 border-t-emerald-400 animate-spin" />
+            <span className="font-semibold tracking-wide">Cargando {brand.brandName}...</span>
+          </div>
+        </div>
+      ) : (
+        children
+      )}
     </BrandingContext.Provider>
   );
 };

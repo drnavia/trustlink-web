@@ -14,6 +14,47 @@
       content="TrustLink: plataforma inteligente de servicios verificados, pases QR y control de accesos perimetrales para comunidades privadas."
     />
     <title>TrustLink · Servicios Verificados y Accesos QR</title>
+    <script>
+      /* Pre-hidratación síncrona de apariencia (evita flash del tema por defecto al cargar) */
+      (function () {
+        try {
+          var raw = window.localStorage.getItem('trustlink_branding_cache_v1');
+          var root = document.documentElement;
+          if (!raw) {
+            root.style.backgroundColor = '#0F172A';
+            root.style.color = '#F1F5F9';
+            return;
+          }
+          var b = JSON.parse(raw);
+          if (!b || typeof b !== 'object') return;
+          var isDark = b.darkMode !== false;
+          var bg = b.platformBgColor || '#0F172A';
+          var fg = b.platformTextColor || '#F1F5F9';
+          root.style.setProperty('--tl-menu-bg', b.menuBgColor || '#020617');
+          root.style.setProperty('--tl-menu-text', b.menuTextColor || '#E2E8F0');
+          root.style.setProperty('--tl-submenu-bg', b.submenuBgColor || '#090D16');
+          root.style.setProperty('--tl-submenu-text', b.submenuTextColor || '#CBD5E1');
+          root.style.setProperty('--tl-platform-bg', bg);
+          root.style.setProperty('--tl-platform-text', fg);
+          root.style.setProperty('--tl-card-bg', b.cardBgColor || '#020617');
+          root.style.setProperty('--tl-card-text', b.cardTextColor || '#F1F5F9');
+          root.style.setProperty('--tl-inner-bg', b.innerBgColor || '#0F172A');
+          root.style.setProperty('--tl-inner-text', b.innerTextColor || '#E2E8F0');
+          root.style.setProperty('--tl-footer-bg', b.footerBgColor || b.menuBgColor || '#020617');
+          root.style.setProperty('--tl-footer-text', b.footerTextColor || '#94A3B8');
+          root.style.backgroundColor = bg;
+          root.style.color = fg;
+          root.classList.toggle('dark', isDark);
+          root.setAttribute('data-theme', isDark ? 'dark' : 'light');
+          var metaTheme = document.querySelector('meta[name="theme-color"]');
+          if (metaTheme && b.menuBgColor) {
+            metaTheme.setAttribute('content', b.menuBgColor);
+          }
+        } catch (_err) {
+          /* Ignora errores de almacenamiento restringido (ej. modo privado estricto) */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

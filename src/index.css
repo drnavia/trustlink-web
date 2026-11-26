@@ -13,9 +13,9 @@
 
 body {
   margin: 0;
-  background-color: #F8FAFC;
+  background-color: var(--tl-platform-bg, #0F172A);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  color: #1E293B;
+  color: var(--tl-platform-text, #F1F5F9);
 }
 
 /*
