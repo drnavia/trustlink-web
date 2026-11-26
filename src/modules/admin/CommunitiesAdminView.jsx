@@ -106,6 +106,7 @@ export default function CommunitiesAdminView() {
   const [editCountryPostalCode, setEditCountryPostalCode] = useState('');
   const [editCountryCity, setEditCountryCity] = useState('');
   const [editCountryProvince, setEditCountryProvince] = useState('');
+  const [editCountryCriminalWindow, setEditCountryCriminalWindow] = useState(180);
   const [savingCountryId, setSavingCountryId] = useState(null);
 
   // Licenciamiento B2B
@@ -293,6 +294,7 @@ export default function CommunitiesAdminView() {
     setEditCountryPostalCode(c.postal_code || '');
     setEditCountryCity(c.city || '');
     setEditCountryProvince(c.province || '');
+    setEditCountryCriminalWindow(Number(c.criminal_record_max_age_days) || 180);
     setCountryFeedback(null);
   };
 
@@ -310,6 +312,7 @@ export default function CommunitiesAdminView() {
           postal_code: editCountryPostalCode.trim() || null,
           city: editCountryCity.trim() || null,
           province: editCountryProvince.trim() || null,
+          criminal_record_max_age_days: Number(editCountryCriminalWindow) || 180,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -593,6 +596,7 @@ export default function CommunitiesAdminView() {
                         { key: 'billing_status', label: 'Estado Comercial' },
                         { key: 'monthly_qr_used', label: 'QR Usados Mes' },
                         { key: 'monthly_pass_quota', label: 'Cuota Mensual' },
+                        { key: 'criminal_record_max_age_days', label: 'Ventana Antecedentes (días)' },
                         { key: 'active_keys_count', label: 'Claves API' },
                         { key: 'is_active', label: 'Activa' },
                       ],
@@ -773,34 +777,62 @@ export default function CommunitiesAdminView() {
                         </td>
                         <td className="py-2.5 px-3 opacity-85">
                           {isEditing ? (
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
-                              <input
-                                type="text"
-                                value={editCountryCity}
-                                onChange={(e) => setEditCountryCity(e.target.value)}
-                                placeholder="Localidad"
-                                className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <input
-                                type="text"
-                                value={editCountryProvince}
-                                onChange={(e) => setEditCountryProvince(e.target.value)}
-                                placeholder="Provincia"
-                                className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
-                              <input
-                                type="text"
-                                value={editCountryPostalCode}
-                                onChange={(e) => setEditCountryPostalCode(e.target.value)}
-                                placeholder="CP"
-                                className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
-                                style={cardStyle}
-                              />
+                            <div className="space-y-1.5">
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
+                                <input
+                                  type="text"
+                                  value={editCountryCity}
+                                  onChange={(e) => setEditCountryCity(e.target.value)}
+                                  placeholder="Localidad"
+                                  className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                                <input
+                                  type="text"
+                                  value={editCountryProvince}
+                                  onChange={(e) => setEditCountryProvince(e.target.value)}
+                                  placeholder="Provincia"
+                                  className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                                <input
+                                  type="text"
+                                  value={editCountryPostalCode}
+                                  onChange={(e) => setEditCountryPostalCode(e.target.value)}
+                                  placeholder="CP"
+                                  className="w-full px-2 py-1 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <label className="flex items-center gap-2 text-[11px]">
+                                <span className="opacity-80 whitespace-nowrap font-semibold">
+                                  Antecedentes máx.:
+                                </span>
+                                <select
+                                  value={editCountryCriminalWindow}
+                                  onChange={(e) =>
+                                    setEditCountryCriminalWindow(Number(e.target.value))
+                                  }
+                                  className="px-2 py-1 rounded-lg border border-emerald-500/40 text-[11px] font-bold focus:outline-none"
+                                  style={cardStyle}
+                                >
+                                  <option value={30}>30 días</option>
+                                  <option value={90}>90 días</option>
+                                  <option value={180}>180 días (estándar)</option>
+                                  <option value={365}>365 días</option>
+                                </select>
+                              </label>
                             </div>
                           ) : (
-                            locationSummary
+                            <div className="space-y-1">
+                              <div>{locationSummary}</div>
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border border-sky-500/35 bg-sky-500/10 text-sky-300"
+                                title="Antigüedad máxima permitida por este barrio desde la fecha de emisión del certificado de Antecedentes Penales"
+                              >
+                                Antecedentes: {Number(c.criminal_record_max_age_days) || 180}d
+                              </span>
+                            </div>
                           )}
                         </td>
                         <td className="py-2.5 px-3">

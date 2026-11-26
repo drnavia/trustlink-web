@@ -57,6 +57,7 @@ import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import ProviderTrustBadge, {
+  FeaturedPartnerBadge,
   TrustChecksStrip,
   TrustLevelsGuide,
 } from '../../components/ProviderTrustBadge';
@@ -1036,7 +1037,7 @@ export default function ResidentDashboard({
       const matchesVerified =
         !onlyVerified ||
         Boolean(p.is_verified) ||
-        Number(p.trust_level ?? (p.trust_badge?.level ?? 4)) >= 4;
+        Number(p.trust_level ?? (p.trust_badge?.level ?? 3)) >= 3;
       const matchesMember = !onlyVerifiedMembers || Boolean(p.is_verified_member);
       const matchesFavorite = !onlyFavorites || Boolean(p.is_favorite);
       const matchesAvailableToday = !onlyAvailableToday || Boolean(p.available_today);
@@ -2166,7 +2167,7 @@ export default function ResidentDashboard({
       const canIssueQr =
         matchedProvider.can_issue_pass !== false &&
         !matchedProvider.has_expired_docs &&
-        Number(matchedProvider.trust_level ?? matchedProvider.trust_badge?.level ?? 4) >= 4;
+        Number(matchedProvider.trust_level ?? matchedProvider.trust_badge?.level ?? 3) >= 3;
       const needsAction = meta.isPendingResident || (meta.isConfirmed && canIssueQr);
       const providerDisplay = visit.provider_name || `Prestador #${visit.provider_id}`;
       const ts = new Date(visit.preferred_date || visit.created_at || 0).getTime() || 0;
@@ -2266,7 +2267,7 @@ export default function ResidentDashboard({
           matched &&
             matched.can_issue_pass !== false &&
             !matched.has_expired_docs &&
-            Number(matched.trust_level ?? matched.trust_badge?.level ?? 0) >= 4
+            Number(matched.trust_level ?? matched.trust_badge?.level ?? 0) >= 3
         );
       });
       if (confirmedVisitReady) {
@@ -2650,7 +2651,7 @@ export default function ResidentDashboard({
                   style={showTrustGuide ? undefined : innerStyle}
                 >
                   <HelpCircle size={13} className="shrink-0" />
-                  <span>Niveles N1–N5</span>
+                  <span>Niveles N1–N4</span>
                 </button>
               </div>
             </div>
@@ -2706,7 +2707,7 @@ export default function ResidentDashboard({
                   style={showTrustGuide ? undefined : innerStyle}
                 >
                   <HelpCircle size={13} className="shrink-0" />
-                  <span>Niveles N1–N5</span>
+                  <span>Niveles N1–N4</span>
                 </button>
               </div>
             </div>
@@ -2919,7 +2920,7 @@ export default function ResidentDashboard({
                 style={onlyVerifiedMembers ? undefined : innerStyle}
               >
                 <Award size={12} />
-                <span>Socios N5</span>
+                <span>Destacados</span>
               </button>
             )}
 
@@ -3014,31 +3015,38 @@ export default function ResidentDashboard({
                 const visibleSpecialties = orderedSpecialties.slice(0, MAX_VISIBLE_CARD_SPECIALTIES);
                 const extraSpecialties = orderedSpecialties.slice(MAX_VISIBLE_CARD_SPECIALTIES);
 
+                const isFeaturedPartner = Boolean(
+                  provider.is_featured_partner || isVerifiedMember
+                );
                 const cardTrust = provider.trust_badge || {
-                  level: isVerifiedMember ? 5 : 4,
-                  label: isVerifiedMember ? membershipBadgeLabel : 'Verificado',
-                  tone: hasExpiredDocs ? 'danger' : isVerifiedMember ? 'gold' : 'emerald',
+                  level: provider.auto_verified ? 4 : 3,
+                  label: provider.auto_verified ? 'Verificado' : 'Pase QR habilitado',
+                  tone: hasExpiredDocs ? 'danger' : provider.auto_verified ? 'emerald' : 'teal',
                   can_issue_pass: !hasExpiredDocs,
                   has_expired_docs: hasExpiredDocs,
                 };
                 const trustLevel = Number(provider.trust_level ?? cardTrust.level ?? 0);
                 const canIssueQrForCard =
-                  provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 4;
+                  provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 3;
 
                 const headerBandClass = hasExpiredDocs
                   ? 'border-rose-500/35 bg-rose-950/30'
-                  : trustLevel >= 5
+                  : isFeaturedPartner
                     ? 'border-amber-400/40 bg-amber-500/12'
-                    : trustLevel === 4
+                    : trustLevel >= 4
                       ? 'border-emerald-500/35 bg-emerald-500/10'
-                      : 'border-white/10 bg-black/15';
+                      : trustLevel === 3
+                        ? 'border-teal-500/35 bg-teal-500/10'
+                        : 'border-white/10 bg-black/15';
                 const cardRingClass = hasExpiredDocs
                   ? 'border-rose-500/40'
-                  : trustLevel >= 5
+                  : isFeaturedPartner
                     ? 'border-amber-400/55 ring-1 ring-amber-400/20'
-                    : trustLevel === 4
+                    : trustLevel >= 4
                       ? 'border-emerald-500/40'
-                      : 'border-white/10';
+                      : trustLevel === 3
+                        ? 'border-teal-500/40'
+                        : 'border-white/10';
 
                 const repLabel = provider.reputation?.level_label || 'Nuevo en TrustLink';
                 const repDotClass =
@@ -3061,11 +3069,16 @@ export default function ResidentDashboard({
                     style={innerStyle}
                   >
                     <div>
-                      {/* 1. Cabecera de confianza compacta (insignia + rating + favorito) */}
+                      {/* 1. Cabecera de confianza compacta (insignia + destacado + rating + favorito) */}
                       <div
                         className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${headerBandClass}`}
                       >
-                        <ProviderTrustBadge trust={cardTrust} showScale compact />
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <ProviderTrustBadge trust={cardTrust} showScale compact />
+                          {isFeaturedPartner && !hasExpiredDocs && (
+                            <FeaturedPartnerBadge compact label={membershipBadgeLabel} />
+                          )}
+                        </div>
 
                         <div className="flex items-center gap-1.5 shrink-0">
                           <button
@@ -5587,25 +5600,26 @@ export default function ResidentDashboard({
           'Prestador Verificado';
         const isVerifiedMember = Boolean(provider.is_verified_member);
         const hasExpiredDocs = Boolean(provider.has_expired_docs);
+        const isFeaturedPartner = Boolean(provider.is_featured_partner || isVerifiedMember);
         const cardTrust = provider.trust_badge || {
-          level: isVerifiedMember ? 5 : 4,
-          label: isVerifiedMember ? 'Socio Verificado' : 'Verificado',
-          tone: hasExpiredDocs ? 'danger' : isVerifiedMember ? 'gold' : 'emerald',
+          level: provider.auto_verified ? 4 : 3,
+          label: provider.auto_verified ? 'Verificado' : 'Pase QR habilitado',
+          tone: hasExpiredDocs ? 'danger' : provider.auto_verified ? 'emerald' : 'teal',
           can_issue_pass: !hasExpiredDocs,
           has_expired_docs: hasExpiredDocs,
         };
         const trustLevel = Number(provider.trust_level ?? cardTrust.level ?? 0);
         const canIssueQr =
-          provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 4;
+          provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 3;
         const trustSummaryLine = hasExpiredDocs
           ? 'Documentación vencida · Emisión de Pase QR pausada hasta renovación'
-          : trustLevel >= 5
-            ? 'Máxima confianza · Verificado con prioridad destacada y Pase QR en garita'
-            : trustLevel === 4
-              ? 'Respaldo completo · Habilitado para emitir Pase QR en garita'
-              : trustLevel === 3
-                ? 'Documentación en validación · Solo consultas y presupuesto por ahora'
-                : 'Solo consultas y presupuesto · Aún sin Pase QR en garita';
+          : trustLevel >= 4
+            ? 'Verificado (N4) · Documentación cotejada y Pase QR habilitado en garita'
+            : trustLevel === 3
+              ? 'Pase QR habilitado (N3) · Seguro y Antecedentes aprobados por TrustLink'
+              : trustLevel === 2
+                ? 'Seguro en revisión (N2) · Solo consultas y presupuesto por ahora'
+                : 'Perfil Básico (N1) · Solo consultas y presupuesto · Aún sin Pase QR';
         const specialties = getProviderSpecialties(provider);
         const communityActivityCount = Number(provider.community_activity_count || 0);
         const topTags = Array.isArray(provider.top_tags) ? provider.top_tags : [];
@@ -5678,6 +5692,9 @@ export default function ResidentDashboard({
                   <div className="space-y-1.5 min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <ProviderTrustBadge trust={cardTrust} size="md" showScale />
+                      {isFeaturedPartner && !hasExpiredDocs && (
+                        <FeaturedPartnerBadge compact />
+                      )}
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border border-amber-500/35 bg-amber-500/10 text-amber-300">
                         <Star size={11} className="fill-amber-400 text-amber-400" />
                         {Number(provider.rating_avg || 0) > 0

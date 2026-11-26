@@ -57,7 +57,10 @@ import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import ProviderCalendarManager from '../../components/ProviderCalendarManager';
-import ProviderTrustBadge, { TrustChecksStrip } from '../../components/ProviderTrustBadge';
+import ProviderTrustBadge, {
+  FeaturedPartnerBadge,
+  TrustChecksStrip,
+} from '../../components/ProviderTrustBadge';
 import { printServiceReceipt } from '../../utils/receiptPrinter';
 import {
   PAGE_SHELL_CLASS,
@@ -211,14 +214,19 @@ export default function ProviderDashboard({
     }
   };
 
-  // Estado global del perfil del prestador, historial documental, membresía Socio Verificado, ficha comercial y Q&A
+  // Estado global del perfil del prestador, historial documental, membresía Destacado, ficha comercial y Q&A
   const [profileData, setProfileData] = useState({
     dni: null,
     dni_document_url: null,
+    dni_back_url: null,
+    phone_verified: true,
     identity_verified: false,
     identity_verified_at: null,
+    auto_verified: false,
+    auto_verified_at: null,
     trust_level: 0,
     trust_badge: null,
+    is_featured_partner: false,
     providers: [],
     document_history: [],
     vehicles: [],
@@ -257,12 +265,22 @@ export default function ProviderDashboard({
   const [qaAnswerDrafts, setQaAnswerDrafts] = useState({});
   const [answeringQuestionId, setAnsweringQuestionId] = useState(null);
 
-  // Paso 1: Credenciales — alta de documentación de compliance (Antecedentes / ART)
+  // Paso 1: Credenciales — alta de documentación de compliance (DNI N1 / Seguro AP o ART N2 / Antecedentes N3)
   const [showDocForm, setShowDocForm] = useState(false);
   const [docType, setDocType] = useState('Póliza ART / Seguro');
   const [docUrl, setDocUrl] = useState('');
+  const [docDniNumber, setDocDniNumber] = useState('');
+  const [docDniBackUrl, setDocDniBackUrl] = useState('');
   const [docValidFrom, setDocValidFrom] = useState('');
   const [docValidTo, setDocValidTo] = useState('');
+  const [docInsuranceType, setDocInsuranceType] = useState('ap');
+  const [docInsurerName, setDocInsurerName] = useState('');
+  const [docPolicyNumber, setDocPolicyNumber] = useState('');
+  const [docHolderCuit, setDocHolderCuit] = useState('');
+  const [docCoverageSummary, setDocCoverageSummary] = useState('');
+  const [docCriminalIssuedAt, setDocCriminalIssuedAt] = useState('');
+  const [docCriminalRequestCode, setDocCriminalRequestCode] = useState('');
+  const [docCriminalSecurityCode, setDocCriminalSecurityCode] = useState('');
   const [savingDoc, setSavingDoc] = useState(false);
 
   // Paso 1: Edición inline de documentos existentes en el historial
@@ -270,6 +288,14 @@ export default function ProviderDashboard({
   const [editDocUrl, setEditDocUrl] = useState('');
   const [editDocValidFrom, setEditDocValidFrom] = useState('');
   const [editDocValidTo, setEditDocValidTo] = useState('');
+  const [editInsuranceType, setEditInsuranceType] = useState('ap');
+  const [editInsurerName, setEditInsurerName] = useState('');
+  const [editPolicyNumber, setEditPolicyNumber] = useState('');
+  const [editHolderCuit, setEditHolderCuit] = useState('');
+  const [editCoverageSummary, setEditCoverageSummary] = useState('');
+  const [editCriminalIssuedAt, setEditCriminalIssuedAt] = useState('');
+  const [editCriminalRequestCode, setEditCriminalRequestCode] = useState('');
+  const [editCriminalSecurityCode, setEditCriminalSecurityCode] = useState('');
   const [updatingDoc, setUpdatingDoc] = useState(false);
 
   // Paso 1: Alta (catálogo oficial auto-aprobado vs. especialidad personalizada), edición y visibilidad
@@ -399,10 +425,17 @@ export default function ProviderDashboard({
         setProfileData({
           dni: data.dni || null,
           dni_document_url: data.dni_document_url || null,
+          dni_back_url: data.dni_back_url || null,
+          phone_verified: data.phone_verified !== false,
           identity_verified: Boolean(data.identity_verified),
           identity_verified_at: data.identity_verified_at || null,
+          auto_verified: Boolean(data.auto_verified),
+          auto_verified_at: data.auto_verified_at || null,
           trust_level: Number(data.trust_level ?? data.trust_badge?.level ?? 0),
           trust_badge: data.trust_badge || null,
+          is_featured_partner: Boolean(
+            data.is_featured_partner || data.trust_badge?.is_featured_partner
+          ),
           providers: data.providers || [],
           document_history: data.document_history || [],
           vehicles: data.vehicles || [],
@@ -788,9 +821,23 @@ export default function ProviderDashboard({
       const resolvedUrl = latestVersion?.document_url || profUrl || '';
       const resolvedFrom = latestVersion?.valid_from || latestVersion?.created_at || profFrom || null;
       const resolvedTo = latestVersion?.valid_to || profTo || null;
+      const resolvedMetadata =
+        (latestVersion?.metadata && typeof latestVersion.metadata === 'object'
+          ? latestVersion.metadata
+          : null) ||
+        (slot === 'insurance'
+          ? fallbackProf?.insurance_metadata || null
+          : fallbackProf?.criminal_record_metadata || null);
+      const resolvedIssuedAt =
+        slot === 'criminal'
+          ? fallbackProf?.criminal_record_issued_at ||
+            resolvedMetadata?.issued_at ||
+            resolvedFrom ||
+            null
+          : null;
       const resolvedAuditStatus =
         latestVersion?.status || fallbackProf?.status || primaryProf?.status || 'pending';
-      const isMissing = !resolvedUrl && !resolvedTo;
+      const isMissing = !resolvedUrl && !resolvedTo && !resolvedIssuedAt;
 
       if (latestVersion?.id) {
         currentVersionIdBySlot.set(slot, latestVersion.id);
@@ -811,6 +858,8 @@ export default function ProviderDashboard({
         url: resolvedUrl,
         validFrom: resolvedFrom,
         validTo: resolvedTo,
+        issuedAt: resolvedIssuedAt,
+        metadata: resolvedMetadata,
         auditStatus: resolvedAuditStatus,
         isMissing,
       };
@@ -871,23 +920,31 @@ export default function ProviderDashboard({
     const normalizedType = docType.toLowerCase();
     const isDni = normalizedType.includes('dni') || normalizedType.includes('identidad');
 
-    // Carga o actualización del documento de identidad (DNI) a nivel cuenta
+    // Carga o actualización del documento de identidad (DNI) a nivel cuenta (Nivel 1)
     if (isDni) {
       try {
+        const dniPayload = {
+          dni_document_url: docUrl.trim(),
+          dni_back_url: docDniBackUrl.trim() || null,
+        };
+        if (docDniNumber.trim()) {
+          dniPayload.dni = docDniNumber.trim();
+        }
         const response = await fetch(`${API_BASE}/api/v1/providers/identity/document`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/json',
             ...getAuthHeaders(),
           },
-          body: JSON.stringify({ dni_document_url: docUrl.trim() }),
+          body: JSON.stringify(dniPayload),
         });
         const data = await response.json();
         if (response.ok) {
           setSuccessMsg(
-            data.message || 'Documento de identidad (DNI) cargado para validación de Administración.'
+            data.message || 'DNI cargado para validación de Administración (Nivel 1).'
           );
           setDocUrl('');
+          setDocDniBackUrl('');
           setDocValidFrom('');
           setDocValidTo('');
           setShowDocForm(false);
@@ -914,11 +971,23 @@ export default function ProviderDashboard({
           insurance_from: docValidFrom || null,
           insurance_expiry: docValidTo || null,
           art_insurance_expiry: docValidTo || null,
+          insurance_metadata: {
+            policy_type: docInsuranceType,
+            insurer_name: docInsurerName.trim() || null,
+            policy_number: docPolicyNumber.trim() || null,
+            holder_cuit: docHolderCuit.trim() || null,
+            coverage_summary: docInsuranceType === 'ap' ? docCoverageSummary.trim() || null : null,
+          },
         }
       : {
           criminal_record_url: docUrl.trim(),
-          criminal_record_from: docValidFrom || null,
-          criminal_record_expiry: docValidTo || null,
+          criminal_record_issued_at: docCriminalIssuedAt || docValidFrom || null,
+          criminal_record_from: docCriminalIssuedAt || docValidFrom || null,
+          criminal_record_metadata: {
+            issued_at: docCriminalIssuedAt || docValidFrom || null,
+            request_code: docCriminalRequestCode.trim() || null,
+            security_code: docCriminalSecurityCode.trim() || null,
+          },
         };
 
     const payload = baseProfile.id
@@ -946,11 +1015,18 @@ export default function ProviderDashboard({
 
       if (response.ok) {
         setSuccessMsg(
-          data.message || 'Documentación personal renovada y registrada en el historial de auditoría.'
+          data.message || 'Documentación personal registrada y enviada a revisión de TrustLink.'
         );
         setDocUrl('');
         setDocValidFrom('');
         setDocValidTo('');
+        setDocInsurerName('');
+        setDocPolicyNumber('');
+        setDocHolderCuit('');
+        setDocCoverageSummary('');
+        setDocCriminalIssuedAt('');
+        setDocCriminalRequestCode('');
+        setDocCriminalSecurityCode('');
         setShowDocForm(false);
         await fetchProviderProfile();
       } else {
@@ -966,22 +1042,34 @@ export default function ProviderDashboard({
 
   /**
    * Activa el modo de edición/renovación inline para uno de los 2 documentos personales vigentes.
-   * @param {{ key: string, url?: string, validFrom?: string|null, validTo?: string|null }} docItem - Documento vigente seleccionado.
+   * @param {Object} docItem - Documento vigente seleccionado.
    */
   const startEditingDocument = (docItem) => {
+    const meta = docItem.metadata && typeof docItem.metadata === 'object' ? docItem.metadata : {};
     setEditingDocKey(docItem.key);
     setEditDocUrl(docItem.url || '');
     setEditDocValidFrom(toDateInputValue(docItem.validFrom));
     setEditDocValidTo(toDateInputValue(docItem.validTo));
+    if (docItem.slot === 'insurance') {
+      setEditInsuranceType(meta.policy_type === 'art' ? 'art' : 'ap');
+      setEditInsurerName(meta.insurer_name || '');
+      setEditPolicyNumber(meta.policy_number || '');
+      setEditHolderCuit(meta.holder_cuit || '');
+      setEditCoverageSummary(meta.coverage_summary || '');
+    } else {
+      setEditCriminalIssuedAt(toDateInputValue(docItem.issuedAt || meta.issued_at || docItem.validFrom));
+      setEditCriminalRequestCode(meta.request_code || '');
+      setEditCriminalSecurityCode(meta.security_code || '');
+    }
     setErrorMsg('');
     setSuccessMsg('');
   };
 
   /**
-   * Persiste la renovación o edición de URL y vigencias de un documento personal (Antecedentes o ART).
+   * Persiste la renovación o edición de URL, metadatos y vigencias de un documento personal (Seguro AP/ART o Antecedentes).
    * Envía solo el documento modificado para sincronizarlo en todas las especialidades de la persona
    * y preservar la versión previa en `provider_document_versions`.
-   * @param {{ profileId: number|string|null, field?: string, docType: string }} docItem - Documento vigente en edición.
+   * @param {Object} docItem - Documento vigente en edición.
    * @returns {Promise<void>}
    */
   const handleSaveDocumentEdit = async (docItem) => {
@@ -1000,11 +1088,24 @@ export default function ProviderDashboard({
           insurance_from: editDocValidFrom || null,
           insurance_expiry: editDocValidTo || null,
           art_insurance_expiry: editDocValidTo || null,
+          insurance_metadata: {
+            policy_type: editInsuranceType,
+            insurer_name: editInsurerName.trim() || null,
+            policy_number: editPolicyNumber.trim() || null,
+            holder_cuit: editHolderCuit.trim() || null,
+            coverage_summary:
+              editInsuranceType === 'ap' ? editCoverageSummary.trim() || null : null,
+          },
         }
       : {
           criminal_record_url: editDocUrl.trim(),
-          criminal_record_from: editDocValidFrom || null,
-          criminal_record_expiry: editDocValidTo || null,
+          criminal_record_issued_at: editCriminalIssuedAt || editDocValidFrom || null,
+          criminal_record_from: editCriminalIssuedAt || editDocValidFrom || null,
+          criminal_record_metadata: {
+            issued_at: editCriminalIssuedAt || editDocValidFrom || null,
+            request_code: editCriminalRequestCode.trim() || null,
+            security_code: editCriminalSecurityCode.trim() || null,
+          },
         };
 
     try {
@@ -1753,31 +1854,34 @@ export default function ProviderDashboard({
         r.is_visible_in_directory !== false
     );
     const isAllRejected = rows.length > 0 && rows.every((r) => r.status === 'rejected');
+    const phoneVerified = profileData.phone_verified !== false;
     const identityVerified = Boolean(profileData.identity_verified) || hasApprovedCompliance;
     const hasDniDoc = Boolean(profileData.dni_document_url);
+    const autoVerified = Boolean(profileData.auto_verified);
     const isVerifiedMember = Boolean(profileData.membership?.is_verified_member);
     const providerInputsComplete = criminalOk && artOk && hasDirectoryEligibleSpecialty;
-    const isFullyVerified =
+    const isComplianceApproved =
       hasApprovedCompliance && hasApprovedVisibleSpecialty && criminalOk && artOk;
+    const isFeaturedPartner = Boolean(
+      (profileData.is_featured_partner || isVerifiedMember) && isComplianceApproved && phoneVerified
+    );
 
-    // Respaldo determinista si el backend aún no envió `trust_badge`
+    // Respaldo determinista en escala oficial N0..N4 si el backend aún no envió `trust_badge`
     const fallbackLevel = isAllRejected
       ? 0
-      : !identityVerified || !hasDirectoryEligibleSpecialty
+      : !phoneVerified || !identityVerified || !hasDirectoryEligibleSpecialty
         ? 0
         : hasApprovedCompliance && (criminalExpired || artExpired)
-          ? criminalOk || artOk
+          ? artOk
             ? 2
             : 1
-          : isFullyVerified && isVerifiedMember
-            ? 5
-            : isFullyVerified
-              ? 4
-              : criminalOk && artOk
-                ? 3
-                : criminalOk || artOk
-                  ? 2
-                  : 1;
+          : isComplianceApproved && autoVerified
+            ? 4
+            : isComplianceApproved
+              ? 3
+              : artOk
+                ? 2
+                : 1;
 
     const resolvedTrustBadge = profileData.trust_badge || {
       level: fallbackLevel,
@@ -1785,59 +1889,61 @@ export default function ProviderDashboard({
         ? 'rejected'
         : hasApprovedCompliance && (criminalExpired || artExpired)
           ? 'docs_expired'
-          : fallbackLevel === 5
-            ? 'verified_partner'
-            : fallbackLevel === 4
-              ? 'verified'
-              : fallbackLevel === 3
-                ? 'docs_complete'
-                : fallbackLevel === 2
-                  ? 'partial_docs'
-                  : fallbackLevel === 1
-                    ? 'basic'
-                    : 'incomplete',
+          : fallbackLevel === 4
+            ? 'verified'
+            : fallbackLevel === 3
+              ? 'qr_ready'
+              : fallbackLevel === 2
+                ? criminalOk
+                  ? 'docs_in_review'
+                  : 'insurance_review'
+                : fallbackLevel === 1
+                  ? 'basic'
+                  : 'account_created',
       label: isAllRejected
         ? 'Rechazado'
-        : hasApprovedCompliance && (criminalExpired || artExpired)
-          ? 'Doc. vencida'
-          : fallbackLevel === 5
-            ? 'Socio Verificado'
+        : !phoneVerified
+          ? 'SMS pendiente'
+          : hasApprovedCompliance && (criminalExpired || artExpired)
+            ? 'Doc. vencida'
             : fallbackLevel === 4
               ? 'Verificado'
               : fallbackLevel === 3
-                ? 'Doc. en validación'
+                ? 'Pase QR habilitado'
                 : fallbackLevel === 2
                   ? criminalOk
-                    ? 'Antecedentes al día'
-                    : 'ART al día'
+                    ? 'Doc. en validación'
+                    : 'Seguro en revisión'
                   : fallbackLevel === 1
                     ? 'Perfil Básico'
-                    : 'Sin habilitar',
+                    : 'Cuenta creada',
       tone: isAllRejected || (hasApprovedCompliance && (criminalExpired || artExpired))
         ? 'danger'
-        : fallbackLevel === 5
-          ? 'gold'
-          : fallbackLevel === 4
-            ? 'emerald'
-            : fallbackLevel === 3
-              ? 'teal'
-              : fallbackLevel === 2
-                ? 'sky'
-                : 'slate',
+        : fallbackLevel === 4
+          ? 'emerald'
+          : fallbackLevel === 3
+            ? 'teal'
+            : fallbackLevel === 2
+              ? 'sky'
+              : 'slate',
       is_verified: fallbackLevel >= 4,
-      visible_in_directory: !isAllRejected && identityVerified && hasDirectoryEligibleSpecialty,
-      can_issue_pass: fallbackLevel >= 4,
+      visible_in_directory:
+        !isAllRejected && phoneVerified && identityVerified && hasDirectoryEligibleSpecialty,
+      can_issue_pass: fallbackLevel >= 3,
       has_expired_docs: criminalExpired || artExpired,
+      is_featured_partner: isFeaturedPartner,
       checks: {
+        phone_ok: phoneVerified,
         identity_ok: identityVerified,
         specialty_ok: hasDirectoryEligibleSpecialty,
         criminal_ok: criminalOk,
         criminal_expired: criminalExpired,
         art_ok: artOk,
         art_expired: artExpired,
-        compliance_ok: isFullyVerified,
-        pass_qr_ok: fallbackLevel >= 4,
-        member_ok: fallbackLevel >= 5,
+        compliance_ok: isComplianceApproved,
+        pass_qr_ok: fallbackLevel >= 3,
+        auto_verified_ok: fallbackLevel >= 4,
+        member_ok: isFeaturedPartner,
       },
     };
 
@@ -1850,7 +1956,7 @@ export default function ProviderDashboard({
     let visibilityHeadline = 'Todavía no figurás en el Portal de Residentes';
     let summaryHint =
       resolvedTrustBadge.next_step_hint ||
-      'Completá tu especialidad y esperá la validación de tu identidad (DNI) para empezar a figurar.';
+      'Completá tu DNI y agregá al menos 1 especialidad visible para activar Nivel 1.';
 
     if (isAllRejected) {
       visibilityLabel = 'Rechazado · Oculto';
@@ -1858,30 +1964,36 @@ export default function ProviderDashboard({
       visibilityHeadline = 'Tu solicitud fue rechazada y no figurás en el directorio';
       summaryHint =
         'Actualizá tus documentos o especialidades para solicitar una nueva evaluación de TrustLink.';
+    } else if (!phoneVerified) {
+      visibilityLabel = 'N0 · SMS pendiente';
+      visibilityTone = 'warning';
+      visibilityHeadline = 'Falta validar tu celular por SMS para habilitar tu cuenta';
+      summaryHint =
+        'Validá el código SMS o solicitá a Administración que valide tu celular manualmente. Mientras tanto podés ir cargando tu DNI y especialidad.';
     } else if (hasApprovedCompliance && (criminalExpired || artExpired)) {
       visibilityLabel = 'Pausado · Doc. vencida';
       visibilityTone = 'danger';
       visibilityHeadline = 'Tu acceso con Pase QR está pausado por documentación vencida';
       summaryHint =
-        'Renová Antecedentes y/o ART vencidos para recuperar tu insignia Verificado y habilitar ingresos en garita.';
+        'Renová tu Seguro AP/ART o Antecedentes Penales vencidos para recuperar los Pases QR en garita.';
     } else if (canIssuePass) {
-      visibilityLabel = trustLevel >= 5 ? 'Visible · Socio Verificado' : 'Visible + Pase QR';
-      visibilityTone = trustLevel >= 5 ? 'gold' : 'success';
+      visibilityLabel = trustLevel >= 4 ? 'Visible · Verificado N4' : 'Visible + Pase QR (N3)';
+      visibilityTone = 'success';
       visibilityHeadline =
-        trustLevel >= 5
-          ? 'Estás en el nivel máximo: prioridad destacada y Pases QR habilitados'
-          : 'Sos Verificado TrustLink: visible en directorio y habilitado para Pases QR';
+        trustLevel >= 4
+          ? 'Tenés tilde oficial Verificado (N4) y Pases QR habilitados en garita'
+          : 'Estás en Nivel 3: habilitado para emitir Pases QR en garita';
       summaryHint =
-        trustLevel >= 5
-          ? 'Mantené tu documentación al día para conservar tu insignia dorada Socio Verificado.'
-          : 'Ya podés emitir Pases QR y aparecer en "Solo Verificados". Podés sumar Socio Verificado para llegar a Nivel 5.';
+        trustLevel >= 4
+          ? 'Tu documentación está cotejada y vigente. Opcionalmente podés sumar Plan Destacado para priorizar tu perfil en búsquedas.'
+          : 'Ya podés emitir Pases QR. TrustLink cotejará tus PDFs para otorgarte el tilde oficial N4 Verificado; además ya podés activar Plan Destacado.';
     } else if (isVisibleInDirectory) {
       visibilityLabel = 'Visible · Solo consultas';
       visibilityTone = 'info';
       visibilityHeadline = `Ya sos visible en el directorio como "${resolvedTrustBadge.label}" (sin Pase QR aún)`;
       summaryHint =
         resolvedTrustBadge.next_step_hint ||
-        'Cargá tu Póliza ART y Antecedentes Penales vigentes para subir a Nivel 4 (Verificado) y habilitar Pases QR.';
+        'Cargá tu Seguro (AP o ART) y tus Antecedentes Penales para subir a Nivel 3 y habilitar Pases QR en garita.';
     } else if (hasApprovedCompliance && !hasDirectoryEligibleSpecialty) {
       visibilityLabel = 'Oculto · Sin rubro visible';
       visibilityTone = 'warning';
@@ -1890,14 +2002,14 @@ export default function ProviderDashboard({
     } else if (!hasDirectoryEligibleSpecialty && !identityVerified) {
       summaryHint = hasDniDoc
         ? 'Ya cargaste tu DNI (en revisión por Administración). Agregá al menos 1 especialidad visible para aparecer en Nivel 1 apenas validen tu DNI.'
-        : 'Paso 1: cargá tu DNI y agregá al menos 1 especialidad visible para aparecer como Nivel 1 (Perfil Básico).';
+        : 'Paso N1: cargá tu DNI (frente y dorso) y agregá al menos 1 especialidad visible para aparecer como Perfil Básico.';
     } else if (!hasDirectoryEligibleSpecialty) {
       summaryHint =
         'Tu DNI ya está validado: agregá al menos 1 especialidad visible para aparecer inmediatamente en el directorio (Nivel 1).';
     } else if (!identityVerified) {
       summaryHint = hasDniDoc
-        ? 'Ya cargaste tu DNI y especialidad: Administración TrustLink lo revisará para validar tu DNI y activar tu Nivel 1. Mientras tanto podés adelantar Antecedentes y ART.'
-        : 'Ya cargaste especialidad: cargá tu DNI en el paso N1 para que Administración pueda validarlo y activar tu Nivel 1. Mientras tanto podés adelantar Antecedentes y ART.';
+        ? 'Ya cargaste tu DNI y especialidad: Administración TrustLink lo revisará para validar tu identidad y activar tu Nivel 1. Mientras tanto podés adelantar Seguro y Antecedentes.'
+        : 'Ya cargaste especialidad: cargá tu DNI en el paso N1 para que Administración lo valide y active tu Nivel 1.';
     }
 
     return {
@@ -1910,13 +2022,16 @@ export default function ProviderDashboard({
       hasSpecialty,
       hasVisibleSpecialty: hasDirectoryEligibleSpecialty,
       visibleSpecsCount,
+      phoneVerified,
       identityVerified,
       hasDniDoc,
+      autoVerified,
       isVerifiedMember,
+      isFeaturedPartner,
       hasApprovedCompliance,
       isAllRejected,
       providerInputsComplete,
-      isFullyVerified,
+      isFullyVerified: isComplianceApproved,
       isVisibleInDirectory,
       canIssuePass,
       trustLevel,
@@ -1929,7 +2044,10 @@ export default function ProviderDashboard({
   }, [
     profileData.providers,
     profileData.dni_document_url,
+    profileData.phone_verified,
     profileData.identity_verified,
+    profileData.auto_verified,
+    profileData.is_featured_partner,
     profileData.membership,
     profileData.trust_badge,
     personalDocumentsSummary.currentDocs,
@@ -2077,7 +2195,7 @@ export default function ProviderDashboard({
   ];
 
   const canShowMembershipCard =
-    Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 4 : 0)) >= 4 ||
+    Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 3 : 0)) >= 3 ||
     Boolean(profileData.membership?.is_verified_member);
 
   return (
@@ -2322,7 +2440,7 @@ export default function ProviderDashboard({
         </div>
       )}
 
-      {/* Aviso compacto de 1 línea en pasos 2..6 cuando todavía no alcanzó Nivel 4 (Pase QR) */}
+      {/* Aviso compacto de 1 línea en pasos 2..6 cuando todavía no alcanzó Nivel 3 (Pase QR) */}
       {!loading && activeStep !== 'credentials' && !directoryReadiness.canIssuePass && (
         <div
           className={`rounded-xl px-4 py-2.5 border flex flex-wrap items-center justify-between gap-2 text-xs ${
@@ -2338,7 +2456,7 @@ export default function ProviderDashboard({
           <div className="flex items-center gap-2 min-w-0">
             <AlertCircle size={15} className="shrink-0 opacity-90" />
             <span className="font-semibold truncate">
-              Nivel {directoryReadiness.trustLevel}/5 ({directoryReadiness.resolvedTrustBadge?.label}) ·{' '}
+              Nivel {directoryReadiness.trustLevel}/4 ({directoryReadiness.resolvedTrustBadge?.label}) ·{' '}
               {directoryReadiness.isVisibleInDirectory
                 ? 'Visible para consultas, aún sin Pase QR en garita.'
                 : 'Aún oculto en el directorio de residentes.'}
@@ -2354,7 +2472,7 @@ export default function ProviderDashboard({
         </div>
       )}
 
-      {/* Panel de Estadio y Camino de Confianza Progresiva (Niveles 0..5) — exclusivo de Paso 1 Credenciales */}
+      {/* Panel de Estadio y Camino de Confianza Progresiva (Niveles N0..N4) — exclusivo de Paso 1 Credenciales */}
       {!loading &&
         activeStep === 'credentials' &&
         (() => {
@@ -2363,80 +2481,91 @@ export default function ProviderDashboard({
             directoryReadiness.isAllRejected ||
             (directoryReadiness.hasApprovedCompliance &&
               (directoryReadiness.criminalExpired || directoryReadiness.artExpired));
-          const isVerifiedOrHigher = directoryReadiness.canIssuePass && !isDanger;
-          const isPartialVisible = directoryReadiness.isVisibleInDirectory && !isVerifiedOrHigher && !isDanger;
+          const isQrReadyOrHigher = directoryReadiness.canIssuePass && !isDanger;
+          const isPartialVisible =
+            directoryReadiness.isVisibleInDirectory && !isQrReadyOrHigher && !isDanger;
 
           const calloutBoxClass = isDanger
             ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
-            : level >= 5 && isVerifiedOrHigher
-              ? 'border-amber-500/55 bg-amber-950/25 text-amber-50'
-              : isVerifiedOrHigher
-                ? 'border-emerald-700/65 bg-emerald-950/30 text-emerald-50'
+            : level >= 4 && isQrReadyOrHigher
+              ? 'border-emerald-600/70 bg-emerald-950/35 text-emerald-50'
+              : isQrReadyOrHigher
+                ? 'border-teal-600/65 bg-teal-950/30 text-teal-50'
                 : isPartialVisible
                   ? 'border-sky-700/75 bg-sky-950/35 text-sky-100'
                   : 'border-amber-700/80 bg-amber-950/35 text-amber-100';
 
           const progressFillClass = isDanger
             ? 'bg-rose-400/90'
-            : level >= 5 && isVerifiedOrHigher
-              ? 'bg-amber-400/90'
-              : isVerifiedOrHigher
-                ? 'bg-emerald-400/90'
+            : level >= 4 && isQrReadyOrHigher
+              ? 'bg-emerald-400/90'
+              : isQrReadyOrHigher
+                ? 'bg-teal-400/90'
                 : isPartialVisible
                   ? 'bg-sky-400/90'
                   : 'bg-amber-400/90';
 
           const showFullLadder = showTrustRoadmapExpanded;
-          const docsLoadedCount =
-            (directoryReadiness.criminalOk ? 1 : 0) + (directoryReadiness.artOk ? 1 : 0);
 
           const openDocModal = (targetDocType) => {
             setActiveStep('credentials');
             setDocType(targetDocType);
+            if (targetDocType === 'Documento de Identidad (DNI)') {
+              setDocDniNumber(profileData.dni || '');
+              setDocUrl(profileData.dni_document_url || '');
+              setDocDniBackUrl(profileData.dni_back_url || '');
+            }
             setShowDocForm(true);
           };
 
           // Único CTA prioritario según el siguiente paso real del prestador (evita botones repetidos)
-          const nextPriorityAction = !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
-            ? {
-                label: 'Cargar DNI',
-                onClick: () => openDocModal('Documento de Identidad (DNI)'),
-              }
-            : !directoryReadiness.hasVisibleSpecialty
+          const nextPriorityAction =
+            !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
               ? {
-                  label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
-                  onClick: () => {
-                    if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
-                  },
+                  label: 'Cargar DNI',
+                  onClick: () => openDocModal('Documento de Identidad (DNI)'),
                 }
-              : !directoryReadiness.artOk
+              : !directoryReadiness.hasVisibleSpecialty
                 ? {
-                    label: directoryReadiness.artExpired ? 'Renovar Póliza ART' : 'Cargar Póliza ART',
-                    onClick: () => openDocModal('Póliza ART / Seguro'),
+                    label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
+                    onClick: () => {
+                      if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
+                    },
                   }
-                : !directoryReadiness.criminalOk
+                : !directoryReadiness.artOk
                   ? {
-                      label: directoryReadiness.criminalExpired
-                        ? 'Renovar Antecedentes'
-                        : 'Cargar Antecedentes',
-                      onClick: () => openDocModal('Antecedentes Penales'),
+                      label: directoryReadiness.artExpired
+                        ? 'Renovar Seguro AP/ART'
+                        : 'Cargar Seguro AP/ART',
+                      onClick: () => openDocModal('Póliza ART / Seguro'),
                     }
-                  : isVerifiedOrHigher && level < 5
+                  : !directoryReadiness.criminalOk
                     ? {
-                        label: 'Ver planes Nivel 5',
-                        onClick: () => setShowMembershipPlans(true),
+                        label: directoryReadiness.criminalExpired
+                          ? 'Renovar Antecedentes'
+                          : 'Cargar Antecedentes',
+                        onClick: () => openDocModal('Antecedentes Penales'),
                       }
-                    : null;
+                    : isQrReadyOrHigher && !directoryReadiness.isFeaturedPartner
+                      ? {
+                          label: 'Ver Plan Destacado',
+                          onClick: () => setShowMembershipPlans(true),
+                        }
+                      : null;
 
           const levelSteps = [
             {
               num: 1,
               title: 'N1 · Perfil Básico',
               benefit: 'Visible para consultas',
-              done: directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty,
+              done:
+                directoryReadiness.phoneVerified &&
+                directoryReadiness.identityVerified &&
+                directoryReadiness.hasVisibleSpecialty,
               isCurrent: level === 1 && !isDanger,
-              statusLabel:
-                directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
+              statusLabel: !directoryReadiness.phoneVerified
+                ? 'SMS pend.'
+                : directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
                   ? 'Logrado'
                   : !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
                     ? 'Falta DNI'
@@ -2444,189 +2573,146 @@ export default function ProviderDashboard({
                       ? 'DNI en revisión'
                       : 'Falta rubro',
               statusTone:
-                directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
+                directoryReadiness.phoneVerified &&
+                directoryReadiness.identityVerified &&
+                directoryReadiness.hasVisibleSpecialty
                   ? 'done'
                   : !directoryReadiness.identityVerified && directoryReadiness.hasDniDoc
                     ? 'info'
                     : 'pending',
-              detail:
-                directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
-                  ? 'DNI validado y especialidad visible en directorio.'
+              detail: !directoryReadiness.phoneVerified
+                ? 'Falta validar tu celular por SMS (o validación manual en Administración).'
+                : directoryReadiness.identityVerified && directoryReadiness.hasVisibleSpecialty
+                  ? 'DNI validado y especialidad visible en el directorio.'
                   : !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
-                    ? directoryReadiness.hasVisibleSpecialty
-                      ? 'Especialidad lista. Cargá tu DNI para que Administración lo valide.'
-                      : 'Cargá tu DNI y agregá al menos 1 especialidad visible.'
+                    ? 'Cargá tu Nro. de DNI, fotos/PDF frente y dorso y al menos 1 rubro.'
                     : !directoryReadiness.identityVerified && directoryReadiness.hasDniDoc
-                      ? directoryReadiness.hasVisibleSpecialty
-                        ? 'DNI cargado. Administración lo revisará para activar Nivel 1.'
-                        : 'DNI cargado (en revisión). Ahora agregá 1 especialidad visible.'
+                      ? 'DNI cargado. Administración lo revisará para activar Nivel 1.'
                       : 'DNI validado. Agregá o activá al menos 1 especialidad visible.',
-              cta: !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
-                ? {
-                    label: 'Cargar DNI',
-                    onClick: () => openDocModal('Documento de Identidad (DNI)'),
-                  }
-                : !directoryReadiness.hasVisibleSpecialty
+              cta:
+                !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
                   ? {
-                      label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
-                      onClick: () => {
-                        setActiveStep('credentials');
-                        if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
-                      },
+                      label: 'Cargar DNI',
+                      onClick: () => openDocModal('Documento de Identidad (DNI)'),
                     }
-                  : null,
+                  : !directoryReadiness.hasVisibleSpecialty
+                    ? {
+                        label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
+                        onClick: () => {
+                          setActiveStep('credentials');
+                          if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
+                        },
+                      }
+                    : null,
             },
             {
               num: 2,
-              title: 'N2 · Respaldo Parcial',
-              benefit: '1er documento vigente',
-              done: docsLoadedCount >= 1,
+              title: 'N2 · Seguro en revisión',
+              benefit: 'Seguro AP o ART vigente',
+              done: directoryReadiness.artOk,
               isCurrent: level === 2 && !isDanger,
-              statusLabel:
-                docsLoadedCount >= 1
-                  ? 'Logrado'
-                  : directoryReadiness.criminalExpired || directoryReadiness.artExpired
-                    ? 'Vencido'
-                    : 'Pendiente',
-              statusTone:
-                docsLoadedCount >= 1
+              statusLabel: directoryReadiness.artOk
+                ? isQrReadyOrHigher
+                  ? 'Aprobado'
+                  : 'En revisión'
+                : directoryReadiness.artExpired
+                  ? 'Vencido'
+                  : 'Pendiente',
+              statusTone: directoryReadiness.artOk
+                ? isQrReadyOrHigher
                   ? 'done'
-                  : directoryReadiness.criminalExpired || directoryReadiness.artExpired
-                    ? 'danger'
-                    : 'pending',
-              detail:
-                docsLoadedCount >= 1
-                  ? directoryReadiness.artOk
-                    ? 'Póliza ART vigente cargada.'
-                    : 'Antecedentes Penales vigentes cargados.'
-                  : 'Cargá Póliza ART o Antecedentes Penales vigentes.',
-              cta:
-                docsLoadedCount === 0
-                  ? {
-                      label: directoryReadiness.artExpired
-                        ? 'Renovar ART'
-                        : 'Cargar ART',
-                      onClick: () => openDocModal('Póliza ART / Seguro'),
-                    }
-                  : null,
+                  : 'info'
+                : directoryReadiness.artExpired
+                  ? 'danger'
+                  : 'pending',
+              detail: directoryReadiness.artOk
+                ? isQrReadyOrHigher
+                  ? 'Póliza de Seguro AP / ART vigente y aprobada.'
+                  : 'Seguro cargado y en revisión de TrustLink.'
+                : 'Cargá Seguro de Accidentes Personales (si trabajás solo) o Póliza ART (si tenés ayudantes).',
+              cta: !directoryReadiness.artOk
+                ? {
+                    label: directoryReadiness.artExpired ? 'Renovar Seguro' : 'Cargar Seguro',
+                    onClick: () => openDocModal('Póliza ART / Seguro'),
+                  }
+                : null,
             },
             {
               num: 3,
-              title: 'N3 · Doc. Completa',
-              benefit: 'Listo para revisión',
-              done: docsLoadedCount === 2,
-              isCurrent: level === 3 && !isDanger,
-              statusLabel:
-                docsLoadedCount === 2
-                  ? 'Logrado'
-                  : directoryReadiness.artExpired || directoryReadiness.criminalExpired
-                    ? 'Vencido'
-                    : `Falta ${2 - docsLoadedCount}`,
-              statusTone:
-                docsLoadedCount === 2
-                  ? 'done'
-                  : directoryReadiness.artExpired || directoryReadiness.criminalExpired
-                    ? 'danger'
-                    : 'pending',
-              detail:
-                docsLoadedCount === 2
-                  ? 'ART + Antecedentes vigentes cargados.'
-                  : !directoryReadiness.artOk
-                    ? 'Cargá tu Póliza ART / Seguro vigente.'
-                    : 'Cargá tus Antecedentes Penales vigentes.',
-              cta:
-                docsLoadedCount < 2
-                  ? {
-                      label: !directoryReadiness.artOk
-                        ? directoryReadiness.artExpired
-                          ? 'Renovar ART'
-                          : 'Cargar ART'
-                        : directoryReadiness.criminalExpired
-                          ? 'Renovar Antecedentes'
-                          : 'Cargar Antecedentes',
-                      onClick: () =>
-                        openDocModal(
-                          !directoryReadiness.artOk ? 'Póliza ART / Seguro' : 'Antecedentes Penales'
-                        ),
-                    }
-                  : null,
-            },
-            {
-              num: 4,
-              title: 'N4 · Verificado',
-              benefit: 'Insignia + Pases QR',
-              done: isVerifiedOrHigher,
-              isCurrent: level === 4 && isVerifiedOrHigher,
-              statusLabel: isVerifiedOrHigher
+              title: 'N3 · Pase QR habilitado',
+              benefit: 'Antecedentes + Ingreso QR',
+              done: isQrReadyOrHigher,
+              isCurrent: level === 3 && isQrReadyOrHigher,
+              statusLabel: isQrReadyOrHigher
                 ? 'Logrado'
                 : isDanger
                   ? directoryReadiness.isAllRejected
                     ? 'Rechazado'
                     : 'Doc. vencida'
-                  : directoryReadiness.providerInputsComplete
+                  : directoryReadiness.criminalOk && directoryReadiness.artOk
                     ? 'En revisión'
-                    : 'Bloqueado',
-              statusTone: isVerifiedOrHigher
+                    : directoryReadiness.criminalExpired
+                      ? 'Vencido'
+                      : 'Pendiente',
+              statusTone: isQrReadyOrHigher
                 ? 'done'
                 : isDanger
                   ? 'danger'
-                  : directoryReadiness.providerInputsComplete
+                  : directoryReadiness.criminalOk && directoryReadiness.artOk
                     ? 'info'
-                    : 'muted',
-              detail: isVerifiedOrHigher
-                ? 'Compliance aprobado: habilitado para Pases QR en garita.'
-                : directoryReadiness.providerInputsComplete
-                  ? 'TrustLink está auditando tu documentación.'
-                  : 'Se habilita al aprobar ART + Antecedentes vigentes.',
-              cta: null,
+                    : 'pending',
+              detail: isQrReadyOrHigher
+                ? 'Seguro y Antecedentes aprobados: ya podés generar y recibir Pases QR en garita.'
+                : directoryReadiness.criminalOk && directoryReadiness.artOk
+                  ? 'Documentación completa en revisión para habilitar Pases QR.'
+                  : 'Cargá tu Certificado de Antecedentes Penales (fecha de emisión, trámite y cód. de seguridad).',
+              cta: !directoryReadiness.criminalOk
+                ? {
+                    label: directoryReadiness.criminalExpired
+                      ? 'Renovar Antecedentes'
+                      : 'Cargar Antecedentes',
+                    onClick: () => openDocModal('Antecedentes Penales'),
+                  }
+                : null,
             },
             {
-              num: 5,
-              title: 'N5 · Socio Verificado',
-              benefit: 'Insignia dorada + prioridad',
-              done: level >= 5 && isVerifiedOrHigher,
-              isCurrent: level >= 5 && isVerifiedOrHigher,
+              num: 4,
+              title: 'N4 · Verificado',
+              benefit: 'Tilde oficial TrustLink',
+              done: level >= 4 && isQrReadyOrHigher,
+              isCurrent: level >= 4 && isQrReadyOrHigher,
               statusLabel:
-                level >= 5 && isVerifiedOrHigher
-                  ? 'Activo'
-                  : isVerifiedOrHigher
-                    ? 'Disponible'
-                    : 'Requiere N4',
+                level >= 4 && isQrReadyOrHigher
+                  ? 'Activo ✓'
+                  : isQrReadyOrHigher
+                    ? 'En cotejo'
+                    : 'Requiere N3',
               statusTone:
-                level >= 5 && isVerifiedOrHigher
-                  ? 'gold'
-                  : isVerifiedOrHigher
+                level >= 4 && isQrReadyOrHigher
+                  ? 'done'
+                  : isQrReadyOrHigher
                     ? 'info'
                     : 'muted',
               detail:
-                level >= 5 && isVerifiedOrHigher
-                  ? 'Nivel máximo activo con prioridad absoluta en residentes.'
-                  : isVerifiedOrHigher
-                    ? 'Activá una membresía para destacar con insignia dorada.'
-                    : 'Primero alcanzá Nivel 4 (Verificado TrustLink).',
-              cta:
-                isVerifiedOrHigher && level < 5
-                  ? {
-                      label: 'Ver planes',
-                      onClick: () => {
-                        setActiveStep('credentials');
-                        setShowMembershipPlans(true);
-                      },
-                    }
-                  : null,
+                level >= 4 && isQrReadyOrHigher
+                  ? 'TrustLink cotejó tus PDFs contra tus datos: contás con el sello oficial N4.'
+                  : isQrReadyOrHigher
+                    ? 'Pendiente de cotejo de PDFs (DNI, Seguro y Antecedentes) por TrustLink.'
+                    : 'Alcanzá Nivel 3 primero para acceder al tilde oficial de verificación documental.',
+              cta: null,
             },
           ];
 
           return (
             <section className={`rounded-2xl px-4 py-3.5 border space-y-2.5 text-xs ${calloutBoxClass}`}>
-              {/* Franja compacta de 1 línea: estado + 1 único CTA prioritario + desplegable N1–N5 */}
+              {/* Franja compacta de 1 línea: estado + 1 único CTA prioritario + desplegable N1–N4 */}
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
                 <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap font-bold">
-                    {isVerifiedOrHigher ? (
+                    {isQrReadyOrHigher ? (
                       <CheckCircle2
                         size={15}
-                        className={level >= 5 ? 'text-amber-300 shrink-0' : 'text-emerald-400 shrink-0'}
+                        className={level >= 4 ? 'text-emerald-400 shrink-0' : 'text-teal-400 shrink-0'}
                       />
                     ) : (
                       <AlertCircle
@@ -2641,11 +2727,12 @@ export default function ProviderDashboard({
                       />
                     )}
                     <span className="text-xs sm:text-sm font-extrabold">
-                      Nivel {level} / 5 · {directoryReadiness.resolvedTrustBadge?.label}
+                      Nivel {level} / 4 · {directoryReadiness.resolvedTrustBadge?.label}
                     </span>
                     <span className="text-[11px] font-semibold opacity-80">
                       — {directoryReadiness.visibilityLabel}
                     </span>
+                    {directoryReadiness.isFeaturedPartner && <FeaturedPartnerBadge compact />}
                   </div>
                   <p className="text-[11px] opacity-85">{directoryReadiness.summaryHint}</p>
                 </div>
@@ -2666,21 +2753,21 @@ export default function ProviderDashboard({
                     onClick={() => setShowTrustRoadmapExpanded((prev) => !prev)}
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 hover:bg-black/40 cursor-pointer shrink-0"
                   >
-                    <span>{showFullLadder ? 'Ocultar escala N1–N5' : 'Ver escala N1–N5'}</span>
+                    <span>{showFullLadder ? 'Ocultar escala N1–N4' : 'Ver escala N1–N4'}</span>
                     {showFullLadder ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
                 </div>
               </div>
 
-              {/* Barra de progreso sobre 5 niveles */}
+              {/* Barra de progreso sobre 4 niveles objetivos */}
               <div className="h-1.5 w-full rounded-full overflow-hidden bg-black/35 border border-white/10">
                 <div
                   className={`h-full transition-all ${progressFillClass}`}
-                  style={{ width: `${Math.max(6, Math.round((level / 5) * 100))}%` }}
+                  style={{ width: `${Math.max(8, Math.round((level / 4) * 100))}%` }}
                 />
               </div>
 
-              {/* Vista previa de cómo te ven los residentes + escalera de 5 niveles (desplegable a demanda) */}
+              {/* Vista previa de cómo te ven los residentes + escalera de 4 niveles (desplegable a demanda) */}
               {showFullLadder && (
                 <div className="space-y-3 pt-1">
                   <div className="rounded-xl px-3 py-2 border border-white/15 bg-black/25 flex flex-wrap items-center justify-between gap-2">
@@ -2695,6 +2782,7 @@ export default function ProviderDashboard({
                             size="md"
                             showScale
                           />
+                          {directoryReadiness.isFeaturedPartner && <FeaturedPartnerBadge compact />}
                           <TrustChecksStrip
                             trust={directoryReadiness.resolvedTrustBadge}
                             hasExpiredDocs={
@@ -2712,12 +2800,10 @@ export default function ProviderDashboard({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                  {levelSteps.map((st) => {
-                    const cardToneClass =
-                      st.statusTone === 'gold'
-                        ? 'border-amber-400/55 bg-amber-500/15'
-                        : st.statusTone === 'done'
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    {levelSteps.map((st) => {
+                      const cardToneClass =
+                        st.statusTone === 'done'
                           ? 'border-emerald-700/55 bg-emerald-950/30'
                           : st.statusTone === 'danger'
                             ? 'border-rose-700/65 bg-rose-950/35'
@@ -2725,10 +2811,8 @@ export default function ProviderDashboard({
                               ? 'border-sky-600/55 bg-sky-950/30'
                               : 'border-white/10 bg-black/25';
 
-                    const pillToneClass =
-                      st.statusTone === 'gold'
-                        ? 'bg-amber-500/25 text-amber-200 border-amber-400/60'
-                        : st.statusTone === 'done'
+                      const pillToneClass =
+                        st.statusTone === 'done'
                           ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
                           : st.statusTone === 'danger'
                             ? 'bg-rose-950/80 text-rose-300 border-rose-700/70'
@@ -2738,37 +2822,37 @@ export default function ProviderDashboard({
                                 ? 'bg-black/35 text-amber-200 border-amber-700/60'
                                 : 'bg-black/35 opacity-75 border-white/15';
 
-                    return (
-                      <div
-                        key={st.num}
-                        className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${cardToneClass} ${
-                          st.isCurrent ? 'ring-1 ring-white/30' : ''
-                        }`}
-                      >
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="font-bold text-[11px]">{st.title}</span>
-                            <span
-                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap ${pillToneClass}`}
-                            >
-                              {st.statusLabel}
-                            </span>
+                      return (
+                        <div
+                          key={st.num}
+                          className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${cardToneClass} ${
+                            st.isCurrent ? 'ring-1 ring-white/30' : ''
+                          }`}
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="font-bold text-[11px]">{st.title}</span>
+                              <span
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap ${pillToneClass}`}
+                              >
+                                {st.statusLabel}
+                              </span>
+                            </div>
+                            <p className="text-[10px] font-semibold opacity-90">{st.benefit}</p>
+                            <p className="text-[11px] opacity-75 leading-snug">{st.detail}</p>
                           </div>
-                          <p className="text-[10px] font-semibold opacity-90">{st.benefit}</p>
-                          <p className="text-[11px] opacity-75 leading-snug">{st.detail}</p>
+                          {st.cta && (
+                            <button
+                              type="button"
+                              onClick={st.cta.onClick}
+                              className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/20 bg-black/35 hover:bg-black/55 cursor-pointer shrink-0"
+                            >
+                              {st.cta.label}
+                            </button>
+                          )}
                         </div>
-                        {st.cta && (
-                          <button
-                            type="button"
-                            onClick={st.cta.onClick}
-                            className="self-start px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/20 bg-black/35 hover:bg-black/55 cursor-pointer shrink-0"
-                          >
-                            {st.cta.label}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -2915,7 +2999,7 @@ export default function ProviderDashboard({
               )}
             </div>
 
-            {/* Formulario desplegable de carga de nuevo documento de compliance o DNI */}
+            {/* Formulario desplegable estructurado de carga (DNI N1 / Seguro AP o ART N2 / Antecedentes N3) */}
             {showDocForm && (
               <form
                 onSubmit={handleCreateDocument}
@@ -2923,73 +3007,300 @@ export default function ProviderDashboard({
                 style={innerStyle}
               >
                 <p className="font-bold">Cargar Documento Personal</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <select
-                    value={docType}
-                    onChange={(e) => setDocType(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                    style={cardStyle}
-                  >
-                    <option value="Documento de Identidad (DNI)">Documento de Identidad (DNI)</option>
-                    <option value="Póliza ART / Seguro">Póliza ART / Seguro</option>
-                    <option value="Antecedentes Penales">Antecedentes Penales</option>
-                  </select>
-                  <input
-                    type="text"
-                    required
-                    value={docUrl}
-                    onChange={(e) => setDocUrl(e.target.value)}
-                    placeholder={
-                      docType === 'Documento de Identidad (DNI)'
-                        ? 'URL de foto/PDF de tu DNI (frente y dorso)'
-                        : 'URL o enlace del documento'
-                    }
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                    style={cardStyle}
-                  />
-                </div>
+                <select
+                  value={docType}
+                  onChange={(e) => setDocType(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-semibold"
+                  style={cardStyle}
+                >
+                  <option value="Documento de Identidad (DNI)">
+                    Nivel 1 · Documento de Identidad (DNI)
+                  </option>
+                  <option value="Póliza ART / Seguro">
+                    Nivel 2 · Seguro de Accidentes Personales (AP) o Póliza ART
+                  </option>
+                  <option value="Antecedentes Penales">
+                    Nivel 3 · Certificado de Antecedentes Penales
+                  </option>
+                </select>
+
+                {/* --- MODO DNI (N1) --- */}
+                {docType === 'Documento de Identidad (DNI)' && (
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">Nro. de DNI *</label>
+                        <input
+                          type="text"
+                          required={!profileData.dni}
+                          value={docDniNumber}
+                          onChange={(e) => setDocDniNumber(e.target.value)}
+                          placeholder="Ej: 35123456"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          PDF (frente y dorso) o Foto Frente *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docUrl}
+                          onChange={(e) => setDocUrl(e.target.value)}
+                          placeholder="https://.../dni-frente-o-pdf"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] opacity-80 mb-1">
+                        Foto Dorso (opcional si subiste 1 PDF completo)
+                      </label>
+                      <input
+                        type="text"
+                        value={docDniBackUrl}
+                        onChange={(e) => setDocDniBackUrl(e.target.value)}
+                        placeholder="https://.../dni-dorso.jpg"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* --- MODO SEGURO AP / ART (N2) --- */}
+                {docType === 'Póliza ART / Seguro' && (
+                  <div className="space-y-2.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDocInsuranceType('ap')}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          docInsuranceType === 'ap'
+                            ? 'border-emerald-400/70 bg-emerald-500/15'
+                            : 'border-white/10 opacity-75 hover:opacity-100'
+                        }`}
+                        style={docInsuranceType === 'ap' ? undefined : cardStyle}
+                      >
+                        <p className="font-bold text-xs">Trabajo solo (Independiente)</p>
+                        <p className="text-[11px] opacity-80">Seguro de Accidentes Personales (AP)</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDocInsuranceType('art')}
+                        className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
+                          docInsuranceType === 'art'
+                            ? 'border-emerald-400/70 bg-emerald-500/15'
+                            : 'border-white/10 opacity-75 hover:opacity-100'
+                        }`}
+                        style={docInsuranceType === 'art' ? undefined : cardStyle}
+                      >
+                        <p className="font-bold text-xs">Tengo ayudantes / cuadrilla</p>
+                        <p className="text-[11px] opacity-80">Póliza de ART con nómina</p>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          {docInsuranceType === 'art'
+                            ? 'Aseguradora / ART emisora *'
+                            : 'Compañía aseguradora *'}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docInsurerName}
+                          onChange={(e) => setDocInsurerName(e.target.value)}
+                          placeholder={
+                            docInsuranceType === 'art'
+                              ? 'Ej: Prevención ART / Galeno ART'
+                              : 'Ej: Sancor Seguros / Federación Patronal'
+                          }
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Nro. de póliza o certificado *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docPolicyNumber}
+                          onChange={(e) => setDocPolicyNumber(e.target.value)}
+                          placeholder="Ej: AP-450192 / ART-88912"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                          style={cardStyle}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          {docInsuranceType === 'art'
+                            ? 'Tomador / Afiliado (CUIT) *'
+                            : 'Asegurado (CUIT) *'}
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docHolderCuit}
+                          onChange={(e) => setDocHolderCuit(e.target.value)}
+                          placeholder="Ej: 20-35123456-7"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Comprobante PDF vigente (URL) *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docUrl}
+                          onChange={(e) => setDocUrl(e.target.value)}
+                          placeholder="https://.../certificado-cobertura.pdf"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                    </div>
+
+                    {docInsuranceType === 'ap' && (
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Sumas aseguradas o alcances básicos
+                        </label>
+                        <input
+                          type="text"
+                          value={docCoverageSummary}
+                          onChange={(e) => setDocCoverageSummary(e.target.value)}
+                          placeholder="Ej: Muerte e Invalidez $15M · Asistencia Médica $2M · Cláusula de no repetición"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">Vigencia desde *</label>
+                        <input
+                          type="date"
+                          required
+                          value={docValidFrom}
+                          onChange={(e) => setDocValidFrom(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta *</label>
+                        <input
+                          type="date"
+                          required
+                          value={docValidTo}
+                          onChange={(e) => setDocValidTo(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* --- MODO ANTECEDENTES PENALES (N3) --- */}
                 {docType === 'Antecedentes Penales' && (
-                  <div
-                    className="rounded-xl px-3 py-2 border border-sky-500/30 bg-sky-950/35 text-[11px] flex flex-wrap items-center justify-between gap-2"
-                  >
-                    <span className="opacity-90">
-                      ¿Todavía no tenés tu certificado de Antecedentes Penales?
-                    </span>
-                    <a
-                      href={CRIMINAL_RECORD_OFFICIAL_URL}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 shrink-0"
-                    >
-                      <span>Solicitar en Argentina.gob.ar</span>
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
-                )}
-                {docType !== 'Documento de Identidad (DNI)' && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div className="space-y-2.5">
+                    <div className="rounded-xl px-3 py-2 border border-sky-500/30 bg-sky-950/35 text-[11px] flex flex-wrap items-center justify-between gap-2">
+                      <span className="opacity-90">
+                        ¿Todavía no tenés tu certificado de Antecedentes Penales?
+                      </span>
+                      <a
+                        href={CRIMINAL_RECORD_OFFICIAL_URL}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 shrink-0"
+                      >
+                        <span>Solicitar en Argentina.gob.ar</span>
+                        <ExternalLink size={12} />
+                      </a>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Fecha de emisión *
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          value={docCriminalIssuedAt}
+                          onChange={(e) => setDocCriminalIssuedAt(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Código de Solicitud / Trámite *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docCriminalRequestCode}
+                          onChange={(e) => setDocCriminalRequestCode(e.target.value)}
+                          placeholder="Ej: TR-901234"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] opacity-80 mb-1">
+                          Código de Seguridad *
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={docCriminalSecurityCode}
+                          onChange={(e) => setDocCriminalSecurityCode(e.target.value)}
+                          placeholder="Ej: SEC-7788"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                          style={cardStyle}
+                        />
+                      </div>
+                    </div>
+
                     <div>
-                      <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+                      <label className="block text-[11px] opacity-80 mb-1">
+                        Comprobante PDF vigente (URL) *
+                      </label>
                       <input
-                        type="date"
-                        value={docValidFrom}
-                        onChange={(e) => setDocValidFrom(e.target.value)}
+                        type="text"
+                        required
+                        value={docUrl}
+                        onChange={(e) => setDocUrl(e.target.value)}
+                        placeholder="https://.../certificado-antecedentes.pdf"
                         className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                         style={cardStyle}
                       />
                     </div>
-                    <div>
-                      <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
-                      <input
-                        type="date"
-                        value={docValidTo}
-                        onChange={(e) => setDocValidTo(e.target.value)}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                        style={cardStyle}
-                      />
-                    </div>
+
+                    <p className="text-[11px] opacity-75">
+                      El motor de TrustLink calcula automáticamente el vencimiento a partir de la{' '}
+                      <strong>Fecha de emisión</strong> según la ventana configurada por cada barrio
+                      (30, 90, 180 o 365 días).
+                    </p>
                   </div>
                 )}
+
                 <div className="flex justify-end gap-2 pt-1">
                   <button
                     type="button"
@@ -3011,7 +3322,7 @@ export default function ProviderDashboard({
               </form>
             )}
 
-            {/* Encabezado y tarjetas de Documentación Personal Vigente (DNI + Antecedentes + ART) */}
+            {/* Encabezado y tarjetas de Documentación Personal Vigente (DNI + Seguro AP/ART + Antecedentes) */}
             <div className="flex items-center justify-between gap-2 pt-1">
               <span className={listHeaderTitleClass}>
                 <ShieldCheck size={13} className="opacity-80" /> DOCUMENTACIÓN VIGENTE
@@ -3050,19 +3361,31 @@ export default function ProviderDashboard({
                       )}
                     </div>
                     {profileData.dni_document_url ? (
-                      <a
-                        href={profileData.dni_document_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block text-[11px] text-sky-300 underline underline-offset-2 truncate"
-                      >
-                        {profileData.dni_document_url}
-                      </a>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <a
+                          href={profileData.dni_document_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] text-sky-300 underline underline-offset-2 truncate max-w-64"
+                        >
+                          {profileData.dni_back_url ? 'Ver DNI Frente' : 'Ver DNI cargado'}
+                        </a>
+                        {profileData.dni_back_url && (
+                          <a
+                            href={profileData.dni_back_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[11px] text-sky-300 underline underline-offset-2"
+                          >
+                            Ver DNI Dorso
+                          </a>
+                        )}
+                      </div>
                     ) : (
                       <p className="opacity-75">
                         {directoryReadiness.identityVerified
                           ? 'Tu identidad ya fue validada por Administración. Podés adjuntar tu DNI si deseás mantener el respaldo.'
-                          : 'Adjuntá tu DNI (frente y dorso) para que Administración lo valide y habilite tu Nivel 1 (Perfil Básico).'}
+                          : 'Cargá tu Nro. de DNI y foto/PDF frente y dorso para que Administración valide tu identidad (Nivel 1).'}
                       </p>
                     )}
                   </div>
@@ -3070,7 +3393,9 @@ export default function ProviderDashboard({
                     type="button"
                     onClick={() => {
                       setDocType('Documento de Identidad (DNI)');
+                      setDocDniNumber(profileData.dni || '');
                       setDocUrl(profileData.dni_document_url || '');
+                      setDocDniBackUrl(profileData.dni_back_url || '');
                       setShowDocForm(true);
                     }}
                     className={
@@ -3106,6 +3431,16 @@ export default function ProviderDashboard({
                   ? { label: 'Sin cargar', tone: 'neutral' }
                   : getValidityStatus(docItem.validTo);
                 const auditMeta = getAuditStatusMeta(docItem.auditStatus);
+                const docMeta =
+                  docItem.metadata && typeof docItem.metadata === 'object' ? docItem.metadata : null;
+                const displayDocTitle =
+                  docItem.slot === 'insurance'
+                    ? docMeta?.policy_type === 'art'
+                      ? 'Póliza de ART'
+                      : docMeta?.policy_type === 'ap'
+                        ? 'Seguro de Accidentes Personales (AP)'
+                        : 'Seguro AP / Póliza ART'
+                    : docItem.docType;
 
                 return (
                   <div
@@ -3116,9 +3451,9 @@ export default function ProviderDashboard({
                     {isEditingDoc ? (
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <span className="font-bold">{docItem.docType}</span>
+                          <span className="font-bold">{displayDocTitle}</span>
                           <div className="flex items-center gap-3 flex-wrap">
-                            {docItem.docType === 'Antecedentes Penales' && (
+                            {docItem.slot === 'criminal' && (
                               <a
                                 href={CRIMINAL_RECORD_OFFICIAL_URL}
                                 target="_blank"
@@ -3134,36 +3469,159 @@ export default function ProviderDashboard({
                             </span>
                           </div>
                         </div>
-                        <input
-                          type="text"
-                          value={editDocUrl}
-                          onChange={(e) => setEditDocUrl(e.target.value)}
-                          placeholder="URL del documento vigente"
-                          className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                          style={cardStyle}
-                        />
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <div>
-                            <label className="block text-[11px] opacity-80 mb-1">Vigencia desde</label>
+
+                        {docItem.slot === 'insurance' ? (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditInsuranceType('ap')}
+                                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                                  editInsuranceType === 'ap'
+                                    ? 'border-emerald-400/70 bg-emerald-500/15'
+                                    : 'border-white/15 opacity-75'
+                                }`}
+                                style={editInsuranceType === 'ap' ? undefined : cardStyle}
+                              >
+                                Solo · Seguro AP
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditInsuranceType('art')}
+                                className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold cursor-pointer ${
+                                  editInsuranceType === 'art'
+                                    ? 'border-emerald-400/70 bg-emerald-500/15'
+                                    : 'border-white/15 opacity-75'
+                                }`}
+                                style={editInsuranceType === 'art' ? undefined : cardStyle}
+                              >
+                                Ayudantes · ART
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <input
+                                type="text"
+                                value={editInsurerName}
+                                onChange={(e) => setEditInsurerName(e.target.value)}
+                                placeholder="Aseguradora / ART"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                style={cardStyle}
+                              />
+                              <input
+                                type="text"
+                                value={editPolicyNumber}
+                                onChange={(e) => setEditPolicyNumber(e.target.value)}
+                                placeholder="Nro. póliza"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                                style={cardStyle}
+                              />
+                              <input
+                                type="text"
+                                value={editHolderCuit}
+                                onChange={(e) => setEditHolderCuit(e.target.value)}
+                                placeholder="CUIT"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                                style={cardStyle}
+                              />
+                            </div>
+                            {editInsuranceType === 'ap' && (
+                              <input
+                                type="text"
+                                value={editCoverageSummary}
+                                onChange={(e) => setEditCoverageSummary(e.target.value)}
+                                placeholder="Sumas aseguradas / alcances básicos"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                style={cardStyle}
+                              />
+                            )}
                             <input
-                              type="date"
-                              value={editDocValidFrom}
-                              onChange={(e) => setEditDocValidFrom(e.target.value)}
+                              type="text"
+                              value={editDocUrl}
+                              onChange={(e) => setEditDocUrl(e.target.value)}
+                              placeholder="URL del comprobante PDF vigente"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[11px] opacity-80 mb-1">
+                                  Vigencia desde
+                                </label>
+                                <input
+                                  type="date"
+                                  value={editDocValidFrom}
+                                  onChange={(e) => setEditDocValidFrom(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] opacity-80 mb-1">
+                                  Vigencia hasta
+                                </label>
+                                <input
+                                  type="date"
+                                  value={editDocValidTo}
+                                  onChange={(e) => setEditDocValidTo(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                  style={cardStyle}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                              <div>
+                                <label className="block text-[11px] opacity-80 mb-1">
+                                  Fecha de emisión
+                                </label>
+                                <input
+                                  type="date"
+                                  value={editCriminalIssuedAt}
+                                  onChange={(e) => setEditCriminalIssuedAt(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] opacity-80 mb-1">
+                                  Cód. Solicitud / Trámite
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editCriminalRequestCode}
+                                  onChange={(e) => setEditCriminalRequestCode(e.target.value)}
+                                  placeholder="TR-..."
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                                  style={cardStyle}
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] opacity-80 mb-1">
+                                  Código de Seguridad
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editCriminalSecurityCode}
+                                  onChange={(e) => setEditCriminalSecurityCode(e.target.value)}
+                                  placeholder="SEC-..."
+                                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs font-mono"
+                                  style={cardStyle}
+                                />
+                              </div>
+                            </div>
+                            <input
+                              type="text"
+                              value={editDocUrl}
+                              onChange={(e) => setEditDocUrl(e.target.value)}
+                              placeholder="URL del comprobante PDF vigente"
                               className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
                               style={cardStyle}
                             />
                           </div>
-                          <div>
-                            <label className="block text-[11px] opacity-80 mb-1">Vigencia hasta</label>
-                            <input
-                              type="date"
-                              value={editDocValidTo}
-                              onChange={(e) => setEditDocValidTo(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                              style={cardStyle}
-                            />
-                          </div>
-                        </div>
+                        )}
+
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
@@ -3188,7 +3646,7 @@ export default function ProviderDashboard({
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-sm">{docItem.docType}</span>
+                            <span className="font-bold text-sm">{displayDocTitle}</span>
                             <span
                               className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-600/50 bg-amber-950/60 text-amber-200"
                             >
@@ -3196,9 +3654,11 @@ export default function ProviderDashboard({
                             </span>
                           </div>
                           <p className="opacity-75">
-                            Aún no cargaste este documento personal obligatorio para habilitar ingresos en garita.
+                            {docItem.slot === 'insurance'
+                              ? 'Elegí Seguro de Accidentes Personales (si trabajás solo) o Póliza ART (si tenés ayudantes) para pasar a Nivel 2.'
+                              : 'Cargá tu Certificado de Antecedentes Penales con fecha de emisión y códigos para habilitar Pases QR (Nivel 3).'}
                           </p>
-                          {docItem.docType === 'Antecedentes Penales' && (
+                          {docItem.slot === 'criminal' && (
                             <a
                               href={CRIMINAL_RECORD_OFFICIAL_URL}
                               target="_blank"
@@ -3226,7 +3686,7 @@ export default function ProviderDashboard({
                       <div className="flex items-start justify-between gap-3">
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-sm">{docItem.docType}</span>
+                            <span className="font-bold text-sm">{displayDocTitle}</span>
                             <span
                               className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                 validity.tone === 'success'
@@ -3257,12 +3717,40 @@ export default function ProviderDashboard({
                                   : 'En revisión de TrustLink'}
                             </span>
                           </div>
+                          {docItem.slot === 'insurance' && docMeta && (
+                            <p className="text-[11px] opacity-85">
+                              {[
+                                docMeta.insurer_name,
+                                docMeta.policy_number ? `Póliza ${docMeta.policy_number}` : '',
+                                docMeta.holder_cuit ? `CUIT ${docMeta.holder_cuit}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          )}
+                          {docItem.slot === 'insurance' && docMeta?.coverage_summary && (
+                            <p className="text-[11px] opacity-70">{docMeta.coverage_summary}</p>
+                          )}
+                          {docItem.slot === 'criminal' && (docItem.issuedAt || docMeta) && (
+                            <p className="text-[11px] opacity-85">
+                              {[
+                                docItem.issuedAt
+                                  ? `Emisión: ${formatDateShort(docItem.issuedAt)}`
+                                  : '',
+                                docMeta?.request_code ? `Trámite ${docMeta.request_code}` : '',
+                                docMeta?.security_code ? `Cód. Seg. ${docMeta.security_code}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </p>
+                          )}
                           {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
                           <p className="opacity-75">
-                            Vigencia: {formatDateShort(docItem.validFrom)} →{' '}
-                            {formatDateShort(docItem.validTo)}
+                            {docItem.slot === 'criminal'
+                              ? `Vigencia calculada (estándar 180d): hasta ${formatDateShort(docItem.validTo)}`
+                              : `Vigencia: ${formatDateShort(docItem.validFrom)} → ${formatDateShort(docItem.validTo)}`}
                           </p>
-                          {docItem.docType === 'Antecedentes Penales' && (
+                          {docItem.slot === 'criminal' && (
                             <a
                               href={CRIMINAL_RECORD_OFFICIAL_URL}
                               target="_blank"
@@ -3909,7 +4397,7 @@ export default function ProviderDashboard({
             )}
           </section>
 
-          {/* Tarjeta 1D: Membresía Socio Verificado (Nivel 5) — visible solo al alcanzar Nivel 4 o si ya está activa */}
+          {/* Tarjeta 1D: Eje Comercial · Plan Destacado — visible solo desde Nivel 3 o si ya está activo */}
           {canShowMembershipCard && (
           <div
             className={`rounded-2xl p-4 sm:p-5 border space-y-3 text-xs ${
@@ -3928,8 +4416,8 @@ export default function ProviderDashboard({
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-sm">
                       {profileData.membership?.is_verified_member
-                        ? `Membresía activa: ${profileData.membership.plan_name}`
-                        : 'Socio Verificado (Nivel 5)'}
+                        ? `Plan Destacado activo: ${profileData.membership.plan_name}`
+                        : 'Plan Destacado (Visibilidad Comercial)'}
                     </span>
                     {profileData.membership?.is_verified_member && (
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
@@ -3939,13 +4427,13 @@ export default function ProviderDashboard({
                   </div>
                   <p className="text-[11px] opacity-80">
                     {profileData.membership?.is_verified_member
-                      ? `Vigente hasta ${formatDateShort(profileData.membership.ends_at)}. Prioridad destacada con insignia dorada.`
-                      : 'Insignia dorada, prioridad en residentes y reputación acumulable incluso en efectivo.'}
+                      ? `Vigente hasta ${formatDateShort(profileData.membership.ends_at)}. Prioridad en directorios y etiqueta Destacado (independiente de tu nivel N3/N4).`
+                      : 'Prioridad en directorios y futuras campañas publicitarias. Disponible desde Nivel 3; no altera tu nivel de confianza N1–N4.'}
                   </p>
                 </div>
               </div>
 
-              {Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 4 : 0)) >= 4 ||
+              {Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 3 : 0)) >= 3 ||
               profileData.membership?.is_verified_member ? (
                 <button
                   type="button"
@@ -3962,9 +4450,9 @@ export default function ProviderDashboard({
               ) : (
                 <span
                   className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 opacity-80 shrink-0 self-start sm:self-auto whitespace-nowrap"
-                  title="Primero necesitás alcanzar el Nivel 4 (Verificado) con documentación aprobada"
+                  title="Primero necesitás alcanzar el Nivel 3 (Pase QR habilitado) con documentación aprobada"
                 >
-                  Requiere Nivel 4
+                  Requiere Nivel 3
                 </span>
               )}
             </div>

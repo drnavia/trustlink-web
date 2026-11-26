@@ -366,6 +366,45 @@ export default function UserManagementView() {
   );
 
   /**
+   * Valida manualmente el celular (SMS OTP) de un usuario comunitario (MVP N0).
+   *
+   * @param {Object} targetUser - Usuario comunitario.
+   * @returns {Promise<void>}
+   */
+  const handleVerifyCommunityUserPhone = async (targetUser) => {
+    setTogglingUserId(targetUser.id);
+    setCommunityFeedback({ type: '', text: '' });
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/v1/auth/users/community/${targetUser.id}/verify-phone`,
+        {
+          method: 'PATCH',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({ verified: true }),
+        }
+      );
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCommunityFeedback({
+          type: 'success',
+          text: data.message || 'Celular validado manualmente por Administración.',
+        });
+        await fetchCommunityUsers(communityPage, communityPageSize);
+      } else {
+        setCommunityFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo validar el celular del usuario.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al validar celular:', error);
+      setCommunityFeedback({ type: 'error', text: 'Error de conexión al validar el celular.' });
+    } finally {
+      setTogglingUserId(null);
+    }
+  };
+
+  /**
    * Suspende o reactiva de forma segura una cuenta comunitaria.
    *
    * @param {Object} targetUser - Usuario comunitario.
@@ -842,12 +881,29 @@ export default function UserManagementView() {
                           {u.phone && (
                             <span className="inline-flex items-center gap-1">
                               <Phone size={11} className="opacity-70" /> {u.phone}
+                              {u.phone_verified === false && (
+                                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-amber-500/50 bg-amber-950/60 text-amber-200">
+                                  SMS pendiente
+                                </span>
+                              )}
                             </span>
                           )}
                           <span className="opacity-65">Alta: {formatShortDate(u.created_at)}</span>
                         </p>
                       </div>
 
+                      <div className="inline-flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                        {u.phone_verified === false && (
+                          <button
+                            type="button"
+                            disabled={togglingUserId === u.id}
+                            onClick={() => handleVerifyCommunityUserPhone(u, true)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl border border-emerald-500/55 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-950/80 font-bold text-xs cursor-pointer disabled:opacity-50"
+                            title="Validar manualmente el celular (Nivel 0 MVP)"
+                          >
+                            <Phone size={12} /> <span>Validar SMS</span>
+                          </button>
+                        )}
                       {isConfirming ? (
                         <div className="inline-flex items-center gap-1.5 shrink-0">
                           <button
@@ -897,6 +953,7 @@ export default function UserManagementView() {
                           )}
                         </button>
                       )}
+                      </div>
                     </div>
                   </article>
                 );

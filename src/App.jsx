@@ -1549,10 +1549,10 @@ function MainAppContent() {
               <ShieldCheck
                 size={13}
                 className={`shrink-0 ${
-                  Number(providerHeaderMeta.trustLevel) >= 5
-                    ? 'text-amber-400'
-                    : Number(providerHeaderMeta.trustLevel) >= 4
-                      ? 'text-emerald-400'
+                  Number(providerHeaderMeta.trustLevel) >= 4
+                    ? 'text-emerald-400'
+                    : Number(providerHeaderMeta.trustLevel) >= 3
+                      ? 'text-teal-400'
                       : isDarkTheme
                         ? 'text-sky-400'
                         : 'text-sky-600'

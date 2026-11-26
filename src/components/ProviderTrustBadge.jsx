@@ -1,10 +1,12 @@
 /**
  * @file ProviderTrustBadge.jsx
- * @description Componentes visuales unificados de Confianza Progresiva (Fase 6.1, niveles 0..5)
- * compartidos por Portal Residente, Portal Prestador y Administración -> Prestadores (Compliance):
- * - `ProviderTrustBadge`: insignia oficial por nivel (`N0` a `N5`) con variantes de tamaño.
- * - `TrustChecksStrip`: tira compacta de 4 controles reales (`DNI · Antecedentes · ART · Pase QR`).
- * - `TrustLevelsGuide`: guía explicativa compacta de la escala de 5 niveles para residentes.
+ * @description Componentes visuales unificados de Confianza Progresiva v2 (`N0..N4`) + Eje Comercial (`Destacado`)
+ * compartidos por Landing, Portal Residente, Portal Prestador y Administración:
+ * - `ProviderTrustBadge`: insignia oficial por nivel (`N0` a `N4`) con variantes de tamaño.
+ * - `FeaturedPartnerBadge`: insignia transparente del Eje Comercial (`Destacado`, independiente de N1–N4).
+ * - `TrustChecksStrip`: tira compacta de 4 controles reales (`DNI · Seguro AP/ART · Antecedentes · Pase QR`).
+ * - `TrustLevelMeter`: barra de 4 segmentos (`N1..N4`) para Compliance.
+ * - `TrustLevelsGuide`: guía explicativa compacta de los 4 niveles de confianza + Eje Comercial.
  * @location /trustlink-web/src/components/ProviderTrustBadge.jsx
  */
 
@@ -19,21 +21,22 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Sparkles,
   X,
 } from 'lucide-react';
 
-/** Estilos semánticos por tono de insignia (sobríos y legibles en temas oscuros y claros). */
+/** Estilos semánticos por tono de insignia (sobrios y legibles en temas oscuros y claros). */
 const TONE_STYLES = {
   gold: {
     cls: 'border-amber-400/65 bg-amber-500/20 text-amber-200 shadow-sm shadow-amber-500/10',
     Icon: Award,
   },
   emerald: {
-    cls: 'border-emerald-400/60 bg-emerald-500/20 text-emerald-200',
+    cls: 'border-emerald-400/65 bg-emerald-500/20 text-emerald-200 shadow-xs shadow-emerald-500/10',
     Icon: BadgeCheck,
   },
   teal: {
-    cls: 'border-teal-400/50 bg-teal-500/15 text-teal-200',
+    cls: 'border-teal-400/55 bg-teal-500/15 text-teal-200',
     Icon: ShieldCheck,
   },
   sky: {
@@ -50,50 +53,36 @@ const TONE_STYLES = {
   },
 };
 
-/** Definición resumida de los 5 niveles visibles en directorio para la guía rápida del residente. */
+/** Definición oficial de los 4 niveles visibles en directorio (`N1..N4`). */
 const TRUST_SCALE_ITEMS = [
   {
     level: 1,
     label: 'Perfil Básico',
     tone: 'slate',
-    desc: 'DNI validado y especialidad activa. Solo consultas, aún sin Pase QR.',
+    desc: 'Celular y DNI validados + especialidad activa. Solo consultas, aún sin Pase QR.',
   },
   {
     level: 2,
-    label: 'Respaldo Parcial',
+    label: 'Seguro en revisión',
     tone: 'sky',
-    desc: 'Póliza ART o Antecedentes vigentes cargados. Solo consultas, aún sin Pase QR.',
+    desc: 'Seguro AP (independiente) o Póliza ART (con ayudantes) cargada. Solo consultas, aún sin Pase QR.',
   },
   {
     level: 3,
-    label: 'Doc. en validación',
+    label: 'Pase QR habilitado',
     tone: 'teal',
-    desc: 'Póliza ART y Antecedentes cargados, en cola de aprobación de TrustLink.',
+    desc: 'DNI, Seguro AP/ART y Antecedentes aprobados dentro de la vigencia del barrio. Habilita Pases QR en garita.',
   },
   {
     level: 4,
     label: 'Verificado',
     tone: 'emerald',
-    desc: 'Identidad y documentación aprobadas y vigentes. Habilitado para Pase QR en garita.',
-  },
-  {
-    level: 5,
-    label: 'Socio Verificado',
-    tone: 'gold',
-    desc: 'Nivel 4 Verificado + membresía activa. Máxima prioridad y respaldo completo.',
+    desc: 'Tilde oficial TrustLink: coincidencia cotejada de todos los PDFs contra los datos cargados.',
   },
 ];
 
 /**
- * Renderiza la insignia de nivel de confianza del prestador (`0..5`).
- *
- * @param {Object} props - Propiedades del componente.
- * @param {Object|null|undefined} props.trust - Objeto `trust_badge` devuelto por el backend o calculado localmente.
- * @param {boolean} [props.showLevel=false] - Muestra el prefijo `N0..N5` para vistas operativas/prestador.
- * @param {boolean} [props.showScale=false] - Muestra el sufijo `X/5` para facilitar comparación directa.
- * @param {boolean} [props.compact=false] - Variante compacta para filas de tabla.
- * @param {'sm'|'md'} [props.size='sm'] - Tamaño visual de la insignia (`md` destaca en cabecera de tarjetas).
- * @returns {JSX.Element|null} Insignia visual con tooltip explicativo.
+ * Renderiza la insignia de nivel de confianza del prestador (`0..4`).
  */
 export default function ProviderTrustBadge({
   trust,
@@ -106,9 +95,9 @@ export default function ProviderTrustBadge({
 
   const toneKey = trust.tone && TONE_STYLES[trust.tone] ? trust.tone : 'slate';
   const { cls, Icon } = TONE_STYLES[toneKey];
-  const levelNum = Number(trust.level ?? 0);
+  const levelNum = Math.min(4, Math.max(0, Number(trust.level ?? 0)));
   const tooltip = [
-    `Nivel ${levelNum}/5 · ${trust.label}`,
+    `Nivel ${levelNum}/4 · ${trust.label}`,
     trust.sublabel,
     trust.next_step_hint,
   ]
@@ -133,7 +122,7 @@ export default function ProviderTrustBadge({
       <span>{trust.label}</span>
       {showScale && (
         <span className="opacity-80 font-mono text-[10px] pl-1 border-l border-current/25">
-          {levelNum}/5
+          {levelNum}/4
         </span>
       )}
     </span>
@@ -141,15 +130,26 @@ export default function ProviderTrustBadge({
 }
 
 /**
+ * Insignia transparente del Eje Comercial (desacoplada de N1–N4).
+ * Solo se muestra en prestadores habilitados (`N3` o `N4`) con plan comercial vigente.
+ */
+export function FeaturedPartnerBadge({ compact = false }) {
+  return (
+    <span
+      title="Visibilidad comercial prioritaria (habilitada exclusivamente para prestadores N3–N4 con documentación vigente)"
+      className={`inline-flex items-center gap-1 rounded-lg border border-amber-400/50 bg-amber-500/15 text-amber-200 font-bold whitespace-nowrap shrink-0 ${
+        compact ? 'text-[10px] px-1.5 py-0.5' : 'text-[10px] px-2 py-0.5'
+      }`}
+    >
+      <Sparkles size={10} className="text-amber-300 shrink-0" />
+      <span>Destacado</span>
+    </span>
+  );
+}
+
+/**
  * Renderiza la tira compacta de 4 controles verificables de seguridad y compliance
- * (`DNI · Antecedentes · ART · Pase QR`) para que residentes y prestadores entiendan
- * en un vistazo qué respaldo concreto avala la insignia.
- *
- * @param {Object} props - Propiedades del componente.
- * @param {Object|null|undefined} props.trust - Objeto `trust_badge` con `checks` opcionales.
- * @param {boolean} [props.hasExpiredDocs=false] - Indica vencimiento documental activo.
- * @param {boolean} [props.compact=false] - Reduce padding para cabeceras densas.
- * @returns {JSX.Element|null} Tira de controles de respaldo.
+ * (`DNI · Seguro AP/ART · Antecedentes · Pase QR`).
  */
 export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = false }) {
   if (!trust) return null;
@@ -162,20 +162,16 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
     checks.identity_ok !== undefined ? Boolean(checks.identity_ok) : level >= 1;
   const criminalExpired = Boolean(checks.criminal_expired);
   const artExpired = Boolean(checks.art_expired);
-  const criminalOk =
-    checks.criminal_ok !== undefined
-      ? Boolean(checks.criminal_ok)
-      : !criminalExpired && (level >= 3 || (level === 2 && String(trust.label || '').toLowerCase().includes('antecedentes')));
   const artOk =
-    checks.art_ok !== undefined
-      ? Boolean(checks.art_ok)
-      : !artExpired && (level >= 3 || (level === 2 && String(trust.label || '').toLowerCase().includes('art')));
+    checks.art_ok !== undefined ? Boolean(checks.art_ok) : !artExpired && level >= 2;
+  const criminalOk =
+    checks.criminal_ok !== undefined ? Boolean(checks.criminal_ok) : !criminalExpired && level >= 3;
   const passQrOk =
     checks.pass_qr_ok !== undefined
       ? Boolean(checks.pass_qr_ok)
       : Boolean(trust.can_issue_pass) && !expired;
   const complianceOk =
-    checks.compliance_ok !== undefined ? Boolean(checks.compliance_ok) : level >= 4 && !expired;
+    checks.compliance_ok !== undefined ? Boolean(checks.compliance_ok) : level >= 3 && !expired;
 
   const items = [
     {
@@ -186,15 +182,15 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
     },
     {
       key: 'art',
-      label: artOk && !artExpired && !complianceOk ? 'ART (en rev.)' : 'ART',
+      label: artOk && !artExpired && !complianceOk ? 'Seguro (en rev.)' : 'Seguro AP/ART',
       state: artExpired ? 'expired' : artOk ? (complianceOk ? 'ok' : 'review') : 'pending',
       title: artExpired
-        ? 'Póliza ART / Seguro vencida'
+        ? 'Seguro AP / Póliza ART vencida'
         : artOk
           ? complianceOk
-            ? 'Póliza ART / Seguro aprobada y vigente'
-            : 'Póliza ART / Seguro cargada — en revisión de TrustLink'
-          : 'Póliza ART / Seguro aún no cargada',
+            ? 'Seguro AP / Póliza ART aprobada y vigente'
+            : 'Seguro AP / Póliza ART cargado — en revisión de TrustLink'
+          : 'Seguro AP / Póliza ART aún no cargado',
     },
     {
       key: 'criminal',
@@ -202,7 +198,7 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
         criminalOk && !criminalExpired && !complianceOk ? 'Antecedentes (en rev.)' : 'Antecedentes',
       state: criminalExpired ? 'expired' : criminalOk ? (complianceOk ? 'ok' : 'review') : 'pending',
       title: criminalExpired
-        ? 'Antecedentes Penales vencidos'
+        ? 'Antecedentes Penales vencidos o fuera de ventana del barrio'
         : criminalOk
           ? complianceOk
             ? 'Antecedentes Penales aprobados y vigentes'
@@ -214,10 +210,10 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
       label: 'Pase QR',
       state: expired ? 'expired' : passQrOk ? 'ok' : 'pending',
       title: passQrOk
-        ? 'Habilitado para emitir Pase QR e ingresar en garita'
+        ? 'Habilitado para emitir Pase QR e ingresar en garita (Nivel 3+)'
         : expired
           ? 'Pase QR pausado por documentación vencida'
-          : 'Requiere Nivel 4 (Verificado) para emitir Pase QR en garita',
+          : 'Requiere Nivel 3 (Pase QR habilitado) para ingresar en garita',
     },
   ];
 
@@ -258,36 +254,28 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
 }
 
 /**
- * Barra compacta de 5 segmentos (`N1..N5`) para visualizar de un golpe de vista
- * en qué estadio de confianza progresiva se encuentra un prestador (ideal para Compliance).
- *
- * @param {Object} props - Propiedades del componente.
- * @param {number} [props.level=0] - Nivel actual (`0..5`).
- * @param {boolean} [props.isDanger=false] - Si la cuenta está suspendida, rechazada o con doc. vencida.
- * @returns {JSX.Element} Indicador segmentado `N1..N5`.
+ * Barra compacta de 4 segmentos (`N1..N4`) para Compliance.
  */
 export function TrustLevelMeter({ level = 0, isDanger = false }) {
-  const numericLevel = Math.max(0, Math.min(5, Number(level || 0)));
+  const numericLevel = Math.max(0, Math.min(4, Number(level || 0)));
   const segmentTitles = [
-    'N1 · Perfil Básico (DNI + Especialidad)',
-    'N2 · Respaldo Parcial (1 doc. vigente)',
-    'N3 · Doc. Completa (ART + Antecedentes)',
-    'N4 · Verificado TrustLink (Habilita Pase QR)',
-    'N5 · Socio Verificado (Prioridad + Insignia dorada)',
+    'N1 · Perfil Básico (DNI validado + Especialidad)',
+    'N2 · Cobertura cargada (Seguro AP / ART en revisión)',
+    'N3 · Pase QR habilitado (Antecedentes + aprobación)',
+    'N4 · Verificado TrustLink (PDFs cotejados automáticamente)',
   ];
   const segmentColors = [
     'bg-slate-400',
     'bg-sky-400',
     'bg-teal-400',
     'bg-emerald-400',
-    'bg-amber-400',
   ];
 
   return (
     <div
       className="flex items-center gap-1"
       role="img"
-      aria-label={`Progreso de confianza nivel ${numericLevel} de 5`}
+      aria-label={`Progreso de confianza nivel ${numericLevel} de 4`}
     >
       {segmentTitles.map((segTitle, idx) => {
         const stepNum = idx + 1;
@@ -307,20 +295,13 @@ export function TrustLevelMeter({ level = 0, isDanger = false }) {
           />
         );
       })}
-      <span className="text-[10px] font-mono opacity-75 ml-1">N{numericLevel}/5</span>
+      <span className="text-[10px] font-mono opacity-75 ml-1">N{numericLevel}/4</span>
     </div>
   );
 }
 
 /**
- * Guía rápida desplegable de los 5 niveles de confianza del directorio TrustLink,
- * diseñada para que el residente entienda en segundos la diferencia entre Perfil Básico,
- * Verificado y Socio Verificado.
- *
- * @param {Object} props - Propiedades del componente.
- * @param {Object} [props.innerStyle] - Estilo temático para tarjetas internas.
- * @param {Function} [props.onClose] - Callback opcional para cerrar la guía.
- * @returns {JSX.Element} Panel explicativo de niveles `N1..N5`.
+ * Guía rápida desplegable de los 4 niveles de confianza (`N1..N4`) + aclaración del Eje Comercial.
  */
 export function TrustLevelsGuide({ innerStyle, onClose }) {
   return (
@@ -331,7 +312,7 @@ export function TrustLevelsGuide({ innerStyle, onClose }) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-bold">
           <ShieldCheck size={15} className="text-emerald-400 shrink-0" />
-          <span>¿Cómo leer los Niveles de Confianza (1 a 5)?</span>
+          <span>¿Cómo leer los Niveles de Confianza (N1 a N4)?</span>
         </div>
         {typeof onClose === 'function' && (
           <button
@@ -344,27 +325,32 @@ export function TrustLevelsGuide({ innerStyle, onClose }) {
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
         {TRUST_SCALE_ITEMS.map((item) => (
           <div
             key={item.level}
             className={`rounded-xl p-2.5 border space-y-1.5 ${
-              item.level === 5
-                ? 'border-amber-400/45 bg-amber-500/10'
-                : item.level === 4
-                  ? 'border-emerald-500/40 bg-emerald-500/10'
+              item.level === 4
+                ? 'border-emerald-500/45 bg-emerald-500/10'
+                : item.level === 3
+                  ? 'border-teal-400/40 bg-teal-500/10'
                   : 'border-white/10 bg-black/20'
             }`}
           >
             <ProviderTrustBadge
               trust={{ level: item.level, label: item.label, tone: item.tone }}
-              showScale
+              showLevel
               compact
             />
-            <p className="text-[11px] opacity-85 leading-snug">{item.desc}</p>
+            <p className="text-[11px] opacity-80 leading-snug">{item.desc}</p>
           </div>
         ))}
       </div>
+      <p className="text-[11px] opacity-75">
+        <strong className="text-amber-300">Destacado:</strong> visibilidad comercial opcional
+        habilitada exclusivamente para prestadores <strong>N3 o N4</strong> con documentación
+        vigente (nunca altera el nivel de seguridad).
+      </p>
     </div>
   );
 }

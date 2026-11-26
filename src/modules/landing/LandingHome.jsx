@@ -36,6 +36,7 @@ import {
   matchesProviderQuery,
 } from '../../utils/serviceSearchMatcher';
 import ProviderTrustBadge, {
+  FeaturedPartnerBadge,
   TrustChecksStrip,
   TrustLevelsGuide,
 } from '../../components/ProviderTrustBadge';
@@ -340,7 +341,10 @@ export default function LandingHome({
   }, [onSpecialtiesChange, availableSpecialtyEntries]);
 
   const hasAnySocio = useMemo(
-    () => showcaseProviders.some((p) => Number(p.trust_level) === 5 && !p.has_expired_docs),
+    () =>
+      showcaseProviders.some(
+        (p) => Boolean(p.is_featured_partner || p.is_verified_member) && !p.has_expired_docs
+      ),
     [showcaseProviders]
   );
 
@@ -351,7 +355,12 @@ export default function LandingHome({
   const filteredShowcase = useMemo(() => {
     const filtered = showcaseProviders.filter((prov) => {
       if (onlyVerified && (!prov.is_verified || prov.has_expired_docs)) return false;
-      if (onlySocio && (Number(prov.trust_level) !== 5 || prov.has_expired_docs)) return false;
+      if (
+        onlySocio &&
+        (!(prov.is_featured_partner || prov.is_verified_member) || prov.has_expired_docs)
+      ) {
+        return false;
+      }
       if (onlyEmergencies && (!prov.accepts_emergencies || prov.has_expired_docs)) return false;
       if (selectedSpecialty !== 'Todos') {
         const specs = getShowcaseSpecialties(prov).map((s) => s.toLowerCase());
@@ -500,7 +509,7 @@ export default function LandingHome({
                 style={showTrustGuide ? undefined : innerStyle}
               >
                 <HelpCircle size={13} className="shrink-0" />
-                <span>Niveles N1–N5</span>
+                <span>Niveles N1–N4</span>
               </button>
             </div>
           </div>
@@ -556,7 +565,7 @@ export default function LandingHome({
                 style={showTrustGuide ? undefined : innerStyle}
               >
                 <HelpCircle size={13} className="shrink-0" />
-                <span>Niveles N1–N5</span>
+                <span>Niveles N1–N4</span>
               </button>
             </div>
           </div>
@@ -744,7 +753,7 @@ export default function LandingHome({
               style={onlySocio ? undefined : innerStyle}
             >
               <Award size={12} />
-              <span>Socios N5</span>
+              <span>Destacados</span>
             </button>
           )}
 
@@ -815,14 +824,14 @@ export default function LandingHome({
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {visibleShowcaseCards.map((prov) => {
                 const level = Number(prov.trust_level ?? 0);
-                const isSocio = level === 5 && !prov.has_expired_docs;
-                const isVerified = level >= 4 && !prov.has_expired_docs;
+                const isFeatured = Boolean(prov.is_featured_partner || prov.is_verified_member) && !prov.has_expired_docs;
+                const isVerified = level >= 3 && !prov.has_expired_docs;
                 const specs = getShowcaseSpecialties(prov);
                 const ratingNum = Number(prov.rating_avg || 0);
                 const repMeta = getCompactReputationMeta(prov);
                 const jobsCount = Number(prov.completed_jobs || 0);
 
-                const cardBorderClass = isSocio
+                const cardBorderClass = isFeatured
                   ? 'border-amber-400/50'
                   : isVerified
                     ? 'border-emerald-500/40'
@@ -835,9 +844,12 @@ export default function LandingHome({
                     style={innerStyle}
                   >
                     <div className="space-y-2.5">
-                      {/* 1. Insignia N1–N5 + Rating en una sola línea */}
+                      {/* 1. Insignia N1–N4 + Destacado (Eje Comercial) + Rating */}
                       <div className="flex items-center justify-between gap-2">
-                        <ProviderTrustBadge trust={prov.trust_badge} showScale compact />
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <ProviderTrustBadge trust={prov.trust_badge} showScale compact />
+                          {isFeatured && <FeaturedPartnerBadge compact />}
+                        </div>
                         <span
                           className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border shrink-0 ${
                             ratingNum > 0
@@ -993,7 +1005,7 @@ export default function LandingHome({
             {
               step: '01',
               title: 'Elegís un perfil con respaldo',
-              desc: 'Comparás nivel N1–N5, documentación vigente (DNI, ART, antecedentes) y reseñas reales.',
+              desc: 'Comparás nivel N1–N4, documentación vigente (DNI, Seguro AP/ART, antecedentes) y reseñas reales.',
             },
             {
               step: '02',
