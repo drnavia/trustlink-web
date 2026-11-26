@@ -314,9 +314,10 @@ export default function ProviderDashboard() {
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
-  // Paso 4: Solicitudes de Visita — pedidos entrantes, borradores de respuesta y repactación de horario
+  // Paso 4: Solicitudes de Visita — pedidos entrantes, filtro rápido, borradores de respuesta y repactación de horario
   const [incomingVisits, setIncomingVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
+  const [visitStatusFilter, setVisitStatusFilter] = useState('all');
   const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
   const [respondingVisitId, setRespondingVisitId] = useState(null);
   const [reschedulingVisitId, setReschedulingVisitId] = useState(null);
@@ -1606,6 +1607,31 @@ export default function ProviderDashboard() {
     }
   };
 
+  // Contadores y filtrado de solicitudes de visita por estado (Paso 4)
+  const { visitCounts, filteredVisits } = useMemo(() => {
+    const counts = incomingVisits.reduce(
+      (acc, v) => {
+        const st = String(v.status || '').toLowerCase();
+        acc.all += 1;
+        if (st === 'confirmed') acc.confirmed += 1;
+        else if (st === 'declined' || st === 'cancelled') acc.closed += 1;
+        else acc.pending += 1;
+        return acc;
+      },
+      { all: 0, pending: 0, confirmed: 0, closed: 0 }
+    );
+    const list = incomingVisits.filter((v) => {
+      const st = String(v.status || '').toLowerCase();
+      if (visitStatusFilter === 'pending') {
+        return st === 'pending_provider' || st === 'pending' || st === 'pending_resident';
+      }
+      if (visitStatusFilter === 'confirmed') return st === 'confirmed';
+      if (visitStatusFilter === 'closed') return st === 'declined' || st === 'cancelled';
+      return true;
+    });
+    return { visitCounts: counts, filteredVisits: list };
+  }, [incomingVisits, visitStatusFilter]);
+
   // Filtra los pases QR asignados por estado y coincidencia textual (residente, lote, patente, token o ID)
   const filteredPasses = useMemo(() => {
     const q = passSearch.trim().toLowerCase();
@@ -1900,8 +1926,8 @@ export default function ProviderDashboard() {
     {
       id: 'vehicles',
       stepNumber: 2,
-      label: 'Flota Vehicular',
-      count: profileData.vehicles.length,
+      label: 'Flota y Cuadrilla',
+      count: profileData.vehicles.length + profileData.employees.length,
       icon: Car,
     },
     {
@@ -1928,7 +1954,7 @@ export default function ProviderDashboard() {
     {
       id: 'reviews',
       stepNumber: 6,
-      label: 'Reseñas',
+      label: 'Reputación',
       count: reviewContracts.length,
       icon: Star,
     },
@@ -1938,10 +1964,10 @@ export default function ProviderDashboard() {
     <div className={PAGE_SHELL_CLASS}>
       {/* Cabecera principal alineada estéticamente con Portal Residente */}
       <div
-        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
         style={cardStyle}
       >
-        <div className="space-y-1">
+        <div className="space-y-1 min-w-0">
           <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
             <ShieldCheck size={14} />
             <span>Portal Prestador</span>
@@ -1950,19 +1976,19 @@ export default function ProviderDashboard() {
             Credenciales, agenda, visitas y pases QR
           </h1>
           <p className="text-xs sm:text-sm opacity-80">
-            Gestioná tu documentación verificada, flota, disponibilidad online, visitas y reseñas cruzadas.
+            Gestioná tu documentación verificada, flota, disponibilidad online, visitas y reputación.
           </p>
         </div>
 
         {/* Insignia de Confianza Progresiva (Nivel 0..5), visibilidad real en directorio, scoring y recarga */}
-        <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+        <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap shrink-0 self-start lg:self-auto">
           <ProviderTrustBadge
             trust={directoryReadiness.resolvedTrustBadge}
             showLevel
             size="md"
           />
           <span
-            className={`text-xs font-bold px-3 py-1.5 rounded-xl border inline-flex items-center gap-1.5 ${
+            className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
               directoryReadiness.visibilityTone === 'gold'
                 ? 'bg-amber-950/60 text-amber-200 border-amber-500/60'
                 : directoryReadiness.visibilityTone === 'success'
@@ -1985,10 +2011,10 @@ export default function ProviderDashboard() {
             <span>{directoryReadiness.visibilityLabel}</span>
           </span>
           <span
-            className="text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5"
+            className="text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
             style={innerStyle}
           >
-            <Star size={13} className="text-amber-400 fill-amber-400" />
+            <Star size={13} className="text-amber-400 fill-amber-400 shrink-0" />
             <span>Scoring: {headerScoring}</span>
           </span>
           <button
@@ -2000,7 +2026,7 @@ export default function ProviderDashboard() {
               fetchAssignedPasses();
               fetchProviderReviewContracts();
             }}
-            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer"
+            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer shrink-0"
             style={innerStyle}
             title="Actualizar información del prestador"
           >
@@ -2120,9 +2146,41 @@ export default function ProviderDashboard() {
         </div>
       )}
 
-      {/* Panel de Estadio y Camino de Confianza Progresiva (Niveles 0..5) */}
+      {/* Aviso compacto de 1 línea en pasos 2..6 cuando todavía no alcanzó Nivel 4 (Pase QR) */}
+      {!loading && activeStep !== 'credentials' && !directoryReadiness.canIssuePass && (
+        <div
+          className={`rounded-xl px-4 py-2.5 border flex flex-wrap items-center justify-between gap-2 text-xs ${
+            directoryReadiness.isAllRejected ||
+            (directoryReadiness.hasApprovedCompliance &&
+              (directoryReadiness.criminalExpired || directoryReadiness.artExpired))
+              ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
+              : directoryReadiness.isVisibleInDirectory
+                ? 'border-sky-700/75 bg-sky-950/35 text-sky-100'
+                : 'border-amber-700/80 bg-amber-950/35 text-amber-100'
+          }`}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle size={15} className="shrink-0 opacity-90" />
+            <span className="font-semibold truncate">
+              Nivel {directoryReadiness.trustLevel}/5 ({directoryReadiness.resolvedTrustBadge?.label}) ·{' '}
+              {directoryReadiness.isVisibleInDirectory
+                ? 'Visible para consultas, aún sin Pase QR en garita.'
+                : 'Aún oculto en el directorio de residentes.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveStep('credentials')}
+            className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/20 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
+          >
+            Completar en 1. Credenciales
+          </button>
+        </div>
+      )}
+
+      {/* Panel de Estadio y Camino de Confianza Progresiva (Niveles 0..5) — exclusivo de Paso 1 Credenciales */}
       {!loading &&
-        (activeStep === 'credentials' || !directoryReadiness.canIssuePass) &&
+        activeStep === 'credentials' &&
         (() => {
           const level = directoryReadiness.trustLevel;
           const isDanger =
@@ -2502,10 +2560,10 @@ export default function ProviderDashboard() {
           );
         })()}
 
-      {/* Bloque A: Mi Reputación en el Directorio (visible solo en Paso 1 Credenciales y Paso 6 Reseñas) */}
+      {/* Bloque A: Mi Reputación en el Directorio (centralizado exclusivamente en Paso 6 Reputación) */}
       {!loading &&
         profileData.reputation &&
-        (activeStep === 'credentials' || activeStep === 'reviews') && (
+        activeStep === 'reviews' && (
           <section
             className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3.5 text-xs"
             style={cardStyle}
@@ -2601,382 +2659,6 @@ export default function ProviderDashboard() {
           </section>
         )}
 
-      {/* Bloque B: Ficha Comercial y Consultas Públicas (separado de Reputación, visible solo en Paso 1) */}
-      {!loading && activeStep === 'credentials' && (
-        <section
-          className="rounded-2xl p-4 border border-slate-800/80 space-y-3 text-xs"
-          style={cardStyle}
-        >
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-            <div className="space-y-1 min-w-0">
-              <p className="font-bold text-sm">Ficha Comercial en el Directorio</p>
-              <p className="text-[11px] opacity-80 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span>
-                  Urgencias 24h:{' '}
-                  <strong className={commAcceptsEmergencies ? 'text-emerald-300' : 'opacity-90'}>
-                    {commAcceptsEmergencies ? 'Activado' : 'No'}
-                  </strong>
-                </span>
-                <span className="opacity-40">·</span>
-                <span>
-                  Presupuesto:{' '}
-                  <strong>
-                    {commQuotePolicy === 'sin_cargo'
-                      ? 'Sin cargo'
-                      : commQuotePolicy === 'arancelada'
-                      ? 'Visita arancelada'
-                      : 'A consultar'}
-                  </strong>
-                </span>
-                <span className="opacity-40">·</span>
-                <span>
-                  Facturación:{' '}
-                  <strong>
-                    {commInvoiceType === 'factura_a'
-                      ? 'Factura A'
-                      : commInvoiceType === 'factura_c'
-                      ? 'Factura C'
-                      : commInvoiceType === 'ambas'
-                      ? 'Factura A / C'
-                      : commInvoiceType === 'sin_factura'
-                      ? 'Recibo / Sin factura'
-                      : 'A consultar'}
-                  </strong>
-                </span>
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowCommercialEditor((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
-                style={innerStyle}
-              >
-                <Edit3 size={13} />
-                <span>{showCommercialEditor ? 'Ocultar Ficha' : 'Editar Ficha Comercial'}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowQaPanel((prev) => !prev)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
-                style={innerStyle}
-              >
-                <MessageSquare size={13} />
-                <span>
-                  Preguntas ({Array.isArray(profileData.public_questions) ? profileData.public_questions.length : 0})
-                </span>
-                {Array.isArray(profileData.public_questions) &&
-                  profileData.public_questions.some((q) => !q.answer) && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 border border-amber-400/45 text-amber-200">
-                      {profileData.public_questions.filter((q) => !q.answer).length} nueva(s)
-                    </span>
-                  )}
-              </button>
-            </div>
-          </div>
-
-          {/* Editor desplegable de Ficha Comercial rápida y Urgencias 24h */}
-          {showCommercialEditor && (
-            <form
-              onSubmit={handleSaveCommercialProfile}
-              className="rounded-xl p-3.5 border border-white/10 space-y-3"
-              style={innerStyle}
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <label className="flex items-center gap-2 p-2.5 rounded-xl border border-white/15 cursor-pointer" style={cardStyle}>
-                  <input
-                    type="checkbox"
-                    checked={commAcceptsEmergencies}
-                    onChange={(e) => setCommAcceptsEmergencies(e.target.checked)}
-                    className="accent-emerald-500"
-                  />
-                  <span className="font-bold">Atiendo Urgencias 24h</span>
-                </label>
-
-                <select
-                  value={commQuotePolicy}
-                  onChange={(e) => setCommQuotePolicy(e.target.value)}
-                  className="px-3 py-2 rounded-xl border border-white/15 text-xs"
-                  style={cardStyle}
-                >
-                  <option value="consultar">Presupuesto: A consultar</option>
-                  <option value="sin_cargo">Presupuesto sin cargo</option>
-                  <option value="arancelada">Visita técnica arancelada</option>
-                </select>
-
-                <select
-                  value={commInvoiceType}
-                  onChange={(e) => setCommInvoiceType(e.target.value)}
-                  className="px-3 py-2 rounded-xl border border-white/15 text-xs"
-                  style={cardStyle}
-                >
-                  <option value="consultar">Facturación: A consultar</option>
-                  <option value="factura_c">Emito Factura C</option>
-                  <option value="factura_a">Emito Factura A</option>
-                  <option value="ambas">Emito Factura A y C</option>
-                  <option value="sin_factura">Recibo común</option>
-                </select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="font-semibold opacity-80">Medios de pago:</span>
-                {[
-                  { id: 'efectivo', label: 'Efectivo' },
-                  { id: 'transferencia', label: 'Transferencia' },
-                  { id: 'mercadopago', label: 'Mercado Pago' },
-                  { id: 'tarjeta', label: 'Tarjeta' },
-                ].map((pm) => {
-                  const active = commPaymentMethods.includes(pm.id);
-                  return (
-                    <button
-                      key={pm.id}
-                      type="button"
-                      onClick={() => handleToggleCommPaymentMethod(pm.id)}
-                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer ${
-                        active
-                          ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                          : 'border-white/15 opacity-70 hover:opacity-100'
-                      }`}
-                      style={active ? undefined : cardStyle}
-                    >
-                      {active ? '✓ ' : '+ '}
-                      {pm.label}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <textarea
-                rows={2}
-                maxLength={400}
-                value={commServiceBio}
-                onChange={(e) => setCommServiceBio(e.target.value)}
-                placeholder="Breve resumen visible en el directorio (ej: 12 años de experiencia, trabajos con garantía, zonas que cubrís...)"
-                className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
-                style={cardStyle}
-              />
-
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCommercialEditor(false)}
-                  className="px-3 py-1.5 rounded-xl border border-white/15 font-bold cursor-pointer"
-                  style={cardStyle}
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  disabled={savingCommercial}
-                  className="px-4 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  {savingCommercial ? 'Guardando...' : 'Guardar Ficha Comercial'}
-                </button>
-              </div>
-            </form>
-          )}
-
-          {/* Panel desplegable de Preguntas Públicas de la Comunidad (Q&A) */}
-          {showQaPanel && (
-            <div
-              className="rounded-xl p-3.5 border border-white/10 space-y-2.5"
-              style={innerStyle}
-            >
-              <p className="font-bold">Preguntas públicas de residentes (Q&amp;A)</p>
-              {!Array.isArray(profileData.public_questions) ||
-              profileData.public_questions.length === 0 ? (
-                <p className="opacity-75">
-                  Todavía no recibiste preguntas públicas en tu ficha del directorio.
-                </p>
-              ) : (
-                <div className="space-y-2.5">
-                  {profileData.public_questions.map((q) => {
-                    const asker =
-                      `${q.asked_by_first_name || ''} ${q.asked_by_last_name || ''}`.trim() ||
-                      'Residente';
-                    return (
-                      <div
-                        key={q.id}
-                        className="p-3 rounded-xl border border-white/10 space-y-2"
-                        style={cardStyle}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="font-bold">{asker}:</span>{' '}
-                            <span className="opacity-90">{q.question}</span>
-                          </div>
-                          <span className="text-[10px] opacity-65 shrink-0">
-                            {formatDateShort(q.created_at)}
-                          </span>
-                        </div>
-                        {q.answer ? (
-                          <p className="text-emerald-300 bg-emerald-950/35 border border-emerald-800/40 rounded-lg px-2.5 py-1.5">
-                            <strong>Tu respuesta:</strong> {q.answer}
-                          </p>
-                        ) : (
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input
-                              type="text"
-                              value={qaAnswerDrafts[q.id] || ''}
-                              onChange={(e) =>
-                                setQaAnswerDrafts((prev) => ({
-                                  ...prev,
-                                  [q.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Escribí una respuesta pública clara para toda la comunidad..."
-                              className="flex-1 px-3 py-1.5 rounded-xl border border-white/15 text-xs"
-                              style={innerStyle}
-                            />
-                            <button
-                              type="button"
-                              disabled={answeringQuestionId === q.id}
-                              onClick={() => handleAnswerPublicQuestion(q.id)}
-                              className="px-3.5 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50 shrink-0"
-                              style={{ backgroundColor: primaryColor }}
-                            >
-                              {answeringQuestionId === q.id ? 'Publicando...' : 'Responder'}
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Barra compacta de Membresía "Socio Verificado" (visible solo en Paso 1 Credenciales para despejar los pasos operativos) */}
-      {!loading && activeStep === 'credentials' && (
-        <div
-          className={`rounded-2xl p-4 border space-y-3 text-xs ${
-            profileData.membership?.is_verified_member
-              ? 'border-amber-500/40'
-              : 'border-slate-800/80'
-          }`}
-          style={cardStyle}
-        >
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <div className="flex items-start gap-2.5">
-              <div
-                className="p-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0"
-              >
-                <Award size={16} />
-              </div>
-              <div className="space-y-0.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-bold text-sm">
-                    {profileData.membership?.is_verified_member
-                      ? `Membresía activa: ${profileData.membership.plan_name}`
-                      : 'Destacá tu perfil como Socio Verificado'}
-                  </span>
-                  {profileData.membership?.is_verified_member && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
-                      {profileData.membership.days_remaining} día(s) restantes
-                    </span>
-                  )}
-                </div>
-                <p className="opacity-80">
-                  {profileData.membership?.is_verified_member
-                    ? `Vigente hasta ${formatDateShort(profileData.membership.ends_at)}. Tu perfil aparece primero en el directorio de residentes con insignia distintiva.`
-                    : 'Obtené insignia verificada, prioridad absoluta en el buscador de residentes y reputación acumulable incluso si cobrás en efectivo.'}
-                </p>
-              </div>
-            </div>
-
-            {Number(profileData.trust_level ?? (directoryReadiness.isVisibleInDirectory ? 4 : 0)) >= 4 ||
-            profileData.membership?.is_verified_member ? (
-              <button
-                type="button"
-                onClick={() => setShowMembershipPlans((prev) => !prev)}
-                className="px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0 self-start sm:self-auto transition-opacity hover:opacity-95"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {showMembershipPlans
-                  ? 'Ocultar planes'
-                  : profileData.membership?.is_verified_member
-                    ? 'Renovar / Cambiar plan'
-                    : 'Ver planes'}
-              </button>
-            ) : (
-              <span
-                className="px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 opacity-80 shrink-0 self-start sm:self-auto"
-                title="Primero necesitás alcanzar el Nivel 4 (Verificado) con documentación aprobada"
-              >
-                Requiere Nivel 4 (Verificado)
-              </span>
-            )}
-          </div>
-
-          {/* Grilla desplegable de planes disponibles para activar o extender la membresía */}
-          {showMembershipPlans && Array.isArray(profileData.membership_plans) && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-white/10">
-              {profileData.membership_plans.map((plan) => {
-                const isCurrent =
-                  profileData.membership?.is_verified_member &&
-                  profileData.membership?.plan_code === plan.code;
-                const isBusy = subscribingPlan === plan.code;
-                return (
-                  <div
-                    key={plan.code}
-                    className={`rounded-xl p-4 border flex flex-col justify-between gap-3 ${
-                      isCurrent ? 'border-amber-400/50' : 'border-white/10'
-                    }`}
-                    style={innerStyle}
-                  >
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold text-sm">{plan.name}</span>
-                        {isCurrent && (
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/40">
-                            Actual
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-base font-black text-emerald-400">
-                        ARS {Number(plan.price_ars || 0).toLocaleString('es-AR')}
-                        <span className="text-[11px] font-normal opacity-75">
-                          {' '}
-                          / {plan.duration_days} días
-                        </span>
-                      </p>
-                      <ul className="space-y-1 opacity-85">
-                        {(plan.features || []).map((feat) => (
-                          <li key={feat} className="flex items-start gap-1.5">
-                            <CheckCircle2 size={12} className="text-emerald-400 shrink-0 mt-0.5" />
-                            <span>{feat}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    <button
-                      type="button"
-                      disabled={Boolean(subscribingPlan)}
-                      onClick={() => handleSubscribeMembership(plan.code)}
-                      className="w-full py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 transition-opacity hover:opacity-95"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      {isBusy
-                        ? 'Activando...'
-                        : profileData.membership?.is_verified_member
-                        ? `Extender +${plan.duration_days} días`
-                        : 'Activar membresía'}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Estado de carga inicial o vista activa correspondiente al paso seleccionado */}
       {loading ? (
         <div
@@ -2987,7 +2669,8 @@ export default function ProviderDashboard() {
           <span>Cargando información del prestador...</span>
         </div>
       ) : activeStep === 'credentials' ? (
-        /* PASO 1: CREDENCIALES Y COMPLIANCE (Documentación personal + Especialidades) */
+        /* PASO 1: CREDENCIALES Y COMPLIANCE (Documentación + Especialidades arriba; Ficha Comercial + Socio abajo) */
+        <div className="space-y-4">
         <div className={ITEMS_GRID_CLASS}>
           {/* Sección 1A: Documentación personal de compliance (Antecedentes Penales y ART) */}
           <section
@@ -3641,7 +3324,9 @@ export default function ProviderDashboard() {
                                 ? 'Habilitada y visible según tu configuración en el directorio.'
                                 : p.is_custom_specialty && p.specialty_approval_status === 'pending'
                                 ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
-                                : 'Pendiente de validación de TrustLink para habilitarse a residentes.'}
+                                : directoryReadiness.isVisibleInDirectory && !isHidden
+                                ? 'Visible para consultas (Nivel 1–3). Al aprobar tu documentación habilitará Pases QR.'
+                                : 'Se publicará en el directorio al validar tu DNI o documentación.'}
                             </p>
                           </div>
 
@@ -3673,6 +3358,382 @@ export default function ProviderDashboard() {
               )}
             </div>
           </section>
+        </div>
+
+        {/* Fila secundaria de Paso 1 (debajo de Documentación y Especialidades): Ficha Comercial + Socio Verificado */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          {/* Tarjeta 1C: Ficha Comercial y Consultas Públicas (Q&A) */}
+          <section
+            className={`rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3 text-xs ${
+              showCommercialEditor || showQaPanel ? 'lg:col-span-2' : ''
+            }`}
+            style={cardStyle}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="space-y-1 min-w-0">
+                <p className="font-bold text-sm">Ficha Comercial en el Directorio</p>
+                <p className="text-[11px] opacity-80 flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span>
+                    Urgencias 24h:{' '}
+                    <strong className={commAcceptsEmergencies ? 'text-emerald-300' : 'opacity-90'}>
+                      {commAcceptsEmergencies ? 'Activado' : 'No'}
+                    </strong>
+                  </span>
+                  <span className="opacity-40">·</span>
+                  <span>
+                    Presupuesto:{' '}
+                    <strong>
+                      {commQuotePolicy === 'sin_cargo'
+                        ? 'Sin cargo'
+                        : commQuotePolicy === 'arancelada'
+                        ? 'Visita arancelada'
+                        : 'A consultar'}
+                    </strong>
+                  </span>
+                  <span className="opacity-40">·</span>
+                  <span>
+                    Facturación:{' '}
+                    <strong>
+                      {commInvoiceType === 'factura_a'
+                        ? 'Factura A'
+                        : commInvoiceType === 'factura_c'
+                        ? 'Factura C'
+                        : commInvoiceType === 'ambas'
+                        ? 'Factura A / C'
+                        : commInvoiceType === 'sin_factura'
+                        ? 'Recibo / Sin factura'
+                        : 'A consultar'}
+                    </strong>
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowCommercialEditor((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                  style={innerStyle}
+                >
+                  <Edit3 size={13} />
+                  <span>{showCommercialEditor ? 'Ocultar' : 'Editar Ficha'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowQaPanel((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
+                  style={innerStyle}
+                >
+                  <MessageSquare size={13} />
+                  <span>
+                    Preguntas ({Array.isArray(profileData.public_questions) ? profileData.public_questions.length : 0})
+                  </span>
+                  {Array.isArray(profileData.public_questions) &&
+                    profileData.public_questions.some((q) => !q.answer) && (
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-500/20 border border-amber-400/45 text-amber-200">
+                        {profileData.public_questions.filter((q) => !q.answer).length} nueva(s)
+                      </span>
+                    )}
+                </button>
+              </div>
+            </div>
+
+            {/* Editor desplegable de Ficha Comercial rápida y Urgencias 24h */}
+            {showCommercialEditor && (
+              <form
+                onSubmit={handleSaveCommercialProfile}
+                className="rounded-xl p-3.5 border border-white/10 space-y-3"
+                style={innerStyle}
+              >
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <label className="flex items-center gap-2 p-2.5 rounded-xl border border-white/15 cursor-pointer" style={cardStyle}>
+                    <input
+                      type="checkbox"
+                      checked={commAcceptsEmergencies}
+                      onChange={(e) => setCommAcceptsEmergencies(e.target.checked)}
+                      className="accent-emerald-500"
+                    />
+                    <span className="font-bold">Atiendo Urgencias 24h</span>
+                  </label>
+
+                  <select
+                    value={commQuotePolicy}
+                    onChange={(e) => setCommQuotePolicy(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={cardStyle}
+                  >
+                    <option value="consultar">Presupuesto: A consultar</option>
+                    <option value="sin_cargo">Presupuesto sin cargo</option>
+                    <option value="arancelada">Visita técnica arancelada</option>
+                  </select>
+
+                  <select
+                    value={commInvoiceType}
+                    onChange={(e) => setCommInvoiceType(e.target.value)}
+                    className="px-3 py-2 rounded-xl border border-white/15 text-xs"
+                    style={cardStyle}
+                  >
+                    <option value="consultar">Facturación: A consultar</option>
+                    <option value="factura_c">Emito Factura C</option>
+                    <option value="factura_a">Emito Factura A</option>
+                    <option value="ambas">Emito Factura A y C</option>
+                    <option value="sin_factura">Recibo común</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold opacity-80">Medios de pago:</span>
+                  {[
+                    { id: 'efectivo', label: 'Efectivo' },
+                    { id: 'transferencia', label: 'Transferencia' },
+                    { id: 'mercadopago', label: 'Mercado Pago' },
+                    { id: 'tarjeta', label: 'Tarjeta' },
+                  ].map((pm) => {
+                    const active = commPaymentMethods.includes(pm.id);
+                    return (
+                      <button
+                        key={pm.id}
+                        type="button"
+                        onClick={() => handleToggleCommPaymentMethod(pm.id)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border cursor-pointer ${
+                          active
+                            ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                            : 'border-white/15 opacity-70 hover:opacity-100'
+                        }`}
+                        style={active ? undefined : cardStyle}
+                      >
+                        {active ? '✓ ' : '+ '}
+                        {pm.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <textarea
+                  rows={2}
+                  maxLength={400}
+                  value={commServiceBio}
+                  onChange={(e) => setCommServiceBio(e.target.value)}
+                  placeholder="Breve resumen visible en el directorio (ej: 12 años de experiencia, trabajos con garantía, zonas que cubrís...)"
+                  className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs"
+                  style={cardStyle}
+                />
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCommercialEditor(false)}
+                    className="px-3 py-1.5 rounded-xl border border-white/15 font-bold cursor-pointer"
+                    style={cardStyle}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingCommercial}
+                    className="px-4 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    {savingCommercial ? 'Guardando...' : 'Guardar Ficha Comercial'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* Panel desplegable de Preguntas Públicas de la Comunidad (Q&A) */}
+            {showQaPanel && (
+              <div
+                className="rounded-xl p-3.5 border border-white/10 space-y-2.5"
+                style={innerStyle}
+              >
+                <p className="font-bold">Preguntas públicas de residentes (Q&amp;A)</p>
+                {!Array.isArray(profileData.public_questions) ||
+                profileData.public_questions.length === 0 ? (
+                  <p className="opacity-75">
+                    Todavía no recibiste preguntas públicas en tu ficha del directorio.
+                  </p>
+                ) : (
+                  <div className="space-y-2.5">
+                    {profileData.public_questions.map((q) => {
+                      const asker =
+                        `${q.asked_by_first_name || ''} ${q.asked_by_last_name || ''}`.trim() ||
+                        'Residente';
+                      return (
+                        <div
+                          key={q.id}
+                          className="p-3 rounded-xl border border-white/10 space-y-2"
+                          style={cardStyle}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <span className="font-bold">{asker}:</span>{' '}
+                              <span className="opacity-90">{q.question}</span>
+                            </div>
+                            <span className="text-[10px] opacity-65 shrink-0">
+                              {formatDateShort(q.created_at)}
+                            </span>
+                          </div>
+                          {q.answer ? (
+                            <p className="text-emerald-300 bg-emerald-950/35 border border-emerald-800/40 rounded-lg px-2.5 py-1.5">
+                              <strong>Tu respuesta:</strong> {q.answer}
+                            </p>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row gap-2">
+                              <input
+                                type="text"
+                                value={qaAnswerDrafts[q.id] || ''}
+                                onChange={(e) =>
+                                  setQaAnswerDrafts((prev) => ({
+                                    ...prev,
+                                    [q.id]: e.target.value,
+                                  }))
+                                }
+                                placeholder="Escribí una respuesta pública clara para toda la comunidad..."
+                                className="flex-1 px-3 py-1.5 rounded-xl border border-white/15 text-xs"
+                                style={innerStyle}
+                              />
+                              <button
+                                type="button"
+                                disabled={answeringQuestionId === q.id}
+                                onClick={() => handleAnswerPublicQuestion(q.id)}
+                                className="px-3.5 py-1.5 rounded-xl text-white font-bold cursor-pointer disabled:opacity-50 shrink-0"
+                                style={{ backgroundColor: primaryColor }}
+                              >
+                                {answeringQuestionId === q.id ? 'Publicando...' : 'Responder'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+
+          {/* Tarjeta 1D: Membresía Socio Verificado (Nivel 5) */}
+          <div
+            className={`rounded-2xl p-4 sm:p-5 border space-y-3 text-xs ${
+              profileData.membership?.is_verified_member
+                ? 'border-amber-500/40'
+                : 'border-slate-800/80'
+            } ${showMembershipPlans ? 'lg:col-span-2' : ''}`}
+            style={cardStyle}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="p-2 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-300 shrink-0">
+                  <Award size={16} />
+                </div>
+                <div className="space-y-0.5 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-bold text-sm">
+                      {profileData.membership?.is_verified_member
+                        ? `Membresía activa: ${profileData.membership.plan_name}`
+                        : 'Socio Verificado (Nivel 5)'}
+                    </span>
+                    {profileData.membership?.is_verified_member && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
+                        {profileData.membership.days_remaining} día(s) restantes
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] opacity-80">
+                    {profileData.membership?.is_verified_member
+                      ? `Vigente hasta ${formatDateShort(profileData.membership.ends_at)}. Prioridad destacada con insignia dorada.`
+                      : 'Insignia dorada, prioridad en residentes y reputación acumulable incluso en efectivo.'}
+                  </p>
+                </div>
+              </div>
+
+              {Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 4 : 0)) >= 4 ||
+              profileData.membership?.is_verified_member ? (
+                <button
+                  type="button"
+                  onClick={() => setShowMembershipPlans((prev) => !prev)}
+                  className="px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shrink-0 self-start sm:self-auto transition-opacity hover:opacity-95"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {showMembershipPlans
+                    ? 'Ocultar planes'
+                    : profileData.membership?.is_verified_member
+                      ? 'Renovar / Cambiar'
+                      : 'Ver planes'}
+                </button>
+              ) : (
+                <span
+                  className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 opacity-80 shrink-0 self-start sm:self-auto whitespace-nowrap"
+                  title="Primero necesitás alcanzar el Nivel 4 (Verificado) con documentación aprobada"
+                >
+                  Requiere Nivel 4
+                </span>
+              )}
+            </div>
+
+            {/* Grilla desplegable de planes disponibles para activar o extender la membresía */}
+            {showMembershipPlans && Array.isArray(profileData.membership_plans) && (
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-white/10">
+                {profileData.membership_plans.map((plan) => {
+                  const isCurrent =
+                    profileData.membership?.is_verified_member &&
+                    profileData.membership?.plan_code === plan.code;
+                  const isBusy = subscribingPlan === plan.code;
+                  return (
+                    <div
+                      key={plan.code}
+                      className={`rounded-xl p-4 border flex flex-col justify-between gap-3 ${
+                        isCurrent ? 'border-amber-400/50' : 'border-white/10'
+                      }`}
+                      style={innerStyle}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sm">{plan.name}</span>
+                          {isCurrent && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-200 border border-amber-400/40">
+                              Actual
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-base font-black text-emerald-400">
+                          ARS {Number(plan.price_ars || 0).toLocaleString('es-AR')}
+                          <span className="text-[11px] font-normal opacity-75">
+                            {' '}
+                            / {plan.duration_days} días
+                          </span>
+                        </p>
+                        <ul className="space-y-1 opacity-85">
+                          {(plan.features || []).map((feat) => (
+                            <li key={feat} className="flex items-start gap-1.5">
+                              <CheckCircle2 size={12} className="text-emerald-400 shrink-0 mt-0.5" />
+                              <span>{feat}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={Boolean(subscribingPlan)}
+                        onClick={() => handleSubscribeMembership(plan.code)}
+                        className="w-full py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 transition-opacity hover:opacity-95"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        {isBusy
+                          ? 'Activando...'
+                          : profileData.membership?.is_verified_member
+                          ? `Extender +${plan.duration_days} días`
+                          : 'Activar membresía'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
         </div>
       ) : activeStep === 'vehicles' ? (
         /* PASO 2: FLOTA VEHICULAR Y CUADRILLA DE AYUDANTES */
@@ -4303,19 +4364,52 @@ export default function ProviderDashboard() {
             </button>
           </div>
 
-          {/* Listado de visitas solicitadas por residentes con máquina bilateral de acuerdo */}
+          {/* Filtros rápidos de estado de visitas + listado con máquina bilateral de acuerdo */}
+          {incomingVisits.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todas', count: visitCounts.all },
+                { id: 'pending', label: 'Pendientes', count: visitCounts.pending },
+                { id: 'confirmed', label: 'Acordadas', count: visitCounts.confirmed },
+                { id: 'closed', label: 'Cerradas', count: visitCounts.closed },
+              ].map((chip) => {
+                const active = visitStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => setVisitStatusFilter(chip.id)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {loadingVisits ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
-          ) : incomingVisits.length === 0 ? (
+          ) : filteredVisits.length === 0 ? (
             <div
               className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
               style={innerStyle}
             >
-              Todavía no tenés solicitudes de visita pendientes de coordinación.
+              {incomingVisits.length === 0
+                ? 'Todavía no tenés solicitudes de visita pendientes de coordinación.'
+                : 'No hay visitas en el estado seleccionado.'}
             </div>
           ) : (
             <div className={ITEMS_GRID_CLASS}>
-              {incomingVisits.map((visit) => {
+              {filteredVisits.map((visit) => {
                 const statusLower = String(visit.status || '').toLowerCase();
                 const isConfirmed = statusLower === 'confirmed';
                 const isPendingProvider = statusLower === 'pending_provider' || statusLower === 'pending';
@@ -4822,10 +4916,10 @@ export default function ProviderDashboard() {
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                 <Star size={18} className="text-emerald-400 shrink-0" />
-                <span>Servicios Realizados &amp; Reputación Cruzada</span>
+                <span>Reputación, Ingresos y Reseñas Cruzadas</span>
               </h2>
               <p className="text-xs opacity-75">
-                Visualizá las reseñas recibidas de residentes y calificá tu experiencia en cada domicilio.
+                Consultá tu reputación en el directorio, ingresos netos (93%), comprobantes y calificaciones cruzadas.
               </p>
             </div>
             <span className={listCounterBadgeClass} style={innerStyle}>
