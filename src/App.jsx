@@ -621,7 +621,7 @@ function MainAppContent() {
                 <button
                   type="button"
                   onClick={() => setCurrentView('register')}
-                  className={navBtnClass(true)}
+                  className={navBtnClass(currentView === 'register')}
                 >
                   <UserPlus size={13} /> Registrarse
                 </button>
