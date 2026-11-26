@@ -78,16 +78,6 @@ import {
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
 
-/** Especialidades base mostradas como accesos rápidos en los filtros del directorio. */
-const QUICK_SPECIALTIES = [
-  'Todos',
-  'Electricista',
-  'Gasista',
-  'Plomero',
-  'Jardinería',
-  'Aire Acondicionado',
-];
-
 /** Cantidad máxima de tarjetas de Pases QR visibles por página en el listado. */
 const PASSES_PER_PAGE = 6;
 
@@ -861,28 +851,41 @@ export default function ResidentDashboard({
     return map;
   }, [myVisits]);
 
-  // Lista deduplicada de especialidades combinando chips rápidos y todos los rubros habilitados en BD
-  const availableSpecialties = useMemo(() => {
-    const dbSpecialties = new Set();
+  // Lista de especialidades activas con conteo real de prestadores (evita chips vacíos sin resultados)
+  const availableSpecialtyEntries = useMemo(() => {
+    const countsByKey = new Map();
     providers.forEach((p) => {
+      const seenForProvider = new Set();
       getProviderSpecialties(p).forEach((spec) => {
-        if (spec && spec !== 'Servicio Verificado') {
-          dbSpecialties.add(spec);
-        }
+        if (!spec || spec === 'Servicio Verificado') return;
+        const key = spec.toLowerCase();
+        if (seenForProvider.has(key)) return;
+        seenForProvider.add(key);
+        const current = countsByKey.get(key) || { name: spec, count: 0 };
+        current.count += 1;
+        countsByKey.set(key, current);
       });
     });
 
-    const combined = ['Todos'];
-    QUICK_SPECIALTIES.slice(1).forEach((s) => {
-      if (!combined.includes(s)) combined.push(s);
+    const sorted = Array.from(countsByKey.values()).sort((a, b) => {
+      if (b.count !== a.count) return b.count - a.count;
+      return a.name.localeCompare(b.name, 'es');
     });
-    dbSpecialties.forEach((s) => {
-      if (!combined.some((existing) => existing.toLowerCase() === s.toLowerCase())) {
-        combined.push(s);
-      }
-    });
-    return combined;
-  }, [providers]);
+
+    if (
+      selectedSpecialty !== 'Todos' &&
+      !sorted.some((item) => item.name.toLowerCase() === selectedSpecialty.toLowerCase())
+    ) {
+      sorted.push({ name: selectedSpecialty, count: 0 });
+    }
+
+    return [{ name: 'Todos', count: providers.length }, ...sorted];
+  }, [providers, selectedSpecialty]);
+
+  const availableSpecialties = useMemo(
+    () => availableSpecialtyEntries.map((item) => item.name),
+    [availableSpecialtyEntries]
+  );
 
   // Sugerencias de búsqueda por síntoma/problema en tiempo real en el directorio
   const directorySearchSuggestions = useMemo(
@@ -1973,6 +1976,130 @@ export default function ResidentDashboard({
     return { reviewFilterCounts: counts, filteredReviewContracts: list };
   }, [reviewContracts, reviewStatusFilter]);
 
+  // Contexto residencial personal para el encabezado (comunidad, área y lote)
+  const residentLocationLabel = useMemo(() => {
+    const parts = [];
+    if (user?.country_name) parts.push(user.country_name);
+    if (user?.fraction_type && user.fraction_type !== 'na' && user?.fraction_number) {
+      const areaPrefix = user.fraction_type === 'manzana' ? 'Mz.' : 'Fracc.';
+      parts.push(`${areaPrefix} ${user.fraction_number}`);
+    }
+    if (user?.lot_number) parts.push(`Lote ${user.lot_number}`);
+    return parts.join(' · ');
+  }, [user]);
+
+  // Tarjetas contextuales "Retomá rápido" (solo se muestran si hay actividad real del residente)
+  const quickContinueCards = useMemo(() => {
+    const cards = [];
+
+    // 1. Visita por confirmar o visita acordada lista para emitir Pase QR
+    if (pendingResidentVisitsCount > 0) {
+      cards.push({
+        id: 'visit-confirm',
+        eyebrow: 'Requiere tu confirmación',
+        title: `${pendingResidentVisitsCount} visita(s) con contrapropuesta`,
+        cta: 'Confirmar horario',
+        tone: 'sky',
+        actionType: 'go_visits_confirm',
+      });
+    } else {
+      const confirmedVisitReady = myVisits.find((v) => {
+        if (String(v.status || '').toLowerCase() !== 'confirmed') return false;
+        const pid = Number(v.provider_id);
+        const matched = providers.find(
+          (p) =>
+            Number(p.provider_id || p.id) === pid ||
+            (Array.isArray(p.provider_ids) && p.provider_ids.map(Number).includes(pid))
+        );
+        return Boolean(
+          matched &&
+            matched.can_issue_pass !== false &&
+            !matched.has_expired_docs &&
+            Number(matched.trust_level ?? matched.trust_badge?.level ?? 0) >= 4
+        );
+      });
+      if (confirmedVisitReady) {
+        const pid = Number(confirmedVisitReady.provider_id);
+        const matchedProvider = providers.find(
+          (p) =>
+            Number(p.provider_id || p.id) === pid ||
+            (Array.isArray(p.provider_ids) && p.provider_ids.map(Number).includes(pid))
+        );
+        const providerName =
+          confirmedVisitReady.provider_name ||
+          `${matchedProvider?.first_name || ''} ${matchedProvider?.last_name || ''}`.trim() ||
+          'Prestador verificado';
+        cards.push({
+          id: 'visit-ready-qr',
+          eyebrow: 'Visita acordada · Lista para QR',
+          title: providerName,
+          cta: 'Emitir Pase QR',
+          tone: 'emerald',
+          actionType: 'emit_qr',
+          provider: matchedProvider,
+          visit: confirmedVisitReady,
+        });
+      }
+    }
+
+    // 2. Mis prestadores de confianza (favoritos) o pases QR activos
+    const favoriteCount = providers.filter((p) => Boolean(p.is_favorite)).length;
+    const activePassesCount = myPasses.filter(
+      (p) => String(p.status || '').toLowerCase() === 'active'
+    ).length;
+
+    if (favoriteCount > 0) {
+      cards.push({
+        id: 'favorites-shortcut',
+        eyebrow: 'Volvé a contratar',
+        title: `${favoriteCount} prestador(es) en Favoritos`,
+        cta: onlyFavorites ? 'Mostrando favoritos' : 'Ver favoritos',
+        tone: 'rose',
+        actionType: 'toggle_favorites',
+      });
+    } else if (activePassesCount > 0) {
+      cards.push({
+        id: 'active-passes',
+        eyebrow: 'Accesos vigentes en garita',
+        title: `${activePassesCount} Pase(s) QR activo(s)`,
+        cta: 'Ver Pases QR',
+        tone: 'emerald',
+        actionType: 'go_passes',
+      });
+    }
+
+    // 3. Pagos pendientes o reseñas sin calificar
+    if (pendingContractsCount > 0) {
+      cards.push({
+        id: 'pending-payments',
+        eyebrow: 'Pagos y conformidad',
+        title: `${pendingContractsCount} orden(es) pendiente(s)`,
+        cta: 'Ir a Pagos',
+        tone: 'amber',
+        actionType: 'go_payments',
+      });
+    } else if (reviewFilterCounts.unrated > 0) {
+      cards.push({
+        id: 'pending-reviews',
+        eyebrow: 'Tu experiencia ayuda al barrio',
+        title: `${reviewFilterCounts.unrated} servicio(s) sin calificar`,
+        cta: 'Dejar reseña',
+        tone: 'amber',
+        actionType: 'go_reviews',
+      });
+    }
+
+    return cards.slice(0, 3);
+  }, [
+    pendingResidentVisitsCount,
+    myVisits,
+    providers,
+    myPasses,
+    onlyFavorites,
+    pendingContractsCount,
+    reviewFilterCounts.unrated,
+  ]);
+
   // Definición del flujo guiado de 5 pasos con sus contadores e íconos respectivos
   const steps = [
     {
@@ -2014,22 +2141,36 @@ export default function ResidentDashboard({
 
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Cabecera principal del Portal Residente con alertas accionables y refresco global */}
+      {/* Cabecera principal unificada del Portal Residente con contexto del hogar y refresco único */}
       <div
-        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+        className="rounded-2xl p-4 sm:p-5 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3"
         style={cardStyle}
       >
         <div className="space-y-1 min-w-0">
-          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-            <ShieldCheck size={14} />
-            <span>Portal Residente</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+              <ShieldCheck size={14} />
+              <span>Portal Residente</span>
+            </span>
+            {residentLocationLabel && (
+              <span
+                className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-white/15 opacity-90"
+                style={innerStyle}
+              >
+                <MapPin size={11} className="text-emerald-400 shrink-0" />
+                <span>{residentLocationLabel}</span>
+              </span>
+            )}
           </div>
           <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight flex items-center gap-2">
-            <Users size={20} className="text-emerald-400 shrink-0" />
-            <span>Prestadores, visitas y pases QR</span>
+            <span>
+              {user?.first_name
+                ? `Hola, ${user.first_name}`
+                : 'Prestadores, visitas y pases QR'}
+            </span>
           </h1>
-          <p className="text-xs sm:text-sm opacity-80">
-            Compará niveles de confianza, coordiná visitas, emití pases QR y gestioná pagos y reseñas.
+          <p className="text-xs opacity-75">
+            Buscá prestadores verificados, coordiná visitas, emití pases QR y gestioná pagos y reseñas.
           </p>
         </div>
 
@@ -2067,11 +2208,12 @@ export default function ResidentDashboard({
               fetchContractsData();
               fetchReviewsData();
             }}
-            className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer shrink-0"
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0"
             style={innerStyle}
-            title="Actualizar información del portal"
+            title="Actualizar toda la información del portal"
           >
-            <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
+            <RefreshCw size={14} className={loadingProviders ? 'animate-spin' : ''} />
+            <span className="hidden sm:inline">Actualizar</span>
           </button>
         </div>
       </div>
@@ -2113,71 +2255,145 @@ export default function ResidentDashboard({
       {/* PASO 1: DIRECTORIO DE PRESTADORES VERIFICADOS */}
       {activeStep === 'providers' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          {/* Encabezado del directorio, guía de niveles de confianza, buscador y actualización */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          {/* Tira contextual "Retomá rápido" (solo visible si hay actividad relevante del residente) */}
+          {quickContinueCards.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+              {quickContinueCards.map((item) => {
+                const toneBorder =
+                  item.tone === 'emerald'
+                    ? 'border-emerald-500/35'
+                    : item.tone === 'sky'
+                      ? 'border-sky-400/40'
+                      : item.tone === 'rose'
+                        ? 'border-rose-400/35'
+                        : 'border-amber-400/35';
+                const toneText =
+                  item.tone === 'emerald'
+                    ? 'text-emerald-300'
+                    : item.tone === 'sky'
+                      ? 'text-sky-300'
+                      : item.tone === 'rose'
+                        ? 'text-rose-300'
+                        : 'text-amber-300';
+
+                const handleQuickAction = () => {
+                  if (item.actionType === 'go_visits_confirm') {
+                    setVisitStatusFilter('to_confirm');
+                    setActiveStep('visits');
+                  } else if (item.actionType === 'emit_qr' && item.provider) {
+                    openQrModalForProvider(item.provider, {
+                      preferredDate: item.visit?.preferred_date,
+                      preferredEndDate: item.visit?.preferred_end_date,
+                    });
+                  } else if (item.actionType === 'toggle_favorites') {
+                    setOnlyFavorites((prev) => !prev);
+                  } else if (item.actionType === 'go_passes') {
+                    setActiveStep('passes');
+                  } else if (item.actionType === 'go_payments') {
+                    setContractStatusFilter('active');
+                    setActiveStep('payments');
+                  } else if (item.actionType === 'go_reviews') {
+                    setReviewStatusFilter('unrated');
+                    setActiveStep('reviews');
+                  }
+                };
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-xl px-3.5 py-2.5 border ${toneBorder} flex items-center justify-between gap-2.5`}
+                    style={innerStyle}
+                  >
+                    <div className="min-w-0">
+                      <p className={`text-[10px] font-bold uppercase tracking-wider ${toneText}`}>
+                        {item.eyebrow}
+                      </p>
+                      <p className="text-xs font-bold truncate mt-0.5">{item.title}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleQuickAction}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0 whitespace-nowrap"
+                      style={
+                        item.actionType === 'emit_qr'
+                          ? { backgroundColor: primaryColor, color: '#ffffff', borderColor: 'transparent' }
+                          : cardStyle
+                      }
+                    >
+                      {item.cta}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Encabezado limpio del directorio + botón de escala N1–N5 (sin refresco duplicado) */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
                 <Users size={18} className="text-emerald-400 shrink-0" />
                 <span>Directorio de Prestadores</span>
               </h2>
               <p className="text-xs opacity-75">
-                Compará el nivel de respaldo documental (1 a 5) y la experiencia de otros vecinos antes de contratar.
+                Compará el respaldo documental (1 a 5) y la experiencia de otros vecinos antes de contratar.
               </p>
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setShowTrustGuide((prev) => !prev)}
-                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
-                  showTrustGuide
-                    ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
-                    : 'border-white/15 opacity-85 hover:opacity-100'
-                }`}
-                style={showTrustGuide ? undefined : innerStyle}
-              >
-                <HelpCircle size={13} className="shrink-0" />
-                <span>Niveles de confianza</span>
-              </button>
+            <button
+              type="button"
+              onClick={() => setShowTrustGuide((prev) => !prev)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shrink-0 ${
+                showTrustGuide
+                  ? 'border-indigo-400/65 bg-indigo-500/20 text-indigo-200'
+                  : 'border-white/15 opacity-85 hover:opacity-100'
+              }`}
+              style={showTrustGuide ? undefined : innerStyle}
+            >
+              <HelpCircle size={13} className="shrink-0" />
+              <span>Niveles de confianza</span>
+            </button>
+          </div>
 
-              <div className="relative flex-1 min-w-55 md:w-72">
-                <Search
-                  size={15}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar por rubro, nombre o problema (ej: pérdida de agua)..."
-                  className={`w-full pl-9 pr-8 ${FIELD_INPUT_CLASS}`}
-                  style={innerStyle}
-                />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchTerm('')}
-                    aria-label="Limpiar búsqueda"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  fetchVerifiedProviders();
-                  fetchMyVisits();
-                }}
-                className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
+          {/* Buscador protagonista de ancho completo + ordenamiento */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            <div className="relative flex-1">
+              <Search
+                size={16}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar por rubro, nombre o problema (ej: pérdida de agua, salta la térmica)..."
+                className={`w-full pl-10 pr-9 py-2.5 ${FIELD_INPUT_CLASS}`}
                 style={innerStyle}
-                title="Actualizar directorio y visitas"
-              >
-                <RefreshCw size={15} className={loadingProviders ? 'animate-spin' : ''} />
-              </button>
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  aria-label="Limpiar búsqueda"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
+                >
+                  <X size={15} />
+                </button>
+              )}
             </div>
+
+            <select
+              value={directorySortBy}
+              onChange={(e) => setDirectorySortBy(e.target.value)}
+              aria-label="Ordenar prestadores"
+              className="px-3 py-2.5 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none shrink-0"
+              style={innerStyle}
+            >
+              <option value="featured">Orden: Destacados</option>
+              <option value="reputation">Mejor reputación</option>
+              <option value="rating">Mejor calificación</option>
+              <option value="jobs">Más trabajos</option>
+            </select>
           </div>
 
           {/* Sello UX Hogar Protegido TrustLink (3 garantías antes de contratar) */}
@@ -2222,30 +2438,31 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Barra de filtros: chips de especialidades, Favoritos, Disponible hoy, Urgencias 24h, Socio Verificado y ordenamiento */}
-          <div className="flex flex-wrap items-center justify-between gap-2 pb-1">
+          {/* Barra de filtros compacta: rubros activos con contador + filtros rápidos */}
+          <div className="space-y-2 pb-1">
             <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap">
-              {availableSpecialties.map((spec) => {
+              {availableSpecialtyEntries.map(({ name: spec, count }) => {
                 const active = selectedSpecialty === spec;
                 return (
                   <button
                     key={spec}
                     type="button"
                     onClick={() => setSelectedSpecialty(spec)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border ${
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1.5 ${
                       active
                         ? 'text-white border-transparent shadow-sm'
                         : 'border-white/15 opacity-80 hover:opacity-100'
                     }`}
                     style={active ? { backgroundColor: primaryColor } : innerStyle}
                   >
-                    {spec}
+                    <span>{spec}</span>
+                    <span className="text-[10px] opacity-75">({count})</span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 text-xs">
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
               <button
                 type="button"
                 onClick={() => setOnlyFavorites((prev) => !prev)}
@@ -2314,28 +2531,14 @@ export default function ResidentDashboard({
                 style={onlyVerifiedMembers ? undefined : innerStyle}
               >
                 <Award size={12} />
-                <span>Solo Socios Verificados</span>
+                <span>Socios N5</span>
               </button>
-
-              <select
-                value={directorySortBy}
-                onChange={(e) => setDirectorySortBy(e.target.value)}
-                aria-label="Ordenar prestadores"
-                className="px-2.5 py-1 rounded-xl border border-white/15 text-xs font-semibold focus:outline-none"
-                style={innerStyle}
-              >
-                <option value="featured">Orden: Destacados</option>
-                <option value="reputation">Mejor reputación</option>
-                <option value="rating">Mejor calificación</option>
-                <option value="jobs">Más trabajos</option>
-              </select>
 
               {hasActiveDirectoryFilters && (
                 <button
                   type="button"
                   onClick={resetDirectoryFilters}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-white/20 opacity-85 hover:opacity-100 cursor-pointer"
-                  style={innerStyle}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
                 >
                   <RotateCcw size={11} />
                   <span>Limpiar</span>
@@ -2474,10 +2677,19 @@ export default function ResidentDashboard({
                         ? 'Documentación en validación · Solo consultas (sin Pase QR aún)'
                         : 'Solo consultas y presupuesto · Aún sin Pase QR en garita';
 
+                const canIssueQrForCard =
+                  provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 4;
+
+                const contactParts = [
+                  provider.email ? `✉️ ${provider.email}` : null,
+                  provider.phone ? `📞 ${provider.phone}` : null,
+                ].filter(Boolean);
+                const contactLine = contactParts.join(' · ');
+
                 return (
                   <article
                     key={providerId}
-                    className={`${ITEM_CARD_CLASS} ${cardRingClass}`}
+                    className={`${ITEM_CARD_CLASS} flex flex-col justify-between h-full ${cardRingClass}`}
                     style={innerStyle}
                   >
                     <div className="space-y-3">
@@ -2613,7 +2825,7 @@ export default function ResidentDashboard({
                         </div>
                       </div>
 
-                      {/* Bloque 3: Experiencia de vecinos (Reputación) + tiempo de respuesta + ficha comercial */}
+                      {/* Bloque 3: Experiencia de vecinos (strictly reputación, respuesta, actividad local y micro-tags) */}
                       <div
                         className="rounded-xl p-3 text-xs space-y-2 border border-white/10"
                         style={cardStyle}
@@ -2623,50 +2835,23 @@ export default function ResidentDashboard({
                         </div>
                         <ReputationThermometer reputation={provider.reputation} compact />
 
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
-                          {provider.response_label && (
-                            <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
-                              <Clock size={11} className="shrink-0" />
-                              <span>{provider.response_label}</span>
-                            </span>
-                          )}
-                          {communityActivityCount > 0 && (
-                            <span className="inline-flex items-center gap-1 font-bold text-emerald-300">
-                              <MapPin size={11} className="shrink-0" />
-                              <span>
-                                {communityActivityCount}{' '}
-                                {communityActivityCount === 1
-                                  ? 'servicio/ingreso en tu barrio'
-                                  : 'servicios/ingresos en tu barrio'}
-                              </span>
-                            </span>
-                          )}
-                        </div>
-
-                        {(quotePolicyLabel || invoiceLabel || paymentMethods.length > 0) && (
-                          <div className="flex flex-wrap gap-1 text-[10px]">
-                            {quotePolicyLabel && (
-                              <span
-                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-90"
-                                style={innerStyle}
-                              >
-                                {quotePolicyLabel}
+                        {(provider.response_label || communityActivityCount > 0) && (
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                            {provider.response_label && (
+                              <span className="inline-flex items-center gap-1 font-semibold text-sky-300">
+                                <Clock size={11} className="shrink-0" />
+                                <span>{provider.response_label}</span>
                               </span>
                             )}
-                            {invoiceLabel && (
-                              <span
-                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-90"
-                                style={innerStyle}
-                              >
-                                {invoiceLabel}
-                              </span>
-                            )}
-                            {paymentMethods.length > 0 && (
-                              <span
-                                className="px-2 py-0.5 rounded-md border border-white/15 opacity-85 capitalize"
-                                style={innerStyle}
-                              >
-                                Pagos: {paymentMethods.join(', ')}
+                            {communityActivityCount > 0 && (
+                              <span className="inline-flex items-center gap-1 font-bold text-emerald-300">
+                                <MapPin size={11} className="shrink-0" />
+                                <span>
+                                  {communityActivityCount}{' '}
+                                  {communityActivityCount === 1
+                                    ? 'servicio/ingreso en tu barrio'
+                                    : 'servicios/ingresos en tu barrio'}
+                                </span>
                               </span>
                             )}
                           </div>
@@ -2686,7 +2871,21 @@ export default function ResidentDashboard({
                         )}
                       </div>
 
-                      {/* Contacto y estado de visita (solo muestra caja completa si ya existe una solicitud activa) */}
+                      {/* Condiciones comerciales separadas de la experiencia de vecinos */}
+                      {(quotePolicyLabel || invoiceLabel || paymentMethods.length > 0) && (
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] opacity-75 px-0.5">
+                          {quotePolicyLabel && <span>{quotePolicyLabel}</span>}
+                          {invoiceLabel && <span>· {invoiceLabel}</span>}
+                          {paymentMethods.length > 0 && (
+                            <span className="capitalize">
+                              {quotePolicyLabel || invoiceLabel ? '· ' : ''}
+                              Pagos: {paymentMethods.join(', ')}
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Contacto y estado de visita (omite teléfono si no está cargado) */}
                       {activeVisit ? (
                         <div
                           className="rounded-xl p-3 text-xs space-y-1.5 border border-white/10"
@@ -2700,111 +2899,118 @@ export default function ResidentDashboard({
                               {visitMeta.label}
                             </span>
                           </div>
-                          <p className="truncate opacity-80">
-                            ✉️ {provider.email || '—'} · 📞 {provider.phone || 'Sin teléfono'}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="text-[11px] truncate opacity-75 px-0.5">
-                          ✉️ {provider.email || '—'} · 📞 {provider.phone || 'Sin teléfono'}
-                        </p>
-                      )}
-                    </div>
-
-                    {/* Acciones condicionadas por acuerdo mutuo y Nivel 4 (Pase QR solo si can_issue_pass) */}
-                    {(() => {
-                      const canIssueQrForCard =
-                        provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 4;
-                      return (
-                        <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                          {visitMeta.isConfirmed ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setActiveStep('visits')}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
-                                style={cardStyle}
-                              >
-                                <Calendar size={13} className="text-emerald-400" />
-                                <span>Ver acuerdo</span>
-                              </button>
-
-                              {canIssueQrForCard ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openQrModalForProvider(provider, {
-                                      preferredDate: activeVisit?.preferred_date,
-                                      preferredEndDate: activeVisit?.preferred_end_date,
-                                    })
-                                  }
-                                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  <QrCode size={14} />
-                                  <span>Emitir Pase QR</span>
-                                </button>
-                              ) : (
-                                <span
-                                  title="Este prestador debe completar su documentación vigente (Nivel 4 Verificado) para emitir Pases QR en garita"
-                                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
-                                >
-                                  <QrCode size={13} />
-                                  <span>QR requiere Nivel 4</span>
-                                </span>
-                              )}
-                            </>
-                          ) : visitMeta.isPendingResident ? (
-                            <button
-                              type="button"
-                              onClick={() => setActiveStep('visits')}
-                              className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
-                            >
-                              <Calendar size={13} />
-                              <span>Confirmar nuevo horario (2. Visitas)</span>
-                            </button>
-                          ) : visitMeta.isPendingProvider ? (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setActiveStep('visits')}
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
-                              >
-                                <Clock size={13} />
-                                <span>Seguimiento (2. Visitas)</span>
-                              </button>
-
-                              <span
-                                title={
-                                  canIssueQrForCard
-                                    ? 'El Pase QR se habilita automáticamente cuando vos y el prestador acuerden fecha y horario'
-                                    : 'Prestador en Nivel 1–3: podrás coordinar consultas; el Pase QR requiere Nivel 4 Verificado'
-                                }
-                                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/10 opacity-55 select-none"
-                                style={cardStyle}
-                              >
-                                <QrCode size={13} />
-                                <span>{canIssueQrForCard ? 'QR al acordar' : 'Solo consultas'}</span>
-                              </span>
-                            </>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => openVisitModalForProvider(provider)}
-                              className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
-                              style={{ backgroundColor: primaryColor }}
-                            >
-                              <Calendar size={14} />
-                              <span>
-                                {canIssueQrForCard
-                                  ? 'Solicitar Visita (ver horarios disponibles)'
-                                  : 'Consultar / Pedir presupuesto'}
-                              </span>
-                            </button>
+                          {contactLine && (
+                            <p className="truncate opacity-80">{contactLine}</p>
                           )}
                         </div>
-                      );
-                    })()}
+                      ) : contactLine ? (
+                        <p className="text-[11px] truncate opacity-75 px-0.5">{contactLine}</p>
+                      ) : null}
+                    </div>
+
+                    {/* Acciones con jerarquía visual honesta: verde primario solo para N4–N5 vigentes */}
+                    <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                      {visitMeta.isConfirmed ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('visits')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 transition-opacity hover:opacity-90 cursor-pointer"
+                            style={cardStyle}
+                          >
+                            <Calendar size={13} className="text-emerald-400" />
+                            <span>Ver acuerdo</span>
+                          </button>
+
+                          {canIssueQrForCard ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openQrModalForProvider(provider, {
+                                  preferredDate: activeVisit?.preferred_date,
+                                  preferredEndDate: activeVisit?.preferred_end_date,
+                                })
+                              }
+                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              <QrCode size={14} />
+                              <span>Emitir Pase QR</span>
+                            </button>
+                          ) : (
+                            <span
+                              title="Este prestador debe completar su documentación vigente (Nivel 4 Verificado) para emitir Pases QR en garita"
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
+                            >
+                              <QrCode size={13} />
+                              <span>QR requiere Nivel 4</span>
+                            </span>
+                          )}
+                        </>
+                      ) : visitMeta.isPendingResident ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveStep('visits')}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
+                        >
+                          <Calendar size={13} />
+                          <span>Confirmar nuevo horario (2. Visitas)</span>
+                        </button>
+                      ) : visitMeta.isPendingProvider ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('visits')}
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
+                          >
+                            <Clock size={13} />
+                            <span>Seguimiento (2. Visitas)</span>
+                          </button>
+
+                          <span
+                            title={
+                              canIssueQrForCard
+                                ? 'El Pase QR se habilita automáticamente cuando vos y el prestador acuerden fecha y horario'
+                                : 'Prestador en Nivel 1–3: podrás coordinar consultas; el Pase QR requiere Nivel 4 Verificado'
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-semibold border border-white/10 opacity-55 select-none"
+                            style={cardStyle}
+                          >
+                            <QrCode size={13} />
+                            <span>{canIssueQrForCard ? 'QR al acordar' : 'Solo consultas'}</span>
+                          </span>
+                        </>
+                      ) : canIssueQrForCard ? (
+                        <button
+                          type="button"
+                          onClick={() => openVisitModalForProvider(provider)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-opacity hover:opacity-95 cursor-pointer"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <Calendar size={14} />
+                          <span>Solicitar Visita (habilitado para QR)</span>
+                        </button>
+                      ) : hasExpiredDocs ? (
+                        <button
+                          type="button"
+                          onClick={() => openVisitModalForProvider(provider)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border border-rose-500/40 bg-rose-950/30 text-rose-200 hover:bg-rose-950/50 transition-colors cursor-pointer"
+                        >
+                          <AlertCircle size={14} />
+                          <span>Consultar (sin QR hasta renovar doc.)</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openVisitModalForProvider(provider)}
+                          className="w-full inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl text-xs font-bold border border-white/20 hover:opacity-95 transition-opacity cursor-pointer"
+                          style={cardStyle}
+                        >
+                          <Calendar size={14} className="opacity-80" />
+                          <span>Consultar / Pedir presupuesto</span>
+                        </button>
+                      )}
+                    </div>
                   </article>
                 );
               })}
