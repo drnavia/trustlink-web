@@ -221,6 +221,11 @@ function MainAppContent() {
     return '';
   });
   const [landingSearchSubmitNonce, setLandingSearchSubmitNonce] = useState(0);
+  const [landingSpecialty, setLandingSpecialty] = useState('Todos');
+  const [landingSpecialties, setLandingSpecialties] = useState([]);
+  const [landingRubrosOpen, setLandingRubrosOpen] = useState(false);
+  const [landingRubrosQuery, setLandingRubrosQuery] = useState('');
+  const landingRubrosRef = useRef(null);
   const [residentTab, setResidentTab] = useState(() =>
     readViewFromHash() === 'payments' || hasMpReturnParams() ? 'services' : 'providers'
   );
@@ -349,7 +354,7 @@ function MainAppContent() {
 
   // Cierra el menú desplegable de usuario o rubros al hacer clic fuera o presionar Escape
   useEffect(() => {
-    if (!userMenuOpen && !rubrosMenuOpen) return undefined;
+    if (!userMenuOpen && !rubrosMenuOpen && !landingRubrosOpen) return undefined;
     const handleOutsideClick = (event) => {
       if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setUserMenuOpen(false);
@@ -358,12 +363,22 @@ function MainAppContent() {
         setRubrosMenuOpen(false);
         setRubrosMenuQuery('');
       }
+      if (
+        landingRubrosOpen &&
+        landingRubrosRef.current &&
+        !landingRubrosRef.current.contains(event.target)
+      ) {
+        setLandingRubrosOpen(false);
+        setLandingRubrosQuery('');
+      }
     };
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setUserMenuOpen(false);
         setRubrosMenuOpen(false);
         setRubrosMenuQuery('');
+        setLandingRubrosOpen(false);
+        setLandingRubrosQuery('');
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
@@ -372,7 +387,7 @@ function MainAppContent() {
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [userMenuOpen, rubrosMenuOpen]);
+  }, [userMenuOpen, rubrosMenuOpen, landingRubrosOpen]);
 
   /**
    * Cierra la sesión global, repliega los menús y regresa a la portada pública.
@@ -1299,6 +1314,200 @@ function MainAppContent() {
         </div>
       )}
 
+      {/* ZONA 2C: Barra contextual pública en Landing (espejo de Zona 2B con Rubros ▾ y accesos planos) */}
+      {!isAuthenticated && currentView === 'landing' && (
+        <div
+          className={`border-b px-4 sm:px-6 ${
+            isDarkTheme ? 'border-white/10' : 'border-black/10'
+          }`}
+          style={{
+            backgroundColor: brand?.submenuBgColor || '#090D16',
+            color: brand?.submenuTextColor || '#CBD5E1',
+          }}
+        >
+          <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
+            {/* Izquierda: Sello de red + Rubros ▾ */}
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="inline-flex items-center gap-1.5 py-1.5 text-[11px] sm:text-xs font-medium opacity-85 min-w-0">
+                <ShieldCheck
+                  size={13}
+                  className={`shrink-0 ${isDarkTheme ? 'text-emerald-400' : 'text-emerald-600'}`}
+                />
+                <span className="truncate">Red verificada para barrios cerrados</span>
+              </div>
+
+              {landingSpecialties.length > 1 && (
+                <>
+                  <span
+                    className={`h-3.5 w-px shrink-0 ${isDarkTheme ? 'bg-white/15' : 'bg-black/15'}`}
+                    aria-hidden="true"
+                  />
+                  <div className="relative shrink-0" ref={landingRubrosRef}>
+                    <button
+                      type="button"
+                      onClick={() => setLandingRubrosOpen((prev) => !prev)}
+                      aria-expanded={landingRubrosOpen}
+                      aria-haspopup="listbox"
+                      className={subBarLinkClass(
+                        landingRubrosOpen || landingSpecialty !== 'Todos'
+                      )}
+                      title="Filtrar vidriera pública por rubro"
+                    >
+                      <span>{landingSpecialty !== 'Todos' ? landingSpecialty : 'Rubros'}</span>
+                      <ChevronDown
+                        size={12}
+                        className={`opacity-75 transition-transform shrink-0 ${
+                          landingRubrosOpen ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {landingRubrosOpen && (
+                      <div
+                        role="listbox"
+                        aria-label="Rubros públicos disponibles"
+                        className={`absolute left-0 mt-1.5 w-60 rounded-2xl border shadow-2xl p-2 z-50 space-y-1.5 ${
+                          isDarkTheme ? 'border-white/15' : 'border-slate-200'
+                        }`}
+                        style={{
+                          backgroundColor:
+                            brand?.cardBgColor || (isDarkTheme ? '#0F172A' : '#FFFFFF'),
+                          color: brand?.cardTextColor || (isDarkTheme ? '#F1F5F9' : '#0F172A'),
+                        }}
+                      >
+                        {landingSpecialties.length > 7 && (
+                          <div className="relative">
+                            <Search
+                              size={12}
+                              className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+                            />
+                            <input
+                              type="text"
+                              value={landingRubrosQuery}
+                              onChange={(e) => setLandingRubrosQuery(e.target.value)}
+                              placeholder="Buscar rubro..."
+                              className={`w-full pl-7 pr-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
+                                isDarkTheme
+                                  ? 'bg-white/5 border-white/15'
+                                  : 'bg-slate-50 border-slate-300 text-slate-900'
+                              }`}
+                              autoFocus
+                            />
+                          </div>
+                        )}
+
+                        <div className="max-h-60 overflow-y-auto space-y-0.5">
+                          {landingSpecialties
+                            .filter(({ name }) => {
+                              const q = landingRubrosQuery.trim().toLowerCase();
+                              return !q || name.toLowerCase().includes(q);
+                            })
+                            .map(({ name: spec, count }) => {
+                              const isActiveSpec = landingSpecialty === spec;
+                              return (
+                                <button
+                                  key={spec}
+                                  type="button"
+                                  role="option"
+                                  aria-selected={isActiveSpec}
+                                  onClick={() => {
+                                    setLandingSpecialty(spec);
+                                    setLandingRubrosOpen(false);
+                                    setLandingRubrosQuery('');
+                                    document
+                                      .getElementById('vidriera-publica')
+                                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }}
+                                  className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                                    isActiveSpec
+                                      ? isDarkTheme
+                                        ? 'bg-emerald-500/20 text-emerald-200'
+                                        : 'bg-emerald-50 text-emerald-800'
+                                      : isDarkTheme
+                                        ? 'hover:bg-white/8 opacity-85 hover:opacity-100'
+                                        : 'hover:bg-slate-100 opacity-85 hover:opacity-100'
+                                  }`}
+                                >
+                                  <span className="truncate">
+                                    {spec === 'Todos' ? 'Todos los rubros' : spec}
+                                  </span>
+                                  <span className="text-[10px] opacity-65 shrink-0">({count})</span>
+                                </button>
+                              );
+                            })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Derecha: enlaces planos de exploración rápida */}
+            <nav
+              aria-label="Navegación pública"
+              className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setLandingSpecialty('Todos');
+                  document
+                    .getElementById('vidriera-publica')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className={subBarLinkClass(landingSpecialty === 'Todos')}
+              >
+                <Users size={13} className="shrink-0 opacity-85" />
+                <span>Prestadores</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById('como-funciona')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                className={subBarLinkClass(false)}
+              >
+                <QrCode size={13} className="shrink-0 opacity-85" />
+                <span>Cómo funciona</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    sessionStorage.setItem('trustlink_initial_register_role', 'provider');
+                  } catch {
+                    // Ignorar
+                  }
+                  setCurrentView('register');
+                }}
+                className={subBarLinkClass(false)}
+              >
+                <Wrench size={13} className="shrink-0 opacity-85" />
+                <span>Soy Prestador</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  document
+                    .getElementById('actores')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }
+                className={subBarLinkClass(false)}
+              >
+                <Building2 size={13} className="shrink-0 opacity-85" />
+                <span>Para Barrios</span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
+
       {/* ZONA 3: Contenedor Principal de Vistas (carga diferida por módulo) */}
       <main className="flex-1 flex flex-col">
         <Suspense
@@ -1316,6 +1525,9 @@ function MainAppContent() {
             onViewChange={setCurrentView}
             externalSearchTerm={globalSearchQuery}
             onExternalSearchChange={setGlobalSearchQuery}
+            externalSelectedSpecialty={landingSpecialty}
+            onExternalSelectedSpecialtyChange={setLandingSpecialty}
+            onSpecialtiesChange={setLandingSpecialties}
             searchSubmitNonce={landingSearchSubmitNonce}
             useGlobalHeaderSearch
           />
