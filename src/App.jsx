@@ -225,6 +225,10 @@ function MainAppContent() {
     readViewFromHash() === 'payments' || hasMpReturnParams() ? 'services' : 'providers'
   );
   const [residentFavoritesOnly, setResidentFavoritesOnly] = useState(false);
+  const [residentSpecialty, setResidentSpecialty] = useState('Todos');
+  const [rubrosMenuOpen, setRubrosMenuOpen] = useState(false);
+  const [rubrosMenuQuery, setRubrosMenuQuery] = useState('');
+  const rubrosMenuRef = useRef(null);
   const [residentRefreshNonce, setResidentRefreshNonce] = useState(0);
   const [residentHeaderMeta, setResidentHeaderMeta] = useState({
     providersCount: 0,
@@ -232,6 +236,7 @@ function MainAppContent() {
     servicesTotalCount: 0,
     passesCount: 0,
     favoritesCount: 0,
+    specialties: [],
     refreshing: false,
   });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
@@ -342,17 +347,23 @@ function MainAppContent() {
     }
   }, [isAuthenticated, isSuperadmin, currentView]);
 
-  // Cierra el menú desplegable de usuario al hacer clic fuera o presionar Escape
+  // Cierra el menú desplegable de usuario o rubros al hacer clic fuera o presionar Escape
   useEffect(() => {
-    if (!userMenuOpen) return undefined;
+    if (!userMenuOpen && !rubrosMenuOpen) return undefined;
     const handleOutsideClick = (event) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+      if (userMenuOpen && userMenuRef.current && !userMenuRef.current.contains(event.target)) {
         setUserMenuOpen(false);
+      }
+      if (rubrosMenuOpen && rubrosMenuRef.current && !rubrosMenuRef.current.contains(event.target)) {
+        setRubrosMenuOpen(false);
+        setRubrosMenuQuery('');
       }
     };
     const handleKeyDown = (event) => {
       if (event.key === 'Escape') {
         setUserMenuOpen(false);
+        setRubrosMenuOpen(false);
+        setRubrosMenuQuery('');
       }
     };
     document.addEventListener('mousedown', handleOutsideClick);
@@ -361,7 +372,7 @@ function MainAppContent() {
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [userMenuOpen]);
+  }, [userMenuOpen, rubrosMenuOpen]);
 
   /**
    * Cierra la sesión global, repliega los menús y regresa a la portada pública.
@@ -369,8 +380,10 @@ function MainAppContent() {
   const handleLogout = () => {
     logout();
     setUserMenuOpen(false);
+    setRubrosMenuOpen(false);
     setMasterModeOpen(false);
     setResidentFavoritesOnly(false);
+    setResidentSpecialty('Todos');
     setResidentTab('providers');
     setGlobalSearchQuery('');
     setCurrentView('landing');
@@ -1057,21 +1070,134 @@ function MainAppContent() {
           }}
         >
           <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
-            {/* Domicilio clicable → Mi Cuenta */}
-            <button
-              type="button"
-              onClick={() => setCurrentView('account')}
-              className="inline-flex items-center gap-1.5 py-1.5 text-[11px] sm:text-xs font-medium opacity-85 hover:opacity-100 cursor-pointer text-left min-w-0 max-w-full"
-              title="Editar domicilio y barrio en Mi Cuenta"
-            >
-              <MapPin
-                size={13}
-                className={`shrink-0 ${isDarkTheme ? 'text-emerald-400' : 'text-emerald-600'}`}
-              />
-              <span className="truncate">
-                {residentLocationLabel || 'Completar barrio y lote'}
-              </span>
-            </button>
+            {/* Izquierda: Domicilio clicable + Rubros ▾ (estilo "📍 Enviar a... | Categorías ▾") */}
+            <div className="flex items-center gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={() => setCurrentView('account')}
+                className="inline-flex items-center gap-1.5 py-1.5 text-[11px] sm:text-xs font-medium opacity-85 hover:opacity-100 cursor-pointer text-left min-w-0"
+                title="Editar domicilio y barrio en Mi Cuenta"
+              >
+                <MapPin
+                  size={13}
+                  className={`shrink-0 ${isDarkTheme ? 'text-emerald-400' : 'text-emerald-600'}`}
+                />
+                <span className="truncate">
+                  {residentLocationLabel || 'Completar barrio y lote'}
+                </span>
+              </button>
+
+              {Array.isArray(residentHeaderMeta.specialties) &&
+                residentHeaderMeta.specialties.length > 1 && (
+                  <>
+                    <span
+                      className={`h-3.5 w-px shrink-0 ${isDarkTheme ? 'bg-white/15' : 'bg-black/15'}`}
+                      aria-hidden="true"
+                    />
+                    <div className="relative shrink-0" ref={rubrosMenuRef}>
+                      <button
+                        type="button"
+                        onClick={() => setRubrosMenuOpen((prev) => !prev)}
+                        aria-expanded={rubrosMenuOpen}
+                        aria-haspopup="listbox"
+                        className={subBarLinkClass(
+                          rubrosMenuOpen ||
+                            (residentTab === 'providers' && residentSpecialty !== 'Todos')
+                        )}
+                        title="Explorar prestadores por rubro"
+                      >
+                        <span>
+                          {residentSpecialty !== 'Todos' ? residentSpecialty : 'Rubros'}
+                        </span>
+                        <ChevronDown
+                          size={12}
+                          className={`opacity-75 transition-transform shrink-0 ${
+                            rubrosMenuOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+
+                      {rubrosMenuOpen && (
+                        <div
+                          role="listbox"
+                          aria-label="Rubros disponibles"
+                          className={`absolute left-0 mt-1.5 w-60 rounded-2xl border shadow-2xl p-2 z-50 space-y-1.5 ${
+                            isDarkTheme ? 'border-white/15' : 'border-slate-200'
+                          }`}
+                          style={{
+                            backgroundColor:
+                              brand?.cardBgColor || (isDarkTheme ? '#0F172A' : '#FFFFFF'),
+                            color: brand?.cardTextColor || (isDarkTheme ? '#F1F5F9' : '#0F172A'),
+                          }}
+                        >
+                          {residentHeaderMeta.specialties.length > 7 && (
+                            <div className="relative">
+                              <Search
+                                size={12}
+                                className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+                              />
+                              <input
+                                type="text"
+                                value={rubrosMenuQuery}
+                                onChange={(e) => setRubrosMenuQuery(e.target.value)}
+                                placeholder="Buscar rubro..."
+                                className={`w-full pl-7 pr-2.5 py-1.5 rounded-lg border text-xs focus:outline-none ${
+                                  isDarkTheme
+                                    ? 'bg-white/5 border-white/15'
+                                    : 'bg-slate-50 border-slate-300 text-slate-900'
+                                }`}
+                                autoFocus
+                              />
+                            </div>
+                          )}
+
+                          <div className="max-h-60 overflow-y-auto space-y-0.5">
+                            {residentHeaderMeta.specialties
+                              .filter(({ name }) => {
+                                const q = rubrosMenuQuery.trim().toLowerCase();
+                                return !q || name.toLowerCase().includes(q);
+                              })
+                              .map(({ name: spec, count }) => {
+                                const isActiveSpec = residentSpecialty === spec;
+                                return (
+                                  <button
+                                    key={spec}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={isActiveSpec}
+                                    onClick={() => {
+                                      setResidentTab('providers');
+                                      setResidentFavoritesOnly(false);
+                                      setResidentSpecialty(spec);
+                                      setRubrosMenuOpen(false);
+                                      setRubrosMenuQuery('');
+                                    }}
+                                    className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                                      isActiveSpec
+                                        ? isDarkTheme
+                                          ? 'bg-emerald-500/20 text-emerald-200'
+                                          : 'bg-emerald-50 text-emerald-800'
+                                        : isDarkTheme
+                                          ? 'hover:bg-white/8 opacity-85 hover:opacity-100'
+                                          : 'hover:bg-slate-100 opacity-85 hover:opacity-100'
+                                    }`}
+                                  >
+                                    <span className="truncate">
+                                      {spec === 'Todos' ? 'Todos los rubros' : spec}
+                                    </span>
+                                    <span className="text-[10px] opacity-65 shrink-0">
+                                      ({count})
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+            </div>
 
             {/* Enlaces planos sin cajas pesadas: Prestadores · Mis Servicios · Pases QR · Favoritos · Refrescar */}
             <nav
@@ -1231,6 +1357,8 @@ function MainAppContent() {
             onExternalStepChange={setResidentTab}
             externalOnlyFavorites={residentFavoritesOnly}
             onExternalOnlyFavoritesChange={setResidentFavoritesOnly}
+            externalSelectedSpecialty={residentSpecialty}
+            onExternalSelectedSpecialtyChange={setResidentSpecialty}
             onHeaderMetaChange={setResidentHeaderMeta}
             refreshNonce={residentRefreshNonce}
           />

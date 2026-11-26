@@ -17,7 +17,7 @@
  * @location /trustlink-web/src/modules/owner/ResidentDashboard.jsx
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   ShieldCheck,
   Star,
@@ -49,6 +49,8 @@ import {
   Clock,
   HelpCircle,
   Plus,
+  ChevronDown,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
@@ -306,6 +308,8 @@ export default function ResidentDashboard({
   onExternalStepChange,
   externalOnlyFavorites,
   onExternalOnlyFavoritesChange,
+  externalSelectedSpecialty,
+  onExternalSelectedSpecialtyChange,
   onHeaderMetaChange,
   refreshNonce = 0,
 }) {
@@ -396,7 +400,49 @@ export default function ResidentDashboard({
       setInternalSearchTerm(nextValue);
     }
   };
-  const [selectedSpecialty, setSelectedSpecialty] = useState('Todos');
+  const [internalSelectedSpecialty, setInternalSelectedSpecialty] = useState('Todos');
+  const isControlledSpecialty =
+    typeof onExternalSelectedSpecialtyChange === 'function' &&
+    externalSelectedSpecialty !== undefined;
+  const selectedSpecialty = isControlledSpecialty
+    ? String(externalSelectedSpecialty || 'Todos')
+    : internalSelectedSpecialty;
+  const setSelectedSpecialty = (nextOrUpdater) => {
+    const nextValue =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(selectedSpecialty) : nextOrUpdater;
+    const normalized = String(nextValue || 'Todos');
+    if (isControlledSpecialty) {
+      onExternalSelectedSpecialtyChange(normalized);
+    } else {
+      setInternalSelectedSpecialty(normalized);
+    }
+  };
+  const [specialtyMenuOpen, setSpecialtyMenuOpen] = useState(false);
+  const [specialtyMenuQuery, setSpecialtyMenuQuery] = useState('');
+  const specialtyMenuRef = useRef(null);
+
+  // Cierra el desplegable de rubros al hacer clic fuera o presionar Escape
+  useEffect(() => {
+    if (!specialtyMenuOpen) return undefined;
+    const handleOutside = (event) => {
+      if (specialtyMenuRef.current && !specialtyMenuRef.current.contains(event.target)) {
+        setSpecialtyMenuOpen(false);
+        setSpecialtyMenuQuery('');
+      }
+    };
+    const handleEsc = (event) => {
+      if (event.key === 'Escape') {
+        setSpecialtyMenuOpen(false);
+        setSpecialtyMenuQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('keydown', handleEsc);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('keydown', handleEsc);
+    };
+  }, [specialtyMenuOpen]);
   const [onlyVerified, setOnlyVerified] = useState(false);
   const [onlyVerifiedMembers, setOnlyVerifiedMembers] = useState(false);
   const [internalOnlyFavorites, setInternalOnlyFavorites] = useState(false);
@@ -2315,7 +2361,7 @@ export default function ResidentDashboard({
     [providers]
   );
 
-  // Publica contadores vivos hacia la Zona 2 de la barra superior (App.jsx)
+  // Publica contadores vivos y rubros activos hacia la Zona 2 de la barra superior (App.jsx)
   useEffect(() => {
     if (typeof onHeaderMetaChange !== 'function') return;
     onHeaderMetaChange({
@@ -2324,6 +2370,7 @@ export default function ResidentDashboard({
       servicesTotalCount: servicesCounts.all,
       passesCount: myPasses.length,
       favoritesCount,
+      specialties: availableSpecialtyEntries,
       refreshing: loadingProviders || loadingVisits || loadingPasses || loadingContracts,
     });
   }, [
@@ -2333,6 +2380,7 @@ export default function ResidentDashboard({
     servicesCounts.all,
     myPasses.length,
     favoritesCount,
+    availableSpecialtyEntries,
     loadingProviders,
     loadingVisits,
     loadingPasses,
@@ -2703,117 +2751,188 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Barra de filtros liviana: rubros activos con conteo + 4 filtros rápidos de decisión */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5 overflow-x-auto flex-nowrap pb-0.5">
-              {availableSpecialtyEntries.map(({ name: spec, count }) => {
-                const active = selectedSpecialty === spec;
-                return (
-                  <button
-                    key={spec}
-                    type="button"
-                    onClick={() => setSelectedSpecialty(spec)}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all cursor-pointer shrink-0 whitespace-nowrap border inline-flex items-center gap-1 ${
-                      active
-                        ? 'text-white border-transparent shadow-sm'
-                        : 'border-white/15 opacity-80 hover:opacity-100'
-                    }`}
-                    style={active ? { backgroundColor: primaryColor } : innerStyle}
-                  >
-                    <span>{spec}</span>
-                    <span className="text-[10px] opacity-75">({count})</span>
-                  </button>
-                );
-              })}
+          {/* Barra única de filtros (Opción A): selector desplegable de Rubros escalable + 3 filtros rápidos de decisión */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            {/* Selector desplegable de Rubros con conteos y búsqueda interna cuando crece el catálogo */}
+            <div className="relative" ref={specialtyMenuRef}>
+              <button
+                type="button"
+                onClick={() => setSpecialtyMenuOpen((prev) => !prev)}
+                aria-expanded={specialtyMenuOpen}
+                aria-haspopup="listbox"
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
+                  selectedSpecialty !== 'Todos'
+                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                    : 'border-white/15 opacity-90 hover:opacity-100'
+                }`}
+                style={selectedSpecialty !== 'Todos' ? undefined : innerStyle}
+              >
+                <SlidersHorizontal size={12} className="shrink-0 opacity-85" />
+                <span>
+                  {selectedSpecialty === 'Todos'
+                    ? `Rubro: Todos (${Math.max(0, availableSpecialtyEntries.length - 1)})`
+                    : selectedSpecialty}
+                </span>
+                <ChevronDown
+                  size={13}
+                  className={`shrink-0 opacity-75 transition-transform ${
+                    specialtyMenuOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              {specialtyMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Seleccionar rubro"
+                  className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-white/15 shadow-2xl p-2 z-40 space-y-1.5"
+                  style={cardStyle}
+                >
+                  {availableSpecialtyEntries.length > 7 && (
+                    <div className="relative">
+                      <Search
+                        size={13}
+                        className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+                      />
+                      <input
+                        type="text"
+                        value={specialtyMenuQuery}
+                        onChange={(e) => setSpecialtyMenuQuery(e.target.value)}
+                        placeholder="Filtrar rubro..."
+                        className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                        style={innerStyle}
+                        autoFocus
+                      />
+                    </div>
+                  )}
+
+                  <div className="max-h-60 overflow-y-auto space-y-0.5">
+                    {availableSpecialtyEntries
+                      .filter(({ name }) => {
+                        const q = specialtyMenuQuery.trim().toLowerCase();
+                        return !q || name.toLowerCase().includes(q);
+                      })
+                      .map(({ name: spec, count }) => {
+                        const active = selectedSpecialty === spec;
+                        return (
+                          <button
+                            key={spec}
+                            type="button"
+                            role="option"
+                            aria-selected={active}
+                            onClick={() => {
+                              setSelectedSpecialty(spec);
+                              setSpecialtyMenuOpen(false);
+                              setSpecialtyMenuQuery('');
+                            }}
+                            className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                              active
+                                ? 'bg-emerald-500/20 text-emerald-200'
+                                : 'hover:bg-white/8 opacity-85 hover:opacity-100'
+                            }`}
+                          >
+                            <span className="truncate">
+                              {spec === 'Todos' ? 'Todos los rubros' : spec}
+                            </span>
+                            <span className="inline-flex items-center gap-1.5 shrink-0">
+                              <span className="text-[10px] opacity-65">({count})</span>
+                              {active && <Check size={12} className="text-emerald-400" />}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              <button
-                type="button"
-                onClick={() => setOnlyVerified((prev) => !prev)}
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                  onlyVerified
-                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
-                }`}
-                style={onlyVerified ? undefined : innerStyle}
-                title="Mostrar solo prestadores con Nivel 4 (Verificado) o Nivel 5 (Socio Verificado) habilitados para Pase QR"
-              >
-                <ShieldCheck size={12} />
-                <span>Solo Verificados (QR)</span>
-              </button>
+            <span className="hidden sm:inline-block h-4 w-px bg-white/15 mx-0.5" aria-hidden="true" />
 
-              <button
-                type="button"
-                onClick={() => setOnlyAvailableToday((prev) => !prev)}
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                  onlyAvailableToday
-                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
-                }`}
-                style={onlyAvailableToday ? undefined : innerStyle}
-              >
-                <Zap size={12} />
-                <span>Disponible hoy</span>
-              </button>
+            <button
+              type="button"
+              onClick={() => setOnlyVerified((prev) => !prev)}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                onlyVerified
+                  ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                  : 'border-white/12 opacity-80 hover:opacity-100'
+              }`}
+              style={onlyVerified ? undefined : innerStyle}
+              title="Mostrar solo prestadores con Nivel 4 (Verificado) o Nivel 5 (Socio Verificado) habilitados para Pase QR"
+            >
+              <ShieldCheck size={12} />
+              <span>Solo Verificados (QR)</span>
+            </button>
 
+            <button
+              type="button"
+              onClick={() => setOnlyAvailableToday((prev) => !prev)}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                onlyAvailableToday
+                  ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                  : 'border-white/12 opacity-80 hover:opacity-100'
+              }`}
+              style={onlyAvailableToday ? undefined : innerStyle}
+            >
+              <Zap size={12} />
+              <span>Disponible hoy</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setOnlyEmergencies((prev) => !prev)}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                onlyEmergencies
+                  ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
+                  : 'border-white/12 opacity-80 hover:opacity-100'
+              }`}
+              style={onlyEmergencies ? undefined : innerStyle}
+            >
+              <AlertCircle size={12} />
+              <span>Urgencias 24h</span>
+            </button>
+
+            {!useGlobalHeader && (
               <button
                 type="button"
-                onClick={() => setOnlyEmergencies((prev) => !prev)}
-                className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                  onlyEmergencies
+                onClick={() => setOnlyFavorites((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                  onlyFavorites
                     ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
+                    : 'border-white/12 opacity-80 hover:opacity-100'
                 }`}
-                style={onlyEmergencies ? undefined : innerStyle}
+                style={onlyFavorites ? undefined : innerStyle}
               >
-                <AlertCircle size={12} />
-                <span>Urgencias 24h</span>
+                <Heart size={12} className={onlyFavorites ? 'fill-rose-400 text-rose-400' : ''} />
+                <span>Favoritos</span>
               </button>
+            )}
 
-              {!useGlobalHeader && (
-                <button
-                  type="button"
-                  onClick={() => setOnlyFavorites((prev) => !prev)}
-                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                    onlyFavorites
-                      ? 'border-rose-400/70 bg-rose-500/20 text-rose-200'
-                      : 'border-white/15 opacity-80 hover:opacity-100'
-                  }`}
-                  style={onlyFavorites ? undefined : innerStyle}
-                >
-                  <Heart size={12} className={onlyFavorites ? 'fill-rose-400 text-rose-400' : ''} />
-                  <span>Favoritos</span>
-                </button>
-              )}
+            {(hasAnySocioMember || onlyVerifiedMembers) && (
+              <button
+                type="button"
+                onClick={() => setOnlyVerifiedMembers((prev) => !prev)}
+                className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-xl font-semibold border transition-all cursor-pointer ${
+                  onlyVerifiedMembers
+                    ? 'border-amber-400/70 bg-amber-500/20 text-amber-200'
+                    : 'border-white/12 opacity-80 hover:opacity-100'
+                }`}
+                style={onlyVerifiedMembers ? undefined : innerStyle}
+              >
+                <Award size={12} />
+                <span>Socios N5</span>
+              </button>
+            )}
 
-              {(hasAnySocioMember || onlyVerifiedMembers) && (
-                <button
-                  type="button"
-                  onClick={() => setOnlyVerifiedMembers((prev) => !prev)}
-                  className={`inline-flex items-center gap-1 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
-                    onlyVerifiedMembers
-                      ? 'border-amber-400/70 bg-amber-500/20 text-amber-200'
-                      : 'border-white/15 opacity-80 hover:opacity-100'
-                  }`}
-                  style={onlyVerifiedMembers ? undefined : innerStyle}
-                >
-                  <Award size={12} />
-                  <span>Socios N5</span>
-                </button>
-              )}
-
-              {hasActiveDirectoryFilters && (
-                <button
-                  type="button"
-                  onClick={resetDirectoryFilters}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
-                >
-                  <RotateCcw size={11} />
-                  <span>Limpiar</span>
-                </button>
-              )}
-            </div>
+            {hasActiveDirectoryFilters && (
+              <button
+                type="button"
+                onClick={resetDirectoryFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+              >
+                <RotateCcw size={11} />
+                <span>Limpiar</span>
+              </button>
+            )}
           </div>
 
           {/* Alerta de error al cargar el directorio */}
