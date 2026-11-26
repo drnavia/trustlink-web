@@ -345,6 +345,7 @@ export default function ResidentDashboard({
   const [reviewsModalProvider, setReviewsModalProvider] = useState(null);
   const [providerReviewsList, setProviderReviewsList] = useState([]);
   const [loadingProviderReviews, setLoadingProviderReviews] = useState(false);
+  const [reviewFilterSpecialty, setReviewFilterSpecialty] = useState('all');
   const [reviewFilterTag, setReviewFilterTag] = useState('all');
   const [reviewFilterMinStars, setReviewFilterMinStars] = useState(0);
 
@@ -1124,6 +1125,7 @@ export default function ResidentDashboard({
     const pid = Number(provider.provider_id || provider.id);
     setReviewsModalProvider(provider);
     setProviderReviewsList([]);
+    setReviewFilterSpecialty('all');
     setReviewFilterTag('all');
     setReviewFilterMinStars(0);
     setLoadingProviderReviews(true);
@@ -5307,9 +5309,24 @@ export default function ResidentDashboard({
         </div>
       )}
 
-      {/* Modal: Reseñas verificadas del prestador (con filtros por micro-tag y estrellas) */}
+      {/* Modal: Reseñas verificadas consolidadas por persona (con filtros por rubro, estrellas y micro-tags) */}
       {reviewsModalProvider && (() => {
+        const specialtyCountsMap = new Map();
+        providerReviewsList.forEach((rev) => {
+          const spec = String(rev.specialty || '').trim();
+          if (!spec) return;
+          specialtyCountsMap.set(spec, (specialtyCountsMap.get(spec) || 0) + 1);
+        });
+        const modalSpecialtyOptions = Array.from(specialtyCountsMap.entries()).sort((a, b) => {
+          if (b[1] !== a[1]) return b[1] - a[1];
+          return a[0].localeCompare(b[0], 'es');
+        });
+
         const filteredModalReviews = providerReviewsList.filter((rev) => {
+          const matchesSpecialty =
+            reviewFilterSpecialty === 'all' ||
+            String(rev.specialty || '').trim().toLowerCase() ===
+              reviewFilterSpecialty.toLowerCase();
           const matchesStars =
             reviewFilterMinStars === 0
               ? true
@@ -5319,7 +5336,7 @@ export default function ResidentDashboard({
           const matchesTag =
             reviewFilterTag === 'all' ||
             (Array.isArray(rev.tags) && rev.tags.includes(reviewFilterTag));
-          return matchesStars && matchesTag;
+          return matchesSpecialty && matchesStars && matchesTag;
         });
 
         return (
@@ -5331,12 +5348,15 @@ export default function ResidentDashboard({
               <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
                 <div>
                   <p className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                    Reputación Verificada
+                    Reputación General del Prestador
                   </p>
                   <h3 className="text-base font-black mt-0.5">
                     {reviewsModalProvider.first_name} {reviewsModalProvider.last_name} · ★{' '}
                     {Number(reviewsModalProvider.rating_avg || 0).toFixed(1)}
                   </h3>
+                  <p className="text-[11px] opacity-75 mt-0.5">
+                    Reseñas consolidadas en todos sus rubros ({providerReviewsList.length})
+                  </p>
                 </div>
                 <button
                   type="button"
@@ -5347,9 +5367,41 @@ export default function ResidentDashboard({
                 </button>
               </div>
 
-              {/* Filtros rápidos del modal de reseñas (estrellas + micro-tags) */}
+              {/* Filtros rápidos del modal de reseñas (rubro, estrellas y micro-tags) */}
               {!loadingProviderReviews && providerReviewsList.length > 0 && (
                 <div className="space-y-2">
+                  {modalSpecialtyOptions.length > 1 && (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setReviewFilterSpecialty('all')}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold border cursor-pointer ${
+                          reviewFilterSpecialty === 'all'
+                            ? 'border-sky-400/70 bg-sky-500/20 text-sky-200'
+                            : 'border-white/15 opacity-75 hover:opacity-100'
+                        }`}
+                        style={reviewFilterSpecialty === 'all' ? undefined : innerStyle}
+                      >
+                        Todos los rubros ({providerReviewsList.length})
+                      </button>
+                      {modalSpecialtyOptions.map(([specName, specCount]) => (
+                        <button
+                          key={specName}
+                          type="button"
+                          onClick={() => setReviewFilterSpecialty(specName)}
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold border cursor-pointer ${
+                            reviewFilterSpecialty === specName
+                              ? 'border-sky-400/70 bg-sky-500/20 text-sky-200'
+                              : 'border-white/15 opacity-75 hover:opacity-100'
+                          }`}
+                          style={reviewFilterSpecialty === specName ? undefined : innerStyle}
+                        >
+                          {specName} ({specCount})
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-1.5">
                     {[
                       { val: 0, label: `Todas (${providerReviewsList.length})` },
@@ -5419,16 +5471,25 @@ export default function ResidentDashboard({
                   {filteredModalReviews.map((rev) => (
                     <div
                       key={rev.id}
-                      className="p-3.5 rounded-xl border border-white/10 space-y-1"
+                      className="p-3.5 rounded-xl border border-white/10 space-y-1.5"
                       style={innerStyle}
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-bold">
-                          {rev.owner_name ||
-                            `${rev.owner_first_name || rev.first_name || ''} ${rev.owner_last_name || rev.last_name || ''}`.trim() ||
-                            'Residente Verificado'}
-                        </span>
-                        <span className="font-bold text-amber-300">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                          <span className="font-bold">
+                            {rev.owner_name ||
+                              `${rev.owner_first_name || rev.first_name || ''} ${rev.owner_last_name || rev.last_name || ''}`.trim() ||
+                              'Residente Verificado'}
+                          </span>
+                          {rev.specialty && (
+                            <span
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-sky-400/40 bg-sky-500/15 text-sky-200"
+                            >
+                              {rev.specialty}
+                            </span>
+                          )}
+                        </div>
+                        <span className="font-bold text-amber-300 shrink-0">
                           {'★'.repeat(Number(rev.rating || 5))} ({rev.rating}/5)
                         </span>
                       </div>
