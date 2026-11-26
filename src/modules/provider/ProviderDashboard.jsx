@@ -50,6 +50,7 @@ import {
   Printer,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -70,6 +71,10 @@ import {
 
 /** Cantidad máxima de pases QR mostrados por página en la pestaña de Pases. */
 const PASSES_PER_PAGE = 6;
+
+/** Enlace oficial del Registro Nacional de Reincidencia para tramitar Antecedentes Penales en Argentina. */
+const CRIMINAL_RECORD_OFFICIAL_URL =
+  'https://www.argentina.gob.ar/justicia/reincidencia/antecedentespenales';
 
 /**
  * Evalúa la vigencia de una fecha de vencimiento documental respecto del día actual.
@@ -2731,6 +2736,24 @@ export default function ProviderDashboard() {
                     style={cardStyle}
                   />
                 </div>
+                {docType === 'Antecedentes Penales' && (
+                  <div
+                    className="rounded-xl px-3 py-2 border border-sky-500/30 bg-sky-950/35 text-[11px] flex flex-wrap items-center justify-between gap-2"
+                  >
+                    <span className="opacity-90">
+                      ¿Todavía no tenés tu certificado de Antecedentes Penales?
+                    </span>
+                    <a
+                      href={CRIMINAL_RECORD_OFFICIAL_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 shrink-0"
+                    >
+                      <span>Solicitar en Argentina.gob.ar</span>
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
+                )}
                 {docType !== 'Documento de Identidad (DNI)' && (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                     <div>
@@ -2870,11 +2893,24 @@ export default function ProviderDashboard() {
                   >
                     {isEditingDoc ? (
                       <div className="space-y-2.5">
-                        <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
                           <span className="font-bold">{docItem.docType}</span>
-                          <span className="text-[11px] opacity-75">
-                            La versión anterior se conserva en el historial
-                          </span>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {docItem.docType === 'Antecedentes Penales' && (
+                              <a
+                                href={CRIMINAL_RECORD_OFFICIAL_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2"
+                              >
+                                <span>Tramitar en Argentina.gob.ar</span>
+                                <ExternalLink size={11} />
+                              </a>
+                            )}
+                            <span className="text-[11px] opacity-75">
+                              La versión anterior se conserva en el historial
+                            </span>
+                          </div>
                         </div>
                         <input
                           type="text"
@@ -2940,6 +2976,17 @@ export default function ProviderDashboard() {
                           <p className="opacity-75">
                             Aún no cargaste este documento personal obligatorio para habilitar ingresos en garita.
                           </p>
+                          {docItem.docType === 'Antecedentes Penales' && (
+                            <a
+                              href={CRIMINAL_RECORD_OFFICIAL_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 pt-0.5"
+                            >
+                              <span>Cómo solicitarlo en Argentina.gob.ar</span>
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -2989,6 +3036,17 @@ export default function ProviderDashboard() {
                             Vigencia: {formatDateShort(docItem.validFrom)} →{' '}
                             {formatDateShort(docItem.validTo)}
                           </p>
+                          {docItem.docType === 'Antecedentes Penales' && (
+                            <a
+                              href={CRIMINAL_RECORD_OFFICIAL_URL}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-300 hover:text-sky-200 underline underline-offset-2 pt-0.5"
+                            >
+                              <span>Tramitar / renovar en Argentina.gob.ar</span>
+                              <ExternalLink size={11} />
+                            </a>
+                          )}
                         </div>
 
                         <button
