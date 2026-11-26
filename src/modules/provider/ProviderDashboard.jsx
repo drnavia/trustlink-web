@@ -174,7 +174,13 @@ function getPassStatusLabel(status) {
  * @component
  * @returns {JSX.Element} Interfaz completa del panel del prestador.
  */
-export default function ProviderDashboard() {
+export default function ProviderDashboard({
+  useGlobalHeader = false,
+  externalActiveStep,
+  onExternalStepChange,
+  onHeaderMetaChange,
+  refreshNonce = 0,
+} = {}) {
   const { brand } = useBranding();
 
   // Tokens visuales de acción primaria y superficies compartidos con Portal Residente
@@ -190,8 +196,20 @@ export default function ProviderDashboard() {
     color: brand?.innerTextColor || '#E2E8F0',
   };
 
-  // Navegación principal por pasos: 'credentials' -> 'vehicles' -> 'schedule' -> 'visits' -> 'passes' -> 'reviews'
-  const [activeStep, setActiveStep] = useState('credentials');
+  // Navegación principal sincronizable con la Zona 2D global (App.jsx)
+  const [internalActiveStep, setInternalActiveStep] = useState('credentials');
+  const isControlledStep =
+    typeof onExternalStepChange === 'function' && Boolean(externalActiveStep);
+  const activeStep = isControlledStep ? externalActiveStep : internalActiveStep;
+  const setActiveStep = (nextOrUpdater) => {
+    const nextValue =
+      typeof nextOrUpdater === 'function' ? nextOrUpdater(activeStep) : nextOrUpdater;
+    if (isControlledStep) {
+      onExternalStepChange(nextValue);
+    } else {
+      setInternalActiveStep(nextValue);
+    }
+  };
 
   // Estado global del perfil del prestador, historial documental, membresía Socio Verificado, ficha comercial y Q&A
   const [profileData, setProfileData] = useState({
@@ -656,6 +674,17 @@ export default function ProviderDashboard() {
     fetchProviderReviewContracts();
     fetchProviderContractsSummary();
   }, []);
+
+  // Recarga bajo demanda disparada desde el botón ↻ en Zona 2D global
+  useEffect(() => {
+    if (!refreshNonce) return;
+    fetchProviderProfile();
+    fetchProviderSchedule();
+    fetchIncomingVisits();
+    fetchAssignedPasses();
+    fetchProviderReviewContracts();
+    fetchProviderContractsSummary();
+  }, [refreshNonce]);
 
   /**
    * Normaliza una cadena (minúsculas sin acentos) para comparar rubros contra el catálogo oficial.
@@ -1911,6 +1940,88 @@ export default function ProviderDashboard() {
     profileData.reputation?.rating_avg ?? primaryProfile?.rating_avg ?? 0
   ).toFixed(2);
 
+  const unansweredQaCount = useMemo(
+    () =>
+      Array.isArray(profileData.public_questions)
+        ? profileData.public_questions.filter((q) => !q.answer).length
+        : 0,
+    [profileData.public_questions]
+  );
+
+  // Publica estado y contadores vivos hacia la Zona 2D global (App.jsx)
+  useEffect(() => {
+    if (typeof onHeaderMetaChange !== 'function') return;
+    onHeaderMetaChange({
+      trustLevel: directoryReadiness.trustLevel,
+      trustLabel: directoryReadiness.resolvedTrustBadge?.label || 'Portal Prestador',
+      scoring: headerScoring,
+      fleetCount: profileData.vehicles.length + profileData.employees.length,
+      scheduleCount: scheduleBlocks.length,
+      pendingVisitsCount,
+      totalVisitsCount: incomingVisits.length,
+      activePassesCount,
+      totalPassesCount: assignedPasses.length,
+      reviewsCount: reviewContracts.length,
+      unansweredQaCount,
+      refreshing: loading,
+    });
+  }, [
+    onHeaderMetaChange,
+    directoryReadiness.trustLevel,
+    directoryReadiness.resolvedTrustBadge?.label,
+    headerScoring,
+    profileData.vehicles.length,
+    profileData.employees.length,
+    scheduleBlocks.length,
+    pendingVisitsCount,
+    incomingVisits.length,
+    activePassesCount,
+    assignedPasses.length,
+    reviewContracts.length,
+    unansweredQaCount,
+    loading,
+  ]);
+
+  // Tira contextual "Acciones pendientes" (solo visible si hay actividad operativa real)
+  const providerQuickActions = useMemo(() => {
+    const items = [];
+    if (pendingVisitsCount > 0) {
+      items.push({
+        id: 'pending-visits',
+        eyebrow: 'Requiere tu respuesta',
+        title: `${pendingVisitsCount} solicitud(es) de visita pendiente(s)`,
+        cta: 'Responder visitas',
+        tone: 'amber',
+        onClick: () => setActiveStep('visits'),
+      });
+    }
+    if (unansweredQaCount > 0) {
+      items.push({
+        id: 'unanswered-qa',
+        eyebrow: 'Consultas de vecinos',
+        title: `${unansweredQaCount} pregunta(s) sin responder en tu ficha`,
+        cta: 'Responder preguntas',
+        tone: 'sky',
+        onClick: () => {
+          setActiveStep('credentials');
+          setShowQaPanel(true);
+        },
+      });
+    }
+    if (activePassesCount > 0) {
+      items.push({
+        id: 'active-passes',
+        eyebrow: 'Ingresos habilitados',
+        title: `${activePassesCount} Pase(s) QR vigente(s) para garita`,
+        cta: 'Ver Pases QR',
+        tone: 'emerald',
+        onClick: () => setActiveStep('passes'),
+      });
+    }
+    return items.slice(0, 3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingVisitsCount, unansweredQaCount, activePassesCount]);
+
   // Clases utilitarias compartidas para encabezados de listas, contadores y botones de fila
   const listHeaderTitleClass =
     'text-[11px] font-bold uppercase tracking-wider opacity-85 flex items-center gap-1.5';
@@ -1931,7 +2042,7 @@ export default function ProviderDashboard() {
     {
       id: 'vehicles',
       stepNumber: 2,
-      label: 'Flota y Cuadrilla',
+      label: 'Flota y Equipo',
       count: profileData.vehicles.length + profileData.employees.length,
       icon: Car,
     },
@@ -1965,114 +2076,174 @@ export default function ProviderDashboard() {
     },
   ];
 
+  const canShowMembershipCard =
+    Number(profileData.trust_level ?? (directoryReadiness.canIssuePass ? 4 : 0)) >= 4 ||
+    Boolean(profileData.membership?.is_verified_member);
+
   return (
     <div className={PAGE_SHELL_CLASS}>
-      {/* Cabecera principal alineada estéticamente con Portal Residente */}
-      <div
-        className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
-        style={cardStyle}
-      >
-        <div className="space-y-1 min-w-0">
-          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
-            <ShieldCheck size={14} />
-            <span>Portal Prestador</span>
+      {/* Cabecera local + selector de 6 pestañas (se omiten cuando la Zona 2D global asume la navegación) */}
+      {!useGlobalHeader && (
+        <>
+          <div
+            className="rounded-2xl p-5 sm:p-6 border border-white/10 shadow-md flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+            style={cardStyle}
+          >
+            <div className="space-y-1 min-w-0">
+              <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                <ShieldCheck size={14} />
+                <span>Portal Prestador</span>
+              </div>
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+                Credenciales, agenda, visitas y pases QR
+              </h1>
+              <p className="text-xs sm:text-sm opacity-80">
+                Gestioná tu documentación verificada, flota, disponibilidad online, visitas y reputación.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap shrink-0 self-start lg:self-auto">
+              <ProviderTrustBadge
+                trust={directoryReadiness.resolvedTrustBadge}
+                showLevel
+                size="md"
+              />
+              <span
+                className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
+                  directoryReadiness.visibilityTone === 'gold'
+                    ? 'bg-amber-950/60 text-amber-200 border-amber-500/60'
+                    : directoryReadiness.visibilityTone === 'success'
+                      ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
+                      : directoryReadiness.visibilityTone === 'danger'
+                        ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
+                        : directoryReadiness.visibilityTone === 'info'
+                          ? 'bg-sky-950/70 text-sky-200 border-sky-500/55'
+                          : 'bg-amber-950/70 text-amber-200 border-amber-500/55'
+                }`}
+                title={directoryReadiness.summaryHint}
+              >
+                {directoryReadiness.visibilityTone === 'danger' ? (
+                  <AlertCircle size={13} className="shrink-0" />
+                ) : directoryReadiness.isVisibleInDirectory ? (
+                  <Eye size={13} className="shrink-0" />
+                ) : (
+                  <EyeOff size={13} className="shrink-0" />
+                )}
+                <span>{directoryReadiness.visibilityLabel}</span>
+              </span>
+              <span
+                className="text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
+                style={innerStyle}
+              >
+                <Star size={13} className="text-amber-400 fill-amber-400 shrink-0" />
+                <span>Scoring: {headerScoring}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchProviderProfile();
+                  fetchProviderSchedule();
+                  fetchIncomingVisits();
+                  fetchAssignedPasses();
+                  fetchProviderReviewContracts();
+                }}
+                className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer shrink-0"
+                style={innerStyle}
+                title="Actualizar información del prestador"
+              >
+                <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+              </button>
+            </div>
           </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
-            Credenciales, agenda, visitas y pases QR
-          </h1>
-          <p className="text-xs sm:text-sm opacity-80">
-            Gestioná tu documentación verificada, flota, disponibilidad online, visitas y reputación.
-          </p>
-        </div>
 
-        {/* Insignia de Confianza Progresiva (Nivel 0..5), visibilidad real en directorio, scoring y recarga */}
-        <div className="flex items-center gap-2 flex-wrap lg:flex-nowrap shrink-0 self-start lg:self-auto">
-          <ProviderTrustBadge
-            trust={directoryReadiness.resolvedTrustBadge}
-            showLevel
-            size="md"
-          />
-          <span
-            className={`text-xs font-bold px-2.5 py-1.5 rounded-xl border inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 ${
-              directoryReadiness.visibilityTone === 'gold'
-                ? 'bg-amber-950/60 text-amber-200 border-amber-500/60'
-                : directoryReadiness.visibilityTone === 'success'
-                  ? 'bg-emerald-950/70 text-emerald-300 border-emerald-700/60'
-                  : directoryReadiness.visibilityTone === 'danger'
-                    ? 'bg-rose-950/70 text-rose-300 border-rose-700/60'
-                    : directoryReadiness.visibilityTone === 'info'
-                      ? 'bg-sky-950/70 text-sky-200 border-sky-500/55'
-                      : 'bg-amber-950/70 text-amber-200 border-amber-500/55'
-            }`}
-            title={directoryReadiness.summaryHint}
+          <div
+            className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2"
+            style={cardStyle}
           >
-            {directoryReadiness.visibilityTone === 'danger' ? (
-              <AlertCircle size={13} className="shrink-0" />
-            ) : directoryReadiness.isVisibleInDirectory ? (
-              <Eye size={13} className="shrink-0" />
-            ) : (
-              <EyeOff size={13} className="shrink-0" />
-            )}
-            <span>{directoryReadiness.visibilityLabel}</span>
-          </span>
-          <span
-            className="text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-700/80 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
-            style={innerStyle}
-          >
-            <Star size={13} className="text-amber-400 fill-amber-400 shrink-0" />
-            <span>Scoring: {headerScoring}</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => {
-              fetchProviderProfile();
-              fetchProviderSchedule();
-              fetchIncomingVisits();
-              fetchAssignedPasses();
-              fetchProviderReviewContracts();
-            }}
-            className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer shrink-0"
-            style={innerStyle}
-            title="Actualizar información del prestador"
-          >
-            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-          </button>
-        </div>
-      </div>
+            {steps.map((step) => {
+              const IconComponent = step.icon;
+              const isSelected = activeStep === step.id;
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  onClick={() => setActiveStep(step.id)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                    isSelected
+                      ? 'text-white border-transparent shadow-sm'
+                      : 'border-slate-800/70 opacity-85 hover:opacity-100'
+                  }`}
+                  style={isSelected ? { backgroundColor: primaryColor } : innerStyle}
+                >
+                  <span className="flex items-center gap-1.5 truncate">
+                    <IconComponent size={14} className="shrink-0" />
+                    <span className="truncate">
+                      {step.stepNumber}. {step.label}
+                    </span>
+                  </span>
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
+                    {step.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
-      {/* Selector de pasos en grilla unificada */}
-      <div
-        className="rounded-2xl p-2 border border-slate-800/80 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2"
-        style={cardStyle}
-      >
-        {steps.map((step) => {
-          const IconComponent = step.icon;
-          const isSelected = activeStep === step.id;
-          return (
-            <button
-              key={step.id}
-              type="button"
-              onClick={() => setActiveStep(step.id)}
-              className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
-                isSelected
-                  ? 'text-white border-transparent shadow-sm'
-                  : 'border-slate-800/70 opacity-85 hover:opacity-100'
-              }`}
-              style={isSelected ? { backgroundColor: primaryColor } : innerStyle}
-            >
-              <span className="flex items-center gap-1.5 truncate">
-                <IconComponent size={14} className="shrink-0" />
-                <span className="truncate">
-                  {step.stepNumber}. {step.label}
-                </span>
-              </span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-black/25 shrink-0">
-                {step.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {/* Tira contextual "Acciones pendientes" (solo visible si hay visitas, preguntas o pases activos) */}
+      {!loading && providerQuickActions.length > 0 && (
+        <div
+          className={`grid grid-cols-1 gap-2.5 ${
+            providerQuickActions.length === 2
+              ? 'md:grid-cols-2'
+              : providerQuickActions.length >= 3
+                ? 'md:grid-cols-3'
+                : ''
+          }`}
+        >
+          {providerQuickActions.map((item) => {
+            const toneBorder =
+              item.tone === 'emerald'
+                ? 'border-emerald-500/35'
+                : item.tone === 'sky'
+                  ? 'border-sky-400/40'
+                  : 'border-amber-400/40';
+            const toneText =
+              item.tone === 'emerald'
+                ? 'text-emerald-300'
+                : item.tone === 'sky'
+                  ? 'text-sky-300'
+                  : 'text-amber-300';
+            return (
+              <div
+                key={item.id}
+                className={`rounded-xl px-4 py-2.5 border ${toneBorder} flex items-center justify-between gap-3`}
+                style={cardStyle}
+              >
+                <div className="min-w-0 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                  <span className={`text-[10px] font-bold uppercase tracking-wider ${toneText}`}>
+                    {item.eyebrow}
+                  </span>
+                  <span className="text-xs font-extrabold truncate">{item.title}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={item.onClick}
+                  className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0 whitespace-nowrap"
+                  style={
+                    item.tone === 'amber'
+                      ? { backgroundColor: primaryColor, color: '#ffffff', borderColor: 'transparent' }
+                      : innerStyle
+                  }
+                >
+                  {item.cta}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Alertas globales de feedback (errores y confirmaciones de operación) */}
       {errorMsg && (
@@ -2215,7 +2386,7 @@ export default function ProviderDashboard() {
                   ? 'bg-sky-400/90'
                   : 'bg-amber-400/90';
 
-          const showFullLadder = !isVerifiedOrHigher || showTrustRoadmapExpanded;
+          const showFullLadder = showTrustRoadmapExpanded;
           const docsLoadedCount =
             (directoryReadiness.criminalOk ? 1 : 0) + (directoryReadiness.artOk ? 1 : 0);
 
@@ -2224,6 +2395,38 @@ export default function ProviderDashboard() {
             setDocType(targetDocType);
             setShowDocForm(true);
           };
+
+          // Único CTA prioritario según el siguiente paso real del prestador (evita botones repetidos)
+          const nextPriorityAction = !directoryReadiness.identityVerified && !directoryReadiness.hasDniDoc
+            ? {
+                label: 'Cargar DNI',
+                onClick: () => openDocModal('Documento de Identidad (DNI)'),
+              }
+            : !directoryReadiness.hasVisibleSpecialty
+              ? {
+                  label: directoryReadiness.hasSpecialty ? 'Activar rubro' : 'Agregar rubro',
+                  onClick: () => {
+                    if (!directoryReadiness.hasSpecialty) setShowSpecialtyForm(true);
+                  },
+                }
+              : !directoryReadiness.artOk
+                ? {
+                    label: directoryReadiness.artExpired ? 'Renovar Póliza ART' : 'Cargar Póliza ART',
+                    onClick: () => openDocModal('Póliza ART / Seguro'),
+                  }
+                : !directoryReadiness.criminalOk
+                  ? {
+                      label: directoryReadiness.criminalExpired
+                        ? 'Renovar Antecedentes'
+                        : 'Cargar Antecedentes',
+                      onClick: () => openDocModal('Antecedentes Penales'),
+                    }
+                  : isVerifiedOrHigher && level < 5
+                    ? {
+                        label: 'Ver planes Nivel 5',
+                        onClick: () => setShowMembershipPlans(true),
+                      }
+                    : null;
 
           const levelSteps = [
             {
@@ -2419,19 +2622,19 @@ export default function ProviderDashboard() {
           ];
 
           return (
-            <section className={`rounded-2xl p-4 border space-y-3 text-xs ${calloutBoxClass}`}>
-              {/* Cabecera: estadio real de visibilidad + vista previa exacta de cómo te ven los residentes */}
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                <div className="space-y-1 min-w-0">
+            <section className={`rounded-2xl px-4 py-3.5 border space-y-2.5 text-xs ${calloutBoxClass}`}>
+              {/* Franja compacta de 1 línea: estado + 1 único CTA prioritario + desplegable N1–N5 */}
+              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+                <div className="space-y-0.5 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap font-bold">
                     {isVerifiedOrHigher ? (
                       <CheckCircle2
-                        size={16}
+                        size={15}
                         className={level >= 5 ? 'text-amber-300 shrink-0' : 'text-emerald-400 shrink-0'}
                       />
                     ) : (
                       <AlertCircle
-                        size={16}
+                        size={15}
                         className={
                           isDanger
                             ? 'text-rose-400 shrink-0'
@@ -2441,54 +2644,35 @@ export default function ProviderDashboard() {
                         }
                       />
                     )}
-                    <span className="text-sm">{directoryReadiness.visibilityHeadline}</span>
-                    <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-full border border-white/15 bg-black/25">
-                      Nivel {level} / 5
+                    <span className="text-xs sm:text-sm font-extrabold">
+                      Nivel {level} / 5 · {directoryReadiness.resolvedTrustBadge?.label}
+                    </span>
+                    <span className="text-[11px] font-semibold opacity-80">
+                      — {directoryReadiness.visibilityLabel}
                     </span>
                   </div>
-                  <p className="text-[11px] opacity-90">{directoryReadiness.summaryHint}</p>
+                  <p className="text-[11px] opacity-85">{directoryReadiness.summaryHint}</p>
                 </div>
 
-                {/* Vista previa real: cómo te ven hoy los residentes */}
-                <div className="rounded-xl px-3 py-2 border border-white/15 bg-black/25 space-y-1.5 shrink-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-75">
-                      Así te ven los residentes hoy
-                    </span>
-                    {isVerifiedOrHigher && (
-                      <button
-                        type="button"
-                        onClick={() => setShowTrustRoadmapExpanded((prev) => !prev)}
-                        className="inline-flex items-center gap-1 text-[10px] font-bold underline underline-offset-2 opacity-85 hover:opacity-100 cursor-pointer"
-                      >
-                        <span>{showFullLadder ? 'Ocultar camino' : 'Ver camino N1–N5'}</span>
-                        {showFullLadder ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                      </button>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {directoryReadiness.isVisibleInDirectory ? (
-                      <>
-                        <ProviderTrustBadge
-                          trust={directoryReadiness.resolvedTrustBadge}
-                          size="md"
-                          showScale
-                        />
-                        <TrustChecksStrip
-                          trust={directoryReadiness.resolvedTrustBadge}
-                          hasExpiredDocs={
-                            directoryReadiness.criminalExpired || directoryReadiness.artExpired
-                          }
-                          compact
-                        />
-                      </>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold opacity-85">
-                        <EyeOff size={12} className="text-amber-300 shrink-0" />
-                        <span>Aún no aparecés en el directorio público</span>
-                      </span>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 flex-wrap shrink-0">
+                  {nextPriorityAction && (
+                    <button
+                      type="button"
+                      onClick={nextPriorityAction.onClick}
+                      className="px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-xs hover:opacity-95 cursor-pointer shrink-0"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      {nextPriorityAction.label}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowTrustRoadmapExpanded((prev) => !prev)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-[11px] font-bold border border-white/15 bg-black/25 hover:bg-black/40 cursor-pointer shrink-0"
+                  >
+                    <span>{showFullLadder ? 'Ocultar escala N1–N5' : 'Ver escala N1–N5'}</span>
+                    {showFullLadder ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  </button>
                 </div>
               </div>
 
@@ -2500,9 +2684,39 @@ export default function ProviderDashboard() {
                 />
               </div>
 
-              {/* Escalera completa de los 5 niveles de confianza */}
+              {/* Vista previa de cómo te ven los residentes + escalera de 5 niveles (desplegable a demanda) */}
               {showFullLadder && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
+                <div className="space-y-3 pt-1">
+                  <div className="rounded-xl px-3 py-2 border border-white/15 bg-black/25 flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-75">
+                      Así te ven los residentes hoy
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {directoryReadiness.isVisibleInDirectory ? (
+                        <>
+                          <ProviderTrustBadge
+                            trust={directoryReadiness.resolvedTrustBadge}
+                            size="md"
+                            showScale
+                          />
+                          <TrustChecksStrip
+                            trust={directoryReadiness.resolvedTrustBadge}
+                            hasExpiredDocs={
+                              directoryReadiness.criminalExpired || directoryReadiness.artExpired
+                            }
+                            compact
+                          />
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold opacity-85">
+                          <EyeOff size={12} className="text-amber-300 shrink-0" />
+                          <span>Aún no aparecés en el directorio público</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                   {levelSteps.map((st) => {
                     const cardToneClass =
                       st.statusTone === 'gold'
@@ -2559,6 +2773,7 @@ export default function ProviderDashboard() {
                       </div>
                     );
                   })}
+                  </div>
                 </div>
               )}
             </section>
@@ -2692,15 +2907,16 @@ export default function ProviderDashboard() {
                   DNI, póliza ART/seguro, antecedentes penales y fechas de vigencia.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowDocForm((prev) => !prev)}
-                className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shrink-0 shadow-sm"
-                style={{ backgroundColor: primaryColor }}
-              >
-                {showDocForm ? <X size={14} /> : <Plus size={14} />}
-                {showDocForm ? 'Cerrar' : 'Cargar'}
-              </button>
+              {showDocForm && (
+                <button
+                  type="button"
+                  onClick={() => setShowDocForm(false)}
+                  className={rowActionBtnClass}
+                  style={innerStyle}
+                >
+                  <X size={13} /> Cerrar
+                </button>
+              )}
             </div>
 
             {/* Formulario desplegable de carga de nuevo documento de compliance o DNI */}
@@ -2860,15 +3076,23 @@ export default function ProviderDashboard() {
                       setShowDocForm(true);
                     }}
                     className={
-                      profileData.dni_document_url
+                      profileData.dni_document_url || directoryReadiness.identityVerified
                         ? rowActionBtnClass
                         : 'text-white font-bold px-3 py-1.5 rounded-xl text-xs inline-flex items-center gap-1 cursor-pointer shrink-0'
                     }
-                    style={profileData.dni_document_url ? cardStyle : { backgroundColor: primaryColor }}
+                    style={
+                      profileData.dni_document_url || directoryReadiness.identityVerified
+                        ? cardStyle
+                        : { backgroundColor: primaryColor }
+                    }
                   >
                     {profileData.dni_document_url ? (
                       <>
                         <Edit3 size={12} /> Actualizar
+                      </>
+                    ) : directoryReadiness.identityVerified ? (
+                      <>
+                        <Plus size={12} /> Adjuntar respaldo
                       </>
                     ) : (
                       <>
@@ -3418,12 +3642,16 @@ export default function ProviderDashboard() {
           </section>
         </div>
 
-        {/* Fila secundaria de Paso 1 (debajo de Documentación y Especialidades): Ficha Comercial + Socio Verificado */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+        {/* Fila secundaria de Paso 1: Ficha Comercial (+ Socio Verificado solo desde Nivel 4 o si ya está activo) */}
+        <div
+          className={`grid grid-cols-1 gap-4 items-start ${
+            canShowMembershipCard ? 'lg:grid-cols-2' : ''
+          }`}
+        >
           {/* Tarjeta 1C: Ficha Comercial y Consultas Públicas (Q&A) */}
           <section
             className={`rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3 text-xs ${
-              showCommercialEditor || showQaPanel ? 'lg:col-span-2' : ''
+              canShowMembershipCard && (showCommercialEditor || showQaPanel) ? 'lg:col-span-2' : ''
             }`}
             style={cardStyle}
           >
@@ -3671,7 +3899,8 @@ export default function ProviderDashboard() {
             )}
           </section>
 
-          {/* Tarjeta 1D: Membresía Socio Verificado (Nivel 5) */}
+          {/* Tarjeta 1D: Membresía Socio Verificado (Nivel 5) — visible solo al alcanzar Nivel 4 o si ya está activa */}
+          {canShowMembershipCard && (
           <div
             className={`rounded-2xl p-4 sm:p-5 border space-y-3 text-xs ${
               profileData.membership?.is_verified_member
@@ -3791,6 +4020,7 @@ export default function ProviderDashboard() {
               </div>
             )}
           </div>
+          )}
         </div>
         </div>
       ) : activeStep === 'vehicles' ? (

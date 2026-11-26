@@ -31,6 +31,10 @@ import {
   Heart,
   FileText,
   RefreshCw,
+  Car,
+  Calendar,
+  MessageSquare,
+  Star,
 } from 'lucide-react';
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
@@ -244,6 +248,23 @@ function MainAppContent() {
     specialties: [],
     refreshing: false,
   });
+  // Estado compartido con la Zona 2D del Portal Prestador (6 enlaces planos sincronizados)
+  const [providerTab, setProviderTab] = useState('credentials');
+  const [providerRefreshNonce, setProviderRefreshNonce] = useState(0);
+  const [providerHeaderMeta, setProviderHeaderMeta] = useState({
+    trustLevel: 0,
+    trustLabel: 'Portal Prestador',
+    scoring: '0.00',
+    fleetCount: 0,
+    scheduleCount: 0,
+    pendingVisitsCount: 0,
+    totalVisitsCount: 0,
+    activePassesCount: 0,
+    totalPassesCount: 0,
+    reviewsCount: 0,
+    unansweredQaCount: 0,
+    refreshing: false,
+  });
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef(null);
 
@@ -400,6 +421,7 @@ function MainAppContent() {
     setResidentFavoritesOnly(false);
     setResidentSpecialty('Todos');
     setResidentTab('providers');
+    setProviderTab('credentials');
     setGlobalSearchQuery('');
     setCurrentView('landing');
   };
@@ -484,10 +506,12 @@ function MainAppContent() {
   const isDarkTheme = brand?.darkMode !== false;
   const isMasterViewActive = MASTER_VIEWS.has(currentView);
   const isResidentView = isAuthenticated && (currentView === 'resident' || currentView === 'payments');
+  const isProviderView = isAuthenticated && currentView === 'provider';
   // Superadmin y Admin Barrio mantienen su Zona 1 fija (sin buscador global) para evitar mutaciones al cambiar de portal
   const isOperatorRole = isSuperadmin || isLocalAdmin;
   const showGlobalSearch = currentView === 'landing' || (isResidentView && !isOperatorRole);
   const showResidentSubBar = isResidentView && !(isSuperadmin && masterModeOpen);
+  const showProviderSubBar = isProviderView && !(isSuperadmin && masterModeOpen);
 
   /**
    * Envía el buscador protagonista de Zona 1:
@@ -1508,6 +1532,187 @@ function MainAppContent() {
         </div>
       )}
 
+      {/* ZONA 2D: Barra contextual del Prestador (Estado + 6 enlaces planos estilo Zona 2 unificada) */}
+      {showProviderSubBar && (
+        <div
+          className={`border-b px-4 sm:px-6 ${
+            isDarkTheme ? 'border-white/10' : 'border-black/10'
+          }`}
+          style={{
+            backgroundColor: brand?.submenuBgColor || '#090D16',
+            color: brand?.submenuTextColor || '#CBD5E1',
+          }}
+        >
+          <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
+            {/* Izquierda: Ancla compacta de nivel de confianza y scoring */}
+            <div className="inline-flex items-center gap-2 py-1.5 text-[11px] sm:text-xs font-medium opacity-90 min-w-0">
+              <ShieldCheck
+                size={13}
+                className={`shrink-0 ${
+                  Number(providerHeaderMeta.trustLevel) >= 5
+                    ? 'text-amber-400'
+                    : Number(providerHeaderMeta.trustLevel) >= 4
+                      ? 'text-emerald-400'
+                      : isDarkTheme
+                        ? 'text-sky-400'
+                        : 'text-sky-600'
+                }`}
+              />
+              <span className="truncate font-semibold">
+                {providerHeaderMeta.trustLevel > 0
+                  ? `N${providerHeaderMeta.trustLevel} · ${providerHeaderMeta.trustLabel}`
+                  : providerHeaderMeta.trustLabel}
+              </span>
+              <span className="opacity-40">·</span>
+              <span className="inline-flex items-center gap-1 shrink-0 opacity-85">
+                <Star
+                  size={11}
+                  className={
+                    Number(providerHeaderMeta.scoring) > 0
+                      ? 'text-amber-400 fill-amber-400'
+                      : 'opacity-60'
+                  }
+                />
+                <span>
+                  {Number(providerHeaderMeta.scoring) > 0
+                    ? Number(providerHeaderMeta.scoring).toFixed(1)
+                    : 'Nuevo'}
+                </span>
+              </span>
+            </div>
+
+            {/* Derecha: 6 enlaces planos (Opción A) sin ceros innecesarios + refresco */}
+            <nav
+              aria-label="Navegación del Portal Prestador"
+              className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
+            >
+              <button
+                type="button"
+                onClick={() => setProviderTab('credentials')}
+                className={subBarLinkClass(providerTab === 'credentials')}
+              >
+                <ShieldCheck size={13} className="shrink-0 opacity-85" />
+                <span>Credenciales</span>
+                {providerHeaderMeta.unansweredQaCount > 0 && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {providerHeaderMeta.unansweredQaCount}
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('vehicles')}
+                className={subBarLinkClass(providerTab === 'vehicles')}
+              >
+                <Car size={13} className="shrink-0 opacity-85" />
+                <span>Flota y Equipo</span>
+                {providerHeaderMeta.fleetCount > 0 && (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({providerHeaderMeta.fleetCount})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('schedule')}
+                className={subBarLinkClass(providerTab === 'schedule')}
+              >
+                <Calendar size={13} className="shrink-0 opacity-85" />
+                <span>Agenda</span>
+                {providerHeaderMeta.scheduleCount > 0 && (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({providerHeaderMeta.scheduleCount})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('visits')}
+                className={subBarLinkClass(providerTab === 'visits')}
+              >
+                <MessageSquare size={13} className="shrink-0 opacity-85" />
+                <span>Visitas</span>
+                {providerHeaderMeta.pendingVisitsCount > 0 ? (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {providerHeaderMeta.pendingVisitsCount}
+                  </span>
+                ) : providerHeaderMeta.totalVisitsCount > 0 ? (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({providerHeaderMeta.totalVisitsCount})
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('passes')}
+                className={subBarLinkClass(providerTab === 'passes')}
+              >
+                <QrCode size={13} className="shrink-0 opacity-85" />
+                <span>Pases QR</span>
+                {providerHeaderMeta.activePassesCount > 0 ? (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-400/40'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    }`}
+                  >
+                    {providerHeaderMeta.activePassesCount}
+                  </span>
+                ) : providerHeaderMeta.totalPassesCount > 0 ? (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({providerHeaderMeta.totalPassesCount})
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('reviews')}
+                className={subBarLinkClass(providerTab === 'reviews')}
+              >
+                <Star size={13} className="shrink-0 opacity-85" />
+                <span>Reputación</span>
+                {providerHeaderMeta.reviewsCount > 0 && (
+                  <span className="text-[10px] opacity-65 font-semibold">
+                    ({providerHeaderMeta.reviewsCount})
+                  </span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderRefreshNonce((prev) => prev + 1)}
+                className="inline-flex items-center justify-center p-1.5 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0 transition-opacity"
+                title="Actualizar información del Portal Prestador"
+                aria-label="Actualizar información del Portal Prestador"
+              >
+                <RefreshCw
+                  size={13}
+                  className={providerHeaderMeta.refreshing ? 'animate-spin' : ''}
+                />
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
+
       {/* ZONA 3: Contenedor Principal de Vistas (carga diferida por módulo) */}
       <main className="flex-1 flex flex-col">
         <Suspense
@@ -1576,7 +1781,16 @@ function MainAppContent() {
           />
         )}
 
-        {currentView === 'provider' && <ProviderDashboard onViewChange={setCurrentView} />}
+        {currentView === 'provider' && (
+          <ProviderDashboard
+            onViewChange={setCurrentView}
+            useGlobalHeader
+            externalActiveStep={providerTab}
+            onExternalStepChange={setProviderTab}
+            onHeaderMetaChange={setProviderHeaderMeta}
+            refreshNonce={providerRefreshNonce}
+          />
+        )}
 
         {currentView === 'security' && (
           <SecurityScanner
