@@ -158,6 +158,7 @@ function MainAppContent() {
    */
   const getDefaultAuthenticatedView = (targetUser) => {
     const normalized = String(targetUser?.role || '').toLowerCase();
+    if (normalized === 'superadmin') return 'metrics';
     if (normalized === 'security') return 'security';
     if (normalized === 'admin') return 'local_admin';
 
@@ -455,7 +456,9 @@ function MainAppContent() {
   const isDarkTheme = brand?.darkMode !== false;
   const isMasterViewActive = MASTER_VIEWS.has(currentView);
   const isResidentView = isAuthenticated && (currentView === 'resident' || currentView === 'payments');
-  const showGlobalSearch = currentView === 'landing' || isResidentView;
+  // Superadmin y Admin Barrio mantienen su Zona 1 fija (sin buscador global) para evitar mutaciones al cambiar de portal
+  const isOperatorRole = isSuperadmin || isLocalAdmin;
+  const showGlobalSearch = currentView === 'landing' || (isResidentView && !isOperatorRole);
   const showResidentSubBar = isResidentView && !(isSuperadmin && masterModeOpen);
 
   /**
@@ -696,30 +699,10 @@ function MainAppContent() {
               )
             )}
 
-            {/* Derecha: Acceso Admin rápido (solo Superadmin en vista buscador) + Menú único de Usuario o Auth */}
+            {/* Derecha: Menú único de Usuario o Auth */}
             <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
               {isAuthenticated && user ? (
                 <>
-                  {showGlobalSearch && isSuperadmin && (
-                    <button
-                      type="button"
-                      onClick={() => setMasterModeOpen((prev) => !prev)}
-                      aria-expanded={masterModeOpen}
-                      className={`hidden sm:inline-flex ${navBtnClass(
-                        isMasterViewActive,
-                        masterModeOpen && !isMasterViewActive
-                      )}`}
-                      title="Abrir submenú de Administración Global"
-                    >
-                      <Layers size={13} />
-                      <span className="hidden lg:inline">Administración</span>
-                      <ChevronDown
-                        size={12}
-                        className={`transition-transform opacity-75 ${masterModeOpen ? 'rotate-180' : ''}`}
-                      />
-                    </button>
-                  )}
-
                   {/* Menú desplegable único del usuario: reemplaza [Mi Cuenta] | [Salir] */}
                   <div className="relative" ref={userMenuRef}>
                     <button
@@ -996,10 +979,10 @@ function MainAppContent() {
         </div>
       </header>
 
-      {/* ZONA 2A: Sub-menú de Administración Global (Superadmin) */}
+      {/* ZONA 2A: Sub-menú de Administración Global (espejo exacto de Zona 2B con subrayado esmeralda) */}
       {isAuthenticated && isSuperadmin && masterModeOpen && (
         <div
-          className={`border-b px-4 sm:px-6 py-2 ${
+          className={`border-b px-4 sm:px-6 ${
             isDarkTheme ? 'border-white/10' : 'border-black/10'
           }`}
           style={{
@@ -1007,32 +990,58 @@ function MainAppContent() {
             color: brand?.submenuTextColor || '#CBD5E1',
           }}
         >
-          <nav
-            aria-label="Submenú de Administración"
-            className="max-w-6xl w-full mx-auto flex items-center gap-1 overflow-x-auto md:flex-wrap text-xs"
-          >
-            {[
-              { id: 'metrics', label: 'Métricas', Icon: BarChart3 },
-              { id: 'admin', label: 'Prestadores', Icon: UserCheck },
-              { id: 'local_admin', label: 'Comunidades', Icon: Building2 },
-              { id: 'users_master', label: 'Usuarios', Icon: Users },
-              { id: 'audit', label: 'Auditoría', Icon: ClipboardList },
-              { id: 'health', label: 'Sistema', Icon: Activity },
-            ].map(({ id, label, Icon }) => {
-              const isActive =
-                currentView === id || (id === 'health' && currentView === 'branding_master');
-              return (
+          <div className="max-w-6xl w-full mx-auto flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-4">
+            {/* Contexto izquierdo (mismo slot que el domicilio en Portal Residente) */}
+            <div className="inline-flex items-center gap-1.5 py-1.5 text-[11px] sm:text-xs font-medium opacity-85 min-w-0">
+              <Layers
+                size={13}
+                className={`shrink-0 ${isDarkTheme ? 'text-emerald-400' : 'text-emerald-600'}`}
+              />
+              <span className="truncate">Administración Global</span>
+            </div>
+
+            {/* Enlaces planos con subrayado esmeralda uniforme */}
+            <nav
+              aria-label="Submenú de Administración"
+              className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
+            >
+              {[
+                { id: 'metrics', label: 'Métricas', Icon: BarChart3 },
+                { id: 'admin', label: 'Prestadores', Icon: UserCheck },
+                { id: 'local_admin', label: 'Comunidades', Icon: Building2 },
+                { id: 'users_master', label: 'Usuarios', Icon: Users },
+                { id: 'audit', label: 'Auditoría', Icon: ClipboardList },
+                { id: 'health', label: 'Sistema', Icon: Activity },
+              ].map(({ id, label, Icon }) => {
+                const isActive =
+                  currentView === id || (id === 'health' && currentView === 'branding_master');
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setCurrentView(id)}
+                    className={subBarLinkClass(isActive)}
+                  >
+                    <Icon size={13} className="shrink-0 opacity-85" />
+                    <span>{label}</span>
+                  </button>
+                );
+              })}
+
+              {/* Botón sutil para cerrar la vista previa de Administración si se desplegó desde otro portal */}
+              {!isMasterViewActive && (
                 <button
-                  key={id}
                   type="button"
-                  onClick={() => setCurrentView(id)}
-                  className={navBtnClass(isActive)}
+                  onClick={() => setMasterModeOpen(false)}
+                  className="inline-flex items-center justify-center p-1.5 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0 transition-opacity"
+                  title="Cerrar submenú de Administración y volver a la barra del portal actual"
+                  aria-label="Cerrar submenú de Administración"
                 >
-                  <Icon size={13} /> {label}
+                  <X size={13} />
                 </button>
-              );
-            })}
-          </nav>
+              )}
+            </nav>
+          </div>
         </div>
       )}
 
@@ -1215,6 +1224,7 @@ function MainAppContent() {
             initialStep={currentView === 'payments' ? 'payments' : residentInitialStep}
             onConsumedInitialStep={() => setResidentInitialStep(null)}
             useGlobalHeader
+            useGlobalSearch={showGlobalSearch}
             externalSearchTerm={globalSearchQuery}
             onExternalSearchChange={setGlobalSearchQuery}
             externalActiveStep={residentTab}

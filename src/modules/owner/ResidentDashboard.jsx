@@ -299,6 +299,7 @@ export default function ResidentDashboard({
   initialStep = null,
   onConsumedInitialStep,
   useGlobalHeader = false,
+  useGlobalSearch = false,
   externalSearchTerm,
   onExternalSearchChange,
   externalActiveStep,
@@ -2541,8 +2542,8 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Barra de utilidades del directorio (evita duplicar el buscador cuando está en Zona 1) */}
-          {useGlobalHeader ? (
+          {/* Barra de utilidades del directorio: oculta el input local solo cuando el buscador vive en Zona 1 */}
+          {useGlobalSearch ? (
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2 min-w-0">
                 <h2 className="text-sm sm:text-base font-extrabold tracking-tight">
