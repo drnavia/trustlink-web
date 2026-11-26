@@ -44,7 +44,18 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const accentColor = brand?.accentColor || brand?.primaryColor || '#10b981';
 
   // Estados del formulario: perfil/comunidad, datos personales, credenciales y ubicación residencial
-  const [role, setRole] = useState('owner');
+  const [role, setRole] = useState(() => {
+    try {
+      const initialRole = sessionStorage.getItem('trustlink_initial_register_role');
+      if (initialRole === 'provider' || initialRole === 'owner') {
+        sessionStorage.removeItem('trustlink_initial_register_role');
+        return initialRole;
+      }
+    } catch {
+      // Ignorar si sessionStorage no está disponible
+    }
+    return 'owner';
+  });
   const [countries, setCountries] = useState([]);
   const [countryId, setCountryId] = useState('');
   const [firstName, setFirstName] = useState('');
