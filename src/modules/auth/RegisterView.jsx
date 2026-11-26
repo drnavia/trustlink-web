@@ -238,19 +238,19 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const isOwner = role === 'owner';
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 md:py-12">
+    <div className="flex-1 flex flex-col items-center justify-start px-4 pt-10 pb-12 md:pt-14 md:pb-16">
       <div className="w-full max-w-md space-y-5">
-        {/* Encabezado limpio centrado fuera de la tarjeta (ritmo minimalista) */}
+        {/* Encabezado simétrico de altura estable (1 línea en ambos roles, sin saltos verticales) */}
         <div className="text-center space-y-1.5">
           <h1 className="text-2xl sm:text-3xl font-black tracking-tight leading-snug">
-            {isOwner ? 'Creá tu cuenta y gestioná tu hogar' : 'Creá tu cuenta de prestador'}
+            {isOwner ? 'Creá tu cuenta de residente' : 'Creá tu cuenta de prestador'}
           </h1>
-          <p className="text-xs sm:text-sm opacity-75">
+          <p className="text-xs sm:text-sm opacity-75 min-h-5">
             {isOwner
               ? step === 1
-                ? 'Empezá con tus datos básicos para acceder a prestadores verificados.'
-                : 'Último paso: indicanos tu barrio y lote para emitir Pases QR.'
-              : 'Validá tu identidad y documentación una sola vez para toda la red.'}
+                ? 'Accedé a prestadores verificados y emití Pases QR.'
+                : 'Último paso: indicanos tu barrio y lote para garita.'
+              : 'Validá tu documentación una vez para toda la red.'}
           </p>
         </div>
 
@@ -259,7 +259,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
           className={`w-full border ${cardBorder} rounded-2xl p-6 sm:p-8 shadow-sm space-y-5`}
           style={cardStyle}
         >
-          {/* Selector de perfil limpio + progreso discreto para Residente */}
+          {/* Selector de perfil limpio + barra de progreso de altura fija en ambos roles */}
           <div className="space-y-3">
             <div
               className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${cardBorder}`}
@@ -296,11 +296,13 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
               </button>
             </div>
 
-            {isOwner && (
-              <div className="flex items-center justify-between gap-2 text-[11px] opacity-75">
-                <span className="font-semibold">
-                  Paso {step} de 2 · {step === 1 ? 'Tus datos' : 'Tu barrio y lote'}
-                </span>
+            <div className="flex items-center justify-between gap-2 h-5 text-[11px] opacity-75">
+              <span className="font-semibold">
+                {isOwner
+                  ? `Paso ${step} de 2 · ${step === 1 ? 'Tus datos' : 'Tu barrio y lote'}`
+                  : 'Paso único · Tus datos'}
+              </span>
+              {isOwner ? (
                 <div className="flex items-center gap-1.5">
                   <span
                     className="h-1.5 w-7 rounded-full"
@@ -313,8 +315,13 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                     style={step === 2 ? { backgroundColor: accentColor } : undefined}
                   />
                 </div>
-              </div>
-            )}
+              ) : (
+                <span
+                  className="h-1.5 w-15 rounded-full"
+                  style={{ backgroundColor: accentColor }}
+                />
+              )}
+            </div>
           </div>
 
           {/* Mensajes de error o confirmación */}
@@ -642,34 +649,20 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
           </form>
         </div>
 
-        {/* Enlaces secundarios discretos fuera de la tarjeta (mismo patrón limpio de MeLi) */}
-        <div className="text-center space-y-2 text-xs opacity-85">
-          <div>
-            <span>{isOwner ? '¿Ofrecés servicios en barrios? ' : '¿Vivís en un barrio cerrado? '}</span>
+        {/* Enlace discreto de acceso fuera de la tarjeta */}
+        {typeof onViewChange === 'function' && (
+          <div className="text-center text-xs opacity-85">
+            <span>¿Ya tenés cuenta? </span>
             <button
               type="button"
-              onClick={() => handleRoleChange(isOwner ? 'provider' : 'owner')}
+              onClick={() => onViewChange('login')}
               className="font-bold hover:underline cursor-pointer"
               style={{ color: accentColor }}
             >
-              {isOwner ? 'Creá una cuenta de prestador' : 'Creá una cuenta de residente'}
+              Iniciar sesión
             </button>
           </div>
-
-          {typeof onViewChange === 'function' && (
-            <div>
-              <span>¿Ya tenés cuenta? </span>
-              <button
-                type="button"
-                onClick={() => onViewChange('login')}
-                className="font-bold hover:underline cursor-pointer"
-                style={{ color: accentColor }}
-              >
-                Iniciar sesión
-              </button>
-            </div>
-          )}
-        </div>
+        )}
       </div>
     </div>
   );
