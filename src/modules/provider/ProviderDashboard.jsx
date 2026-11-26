@@ -2518,17 +2518,13 @@ export default function ProviderDashboard({
               isCurrent: level === 3 && !isDanger,
               statusLabel:
                 docsLoadedCount === 2
-                  ? directoryReadiness.hasApprovedCompliance
-                    ? 'Logrado'
-                    : 'En revisión'
+                  ? 'Logrado'
                   : directoryReadiness.artExpired || directoryReadiness.criminalExpired
                     ? 'Vencido'
                     : `Falta ${2 - docsLoadedCount}`,
               statusTone:
                 docsLoadedCount === 2
-                  ? directoryReadiness.hasApprovedCompliance
-                    ? 'done'
-                    : 'info'
+                  ? 'done'
                   : directoryReadiness.artExpired || directoryReadiness.criminalExpired
                     ? 'danger'
                     : 'pending',
@@ -3021,7 +3017,9 @@ export default function ProviderDashboard({
                 <ShieldCheck size={13} className="opacity-80" /> DOCUMENTACIÓN VIGENTE
               </span>
               <span className={listCounterBadgeClass} style={innerStyle}>
-                {personalDocumentsSummary.loadedCount + (profileData.dni_document_url ? 1 : 0)}/3 cargado(s)
+                {personalDocumentsSummary.loadedCount +
+                  (directoryReadiness.identityVerified || profileData.dni_document_url ? 1 : 0)}
+                /3 completo(s)
               </span>
             </div>
 
@@ -3252,7 +3250,11 @@ export default function ProviderDashboard({
                                   : 'bg-amber-950/60 text-amber-200 border-amber-600/50'
                               }`}
                             >
-                              Validado: {auditMeta.label}
+                              {auditMeta.tone === 'success'
+                                ? 'Aprobado por TrustLink ✓'
+                                : auditMeta.tone === 'danger'
+                                  ? 'Rechazado por TrustLink'
+                                  : 'En revisión de TrustLink'}
                             </span>
                           </div>
                           {docItem.url && <p className="opacity-80 truncate">{docItem.url}</p>}
@@ -3573,22 +3575,30 @@ export default function ProviderDashboard({
                                   Personalizada
                                 </span>
                               )}
-                              <span
-                                className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                  p.status === 'approved'
-                                    ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                                    : p.status === 'rejected'
-                                    ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                                    : 'border-slate-700'
-                                }`}
-                                style={p.status === 'approved' || p.status === 'rejected' ? undefined : cardStyle}
-                              >
-                                {p.status === 'approved'
-                                  ? 'Aprobada'
-                                  : p.status === 'rejected'
-                                  ? 'Rechazada'
-                                  : 'Pendiente'}
-                              </span>
+                              {p.status === 'rejected' ? (
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-rose-950/80 text-rose-300 border-rose-700/60">
+                                  Rechazada
+                                </span>
+                              ) : p.is_custom_specialty && p.specialty_approval_status === 'pending' ? (
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-500/45 bg-amber-950/60 text-amber-200">
+                                  Rubro en revisión
+                                </span>
+                              ) : !isHidden && directoryReadiness.canIssuePass && p.status === 'approved' ? (
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-950/80 text-emerald-300 border-emerald-700/60">
+                                  Pase QR activo
+                                </span>
+                              ) : !isHidden && directoryReadiness.isVisibleInDirectory ? (
+                                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-sky-950/70 text-sky-200 border-sky-600/55">
+                                  Solo consultas
+                                </span>
+                              ) : !isHidden ? (
+                                <span
+                                  className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
+                                  style={cardStyle}
+                                >
+                                  Pendiente de validación
+                                </span>
+                              ) : null}
                               <span
                                 className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-slate-700"
                                 style={cardStyle}

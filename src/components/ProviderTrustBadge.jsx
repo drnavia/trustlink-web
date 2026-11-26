@@ -18,6 +18,7 @@ import {
   AlertCircle,
   CheckCircle2,
   Circle,
+  Clock,
   X,
 } from 'lucide-react';
 
@@ -173,6 +174,8 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
     checks.pass_qr_ok !== undefined
       ? Boolean(checks.pass_qr_ok)
       : Boolean(trust.can_issue_pass) && !expired;
+  const complianceOk =
+    checks.compliance_ok !== undefined ? Boolean(checks.compliance_ok) : level >= 4 && !expired;
 
   const items = [
     {
@@ -183,22 +186,27 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
     },
     {
       key: 'art',
-      label: 'ART',
-      state: artExpired ? 'expired' : artOk ? 'ok' : 'pending',
+      label: artOk && !artExpired && !complianceOk ? 'ART (en rev.)' : 'ART',
+      state: artExpired ? 'expired' : artOk ? (complianceOk ? 'ok' : 'review') : 'pending',
       title: artExpired
         ? 'Póliza ART / Seguro vencida'
         : artOk
-          ? 'Póliza ART / Seguro vigente'
+          ? complianceOk
+            ? 'Póliza ART / Seguro aprobada y vigente'
+            : 'Póliza ART / Seguro cargada — en revisión de TrustLink'
           : 'Póliza ART / Seguro aún no cargada',
     },
     {
       key: 'criminal',
-      label: 'Antecedentes',
-      state: criminalExpired ? 'expired' : criminalOk ? 'ok' : 'pending',
+      label:
+        criminalOk && !criminalExpired && !complianceOk ? 'Antecedentes (en rev.)' : 'Antecedentes',
+      state: criminalExpired ? 'expired' : criminalOk ? (complianceOk ? 'ok' : 'review') : 'pending',
       title: criminalExpired
         ? 'Antecedentes Penales vencidos'
         : criminalOk
-          ? 'Antecedentes Penales vigentes'
+          ? complianceOk
+            ? 'Antecedentes Penales aprobados y vigentes'
+            : 'Antecedentes Penales cargados — en revisión de TrustLink'
           : 'Antecedentes Penales aún no cargados',
     },
     {
@@ -219,9 +227,11 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
         const cls =
           item.state === 'ok'
             ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-200'
-            : item.state === 'expired'
-              ? 'border-rose-500/45 bg-rose-500/15 text-rose-200'
-              : 'border-white/10 bg-black/20 opacity-60';
+            : item.state === 'review'
+              ? 'border-amber-500/40 bg-amber-500/12 text-amber-200'
+              : item.state === 'expired'
+                ? 'border-rose-500/45 bg-rose-500/15 text-rose-200'
+                : 'border-white/10 bg-black/20 opacity-60';
         return (
           <span
             key={item.key}
@@ -232,6 +242,8 @@ export function TrustChecksStrip({ trust, hasExpiredDocs = false, compact = fals
           >
             {item.state === 'ok' ? (
               <CheckCircle2 size={10} className="text-emerald-400 shrink-0" />
+            ) : item.state === 'review' ? (
+              <Clock size={10} className="text-amber-400 shrink-0" />
             ) : item.state === 'expired' ? (
               <AlertCircle size={10} className="text-rose-400 shrink-0" />
             ) : (
