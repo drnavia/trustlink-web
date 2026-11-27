@@ -36,6 +36,7 @@ import {
   MessageSquare,
   Star,
   LayoutGrid,
+  ArrowRight,
 } from 'lucide-react';
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
@@ -227,6 +228,7 @@ function MainAppContent() {
     return '';
   });
   const [landingSearchSubmitNonce, setLandingSearchSubmitNonce] = useState(0);
+  const [landingSection, setLandingSection] = useState('vidriera-publica');
   const [landingSpecialty, setLandingSpecialty] = useState('Todos');
   const [landingSpecialties, setLandingSpecialties] = useState([]);
   const [landingRubrosOpen, setLandingRubrosOpen] = useState(false);
@@ -374,6 +376,27 @@ function MainAppContent() {
       setMasterModeOpen(MASTER_VIEWS.has(currentView));
     }
   }, [isAuthenticated, isSuperadmin, currentView]);
+
+  // Sincroniza la sección activa de la portada pública al hacer scroll
+  useEffect(() => {
+    if (isAuthenticated || currentView !== 'landing' || typeof window === 'undefined') {
+      return undefined;
+    }
+    const sectionIds = ['vidriera-publica', 'como-funciona', 'actores'];
+    const handleScroll = () => {
+      const offset = 180;
+      let active = 'vidriera-publica';
+      for (const id of sectionIds) {
+        const el = document.getElementById(id);
+        if (el && el.getBoundingClientRect().top <= offset) {
+          active = id;
+        }
+      }
+      setLandingSection((prev) => (prev === active ? prev : active));
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [isAuthenticated, currentView]);
 
   // Cierra el menú desplegable de usuario o rubros al hacer clic fuera o presionar Escape
   useEffect(() => {
@@ -572,7 +595,7 @@ function MainAppContent() {
         ? isDarkTheme
           ? 'border-emerald-400 text-emerald-300 opacity-100'
           : 'border-emerald-600 text-emerald-800 opacity-100'
-        : 'border-transparent opacity-75 hover:opacity-100'
+        : 'border-transparent opacity-85 hover:opacity-100'
     }`;
 
   // Clases adaptables al tema para el disparador del menú de usuario
@@ -1483,7 +1506,7 @@ function MainAppContent() {
               )}
             </div>
 
-            {/* Derecha: enlaces planos de exploración rápida */}
+            {/* Derecha: enlaces planos de exploración por sección + CTA diferenciado para prestadores */}
             <nav
               aria-label="Navegación pública"
               className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
@@ -1491,29 +1514,49 @@ function MainAppContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setLandingSpecialty('Todos');
+                  setLandingSection('vidriera-publica');
                   document
                     .getElementById('vidriera-publica')
                     ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }}
-                className={subBarLinkClass(landingSpecialty === 'Todos')}
+                className={subBarLinkClass(landingSection === 'vidriera-publica')}
               >
-                <Users size={13} className="shrink-0 opacity-85" />
+                <Users size={13} className="shrink-0 opacity-90" />
                 <span>Prestadores</span>
               </button>
 
               <button
                 type="button"
-                onClick={() =>
+                onClick={() => {
+                  setLandingSection('como-funciona');
                   document
                     .getElementById('como-funciona')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-                className={subBarLinkClass(false)}
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className={subBarLinkClass(landingSection === 'como-funciona')}
               >
-                <QrCode size={13} className="shrink-0 opacity-85" />
+                <Layers size={13} className="shrink-0 opacity-90" />
                 <span>Cómo funciona</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setLandingSection('actores');
+                  document
+                    .getElementById('actores')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }}
+                className={subBarLinkClass(landingSection === 'actores')}
+              >
+                <Building2 size={13} className="shrink-0 opacity-90" />
+                <span>Para barrios</span>
+              </button>
+
+              <span
+                className={`h-3.5 w-px shrink-0 ${isDarkTheme ? 'bg-white/15' : 'bg-black/15'}`}
+                aria-hidden="true"
+              />
 
               <button
                 type="button"
@@ -1525,23 +1568,16 @@ function MainAppContent() {
                   }
                   setCurrentView('register');
                 }}
-                className={subBarLinkClass(false)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 my-1 rounded-lg text-xs font-bold border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  isDarkTheme
+                    ? 'border-emerald-400/45 bg-emerald-500/12 text-emerald-200 hover:bg-emerald-500/22'
+                    : 'border-emerald-600/35 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                }`}
+                title="Registrate como prestador en TrustLink"
               >
-                <Wrench size={13} className="shrink-0 opacity-85" />
-                <span>Soy Prestador</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  document
-                    .getElementById('actores')
-                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }
-                className={subBarLinkClass(false)}
-              >
-                <Building2 size={13} className="shrink-0 opacity-85" />
-                <span>Para Barrios</span>
+                <Wrench size={12} className="shrink-0" />
+                <span>Soy prestador</span>
+                <ArrowRight size={12} className="shrink-0 opacity-85" />
               </button>
             </nav>
           </div>
