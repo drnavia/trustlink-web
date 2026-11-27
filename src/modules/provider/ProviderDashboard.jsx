@@ -5358,12 +5358,23 @@ export default function ProviderDashboard({
                   >
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="space-y-0.5 min-w-0">
-                          <span className="font-bold text-sm">
-                            Visita #{visit.id} · {visit.owner_name || 'Residente'}
-                          </span>
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-extrabold text-sm">
+                              {visit.service_title ||
+                                (visit.service_specialty || visit.provider_specialty
+                                  ? `Servicio de ${visit.service_specialty || visit.provider_specialty}`
+                                  : `Visita #${visit.id}`)}
+                            </span>
+                            {(visit.service_specialty || visit.provider_specialty) && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                {visit.service_specialty || visit.provider_specialty}
+                              </span>
+                            )}
+                          </div>
                           <p className="opacity-80">
-                            Domicilio: <strong>{visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}</strong>
+                            Residente: <strong>{visit.owner_name || 'Residente'}</strong> · Visita #{visit.id} ·{' '}
+                            <strong>{visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}</strong>
                           </p>
                         </div>
                         <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>

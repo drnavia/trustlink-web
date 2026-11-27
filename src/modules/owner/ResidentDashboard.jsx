@@ -669,6 +669,8 @@ export default function ResidentDashboard({
   const [visitDate, setVisitDate] = useState('');
   const [visitEndDate, setVisitEndDate] = useState('');
   const [visitDurationMin, setVisitDurationMin] = useState(60);
+  const [visitServiceTitle, setVisitServiceTitle] = useState('');
+  const [visitSpecialty, setVisitSpecialty] = useState('');
   const [visitNotes, setVisitNotes] = useState('');
   const [savingVisit, setSavingVisit] = useState(false);
   const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
@@ -687,8 +689,9 @@ export default function ResidentDashboard({
   const [loadingCounterAvail, setLoadingCounterAvail] = useState(false);
   const [selectedCounterDay, setSelectedCounterDay] = useState('');
 
-  // Emisión de pase QR vinculado a un prestador
+  // Emisión de pase QR vinculado a un prestador (y opcionalmente a una visita)
   const [qrModalProvider, setQrModalProvider] = useState(null);
+  const [qrVisitRequestId, setQrVisitRequestId] = useState(null);
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
   const [selectedVehiclePlate, setSelectedVehiclePlate] = useState('');
@@ -733,6 +736,7 @@ export default function ResidentDashboard({
   });
   const [showNewOrderForm, setShowNewOrderForm] = useState(false);
   const [orderPassId, setOrderPassId] = useState('');
+  const [orderVisitRequestId, setOrderVisitRequestId] = useState(null);
   const [orderDescription, setOrderDescription] = useState('');
   const [orderAmount, setOrderAmount] = useState('');
   const [creatingOrder, setCreatingOrder] = useState(false);
@@ -1082,8 +1086,25 @@ export default function ResidentDashboard({
   };
 
   /**
+   * Abre el modal de Nueva Orden de Pago precargando el Pase QR, la Visita vinculada
+   * y el título del servicio para mantener la trazabilidad punta a punta (Fase 2).
+   */
+  const openOrderModalForService = ({ passId = '', visitId = null, description = '' } = {}) => {
+    const resolvedPassId = passId
+      ? String(passId)
+      : eligibleOrderPasses[0]?.id
+        ? String(eligibleOrderPasses[0].id)
+        : '';
+    setOrderPassId(resolvedPassId);
+    setOrderVisitRequestId(visitId || null);
+    setOrderDescription(description || '');
+    setOrderAmount('');
+    setShowNewOrderForm(true);
+  };
+
+  /**
    * Crea una nueva orden de pago asociada a un Pase QR de visita (`POST /api/v1/contracts`)
-   * y actualiza el listado de contratos y reseñas en el Paso 4.
+   * y actualiza el expediente unificado de Mis Servicios.
    *
    * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
    * @returns {Promise<void>}
@@ -1096,10 +1117,10 @@ export default function ResidentDashboard({
       null;
     const numericAmount = Number(orderAmount);
 
-    if (!selectedPass) {
+    if (!selectedPass && !orderVisitRequestId) {
       setPaymentFeedback({
         type: 'error',
-        text: 'Emití primero un Pase QR en el Paso 3 para poder generar una orden de pago.',
+        text: 'Emití primero un Pase QR en Pases QR para poder generar una orden de pago.',
       });
       return;
     }
@@ -1111,6 +1132,8 @@ export default function ResidentDashboard({
       return;
     }
 
+    const linkedVisitId = orderVisitRequestId || selectedPass?.visit_request_id || null;
+
     setCreatingOrder(true);
     setPaymentFeedback({ type: '', text: '' });
     try {
@@ -1118,8 +1141,9 @@ export default function ResidentDashboard({
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({
-          provider_id: selectedPass.provider_id,
-          pass_id: selectedPass.id,
+          provider_id: selectedPass?.provider_id || null,
+          pass_id: selectedPass?.id || null,
+          visit_request_id: linkedVisitId,
           description: orderDescription.trim(),
           agreed_amount: numericAmount,
         }),
@@ -1134,8 +1158,9 @@ export default function ResidentDashboard({
         });
         setOrderDescription('');
         setOrderAmount('');
+        setOrderVisitRequestId(null);
         setShowNewOrderForm(false);
-        await Promise.all([fetchContractsData(), fetchReviewsData()]);
+        await Promise.all([fetchContractsData(), fetchReviewsData(), fetchMyVisits()]);
       } else {
         setPaymentFeedback({
           type: 'error',
@@ -1493,6 +1518,11 @@ export default function ResidentDashboard({
    * @param {Object} provider - Prestador destinatario de la solicitud.
    */
   const openVisitModalForProvider = (provider) => {
+    const providerSpecs = getProviderSpecialties(provider);
+    const matchingFilterSpec =
+      selectedSpecialty !== 'Todos'
+        ? providerSpecs.find((s) => s.toLowerCase() === selectedSpecialty.toLowerCase())
+        : null;
     setVisitModalProvider(provider);
     setVisitFraction(user?.fraction_number || '');
     setVisitLot(user?.lot_number || '');
@@ -1500,6 +1530,8 @@ export default function ResidentDashboard({
     setVisitDurationMin(60);
     setVisitDate(toLocalDateTimeInput(defaultStart));
     setVisitEndDate(toLocalDateTimeInput(new Date(defaultStart.getTime() + 60 * 60 * 1000)));
+    setVisitServiceTitle('');
+    setVisitSpecialty(matchingFilterSpec || providerSpecs[0] || '');
     setVisitNotes('');
     setVisitFeedback({ type: '', text: '' });
   };
@@ -1532,6 +1564,14 @@ export default function ResidentDashboard({
       return;
     }
 
+    if (!visitServiceTitle.trim()) {
+      setVisitFeedback({
+        type: 'error',
+        text: 'Indicá brevemente qué trabajo o servicio necesitás (ej: Revisión de tablero eléctrico).',
+      });
+      return;
+    }
+
     setSavingVisit(true);
     setVisitFeedback({ type: '', text: '' });
     const preferredIso =
@@ -1555,7 +1595,9 @@ export default function ResidentDashboard({
           preferred_date: preferredIso,
           preferred_end_date: preferredEndIso,
           duration_minutes: Math.max(60, visitDurationMin),
-          notes: visitNotes.trim(),
+          service_title: visitServiceTitle.trim(),
+          service_specialty: visitSpecialty.trim() || null,
+          notes: visitNotes.trim() || visitServiceTitle.trim(),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -1564,7 +1606,7 @@ export default function ResidentDashboard({
           type: 'success',
           text:
             data.message ||
-            'Solicitud enviada al prestador. Podés seguir el acuerdo en el Paso 2. Visitas.',
+            'Solicitud enviada al prestador. Podés seguir el avance en Mis Servicios.',
         });
         await fetchMyVisits();
       } else {
@@ -1732,6 +1774,7 @@ export default function ResidentDashboard({
    */
   const openQrModalForProvider = (provider, prefill = {}) => {
     setQrModalProvider(provider);
+    setQrVisitRequestId(prefill.visitRequestId || null);
     setFractionNumber(user?.fraction_number ?? prefill.fraction ?? '');
     setLotNumber(user?.lot_number ?? prefill.lot ?? '');
     const providerVehicles = Array.isArray(provider?.vehicles) ? provider.vehicles : [];
@@ -1878,6 +1921,7 @@ export default function ResidentDashboard({
         headers: getAuthHeaders(),
         body: JSON.stringify({
           provider_id: providerId,
+          visit_request_id: qrVisitRequestId || null,
           fraction_number: fractionNumber.trim() || null,
           lot_number: lotNumber.trim() || null,
           vehicle_plate: selectedVehiclePlate.trim() ? selectedVehiclePlate.trim().toUpperCase() : null,
@@ -1895,7 +1939,7 @@ export default function ResidentDashboard({
           text: data.message || 'Pase QR generado correctamente.',
           qrToken: createdToken,
         });
-        await fetchMyPasses();
+        await Promise.all([fetchMyPasses(), fetchMyVisits()]);
       } else {
         setPassFeedback({
           type: 'error',
@@ -2249,20 +2293,45 @@ export default function ResidentDashboard({
     });
 
     const passById = new Map();
+    const passesByVisitId = new Map();
     myPasses.forEach((p) => {
       const pid = Number(p.id);
       if (pid) passById.set(pid, p);
+      const vid = Number(p.visit_request_id || 0);
+      if (vid) {
+        const list = passesByVisitId.get(vid) || [];
+        list.push(p);
+        passesByVisitId.set(vid, list);
+      }
+    });
+
+    const visitById = new Map();
+    myVisits.forEach((v) => {
+      const vid = Number(v.id);
+      if (vid) visitById.set(vid, v);
     });
 
     const unified = [];
     const seenContractIds = new Set();
+    const absorbedVisitIds = new Set();
 
-    // 1. Contratos / órdenes de servicio enriquecidos con reseña y pase QR vinculado
+    // 1. Expedientes con contrato / orden de pago (absorben su visita y pase QR vinculados en 1 sola fila)
     contracts.forEach((contract) => {
       const cid = Number(contract.id);
       seenContractIds.add(cid);
       const rev = reviewByContractId.get(cid) || null;
       const linkedPass = contract.pass_id ? passById.get(Number(contract.pass_id)) || null : null;
+      const resolvedVisitId =
+        Number(contract.visit_request_id || linkedPass?.visit_request_id || 0) || null;
+      const linkedVisit = resolvedVisitId ? visitById.get(resolvedVisitId) || null : null;
+      if (linkedVisit) {
+        absorbedVisitIds.add(Number(linkedVisit.id));
+      }
+      const linkedPasses = resolvedVisitId
+        ? passesByVisitId.get(resolvedVisitId) || (linkedPass ? [linkedPass] : [])
+        : linkedPass
+          ? [linkedPass]
+          : [];
       const st = String(contract.status || '').toLowerCase();
       const isCompleted = st === 'completed';
       const hasRatedProvider = Boolean(rev?.provider_review_rating);
@@ -2272,6 +2341,13 @@ export default function ResidentDashboard({
         contract.provider_name ||
         `${rev?.provider_first_name || ''} ${rev?.provider_last_name || ''}`.trim() ||
         `Prestador #${contract.provider_id}`;
+      const specialtyLabel =
+        rev?.specialty ||
+        linkedVisit?.service_specialty ||
+        linkedPass?.visit_service_specialty ||
+        linkedPass?.provider_specialty ||
+        contract.specialty ||
+        '';
       const ts = new Date(contract.completed_at || contract.created_at || 0).getTime() || 0;
 
       unified.push({
@@ -2281,9 +2357,11 @@ export default function ResidentDashboard({
         contract,
         reviewInfo: rev,
         linkedPass,
+        linkedPasses,
+        linkedVisit,
         providerDisplay,
-        specialty: rev?.specialty || linkedPass?.provider_specialty || '',
-        searchableText: `${cid} ${providerDisplay} ${contract.description || ''} ${rev?.specialty || ''}`.toLowerCase(),
+        specialty: specialtyLabel,
+        searchableText: `${cid} ${providerDisplay} ${contract.description || ''} ${linkedVisit?.service_title || ''} ${specialtyLabel}`.toLowerCase(),
         isCompleted,
         hasRatedProvider,
         hasOpenDispute,
@@ -2300,6 +2378,12 @@ export default function ResidentDashboard({
       const st = String(rc.contract_status || rc.status || 'completed').toLowerCase();
       const isCompleted = st === 'completed';
       const hasRatedProvider = Boolean(rc.provider_review_rating);
+      const linkedPass = rc.pass_id ? passById.get(Number(rc.pass_id)) || null : null;
+      const resolvedVisitId = Number(linkedPass?.visit_request_id || 0) || null;
+      const linkedVisit = resolvedVisitId ? visitById.get(resolvedVisitId) || null : null;
+      if (linkedVisit) {
+        absorbedVisitIds.add(Number(linkedVisit.id));
+      }
       const providerDisplay =
         `${rc.provider_first_name || ''} ${rc.provider_last_name || ''}`.trim() ||
         rc.provider_name ||
@@ -2315,6 +2399,7 @@ export default function ResidentDashboard({
           provider_id: rc.provider_id,
           provider_name: providerDisplay,
           pass_id: rc.pass_id,
+          visit_request_id: resolvedVisitId,
           description: rc.description,
           agreed_amount: rc.agreed_amount,
           status: st,
@@ -2322,9 +2407,11 @@ export default function ResidentDashboard({
           open_disputes_count: 0,
         },
         reviewInfo: rc,
-        linkedPass: rc.pass_id ? passById.get(Number(rc.pass_id)) || null : null,
+        linkedPass,
+        linkedPasses: linkedPass ? [linkedPass] : [],
+        linkedVisit,
         providerDisplay,
-        specialty: rc.specialty || '',
+        specialty: rc.specialty || linkedVisit?.service_specialty || '',
         searchableText: `${cid} ${providerDisplay} ${rc.description || ''} ${rc.specialty || ''}`.toLowerCase(),
         isCompleted,
         hasRatedProvider,
@@ -2335,8 +2422,9 @@ export default function ResidentDashboard({
       });
     });
 
-    // 2. Visitas coordinadas (acuerdo bilateral de horario + emisión de Pase QR)
+    // 2. Expedientes en fase de Visita / Pase QR (aún sin orden de pago vinculada)
     myVisits.forEach((visit) => {
+      if (absorbedVisitIds.has(Number(visit.id))) return;
       const meta = getVisitStatusMeta(visit);
       const matchedProvider = providers.find(
         (p) =>
@@ -2354,8 +2442,26 @@ export default function ResidentDashboard({
         matchedProvider.can_issue_pass !== false &&
         !matchedProvider.has_expired_docs &&
         Number(matchedProvider.trust_level ?? matchedProvider.trust_badge?.level ?? 3) >= 3;
-      const needsAction = meta.isPendingResident || (meta.isConfirmed && canIssueQr);
+      const linkedPasses = passesByVisitId.get(Number(visit.id)) || [];
+      const activePass =
+        linkedPasses.find((p) => ['pending', 'used'].includes(String(p.status || '').toLowerCase())) ||
+        linkedPasses[0] ||
+        null;
+      const activePassStatus = String(activePass?.status || '').toLowerCase();
+      const hasActiveOrUsedPass = activePassStatus === 'pending' || activePassStatus === 'used';
+      const passIsUsed = activePassStatus === 'used';
+
+      const needsAction =
+        meta.isPendingResident ||
+        (meta.isConfirmed && canIssueQr && !hasActiveOrUsedPass) ||
+        passIsUsed;
       const providerDisplay = visit.provider_name || `Prestador #${visit.provider_id}`;
+      const visitSpecialtyLabel = String(
+        visit.service_specialty || visit.provider_specialty || matchedProvider?.specialty || ''
+      ).trim();
+      const serviceTitle =
+        String(visit.service_title || '').trim() ||
+        (visitSpecialtyLabel ? `Servicio de ${visitSpecialtyLabel}` : `Solicitud de visita #${visit.id}`);
       const ts = new Date(visit.preferred_date || visit.created_at || 0).getTime() || 0;
 
       unified.push({
@@ -2366,12 +2472,24 @@ export default function ResidentDashboard({
         meta,
         matchedProvider,
         canIssueQr,
+        linkedPasses,
+        activePass,
+        hasActiveOrUsedPass,
+        passIsUsed,
         providerDisplay,
-        searchableText: `${visit.id} ${providerDisplay} visita ${visit.lot_number || ''}`.toLowerCase(),
+        specialty: visitSpecialtyLabel,
+        serviceTitle,
+        searchableText: `${visit.id} ${serviceTitle} ${visitSpecialtyLabel} ${providerDisplay} ${visit.notes || ''} visita ${visit.lot_number || ''}`.toLowerCase(),
         needsAction,
         hasOpenDispute: false,
         hasRatedProvider: true,
-        actionPriority: meta.isPendingResident ? 0 : meta.isConfirmed && canIssueQr ? 2 : 8,
+        actionPriority: meta.isPendingResident
+          ? 0
+          : passIsUsed
+            ? 1
+            : meta.isConfirmed && canIssueQr && !hasActiveOrUsedPass
+              ? 2
+              : 8,
         sortTs: ts,
       });
     });
@@ -2805,6 +2923,7 @@ export default function ResidentDashboard({
                     openServicesView('visits');
                   } else if (item.actionType === 'emit_qr' && item.provider) {
                     openQrModalForProvider(item.provider, {
+                      visitRequestId: item.visit?.id,
                       preferredDate: item.visit?.preferred_date,
                       preferredEndDate: item.visit?.preferred_end_date,
                     });
@@ -3506,6 +3625,7 @@ export default function ResidentDashboard({
                             type="button"
                             onClick={() =>
                               openQrModalForProvider(provider, {
+                                visitRequestId: activeVisit?.id,
                                 preferredDate: activeVisit?.preferred_date,
                                 preferredEndDate: activeVisit?.preferred_end_date,
                               })
@@ -3623,12 +3743,7 @@ export default function ResidentDashboard({
 
               <button
                 type="button"
-                onClick={() => {
-                  if (!orderPassId && eligibleOrderPasses.length > 0) {
-                    setOrderPassId(String(eligibleOrderPasses[0].id));
-                  }
-                  setShowNewOrderForm(true);
-                }}
+                onClick={() => openOrderModalForService()}
                 className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shadow-sm"
                 style={{ backgroundColor: primaryColor }}
               >
@@ -3863,6 +3978,10 @@ export default function ResidentDashboard({
                       })
                     : `Servicio #${cid}`;
 
+                  const contractTitle =
+                    String(contract.description || '').trim() ||
+                    (specialty ? `Servicio de ${specialty}` : `Servicio #${cid}`);
+
                   return (
                     <article
                       key={entry.key}
@@ -3876,7 +3995,7 @@ export default function ResidentDashboard({
                       style={innerStyle}
                     >
                       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                        {/* Izquierda clicable: Avatar + Nombre/Rubro + Estado + 1 línea resumen */}
+                        {/* Izquierda clicable centrada en el Servicio: Título del trabajo -> Rubro/Estado -> Prestador + Fecha */}
                         <button
                           type="button"
                           onClick={() => setSelectedServiceKey(entry.key)}
@@ -3885,33 +4004,31 @@ export default function ResidentDashboard({
                           <ProviderAvatar name={providerDisplay} level={3} size="md" />
                           <div className="min-w-0 flex-1 space-y-1">
                             <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-sm font-extrabold truncate group-hover:underline">
-                                {providerDisplay}
+                              <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                                {contractTitle}
                               </h3>
                               {specialty && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300">
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
                                   {specialty}
                                 </span>
                               )}
                               <span
-                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
                               >
                                 {statusMeta.label}
                               </span>
                               {hasOpenDispute && (
-                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200 shrink-0">
                                   Reclamo abierto
                                 </span>
                               )}
                             </div>
 
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
-                              {contract.description && (
-                                <>
-                                  <span className="truncate max-w-md">{contract.description}</span>
-                                  <span className="opacity-45">·</span>
-                                </>
-                              )}
+                              <span>
+                                con <strong className="font-semibold opacity-95">{providerDisplay}</strong>
+                              </span>
+                              <span className="opacity-45">·</span>
                               <span>{createdDateShort}</span>
                               {hasRatedProvider && reviewInfo?.provider_review_rating ? (
                                 <>
@@ -3995,27 +4112,47 @@ export default function ResidentDashboard({
                   );
                 }
 
-                /* ===== FILA MINIMALISTA DE VISITA (Chat, agenda viva y detalle completo en Modal) ===== */
-                const { visit, meta, matchedProvider, canIssueQr, providerDisplay } = entry;
+                /* ===== FILA MINIMALISTA DE VISITA (Centrada en el Servicio -> evoluciona con Pase QR y Pago) ===== */
+                const {
+                  visit,
+                  meta,
+                  matchedProvider,
+                  canIssueQr,
+                  activePass,
+                  hasActiveOrUsedPass,
+                  passIsUsed,
+                  providerDisplay,
+                  specialty: visitSpecialtyLabel,
+                  serviceTitle,
+                } = entry;
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
                 const visitTrustLevel = Number(
                   matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
                 );
-                const visitBadgeLabel =
-                  meta.isConfirmed && !canIssueQr ? 'Acordada · Sin Pase QR' : meta.label;
-                const visitBadgeCls =
-                  meta.isConfirmed && !canIssueQr
-                    ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
-                    : meta.badgeClass;
-                const cardBorderCls = meta.isPendingResident
-                  ? 'border-sky-400/55 ring-1 ring-sky-400/20'
-                  : meta.isConfirmed && canIssueQr
-                    ? 'border-emerald-500/45'
+                const visitBadgeLabel = passIsUsed
+                  ? 'Ingreso registrado'
+                  : hasActiveOrUsedPass
+                    ? 'Pase QR vigente'
                     : meta.isConfirmed && !canIssueQr
-                      ? 'border-amber-500/35'
-                      : meta.isPendingProvider
+                      ? 'Acordada · Sin Pase QR'
+                      : meta.label;
+                const visitBadgeCls = passIsUsed
+                  ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                  : hasActiveOrUsedPass
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                    : meta.isConfirmed && !canIssueQr
+                      ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                      : meta.badgeClass;
+                const cardBorderCls =
+                  meta.isPendingResident || passIsUsed
+                    ? 'border-sky-400/55 ring-1 ring-sky-400/20'
+                    : (meta.isConfirmed && canIssueQr) || hasActiveOrUsedPass
+                      ? 'border-emerald-500/45'
+                      : meta.isConfirmed && !canIssueQr
                         ? 'border-amber-500/35'
-                        : 'border-white/10 opacity-85 hover:opacity-100';
+                        : meta.isPendingProvider
+                          ? 'border-amber-500/35'
+                          : 'border-white/10 opacity-85 hover:opacity-100';
                 const addressLabel = formatVisitAddress(visit.fraction_number, visit.lot_number);
                 const scheduleShort = formatVisitScheduleShort(
                   visit.preferred_date,
@@ -4029,7 +4166,7 @@ export default function ResidentDashboard({
                     style={innerStyle}
                   >
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                      {/* Izquierda clicable: Avatar + Prestador + Estado + 1 línea resumen */}
+                      {/* Izquierda clicable centrada en el Servicio: Título -> Rubro/Estado -> Prestador + Domicilio */}
                       <button
                         type="button"
                         onClick={() => setSelectedServiceKey(entry.key)}
@@ -4043,19 +4180,24 @@ export default function ResidentDashboard({
                         />
                         <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-sm font-extrabold truncate group-hover:underline">
-                              {providerDisplay}
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              {serviceTitle}
                             </h3>
+                            {visitSpecialtyLabel && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {visitSpecialtyLabel}
+                              </span>
+                            )}
                             <span
-                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${visitBadgeCls}`}
                             >
                               {visitBadgeLabel}
                             </span>
                           </div>
 
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
-                            <span className="font-semibold text-sky-300/90 opacity-100">
-                              Visita #{visit.id}
+                            <span>
+                              con <strong className="font-semibold opacity-95">{providerDisplay}</strong>
                             </span>
                             <span className="opacity-45">·</span>
                             <span>{addressLabel}</span>
@@ -4096,7 +4238,23 @@ export default function ResidentDashboard({
                           )}
                         </button>
 
-                        {meta.isPendingResident ? (
+                        {hasActiveOrUsedPass ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openOrderModalForService({
+                                passId: activePass.id,
+                                visitId: visit.id,
+                                description: serviceTitle,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <CreditCard size={13} />
+                            <span>Registrar pago</span>
+                          </button>
+                        ) : meta.isPendingResident ? (
                           <button
                             type="button"
                             onClick={() => setSelectedServiceKey(entry.key)}
@@ -4111,6 +4269,7 @@ export default function ResidentDashboard({
                             type="button"
                             onClick={() =>
                               openQrModalForProvider(matchedProvider, {
+                                visitRequestId: visit.id,
                                 preferredDate: visit.preferred_date,
                                 preferredEndDate: visit.preferred_end_date,
                               })
@@ -4281,9 +4440,14 @@ export default function ResidentDashboard({
                         </span>
                       </div>
 
+                      {item.visit_service_title && (
+                        <p className="text-xs font-semibold text-emerald-300/95 truncate">
+                          Servicio: {item.visit_service_title}
+                        </p>
+                      )}
+
                       <p className="text-xs opacity-80">
-                        Destino: {item.fraction_number || 'Sin fracción'} /{' '}
-                        {item.lot_number || 'Sin lote'}
+                        Destino: {formatVisitAddress(item.fraction_number, item.lot_number)}
                       </p>
                       <p className="text-xs opacity-80 flex items-center gap-1.5">
                         <Car size={12} className="text-sky-400 shrink-0" />
@@ -4493,6 +4657,65 @@ export default function ResidentDashboard({
                   </button>
                 )}
               </div>
+
+              {/* Identidad del servicio solicitado (Fase 1: trazabilidad por trabajo) */}
+              {(() => {
+                const modalSpecs = getProviderSpecialties(visitModalProvider);
+                return (
+                  <div className="rounded-xl p-3 border border-slate-700/80 space-y-2.5" style={innerStyle}>
+                    {modalSpecs.length > 1 ? (
+                      <div className="space-y-1.5">
+                        <label className="block font-semibold opacity-90">
+                          Rubro del servicio
+                        </label>
+                        <div className="flex flex-wrap gap-1.5">
+                          {modalSpecs.map((spec) => {
+                            const active = visitSpecialty === spec;
+                            return (
+                              <button
+                                key={spec}
+                                type="button"
+                                onClick={() => setVisitSpecialty(spec)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                                  active
+                                    ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                    : 'border-white/15 opacity-80 hover:opacity-100'
+                                }`}
+                                style={active ? undefined : cardStyle}
+                              >
+                                {spec}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : modalSpecs.length === 1 ? (
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] opacity-75">Rubro seleccionado</span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                          {modalSpecs[0]}
+                        </span>
+                      </div>
+                    ) : null}
+
+                    <div>
+                      <label className="block font-semibold mb-1 opacity-90">
+                        ¿Qué servicio o trabajo necesitás? *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={120}
+                        value={visitServiceTitle}
+                        onChange={(e) => setVisitServiceTitle(e.target.value)}
+                        placeholder="Ej: Revisión de tablero eléctrico, pérdida bajo mesada..."
+                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                        style={cardStyle}
+                      />
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Calendario vivo de disponibilidad del prestador (7 días, franjas cada 30/60 min) */}
               <div className="rounded-xl p-3 border border-slate-700/80 space-y-2.5" style={innerStyle}>
@@ -4724,14 +4947,13 @@ export default function ResidentDashboard({
 
               <div>
                 <label className="block font-semibold mb-1 opacity-85">
-                  Consulta / disponibilidad a coordinar
+                  Mensaje o detalle adicional (opcional)
                 </label>
                 <textarea
-                  rows={3}
-                  required
+                  rows={2}
                   value={visitNotes}
                   onChange={(e) => setVisitNotes(e.target.value)}
-                  placeholder="Ej: ¿Tenés disponibilidad mañana por la tarde para revisar el tablero?"
+                  placeholder="Ej: Si podés avisame antes de llegar a la garita..."
                   className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
                   style={innerStyle}
                 />
@@ -4769,7 +4991,7 @@ export default function ResidentDashboard({
                     className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
                     style={{ backgroundColor: primaryColor }}
                   >
-                    Ir a 2. Mis Servicios
+                    Ir a Mis Servicios
                   </button>
                 ) : (
                   <button
@@ -5882,6 +6104,7 @@ export default function ResidentDashboard({
                     onClick={() => {
                       setProfileModalProvider(null);
                       openQrModalForProvider(provider, {
+                        visitRequestId: activeVisit?.id,
                         preferredDate: activeVisit?.preferred_date,
                         preferredEndDate: activeVisit?.preferred_end_date,
                       });
@@ -6075,18 +6298,37 @@ export default function ResidentDashboard({
         };
 
         if (selectedServiceEntry.kind === 'visit') {
-          const { visit, meta, matchedProvider, canIssueQr, providerDisplay } = selectedServiceEntry;
+          const {
+            visit,
+            meta,
+            matchedProvider,
+            canIssueQr,
+            activePass,
+            hasActiveOrUsedPass,
+            passIsUsed,
+            providerDisplay,
+            specialty: visitSpecialtyLabel,
+            serviceTitle,
+          } = selectedServiceEntry;
           const msgs = Array.isArray(visit.messages) ? visit.messages : [];
           const isCountering = counterVisitId === visit.id;
           const visitTrustLevel = Number(
             matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
           );
-          const visitBadgeLabel =
-            meta.isConfirmed && !canIssueQr ? 'Acordada · Sin Pase QR' : meta.label;
-          const visitBadgeCls =
-            meta.isConfirmed && !canIssueQr
-              ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
-              : meta.badgeClass;
+          const visitBadgeLabel = passIsUsed
+            ? 'Ingreso registrado'
+            : hasActiveOrUsedPass
+              ? 'Pase QR vigente'
+              : meta.isConfirmed && !canIssueQr
+                ? 'Acordada · Sin Pase QR'
+                : meta.label;
+          const visitBadgeCls = passIsUsed
+            ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+            : hasActiveOrUsedPass
+              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+              : meta.isConfirmed && !canIssueQr
+                ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                : meta.badgeClass;
 
           return (
             <div
@@ -6098,7 +6340,7 @@ export default function ResidentDashboard({
                 style={cardStyle}
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* Cabecera del Modal de Visita */}
+                {/* Cabecera del Modal de Visita (centrada en el servicio) */}
                 <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
                   <div className="flex items-center gap-3 min-w-0">
                     <ProviderAvatar
@@ -6109,7 +6351,12 @@ export default function ResidentDashboard({
                     />
                     <div className="min-w-0 space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-black truncate">{providerDisplay}</h3>
+                        <h3 className="text-base font-black truncate">{serviceTitle}</h3>
+                        {visitSpecialtyLabel && (
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                            {visitSpecialtyLabel}
+                          </span>
+                        )}
                         <span
                           className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
                         >
@@ -6117,7 +6364,8 @@ export default function ResidentDashboard({
                         </span>
                       </div>
                       <p className="text-[11px] opacity-75">
-                        Visita #{visit.id} · {formatVisitAddress(visit.fraction_number, visit.lot_number)}
+                        con <strong className="opacity-95">{providerDisplay}</strong> · Visita #{visit.id} ·{' '}
+                        {formatVisitAddress(visit.fraction_number, visit.lot_number)}
                       </p>
                     </div>
                   </div>
@@ -6147,16 +6395,58 @@ export default function ResidentDashboard({
                       </span>
                       <span
                         className={`px-2.5 py-1 rounded-lg border ${
-                          meta.isConfirmed && canIssueQr
-                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
-                            : 'border-white/10 opacity-55'
+                          hasActiveOrUsedPass
+                            ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                            : meta.isConfirmed && canIssueQr
+                              ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                              : 'border-white/10 opacity-55'
                         }`}
                       >
-                        {meta.isConfirmed && canIssueQr ? '● Pase QR listo' : '○ Pase QR'}
+                        {hasActiveOrUsedPass
+                          ? '✓ Pase QR'
+                          : meta.isConfirmed && canIssueQr
+                            ? '● Pase QR listo'
+                            : '○ Pase QR'}
                       </span>
-                      <span className="px-2.5 py-1 rounded-lg border border-white/10 opacity-45">
-                        ○ Conformidad
+                      <span
+                        className={`px-2.5 py-1 rounded-lg border ${
+                          passIsUsed
+                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                            : 'border-white/10 opacity-45'
+                        }`}
+                      >
+                        {passIsUsed ? '● Pago / Conf.' : '○ Pago / Conf.'}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Pase QR vinculado al expediente del servicio */}
+                  {activePass && (
+                    <div
+                      className="rounded-xl p-3.5 border border-emerald-500/30 bg-emerald-950/20 flex flex-wrap items-center justify-between gap-2.5"
+                    >
+                      <div className="space-y-0.5 min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                          Pase QR #{activePass.id} vinculado
+                        </span>
+                        <p className="text-xs opacity-90">
+                          Estado: <strong>{getUnifiedStatusMeta(activePass.status, 'pass').label}</strong>
+                          {activePass.vehicle_plate ? ` · Patente ${activePass.vehicle_plate}` : ' · Ingreso peatonal'}
+                        </p>
+                      </div>
+                      {activePass.qr_token && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeDetailModal();
+                            setViewingQrPass(activePass);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0"
+                        >
+                          <QrCode size={13} className="text-sky-300" />
+                          <span>Ver Pase QR</span>
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -6422,12 +6712,30 @@ export default function ResidentDashboard({
                     )}
                   </div>
 
-                  {meta.isConfirmed && canIssueQr ? (
+                  {hasActiveOrUsedPass ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDetailModal();
+                        openOrderModalForService({
+                          passId: activePass.id,
+                          visitId: visit.id,
+                          description: serviceTitle,
+                        });
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <CreditCard size={14} />
+                      <span>Registrar pago</span>
+                    </button>
+                  ) : meta.isConfirmed && canIssueQr ? (
                     <button
                       type="button"
                       onClick={() => {
                         closeDetailModal();
                         openQrModalForProvider(matchedProvider, {
+                          visitRequestId: visit.id,
                           preferredDate: visit.preferred_date,
                           preferredEndDate: visit.preferred_end_date,
                         });
@@ -6462,6 +6770,7 @@ export default function ResidentDashboard({
           contract,
           reviewInfo,
           linkedPass,
+          linkedVisit,
           providerDisplay,
           specialty,
           isCompleted,
@@ -6487,13 +6796,16 @@ export default function ResidentDashboard({
               style={cardStyle}
               onClick={(e) => e.stopPropagation()}
             >
-              {/* Cabecera del Modal de Servicio */}
+              {/* Cabecera del Modal de Servicio (centrada en el trabajo) */}
               <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
                 <div className="flex items-center gap-3 min-w-0">
                   <ProviderAvatar name={providerDisplay} level={3} size="md" />
                   <div className="min-w-0 space-y-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-black truncate">{providerDisplay}</h3>
+                      <h3 className="text-base font-black truncate">
+                        {String(contract.description || '').trim() ||
+                          (specialty ? `Servicio de ${specialty}` : `Servicio #${cid}`)}
+                      </h3>
                       {specialty && (
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
                           {specialty}
@@ -6506,7 +6818,7 @@ export default function ResidentDashboard({
                       </span>
                     </div>
                     <p className="text-[11px] opacity-75">
-                      Servicio #{cid}
+                      con <strong className="opacity-95">{providerDisplay}</strong> · Servicio #{cid}
                       {contract.created_at ? ` · ${formatDateTimeAR(contract.created_at)}` : ''}
                     </p>
                   </div>
@@ -6708,6 +7020,33 @@ export default function ResidentDashboard({
                       >
                         {submittingReviewId === cid ? 'Guardando...' : 'Enviar reseña'}
                       </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Historial de mensajes de la visita vinculada (expediente completo punta a punta) */}
+                {linkedVisit && Array.isArray(linkedVisit.messages) && linkedVisit.messages.length > 0 && (
+                  <div className="space-y-1.5">
+                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-70 inline-flex items-center gap-1.5">
+                      <MessageSquare size={12} />
+                      <span>Historial de coordinación · Visita #{linkedVisit.id} ({linkedVisit.messages.length})</span>
+                    </span>
+                    <div
+                      className="rounded-xl p-3 border border-white/10 space-y-1.5 max-h-36 overflow-y-auto tl-scroll"
+                      style={innerStyle}
+                    >
+                      {linkedVisit.messages.map((m, idx) => (
+                        <p key={m.id || idx} className="text-xs leading-relaxed">
+                          <strong
+                            className={`uppercase text-[10px] mr-1.5 ${
+                              m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                            }`}
+                          >
+                            {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
+                          </strong>
+                          <span>{m.text}</span>
+                        </p>
+                      ))}
                     </div>
                   </div>
                 )}
