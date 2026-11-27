@@ -1761,7 +1761,11 @@ export default function ResidentDashboard({
    * @param {{ fraction?: string, lot?: string, preferredDate?: string, preferredEndDate?: string, vehiclePlate?: string }} [prefill={}] - Datos opcionales desde una visita acordada.
    */
   const openQrModalForProvider = (provider, prefill = {}) => {
-    setQrModalProvider(provider);
+    const targetProvider =
+      prefill.providerId && provider
+        ? { ...provider, provider_id: Number(prefill.providerId) }
+        : provider;
+    setQrModalProvider(targetProvider);
     setQrVisitRequestId(prefill.visitRequestId || null);
     setFractionNumber(user?.fraction_number ?? prefill.fraction ?? '');
     setLotNumber(user?.lot_number ?? prefill.lot ?? '');
@@ -2915,6 +2919,7 @@ export default function ResidentDashboard({
                     openServicesView('visits');
                   } else if (item.actionType === 'emit_qr' && item.provider) {
                     openQrModalForProvider(item.provider, {
+                      providerId: item.visit?.provider_id,
                       visitRequestId: item.visit?.id,
                       preferredDate: item.visit?.preferred_date,
                       preferredEndDate: item.visit?.preferred_end_date,
@@ -4227,6 +4232,7 @@ export default function ResidentDashboard({
                             type="button"
                             onClick={() =>
                               openQrModalForProvider(matchedProvider, {
+                                providerId: visit.provider_id,
                                 visitRequestId: visit.id,
                                 preferredDate: visit.preferred_date,
                                 preferredEndDate: visit.preferred_end_date,
@@ -6270,6 +6276,7 @@ export default function ResidentDashboard({
             meta,
             matchedProvider,
             canIssueQr,
+            linkedPasses = [],
             activePass,
             hasActiveOrUsedPass,
             passIsUsed,
@@ -6387,33 +6394,73 @@ export default function ResidentDashboard({
                     </div>
                   )}
 
-                  {/* Pase QR vinculado al expediente del servicio */}
-                  {activePass && (
+                  {/* Pases QR vinculados al expediente del servicio (soporta múltiples jornadas/visitas) */}
+                  {linkedPasses.length > 0 && (
                     <div
-                      className="rounded-xl p-3.5 border border-emerald-500/30 bg-emerald-950/20 flex flex-wrap items-center justify-between gap-2.5"
+                      className="rounded-xl p-3.5 border border-emerald-500/30 bg-emerald-950/20 space-y-2.5"
                     >
-                      <div className="space-y-0.5 min-w-0">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
-                          Pase QR #{activePass.id} vinculado
+                          {linkedPasses.length === 1
+                            ? 'Pase QR vinculado'
+                            : `Pases QR del servicio (${linkedPasses.length})`}
                         </span>
-                        <p className="text-xs opacity-90">
-                          Estado: <strong>{getUnifiedStatusMeta(activePass.status, 'pass').label}</strong>
-                          {activePass.vehicle_plate ? ` · Patente ${activePass.vehicle_plate}` : ' · Ingreso peatonal'}
-                        </p>
+                        {canIssueQr && !meta.isClosed && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              closeDetailModal();
+                              openQrModalForProvider(matchedProvider, {
+                                providerId: visit.provider_id,
+                                visitRequestId: visit.id,
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-emerald-400/45 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                            title="Emitir un pase adicional para otra jornada o visita de ejecución del mismo servicio"
+                          >
+                            <Plus size={11} />
+                            <span>Nuevo Pase QR</span>
+                          </button>
+                        )}
                       </div>
-                      {activePass.qr_token && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            closeDetailModal();
-                            setViewingQrPass(activePass);
-                          }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0"
-                        >
-                          <QrCode size={13} className="text-sky-300" />
-                          <span>Ver Pase QR</span>
-                        </button>
-                      )}
+
+                      <div className="space-y-1.5">
+                        {linkedPasses.map((p) => {
+                          const pStatus = getUnifiedStatusMeta(p.status, 'pass');
+                          return (
+                            <div
+                              key={p.id}
+                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-white/10 bg-black/20"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <span className="font-bold">Pase #{p.id}</span>
+                                <span
+                                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${pStatus.cls}`}
+                                >
+                                  {pStatus.label}
+                                </span>
+                                <span className="text-[11px] opacity-80">
+                                  {p.vehicle_plate ? `Patente ${p.vehicle_plate}` : 'Peatonal'}
+                                  {p.start_time ? ` · ${formatDateTimeAR(p.start_time)}` : ''}
+                                </span>
+                              </div>
+                              {p.qr_token && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    closeDetailModal();
+                                    setViewingQrPass(p);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0"
+                                >
+                                  <QrCode size={12} className="text-sky-300" />
+                                  <span>Ver QR</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -6702,6 +6749,7 @@ export default function ResidentDashboard({
                       onClick={() => {
                         closeDetailModal();
                         openQrModalForProvider(matchedProvider, {
+                          providerId: visit.provider_id,
                           visitRequestId: visit.id,
                           preferredDate: visit.preferred_date,
                           preferredEndDate: visit.preferred_end_date,
@@ -6737,6 +6785,7 @@ export default function ResidentDashboard({
           contract,
           reviewInfo,
           linkedPass,
+          linkedPasses = [],
           linkedVisit,
           providerDisplay,
           specialty,
@@ -6745,6 +6794,20 @@ export default function ResidentDashboard({
           hasOpenDispute,
         } = selectedServiceEntry;
         const cid = contract.id;
+        const matchedContractProvider =
+          providers.find(
+            (p) =>
+              Number(p.provider_id || p.id) === Number(contract.provider_id) ||
+              (Array.isArray(p.provider_ids) &&
+                p.provider_ids.map(Number).includes(Number(contract.provider_id)))
+          ) || null;
+        const canIssueExtraPassForContract = Boolean(
+          !isCompleted &&
+            matchedContractProvider &&
+            matchedContractProvider.can_issue_pass !== false &&
+            !matchedContractProvider.has_expired_docs &&
+            Number(matchedContractProvider.trust_level ?? matchedContractProvider.trust_badge?.level ?? 0) >= 3
+        );
         const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
         const feePercent = Number(gatewayConfig.platform_fee_percent ?? 7);
         const feeAmount = Number(((totalAmount * feePercent) / 100).toFixed(2));
@@ -6988,6 +7051,74 @@ export default function ResidentDashboard({
                         {submittingReviewId === cid ? 'Guardando...' : 'Enviar reseña'}
                       </button>
                     </div>
+                  </div>
+                )}
+
+                {/* Pases QR del expediente del servicio (soporta múltiples jornadas) */}
+                {(linkedPasses.length > 0 || canIssueExtraPassForContract) && (
+                  <div className="rounded-xl p-3.5 border border-white/10 space-y-2" style={innerStyle}>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                        {linkedPasses.length > 1
+                          ? `Pases QR del servicio (${linkedPasses.length})`
+                          : 'Pase QR en garita'}
+                      </span>
+                      {canIssueExtraPassForContract && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            closeDetailModal();
+                            openQrModalForProvider(matchedContractProvider, {
+                              providerId: contract.provider_id,
+                              visitRequestId: linkedVisit?.id || contract.visit_request_id || null,
+                            });
+                          }}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-emerald-400/45 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                        >
+                          <Plus size={11} />
+                          <span>Nuevo Pase QR</span>
+                        </button>
+                      )}
+                    </div>
+                    {linkedPasses.length > 0 && (
+                      <div className="space-y-1.5">
+                        {linkedPasses.map((p) => {
+                          const pStatus = getUnifiedStatusMeta(p.status, 'pass');
+                          return (
+                            <div
+                              key={p.id}
+                              className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 rounded-lg border border-white/10 bg-black/20"
+                            >
+                              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                <span className="font-bold">Pase #{p.id}</span>
+                                <span
+                                  className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${pStatus.cls}`}
+                                >
+                                  {pStatus.label}
+                                </span>
+                                <span className="text-[11px] opacity-80">
+                                  {p.vehicle_plate ? `Patente ${p.vehicle_plate}` : 'Peatonal'}
+                                  {p.start_time ? ` · ${formatDateTimeAR(p.start_time)}` : ''}
+                                </span>
+                              </div>
+                              {p.qr_token && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    closeDetailModal();
+                                    setViewingQrPass(p);
+                                  }}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0"
+                                >
+                                  <QrCode size={12} className="text-sky-300" />
+                                  <span>Ver QR</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 )}
 

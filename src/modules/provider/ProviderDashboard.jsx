@@ -5374,7 +5374,14 @@ export default function ProviderDashboard({
                           </div>
                           <p className="opacity-80">
                             Residente: <strong>{visit.owner_name || 'Residente'}</strong> · Visita #{visit.id} ·{' '}
-                            <strong>{visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}</strong>
+                            <strong>
+                              {visit.fraction_number ? `${visit.fraction_number} · ` : ''}
+                              {visit.lot_number
+                                ? /^lote\b/i.test(String(visit.lot_number).trim())
+                                  ? visit.lot_number
+                                  : `Lote ${visit.lot_number}`
+                                : 'Lote —'}
+                            </strong>
                           </p>
                         </div>
                         <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>
@@ -5454,7 +5461,7 @@ export default function ProviderDashboard({
                             onClick={() => setActiveStep('schedule')}
                             className="px-2.5 py-1 rounded-lg font-bold border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-950/80 cursor-pointer shrink-0"
                           >
-                            Ver en 3. Agenda
+                            Ver en Agenda
                           </button>
                         </div>
                       ) : isClosed ? (
