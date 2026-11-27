@@ -781,9 +781,9 @@ export default function CommunitiesAdminView() {
                 <thead>
                   <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider opacity-65">
                     <th className="py-3 px-4 font-semibold">Comunidad y ubicación</th>
+                    <th className="py-3 px-3 font-semibold whitespace-nowrap">Estado</th>
                     <th className="py-3 px-3 font-semibold whitespace-nowrap">Políticas y garita</th>
                     <th className="py-3 px-3 font-semibold whitespace-nowrap">Licencia B2B y QR</th>
-                    <th className="py-3 px-3 font-semibold whitespace-nowrap">Estado</th>
                     <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Acciones</th>
                   </tr>
                 </thead>
@@ -888,7 +888,31 @@ export default function CommunitiesAdminView() {
                           )}
                         </td>
 
-                        {/* 2. Políticas (ventana Antecedentes) y Claves API de garita */}
+                        {/* 2. Estado único y nítido en 1 línea (alineado con Nivel en Prestadores) */}
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          {isPendingProposal ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/75 text-amber-200 border border-amber-500/60 whitespace-nowrap">
+                              Propuesta
+                            </span>
+                          ) : isRejectedProposal ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950/70 text-rose-200 border border-rose-700/60 whitespace-nowrap">
+                              Rechazada
+                            </span>
+                          ) : c.is_active ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 whitespace-nowrap">
+                              Activa
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-75 whitespace-nowrap"
+                              style={cardStyle}
+                            >
+                              Inactiva
+                            </span>
+                          )}
+                        </td>
+
+                        {/* 3. Políticas (ventana Antecedentes) y Claves API de garita */}
                         <td className="py-3.5 px-3 whitespace-nowrap">
                           {isEditing ? (
                             <label className="block space-y-1 text-[11px]">
@@ -937,7 +961,7 @@ export default function CommunitiesAdminView() {
                           )}
                         </td>
 
-                        {/* 3. Licencia B2B y consumo QR (sin ruido en propuestas pendientes) */}
+                        {/* 4. Licencia B2B y consumo QR (sin ruido en propuestas pendientes) */}
                         <td className="py-3.5 px-3">
                           {isPendingProposal ? (
                             <span className="text-[11px] opacity-60 italic whitespace-nowrap">
@@ -1044,30 +1068,6 @@ export default function CommunitiesAdminView() {
                           )}
                         </td>
 
-                        {/* 4. Estado único y nítido en 1 línea */}
-                        <td className="py-3.5 px-3 whitespace-nowrap">
-                          {isPendingProposal ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/75 text-amber-200 border border-amber-500/60 whitespace-nowrap">
-                              Propuesta
-                            </span>
-                          ) : isRejectedProposal ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950/70 text-rose-200 border border-rose-700/60 whitespace-nowrap">
-                              Rechazada
-                            </span>
-                          ) : c.is_active ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 whitespace-nowrap">
-                              Activa
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-75 whitespace-nowrap"
-                              style={cardStyle}
-                            >
-                              Inactiva
-                            </span>
-                          )}
-                        </td>
-
                         {/* 5. Acciones contextuales (máx. 3 controles limpios en 1 línea) */}
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           {isEditing ? (
@@ -1139,10 +1139,21 @@ export default function CommunitiesAdminView() {
                               <button
                                 type="button"
                                 onClick={() => handleToggleCountry(c)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/12 opacity-75 hover:opacity-100 cursor-pointer"
-                                style={cardStyle}
+                                className={
+                                  c.is_active
+                                    ? 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer'
+                                    : 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer'
+                                }
                               >
-                                {c.is_active ? 'Desactivar' : 'Activar'}
+                                {c.is_active ? (
+                                  <>
+                                    <X size={12} /> Desactivar
+                                  </>
+                                ) : (
+                                  <>
+                                    <Check size={12} /> Activar
+                                  </>
+                                )}
                               </button>
                             </div>
                           )}
