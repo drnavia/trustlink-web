@@ -1178,18 +1178,6 @@ export default function ResidentDashboard({
     }
   };
 
-  // Índice rápido de la solicitud de visita más reciente por `provider_id` para mostrar su estado en el directorio
-  const latestVisitByProvider = useMemo(() => {
-    const map = {};
-    myVisits.forEach((v) => {
-      const pid = Number(v.provider_id);
-      if (pid && !map[pid]) {
-        map[pid] = v;
-      }
-    });
-    return map;
-  }, [myVisits]);
-
   // Lista de especialidades activas con conteo real de prestadores (evita chips vacíos sin resultados)
   const availableSpecialtyEntries = useMemo(() => {
     const countsByKey = new Map();
@@ -2538,6 +2526,24 @@ export default function ResidentDashboard({
     [allUnifiedServices, selectedServiceKey]
   );
 
+  // Índice de servicios en curso por `provider_id` (para enlazar desde el catálogo sin secuestrar el CTA)
+  const activeServicesByProviderId = useMemo(() => {
+    const map = new Map();
+    allUnifiedServices.forEach((entry) => {
+      const isOngoing =
+        entry.kind === 'visit' ? !entry.meta?.isClosed : !entry.isCompleted;
+      if (!isOngoing) return;
+      const pid = Number(
+        entry.kind === 'visit' ? entry.visit?.provider_id : entry.contract?.provider_id
+      );
+      if (!pid) return;
+      const list = map.get(pid) || [];
+      list.push(entry);
+      map.set(pid, list);
+    });
+    return map;
+  }, [allUnifiedServices]);
+
   // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) para Mis Servicios y Directorio
   const {
     pageItems: paginatedUnifiedServices,
@@ -2573,67 +2579,53 @@ export default function ResidentDashboard({
   const quickContinueCards = useMemo(() => {
     const cards = [];
 
-    // 1. Visita por confirmar o visita acordada lista para emitir Pase QR
+    // 1. Servicio con contrapropuesta o listo para emitir Pase QR (centrado en el servicio)
     if (pendingResidentVisitsCount > 0) {
       cards.push({
         id: 'visit-confirm',
         eyebrow: 'Requiere tu confirmación',
-        title: `${pendingResidentVisitsCount} visita(s) con contrapropuesta`,
+        title: `${pendingResidentVisitsCount} ${
+          pendingResidentVisitsCount === 1
+            ? 'servicio con contrapropuesta'
+            : 'servicios con contrapropuesta'
+        }`,
         cta: 'Confirmar horario',
         tone: 'sky',
         actionType: 'go_visits_confirm',
       });
     } else {
-      const confirmedVisitReady = myVisits.find((v) => {
-        if (String(v.status || '').toLowerCase() !== 'confirmed') return false;
-        const pid = Number(v.provider_id);
-        const matched = providers.find(
-          (p) =>
-            Number(p.provider_id || p.id) === pid ||
-            (Array.isArray(p.provider_ids) && p.provider_ids.map(Number).includes(pid))
-        );
-        return Boolean(
-          matched &&
-            matched.can_issue_pass !== false &&
-            !matched.has_expired_docs &&
-            Number(matched.trust_level ?? matched.trust_badge?.level ?? 0) >= 3
-        );
-      });
-      if (confirmedVisitReady) {
-        const pid = Number(confirmedVisitReady.provider_id);
-        const matchedProvider = providers.find(
-          (p) =>
-            Number(p.provider_id || p.id) === pid ||
-            (Array.isArray(p.provider_ids) && p.provider_ids.map(Number).includes(pid))
-        );
-        const providerName =
-          confirmedVisitReady.provider_name ||
-          `${matchedProvider?.first_name || ''} ${matchedProvider?.last_name || ''}`.trim() ||
-          'Prestador verificado';
+      const readyQrService = allUnifiedServices.find(
+        (entry) =>
+          entry.kind === 'visit' &&
+          entry.meta?.isConfirmed &&
+          entry.canIssueQr &&
+          !entry.hasActiveOrUsedPass
+      );
+      if (readyQrService) {
         cards.push({
           id: 'visit-ready-qr',
-          eyebrow: 'Visita acordada · Lista para QR',
-          title: providerName,
+          eyebrow: 'Servicio acordado · Listo para Pase QR',
+          title: `${readyQrService.serviceTitle} · con ${readyQrService.providerDisplay}`,
           cta: 'Emitir Pase QR',
           tone: 'emerald',
           actionType: 'emit_qr',
-          provider: matchedProvider,
-          visit: confirmedVisitReady,
+          provider: readyQrService.matchedProvider,
+          visit: readyQrService.visit,
         });
       }
     }
 
-    // 2. Mis prestadores de confianza (favoritos) o pases QR activos
+    // 2. Mis prestadores de confianza (favoritos) o pases QR vigentes
     const favoriteCount = providers.filter((p) => Boolean(p.is_favorite)).length;
     const activePassesCount = myPasses.filter(
-      (p) => String(p.status || '').toLowerCase() === 'active'
+      (p) => String(p.status || '').toLowerCase() === 'pending'
     ).length;
 
     if (favoriteCount > 0) {
       cards.push({
         id: 'favorites-shortcut',
         eyebrow: 'Volvé a contratar',
-        title: `${favoriteCount} prestador(es) en Favoritos`,
+        title: `${favoriteCount} ${favoriteCount === 1 ? 'prestador' : 'prestadores'} en Favoritos`,
         cta: onlyFavorites ? 'Mostrando favoritos' : 'Ver favoritos',
         tone: 'rose',
         actionType: 'toggle_favorites',
@@ -2642,7 +2634,7 @@ export default function ResidentDashboard({
       cards.push({
         id: 'active-passes',
         eyebrow: 'Accesos vigentes en garita',
-        title: `${activePassesCount} Pase(s) QR activo(s)`,
+        title: `${activePassesCount} ${activePassesCount === 1 ? 'Pase QR vigente' : 'Pases QR vigentes'}`,
         cta: 'Ver Pases QR',
         tone: 'emerald',
         actionType: 'go_passes',
@@ -2654,8 +2646,8 @@ export default function ResidentDashboard({
       cards.push({
         id: 'pending-payments',
         eyebrow: 'Pagos y conformidad',
-        title: `${pendingContractsCount} orden(es) pendiente(s)`,
-        cta: 'Ir a Pagos',
+        title: `${pendingContractsCount} ${pendingContractsCount === 1 ? 'orden pendiente' : 'órdenes pendientes'}`,
+        cta: 'Ir a Mis Servicios',
         tone: 'amber',
         actionType: 'go_payments',
       });
@@ -2663,7 +2655,7 @@ export default function ResidentDashboard({
       cards.push({
         id: 'pending-reviews',
         eyebrow: 'Tu experiencia ayuda al barrio',
-        title: `${unratedServicesCount} servicio(s) sin calificar`,
+        title: `${unratedServicesCount} ${unratedServicesCount === 1 ? 'servicio sin calificar' : 'servicios sin calificar'}`,
         cta: 'Dejar reseña',
         tone: 'amber',
         actionType: 'go_reviews',
@@ -2673,7 +2665,7 @@ export default function ResidentDashboard({
     return cards.slice(0, 3);
   }, [
     pendingResidentVisitsCount,
-    myVisits,
+    allUnifiedServices,
     providers,
     myPasses,
     onlyFavorites,
@@ -3382,9 +3374,16 @@ export default function ResidentDashboard({
                   Array.isArray(provider.provider_ids) && provider.provider_ids.length > 0
                     ? provider.provider_ids.map(Number)
                     : [providerId];
-                const activeVisit =
-                  providerIdsList.map((pid) => latestVisitByProvider[pid]).find(Boolean) || null;
-                const visitMeta = getVisitStatusMeta(activeVisit);
+                const seenOngoingKeys = new Set();
+                const activeProviderServices = [];
+                providerIdsList.forEach((pid) => {
+                  (activeServicesByProviderId.get(pid) || []).forEach((srv) => {
+                    if (!seenOngoingKeys.has(srv.key)) {
+                      seenOngoingKeys.add(srv.key);
+                      activeProviderServices.push(srv);
+                    }
+                  });
+                });
                 const isVerifiedMember = Boolean(provider.is_verified_member);
                 const membershipBadgeLabel =
                   provider.membership_tier === 'verified_pro' ? 'Destacado Pro' : 'Destacado';
@@ -3588,28 +3587,32 @@ export default function ResidentDashboard({
                         )}
                       </div>
 
-                      {/* 5. Estado compacto solo si ya existe una visita en curso */}
-                      {activeVisit && (
+                      {/* 5. Señal discreta si ya tenés servicios en curso con este prestador (sin secuestrar el CTA) */}
+                      {activeProviderServices.length > 0 && (
                         <div className="pt-0.5">
-                          <span
-                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                              visitMeta.isConfirmed && !canIssueQrForCard
-                                ? 'border-amber-500/45 bg-amber-950/45 text-amber-200'
-                                : visitMeta.badgeClass
-                            }`}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              openServicesView('all');
+                              if (activeProviderServices.length === 1) {
+                                setSelectedServiceKey(activeProviderServices[0].key);
+                              }
+                            }}
+                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-300 hover:text-sky-200 hover:underline cursor-pointer"
+                            title="Ver el seguimiento en Mis Servicios"
                           >
-                            <Calendar size={10} />
+                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
                             <span>
-                              {visitMeta.isConfirmed && !canIssueQrForCard
-                                ? 'Visita acordada · Pendiente de Pase QR'
-                                : visitMeta.label}
+                              {activeProviderServices.length === 1
+                                ? '1 servicio en curso →'
+                                : `${activeProviderServices.length} servicios en curso →`}
                             </span>
-                          </span>
+                          </button>
                         </div>
                       )}
                     </div>
 
-                    {/* 6. Pie liviano e integrado: Ver ficha + CTA principal con ícono semántico */}
+                    {/* 6. Pie liviano e integrado: Ver ficha + CTA siempre libre para contratar un nuevo servicio */}
                     <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
                       <button
                         type="button"
@@ -3619,52 +3622,7 @@ export default function ResidentDashboard({
                         Ver ficha
                       </button>
 
-                      {visitMeta.isConfirmed ? (
-                        canIssueQrForCard ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              openQrModalForProvider(provider, {
-                                visitRequestId: activeVisit?.id,
-                                preferredDate: activeVisit?.preferred_date,
-                                preferredEndDate: activeVisit?.preferred_end_date,
-                              })
-                            }
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-95 cursor-pointer"
-                            style={{ backgroundColor: primaryColor }}
-                          >
-                            <QrCode size={13} />
-                            <span>Emitir Pase QR</span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => openServicesView('visits')}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
-                          >
-                            <Calendar size={13} />
-                            <span>Ver acuerdo</span>
-                          </button>
-                        )
-                      ) : visitMeta.isPendingResident ? (
-                        <button
-                          type="button"
-                          onClick={() => openServicesView('visits')}
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30 cursor-pointer"
-                        >
-                          <Calendar size={13} />
-                          <span>Confirmar horario</span>
-                        </button>
-                      ) : visitMeta.isPendingProvider ? (
-                        <button
-                          type="button"
-                          onClick={() => openServicesView('visits')}
-                          className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-amber-500/40 bg-amber-950/35 text-amber-200 hover:bg-amber-950/60 cursor-pointer"
-                        >
-                          <Clock size={13} />
-                          <span>Seguimiento</span>
-                        </button>
-                      ) : canIssueQrForCard ? (
+                      {canIssueQrForCard ? (
                         <button
                           type="button"
                           onClick={() => openVisitModalForProvider(provider)}
@@ -5584,9 +5542,16 @@ export default function ResidentDashboard({
           Array.isArray(provider.provider_ids) && provider.provider_ids.length > 0
             ? provider.provider_ids.map(Number)
             : [pid];
-        const activeVisit =
-          providerIdsList.map((id) => latestVisitByProvider[id]).find(Boolean) || null;
-        const visitMeta = getVisitStatusMeta(activeVisit);
+        const modalSeenKeys = new Set();
+        const activeProviderServices = [];
+        providerIdsList.forEach((id) => {
+          (activeServicesByProviderId.get(id) || []).forEach((srv) => {
+            if (!modalSeenKeys.has(srv.key)) {
+              modalSeenKeys.add(srv.key);
+              activeProviderServices.push(srv);
+            }
+          });
+        });
         const fullName =
           `${provider.first_name || ''} ${provider.last_name || ''}`.trim() ||
           provider.email ||
@@ -6089,46 +6054,48 @@ export default function ResidentDashboard({
                 className="px-5 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0"
                 style={innerStyle}
               >
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setProfileModalProvider(null)}
+                    className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
+                    style={cardStyle}
+                  >
+                    Cerrar
+                  </button>
+                  {activeProviderServices.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileModalProvider(null);
+                        openServicesView('all');
+                        if (activeProviderServices.length === 1) {
+                          setSelectedServiceKey(activeProviderServices[0].key);
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-200 hover:bg-sky-500/22 cursor-pointer"
+                    >
+                      <span>
+                        {activeProviderServices.length === 1
+                          ? 'Ver servicio en curso'
+                          : `Ver ${activeProviderServices.length} en curso`}
+                      </span>
+                    </button>
+                  )}
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setProfileModalProvider(null)}
-                  className="px-4 py-2 rounded-xl font-bold border border-white/15 cursor-pointer"
-                  style={cardStyle}
+                  onClick={() => {
+                    setProfileModalProvider(null);
+                    openVisitModalForProvider(provider);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
+                  style={{ backgroundColor: primaryColor }}
                 >
-                  Cerrar
+                  {canIssueQr ? <Calendar size={14} /> : <MessageSquare size={14} />}
+                  <span>{canIssueQr ? 'Solicitar visita' : 'Consultar / Pedir presupuesto'}</span>
                 </button>
-
-                {visitMeta.isConfirmed && canIssueQr ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileModalProvider(null);
-                      openQrModalForProvider(provider, {
-                        visitRequestId: activeVisit?.id,
-                        preferredDate: activeVisit?.preferred_date,
-                        preferredEndDate: activeVisit?.preferred_end_date,
-                      });
-                    }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    <QrCode size={14} />
-                    <span>Emitir Pase QR</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setProfileModalProvider(null);
-                      openVisitModalForProvider(provider);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    {canIssueQr ? <Calendar size={14} /> : <MessageSquare size={14} />}
-                    <span>{canIssueQr ? 'Solicitar Visita' : 'Consultar / Pedir presupuesto'}</span>
-                  </button>
-                )}
               </div>
             </div>
           </div>
