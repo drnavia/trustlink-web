@@ -1015,6 +1015,7 @@ export default function AdminComplianceView() {
 
     return (
       <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+        {/* 1) Acciones de Nivel N3 (aprobar o revocar) */}
         {needsPersonalApproval &&
           (canApproveLevel3 ? (
             <button
@@ -1035,6 +1036,39 @@ export default function AdminComplianceView() {
             </span>
           ))}
 
+        {person.isPersonApproved &&
+          canRejectOrRevoke &&
+          (isConfirmingReject ? (
+            <div className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => handleUpdateUserCompliance(person.user_id, 'rejected')}
+                disabled={isBusy}
+                className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+              >
+                <Check size={11} /> Confirmar revocación
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmRejectKey(null)}
+                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 cursor-pointer"
+              >
+                <X size={11} /> No
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmRejectKey(rejectKey)}
+              disabled={isBusy}
+              title="Revoca la aprobación N3/N4 y pausa la emisión de Pases QR"
+              className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
+            >
+              <XCircle size={12} /> Revocar N3
+            </button>
+          ))}
+
+        {/* 2) Acciones de Nivel N4 (cotejo PDF) */}
         {person.isPersonApproved && !hasExpiredDocs && (
           <button
             type="button"
@@ -1056,7 +1090,9 @@ export default function AdminComplianceView() {
           </button>
         )}
 
-        {canRejectOrRevoke &&
+        {/* 3) Resto: rechazar documentación pendiente */}
+        {!person.isPersonApproved &&
+          canRejectOrRevoke &&
           (isConfirmingReject ? (
             <div className="inline-flex items-center gap-1">
               <button
@@ -1065,7 +1101,7 @@ export default function AdminComplianceView() {
                 disabled={isBusy}
                 className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
               >
-                <Check size={11} /> {person.isPersonApproved ? 'Confirmar revocación' : 'Confirmar rechazo'}
+                <Check size={11} /> Confirmar rechazo
               </button>
               <button
                 type="button"
@@ -1080,14 +1116,10 @@ export default function AdminComplianceView() {
               type="button"
               onClick={() => setConfirmRejectKey(rejectKey)}
               disabled={isBusy}
-              title={
-                person.isPersonApproved
-                  ? 'Revoca la aprobación N3/N4 y pausa la emisión de Pases QR'
-                  : 'Rechaza la documentación cargada y solicita recarga al prestador'
-              }
+              title="Rechaza la documentación cargada y solicita recarga al prestador"
               className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
             >
-              <XCircle size={12} /> {person.isPersonApproved ? 'Revocar N3' : 'Rechazar docs'}
+              <XCircle size={12} /> Rechazar docs
             </button>
           ))}
       </div>
@@ -2138,23 +2170,9 @@ export default function AdminComplianceView() {
                             </span>
                           ) : (
                             <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                              {/* A) Listo para aprobar a N3 (Pase QR habilitado) */}
-                              {canApproveLevel3 && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleUpdateUserCompliance(person.user_id, 'approved')
-                                  }
-                                  disabled={isBusyCompliance}
-                                  title="Aprueba Seguro AP/ART + Antecedentes vigentes y sube al prestador a Nivel 3 (Pase QR habilitado)"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
-                                >
-                                  <Check size={12} />
-                                  <span>{isBusyCompliance ? 'Aprobando...' : 'Aprobar N3'}</span>
-                                </button>
-                              )}
+                              {/* 1) Niveles de menor a mayor: N1 → N3 → N4 */}
 
-                              {/* B) Validar DNI (solo cuando aún no está validado y no está aprobado en N3) */}
+                              {/* N1 · Validar DNI */}
                               {person.user_id &&
                                 !person.identity_verified &&
                                 !person.isPersonApproved &&
@@ -2171,7 +2189,59 @@ export default function AdminComplianceView() {
                                   </button>
                                 )}
 
-                              {/* C) Otorgar / Quitar sello oficial N4 (solo N3+ vigente) */}
+                              {/* N3 · Aprobar N3 (Pase QR habilitado) */}
+                              {canApproveLevel3 && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleUpdateUserCompliance(person.user_id, 'approved')
+                                  }
+                                  disabled={isBusyCompliance}
+                                  title="Aprueba Seguro AP/ART + Antecedentes vigentes y sube al prestador a Nivel 3 (Pase QR habilitado)"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
+                                >
+                                  <Check size={12} />
+                                  <span>{isBusyCompliance ? 'Aprobando...' : 'Aprobar N3'}</span>
+                                </button>
+                              )}
+
+                              {/* N3 · Revocar N3 (cuando ya está aprobado en N3/N4, confirmación en 2 clics) */}
+                              {person.isPersonApproved &&
+                                canRejectOrRevoke &&
+                                (isConfirmingReject ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdateUserCompliance(person.user_id, 'rejected')
+                                      }
+                                      disabled={isBusyCompliance}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer disabled:opacity-45"
+                                    >
+                                      <Check size={11} /> Confirmar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmRejectKey(null)}
+                                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
+                                    >
+                                      <X size={11} /> No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmRejectKey(rejectKey)}
+                                    disabled={isBusyCompliance}
+                                    title="Revoca la aprobación N3/N4 y pausa la emisión de Pases QR"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer disabled:opacity-45"
+                                  >
+                                    <X size={12} />
+                                    <span>Revocar N3</span>
+                                  </button>
+                                ))}
+
+                              {/* N4 · Otorgar / Quitar sello oficial N4 (solo N3+ vigente) */}
                               {person.isPersonApproved && !hasExpired && (
                                 <button
                                   type="button"
@@ -2199,7 +2269,45 @@ export default function AdminComplianceView() {
                                 </button>
                               )}
 
-                              {/* D) Gestión comercial Destacado (eje independiente, solo N3+) */}
+                              {/* 2) Resto de acciones: Rechazar docs, Destacado (Eje Comercial) y Recordar */}
+
+                              {/* Rechazar documentación en revisión (confirmación en 2 clics) */}
+                              {!person.isPersonApproved &&
+                                canRejectOrRevoke &&
+                                (isConfirmingReject ? (
+                                  <div className="inline-flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleUpdateUserCompliance(person.user_id, 'rejected')
+                                      }
+                                      disabled={isBusyCompliance}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer disabled:opacity-45"
+                                    >
+                                      <Check size={11} /> Confirmar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmRejectKey(null)}
+                                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
+                                    >
+                                      <X size={11} /> No
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmRejectKey(rejectKey)}
+                                    disabled={isBusyCompliance}
+                                    title="Rechaza la documentación cargada y solicita recarga al prestador"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer disabled:opacity-45"
+                                  >
+                                    <X size={12} />
+                                    <span>Rechazar docs</span>
+                                  </button>
+                                ))}
+
+                              {/* Gestión comercial Destacado (eje independiente, solo N3+) */}
                               {person.user_id &&
                                 hasProfile &&
                                 (person.is_verified_member ? (
@@ -2241,46 +2349,7 @@ export default function AdminComplianceView() {
                                   </button>
                                 ) : null)}
 
-                              {/* E) Rechazar docs / Revocar N3 (confirmación en 2 clics) */}
-                              {canRejectOrRevoke &&
-                                (isConfirmingReject ? (
-                                  <div className="inline-flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleUpdateUserCompliance(person.user_id, 'rejected')
-                                      }
-                                      disabled={isBusyCompliance}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer disabled:opacity-45"
-                                    >
-                                      <Check size={11} /> Confirmar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmRejectKey(null)}
-                                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
-                                    >
-                                      <X size={11} /> No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmRejectKey(rejectKey)}
-                                    disabled={isBusyCompliance}
-                                    title={
-                                      person.isPersonApproved
-                                        ? 'Revoca la aprobación N3/N4 y pausa la emisión de Pases QR'
-                                        : 'Rechaza la documentación cargada y solicita recarga al prestador'
-                                    }
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer disabled:opacity-45"
-                                  >
-                                    <X size={12} />
-                                    <span>{person.isPersonApproved ? 'Revocar' : 'Rechazar'}</span>
-                                  </button>
-                                ))}
-
-                              {/* F) Estado pasivo / Recordatorio WhatsApp cuando depende del prestador */}
+                              {/* Estado pasivo / Recordatorio WhatsApp cuando depende del prestador */}
                               {!person.isPersonApproved &&
                                 !canApproveLevel3 &&
                                 person.identity_verified &&
