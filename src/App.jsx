@@ -1170,7 +1170,7 @@ function MainAppContent() {
                             color: brand?.cardTextColor || (isDarkTheme ? '#F1F5F9' : '#0F172A'),
                           }}
                         >
-                          {residentHeaderMeta.specialties.length > 7 && (
+                          {residentHeaderMeta.specialties.length > 3 && (
                             <div className="relative">
                               <Search
                                 size={12}
@@ -1400,7 +1400,7 @@ function MainAppContent() {
                           color: brand?.cardTextColor || (isDarkTheme ? '#F1F5F9' : '#0F172A'),
                         }}
                       >
-                        {landingSpecialties.length > 7 && (
+                        {landingSpecialties.length > 3 && (
                           <div className="relative">
                             <Search
                               size={12}

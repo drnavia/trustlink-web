@@ -55,6 +55,7 @@ import {
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import SearchableSelect from '../../components/SearchableSelect';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import ProviderCalendarManager from '../../components/ProviderCalendarManager';
 import ProviderTrustBadge, {
@@ -3912,21 +3913,25 @@ export default function ProviderDashboard({
                 </div>
 
                 <div className="space-y-2.5">
-                  <select
+                  <SearchableSelect
                     value={selectedCatalogSpecialty}
-                    onChange={(e) => setSelectedCatalogSpecialty(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
-                    style={cardStyle}
-                  >
-                    {STANDARD_SPECIALTIES_CATALOG.map((spec) => (
-                      <option key={spec} value={spec}>
-                        {spec}
-                      </option>
-                    ))}
-                    <option value="__custom__">
-                      Otra especialidad (no figura en la lista — requiere aprobación de Ops)
-                    </option>
-                  </select>
+                    onChange={(val) => setSelectedCatalogSpecialty(val)}
+                    options={STANDARD_SPECIALTIES_CATALOG.map((spec) => ({
+                      value: spec,
+                      label: spec,
+                    }))}
+                    placeholder="Buscar o elegir especialidad..."
+                    searchPlaceholder="Escribí para buscar tu rubro (ej. Gasista, Piletero)..."
+                    emptyMessage="No encontramos ese rubro en el catálogo."
+                    extraAction={{
+                      value: '__custom__',
+                      label: 'Otra especialidad (no figura en la lista)',
+                      description: 'Requiere aprobación de Operaciones TrustLink',
+                    }}
+                    triggerStyle={cardStyle}
+                    panelStyle={innerStyle}
+                    ariaLabel="Seleccionar especialidad"
+                  />
 
                   {selectedCatalogSpecialty === '__custom__' ? (
                     <div className="space-y-2 rounded-xl p-3 border border-amber-500/35 bg-amber-950/20">
@@ -4010,21 +4015,25 @@ export default function ProviderDashboard({
                     >
                       {isEditing ? (
                         <div className="space-y-2.5">
-                          <select
+                          <SearchableSelect
                             value={editSpecialtyCatalog}
-                            onChange={(e) => setEditSpecialtyCatalog(e.target.value)}
-                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
-                            style={cardStyle}
-                          >
-                            {STANDARD_SPECIALTIES_CATALOG.map((spec) => (
-                              <option key={spec} value={spec}>
-                                {spec}
-                              </option>
-                            ))}
-                            <option value="__custom__">
-                              Otra especialidad (no figura en la lista — requiere aprobación de Ops)
-                            </option>
-                          </select>
+                            onChange={(val) => setEditSpecialtyCatalog(val)}
+                            options={STANDARD_SPECIALTIES_CATALOG.map((spec) => ({
+                              value: spec,
+                              label: spec,
+                            }))}
+                            placeholder="Buscar o elegir especialidad..."
+                            searchPlaceholder="Escribí para buscar tu rubro..."
+                            emptyMessage="No encontramos ese rubro en el catálogo."
+                            extraAction={{
+                              value: '__custom__',
+                              label: 'Otra especialidad (no figura en la lista)',
+                              description: 'Requiere aprobación de Operaciones TrustLink',
+                            }}
+                            triggerStyle={cardStyle}
+                            panelStyle={innerStyle}
+                            ariaLabel="Editar especialidad"
+                          />
 
                           {editSpecialtyCatalog === '__custom__' ? (
                             <div className="space-y-2 rounded-xl p-3 border border-amber-500/35 bg-amber-950/20">

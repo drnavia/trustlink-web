@@ -56,6 +56,7 @@ import { useBranding } from '../branding/BrandingContext';
 import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
+import SearchableSelect from '../../components/SearchableSelect';
 import ProviderTrustBadge, {
   FeaturedPartnerBadge,
   TrustChecksStrip,
@@ -317,7 +318,143 @@ export default function ResidentDashboard({
 }) {
   // Contextos globales de marca y sesión del residente autenticado
   const { brand } = useBranding();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
+
+  // Onboarding de domicilio (barrio y lote) al ingresar por primera vez como Residente
+  const viewerRole = String(user?.role || '').toLowerCase();
+  const isPrivilegedViewer = ['superadmin', 'admin', 'security'].includes(viewerRole);
+  const needsResidentLocation =
+    Boolean(user?.id) &&
+    !isPrivilegedViewer &&
+    (!user?.country_id || !String(user?.lot_number || '').trim());
+
+  const [locationCountries, setLocationCountries] = useState([]);
+  const [showLocationModal, setShowLocationModal] = useState(false);
+  const [locCountryId, setLocCountryId] = useState('');
+  const [locProposedName, setLocProposedName] = useState('');
+  const [locProposedCity, setLocProposedCity] = useState('');
+  const [locProposedProvince, setLocProposedProvince] = useState('');
+  const [locFractionType, setLocFractionType] = useState('na');
+  const [locFractionNumber, setLocFractionNumber] = useState('');
+  const [locLotNumber, setLocLotNumber] = useState('');
+  const [savingLocation, setSavingLocation] = useState(false);
+  const [locationFeedback, setLocationFeedback] = useState('');
+
+  useEffect(() => {
+    if (!needsResidentLocation) {
+      setShowLocationModal(false);
+      return;
+    }
+    let mounted = true;
+    fetch(`${API_BASE}/api/v1/auth/countries`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (mounted && Array.isArray(data.countries)) {
+          setLocationCountries(data.countries);
+          setLocCountryId((prev) =>
+            prev || (user?.country_id ? String(user.country_id) : '')
+          );
+        }
+      })
+      .catch(() => {});
+
+    setLocFractionType(user?.fraction_type || 'na');
+    setLocFractionNumber(
+      user?.fraction_number ? String(user.fraction_number).replace(/\D+/g, '') : ''
+    );
+    setLocLotNumber(user?.lot_number ? String(user.lot_number).replace(/\D+/g, '') : '');
+
+    // Abre automáticamente el modal una vez por sesión en el primer ingreso sin domicilio
+    try {
+      const promptKey = `trustlink_resident_location_prompted_${user.id}`;
+      if (!sessionStorage.getItem(promptKey)) {
+        sessionStorage.setItem(promptKey, '1');
+        setShowLocationModal(true);
+      }
+    } catch {
+      setShowLocationModal(true);
+    }
+
+    return () => {
+      mounted = false;
+    };
+  }, [
+    needsResidentLocation,
+    user?.id,
+    user?.country_id,
+    user?.fraction_type,
+    user?.fraction_number,
+    user?.lot_number,
+  ]);
+
+  const handleSaveResidentLocation = async (e) => {
+    e.preventDefault();
+    setLocationFeedback('');
+    const isProposingCommunity = locCountryId === '__propose__';
+    if (!locCountryId) {
+      setLocationFeedback('Seleccioná tu barrio o comunidad, o elegí "Mi barrio no figura" para proponerlo.');
+      return;
+    }
+    if (isProposingCommunity && locProposedName.trim().length < 2) {
+      setLocationFeedback('Ingresá el nombre de tu barrio o comunidad (mínimo 2 caracteres).');
+      return;
+    }
+    if (!locLotNumber.trim()) {
+      setLocationFeedback('Ingresá tu número de lote.');
+      return;
+    }
+    if (locFractionType !== 'na' && !locFractionNumber.trim()) {
+      setLocationFeedback(
+        `Ingresá el número de ${locFractionType === 'manzana' ? 'manzana' : 'fracción'}.`
+      );
+      return;
+    }
+
+    setSavingLocation(true);
+    try {
+      const payload = {
+        fraction_type: locFractionType,
+        fraction_number: locFractionType === 'na' ? null : locFractionNumber.trim(),
+        lot_number: locLotNumber.trim(),
+        activate_resident_portal: true,
+      };
+      if (isProposingCommunity) {
+        payload.proposed_country = {
+          name: locProposedName.trim(),
+          city: locProposedCity.trim() || null,
+          province: locProposedProvince.trim() || null,
+        };
+      } else {
+        payload.country_id = Number(locCountryId);
+      }
+
+      const res = await fetch(`${API_BASE}/api/v1/account/profile`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.account) {
+        updateUser(data.account, data.token || null);
+        setShowLocationModal(false);
+        setLocationFeedback('');
+        setLocProposedName('');
+        setLocProposedCity('');
+        setLocProposedProvince('');
+        await fetchProviders();
+      } else {
+        setLocationFeedback(data.error || 'No se pudo guardar tu domicilio.');
+      }
+    } catch (error) {
+      console.error('Error al guardar domicilio de residente:', error);
+      setLocationFeedback('Error de conexión al guardar tu domicilio.');
+    } finally {
+      setSavingLocation(false);
+    }
+  };
 
   // Mapea pasos externos legados ('visits'|'payments'|'reviews') a la pestaña unificada 'services'
   const resolveNormalizedStep = (rawStep) => {
@@ -2511,6 +2648,53 @@ export default function ResidentDashboard({
         </>
       )}
 
+      {/* Cartel informativo si el residente propuso su barrio y está en validación de TrustLink */}
+      {!needsResidentLocation && user?.country_approval_status === 'pending' && (
+        <div className="rounded-2xl px-4 py-3 border border-sky-500/40 bg-sky-950/35 text-sky-100 flex items-start gap-2.5 text-xs">
+          <MapPin size={16} className="text-sky-300 shrink-0 mt-0.5" />
+          <div className="space-y-0.5 min-w-0">
+            <p className="font-bold">
+              Comunidad &ldquo;{user?.country_name || 'tu barrio'}&rdquo; en validación por TrustLink
+            </p>
+            <p className="text-[11px] opacity-85 leading-snug">
+              Recibimos tu propuesta de barrio. Mientras Operaciones la valida, podés explorar el
+              directorio y consultar prestadores normalmente.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Cartel persistente si el Residente todavía no cargó su barrio y lote */}
+      {needsResidentLocation && (
+        <div
+          className="rounded-2xl px-4 py-3 border border-amber-500/45 bg-amber-950/35 text-amber-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs"
+        >
+          <div className="flex items-start gap-2.5 min-w-0">
+            <MapPin size={16} className="text-amber-300 shrink-0 mt-0.5" />
+            <div className="space-y-0.5 min-w-0">
+              <p className="font-bold text-amber-100">
+                Completá tu barrio y lote para aprovechar todo el portal
+              </p>
+              <p className="text-[11px] opacity-90 leading-snug">
+                Esta información como residente es importante para personalizar tu navegación en el
+                directorio de prestadores, ver actividad en tu comunidad y emitir Pases QR en garita.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setLocationFeedback('');
+              setShowLocationModal(true);
+            }}
+            className="px-3.5 py-2 rounded-xl text-xs font-bold text-white shadow-xs hover:opacity-95 cursor-pointer shrink-0 self-start sm:self-auto whitespace-nowrap"
+            style={{ backgroundColor: primaryColor }}
+          >
+            Cargar barrio y lote
+          </button>
+        </div>
+      )}
+
       {/* PASO 1: DIRECTORIO DE PRESTADORES (enfocado en búsqueda rápida + tarjetas escaneables en 3s) */}
       {activeStep === 'providers' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
@@ -2790,7 +2974,7 @@ export default function ResidentDashboard({
                   className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-white/15 shadow-2xl p-2 z-40 space-y-1.5"
                   style={cardStyle}
                 >
-                  {availableSpecialtyEntries.length > 7 && (
+                  {availableSpecialtyEntries.length > 3 && (
                     <div className="relative">
                       <Search
                         size={13}
@@ -6143,6 +6327,187 @@ export default function ResidentDashboard({
           </div>
         );
       })()}
+
+      {/* Modal de bienvenida / primer ingreso: Completar barrio y lote del Residente */}
+      {showLocationModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
+          <div
+            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <div className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                  <MapPin size={13} />
+                  <span>Tu domicilio en TrustLink</span>
+                </div>
+                <h3 className="text-base font-extrabold">Indicá tu barrio y lote</h3>
+                <p className="text-[11px] opacity-80 leading-relaxed">
+                  Esta información es importante para personalizar tu navegación en el directorio de
+                  prestadores, ver actividad en tu comunidad y habilitar Pases QR en garita.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLocationModal(false)}
+                aria-label="Cerrar ventana"
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {locationFeedback && (
+              <div className="rounded-xl p-3 border border-rose-500/45 bg-rose-950/50 text-rose-200 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-400" />
+                <span>{locationFeedback}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveResidentLocation} className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="block font-semibold opacity-90">Comunidad / Barrio</label>
+                <SearchableSelect
+                  value={locCountryId}
+                  onChange={(nextVal) => setLocCountryId(nextVal)}
+                  options={locationCountries.map((c) => ({
+                    value: String(c.id),
+                    label: c.name,
+                    subtitle: [c.city, c.province].filter(Boolean).join(', '),
+                  }))}
+                  placeholder="Buscar o seleccionar comunidad / barrio..."
+                  searchPlaceholder="Escribí para buscar tu barrio..."
+                  emptyMessage="No encontramos ese barrio en la lista."
+                  extraAction={{
+                    value: '__propose__',
+                    label: 'Mi barrio no figura — Proponer comunidad',
+                    description: 'Se envía a validación de TrustLink',
+                  }}
+                  triggerStyle={innerStyle}
+                  panelStyle={cardStyle}
+                  ariaLabel="Seleccionar comunidad o barrio"
+                />
+
+                {locCountryId === '__propose__' ? (
+                  <div className="rounded-xl p-3 border border-amber-500/40 bg-amber-950/25 space-y-2">
+                    <p className="text-[11px] font-bold text-amber-200">
+                      Proponer nueva comunidad / barrio
+                    </p>
+                    <input
+                      type="text"
+                      required
+                      maxLength={120}
+                      value={locProposedName}
+                      onChange={(e) => setLocProposedName(e.target.value)}
+                      placeholder="Nombre del barrio o country *"
+                      className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                      style={cardStyle}
+                    />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        maxLength={100}
+                        value={locProposedCity}
+                        onChange={(e) => setLocProposedCity(e.target.value)}
+                        placeholder="Localidad (ej. Pilar, Tigre...)"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                      <input
+                        type="text"
+                        maxLength={100}
+                        value={locProposedProvince}
+                        onChange={(e) => setLocProposedProvince(e.target.value)}
+                        placeholder="Provincia (ej. Buenos Aires)"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                    </div>
+                    <p className="text-[10px] text-amber-200/90 leading-snug">
+                      Tu propuesta quedará en validación de TrustLink y asociada a tu cuenta desde
+                      ahora.
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[11px] opacity-70">
+                    ¿No encontrás tu barrio? Elegí <strong>Mi barrio no figura</strong> dentro del
+                    buscador para proponerlo, o tocá <strong>Omitir por ahora</strong>.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="block font-semibold opacity-90">Tipo de área</label>
+                  <select
+                    value={locFractionType}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setLocFractionType(next);
+                      if (next === 'na') setLocFractionNumber('');
+                    }}
+                    className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs focus:outline-none"
+                    style={innerStyle}
+                  >
+                    <option value="na">No aplica</option>
+                    <option value="manzana">Manzana</option>
+                    <option value="fraccion">Fracción</option>
+                  </select>
+                </div>
+
+                {locFractionType !== 'na' && (
+                  <div className="space-y-1">
+                    <label className="block font-semibold opacity-90">
+                      N° {locFractionType === 'manzana' ? 'Manzana' : 'Fracción'}
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={locFractionNumber}
+                      onChange={(e) => setLocFractionNumber(e.target.value.replace(/\D+/g, ''))}
+                      placeholder="Ej. 4"
+                      className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
+                      style={innerStyle}
+                    />
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">N° de Lote</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={locLotNumber}
+                  onChange={(e) => setLocLotNumber(e.target.value.replace(/\D+/g, ''))}
+                  placeholder="Ej. 18"
+                  className="w-full px-3 py-2.5 rounded-xl border border-white/15 text-xs font-mono focus:outline-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowLocationModal(false)}
+                  className="px-4 py-2 rounded-xl font-bold border border-white/15 opacity-85 hover:opacity-100 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Omitir por ahora
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingLocation}
+                  className="px-4 py-2 rounded-xl font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  {savingLocation ? 'Guardando...' : 'Guardar mi domicilio'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal: Abrir Reclamo / Garantía Post-Servicio */}
       {disputeModalContract && (

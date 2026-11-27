@@ -1,19 +1,18 @@
 /**
  * @file RegisterView.jsx
- * @description Vista de registro minimalista (Modelo N0 estilo MercadoLibre) conectada a
+ * @description Vista de registro unificada en 2 pasos (estilo MercadoLibre) conectada a
  * `/api/v1/auth/register` y `/api/v1/auth/verify-phone`.
- * - Prestadores (N0): Google o E-mail + Celular (+54 obligatorio) + Nombre + Contraseña (sin DNI todavía)
- *   → Paso 2: pantalla de código SMS de 4 dígitos (con soporte MVP mock o validación manual en Admin).
- * - Residentes: Paso 1 (datos de cuenta e identidad) y Paso 2 (barrio y lote).
+ * - Paso 1 (Residente y Prestador): Google o E-mail + Celular (+54 obligatorio) + Nombre + Apellido + Contraseña + consentimiento SMS/WhatsApp (sin DNI ni barrio/lote en alta inicial).
+ * - Paso 2 (Residente y Prestador): Validación SMS OTP de 4 dígitos (con modo MVP o validación manual en Administración).
+ * El domicilio del Residente (barrio y lote) se solicita al ingresar por primera vez al Portal Residente.
  * @location /trustlink-web/src/modules/auth/RegisterView.jsx
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  ArrowLeft,
   Eye,
   EyeOff,
   Home,
@@ -61,51 +60,27 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
     return 'owner';
   });
 
-  // Paso activo: 1 = datos iniciales; 2 = barrio y lote (Residente) o validación SMS OTP (Prestador N0)
+  // Flujo unificado de 2 pasos para ambos roles: 1 = Tus datos, 2 = Validación SMS
   const [step, setStep] = useState(1);
 
-  const [countries, setCountries] = useState([]);
-  const [countryId, setCountryId] = useState('');
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
-  const [dni, setDni] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [acceptsWhatsapp, setAcceptsWhatsapp] = useState(true);
   const [acceptedTerms, setAcceptedTerms] = useState(true);
-  const [fractionType, setFractionType] = useState('na');
-  const [fraction, setFraction] = useState('');
-  const [lotNumber, setLotNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [googleNotice, setGoogleNotice] = useState(false);
 
-  // Estado de validación SMS OTP de 4 dígitos (Prestador N0)
+  // Estado de validación SMS OTP de 4 dígitos
   const [otpDigits, setOtpDigits] = useState(['', '', '', '']);
   const [devOtpHint, setDevOtpHint] = useState('');
   const [verifyingOtp, setVerifyingOtp] = useState(false);
   const otpInputRefs = useRef([]);
-
-  useEffect(() => {
-    let mounted = true;
-    fetch(`${API_BASE}/api/v1/auth/countries`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (mounted && Array.isArray(data.countries)) {
-          setCountries(data.countries);
-          if (data.countries.length > 0) {
-            setCountryId((prev) => prev || String(data.countries[0].id));
-          }
-        }
-      })
-      .catch(() => {});
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const handleRoleChange = (nextRole) => {
     setRole(nextRole);
@@ -127,16 +102,12 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
       setErrorMsg('Ingresá un e-mail válido.');
       return false;
     }
-    if (role === 'provider' && phone.replace(/\D+/g, '').length < 8) {
+    if (phone.replace(/\D+/g, '').length < 8) {
       setErrorMsg('Ingresá tu número de celular (código de área + número) para validar por SMS.');
       return false;
     }
     if (!firstName.trim() || !lastName.trim()) {
       setErrorMsg('Completá tu nombre y apellido.');
-      return false;
-    }
-    if (role === 'owner' && dni.trim().length < 6) {
-      setErrorMsg('Ingresá un DNI válido (sin puntos ni espacios).');
       return false;
     }
     if (password.length < 6) {
@@ -163,24 +134,22 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
     setSuccessMsg('');
     setLoading(true);
 
-    const isOwner = role === 'owner';
-
     try {
       const payload = {
-        country_id: isOwner && countryId ? Number(countryId) : null,
+        country_id: null,
         role,
         first_name: firstName.trim(),
         last_name: lastName.trim(),
-        dni: isOwner ? dni.trim() : null,
+        dni: null,
         phone: normalizePhone(phone),
         email: email.trim(),
         password,
         accepts_whatsapp_contact: acceptsWhatsapp,
         auth_provider: 'email',
-        require_phone_otp: !isOwner,
-        fraction_type: isOwner ? fractionType : 'na',
-        fraction_number: isOwner && fractionType !== 'na' ? fraction.trim() || null : null,
-        lot_number: isOwner ? lotNumber.trim() || null : null,
+        require_phone_otp: true,
+        fraction_type: 'na',
+        fraction_number: null,
+        lot_number: null,
       };
 
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
@@ -194,11 +163,11 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
       const data = await response.json();
 
       if (response.ok) {
-        if (!isOwner && data.requires_phone_verification) {
+        if (data.requires_phone_verification) {
           setDevOtpHint(data.dev_otp_code || '1234');
           setOtpDigits(['', '', '', '']);
           setStep(2);
-          setSuccessMsg('Cuenta creada (N0). Validá tu celular ingresando el código SMS.');
+          setSuccessMsg('Cuenta creada. Validá tu celular ingresando el código SMS.');
         } else {
           setSuccessMsg(
             data.message || 'Cuenta creada correctamente. Ya podés iniciar sesión.'
@@ -261,7 +230,10 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
       const data = await response.json();
       if (response.ok) {
         setSuccessMsg(
-          data.message || 'Celular validado correctamente. Ya podés ingresar y completar tu Nivel 1.'
+          data.message ||
+            (role === 'owner'
+              ? 'Celular validado correctamente. Ya podés ingresar a tu Portal Residente.'
+              : 'Celular validado correctamente. Ya podés ingresar y completar tu Nivel 1.')
         );
         setTimeout(redirectToLogin, 900);
       } else {
@@ -278,34 +250,12 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setErrorMsg('');
-
-    if (step === 1) {
-      if (!validateStepOne()) return;
-      if (role === 'owner') {
-        setStep(2);
-        return;
-      }
-      await submitRegistration();
-      return;
-    }
-
-    // Paso 2 (Residente): validar lote y enviar alta
-    if (role === 'owner') {
-      if (!lotNumber.trim()) {
-        setErrorMsg('Ingresá tu número de lote para identificar tu domicilio.');
-        return;
-      }
-      if (fractionType !== 'na' && !fraction.trim()) {
-        setErrorMsg(
-          `Ingresá el número de ${fractionType === 'manzana' ? 'manzana' : 'fracción'}.`
-        );
-        return;
-      }
-      await submitRegistration();
-    }
+    if (!validateStepOne()) return;
+    await submitRegistration();
   };
 
   const isOwner = role === 'owner';
+  const isOtpStep = step === 2;
 
   return (
     <div className="flex-1 flex flex-col items-center justify-start px-4 pt-10 pb-12 md:pt-14 md:pb-16">
@@ -316,13 +266,11 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             {isOwner ? 'Creá tu cuenta de residente' : 'Creá tu cuenta de prestador'}
           </h1>
           <p className="text-xs sm:text-sm opacity-75 min-h-5">
-            {isOwner
-              ? step === 1
-                ? 'Accedé a prestadores verificados y emití Pases QR.'
-                : 'Último paso: indicanos tu barrio y lote para garita.'
-              : step === 1
-                ? 'Empezá en segundos (Nivel 0). El DNI se carga después.'
-                : 'Validá tu celular por SMS para activar tu cuenta.'}
+            {isOtpStep
+              ? 'Validá tu celular por SMS para activar tu cuenta.'
+              : isOwner
+                ? 'Empezá en segundos. Tu barrio y lote los cargás al ingresar.'
+                : 'Empezá en segundos (Nivel 0). El DNI se carga después.'}
           </p>
         </div>
 
@@ -331,7 +279,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
           className={`w-full border ${cardBorder} rounded-2xl p-6 sm:p-8 shadow-sm space-y-5`}
           style={cardStyle}
         >
-          {/* Selector de perfil + indicador simétrico de 2 pasos en ambos roles */}
+          {/* Selector de perfil + indicador simétrico de 2 pasos para ambos roles */}
           <div className="space-y-3">
             <div
               className={`grid grid-cols-2 gap-1.5 p-1 rounded-xl border ${cardBorder}`}
@@ -370,9 +318,13 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
 
             <div className="flex items-center justify-between gap-2 h-5 text-[11px] opacity-75">
               <span className="font-semibold">
-                {isOwner
-                  ? `Paso ${step} de 2 · ${step === 1 ? 'Tus datos' : 'Tu barrio y lote'}`
-                  : `Paso ${step} de 2 · ${step === 1 ? 'Nivel 0 · Tus datos' : 'Validación SMS'}`}
+                {`Paso ${step} de 2 · ${
+                  step === 1
+                    ? isOwner
+                      ? 'Tus datos'
+                      : 'Nivel 0 · Tus datos'
+                    : 'Validación SMS'
+                }`}
               </span>
               <div className="flex items-center gap-1.5">
                 <span
@@ -404,8 +356,8 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </div>
           )}
 
-          {/* Paso 2 exclusivo Prestador N0: código SMS de 4 dígitos (estilo MeLi) */}
-          {!isOwner && step === 2 ? (
+          {/* Paso final (Residente paso 3 / Prestador paso 2): código SMS de 4 dígitos (estilo MeLi) */}
+          {isOtpStep ? (
             <form onSubmit={handleVerifySmsOtp} className="space-y-5">
               <div className="text-center space-y-2">
                 <div
@@ -484,38 +436,34 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
             </form>
           ) : (
             <form onSubmit={handleFormSubmit} className="space-y-4">
-              {step === 1 ? (
-                <>
-                  {/* Opción Google estilo MeLi para prestadores (preparada para Google OAuth) */}
-                  {!isOwner && (
-                    <div className="space-y-3">
-                      <button
-                        type="button"
-                        onClick={() => setGoogleNotice((prev) => !prev)}
-                        className={`w-full py-2.5 px-4 rounded-xl border ${cardBorder} text-xs font-bold flex items-center justify-center gap-2.5 hover:opacity-95 cursor-pointer transition-opacity`}
-                        style={innerStyle}
-                      >
-                        <span className="w-5 h-5 rounded-full bg-white text-slate-900 font-black text-xs flex items-center justify-center shrink-0">
-                          G
-                        </span>
-                        <span>Registrarse con Google</span>
-                      </button>
+              {/* Opción Google unificada estilo MeLi (Residente y Prestador) */}
+                  <div className="space-y-3">
+                    <button
+                      type="button"
+                      onClick={() => setGoogleNotice((prev) => !prev)}
+                      className={`w-full py-2.5 px-4 rounded-xl border ${cardBorder} text-xs font-bold flex items-center justify-center gap-2.5 hover:opacity-95 cursor-pointer transition-opacity`}
+                      style={innerStyle}
+                    >
+                      <span className="w-5 h-5 rounded-full bg-white text-slate-900 font-black text-xs flex items-center justify-center shrink-0">
+                        G
+                      </span>
+                      <span>Registrarse con Google</span>
+                    </button>
 
-                      {googleNotice && (
-                        <div className="rounded-xl p-3 border border-sky-500/35 bg-sky-950/35 text-[11px] text-sky-200 leading-relaxed">
-                          El acceso con Google OAuth se habilitará al configurar{' '}
-                          <code className="font-mono">GOOGLE_CLIENT_ID</code> en producción. Por
-                          ahora creá tu cuenta con tu e-mail y celular aquí abajo.
-                        </div>
-                      )}
-
-                      <div className="flex items-center gap-3 text-[11px] opacity-60">
-                        <span className="h-px flex-1 bg-current opacity-30" />
-                        <span>O ingresá tu e-mail</span>
-                        <span className="h-px flex-1 bg-current opacity-30" />
+                    {googleNotice && (
+                      <div className="rounded-xl p-3 border border-sky-500/35 bg-sky-950/35 text-[11px] text-sky-200 leading-relaxed">
+                        El acceso con Google OAuth se habilitará al configurar{' '}
+                        <code className="font-mono">GOOGLE_CLIENT_ID</code> en producción. Por
+                        ahora creá tu cuenta con tu e-mail y celular aquí abajo.
                       </div>
+                    )}
+
+                    <div className="flex items-center gap-3 text-[11px] opacity-60">
+                      <span className="h-px flex-1 bg-current opacity-30" />
+                      <span>O ingresá tu e-mail</span>
+                      <span className="h-px flex-1 bg-current opacity-30" />
                     </div>
-                  )}
+                  </div>
 
                   <div className="space-y-1.5">
                     <label htmlFor="reg-email" className="block text-xs font-semibold opacity-90">
@@ -536,7 +484,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
 
                   <div className="space-y-1">
                     <label htmlFor="reg-phone" className="block text-xs font-semibold opacity-90">
-                      Teléfono {!isOwner && <span className="text-emerald-400">*</span>}
+                      Teléfono <span className="text-emerald-400">*</span>
                     </label>
                     <div
                       className={`flex items-center rounded-xl border ${inputBorder} overflow-hidden focus-within:ring-2 focus-within:ring-emerald-500/30`}
@@ -550,7 +498,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                       <input
                         id="reg-phone"
                         type="tel"
-                        required={!isOwner}
+                        required
                         autoComplete="tel-national"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
@@ -559,9 +507,7 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                       />
                     </div>
                     <p className="text-[11px] opacity-65">
-                      {isOwner
-                        ? 'Código de área + número (opcional).'
-                        : 'Código de área + número. Te enviaremos un SMS de validación.'}
+                      Código de área + número. Te enviaremos un SMS de validación.
                     </p>
                   </div>
 
@@ -607,29 +553,6 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                     </div>
                   </div>
 
-                  {/* DNI en registro solo para Residentes (en Prestadores se carga recién en Nivel 1) */}
-                  {isOwner && (
-                    <div className="space-y-1">
-                      <label htmlFor="reg-dni" className="block text-xs font-semibold opacity-90">
-                        DNI
-                      </label>
-                      <input
-                        id="reg-dni"
-                        type="text"
-                        inputMode="numeric"
-                        required
-                        value={dni}
-                        onChange={(e) => setDni(e.target.value.replace(/\D+/g, ''))}
-                        placeholder="35123456"
-                        className={`w-full px-3.5 py-3 rounded-xl border ${inputBorder} text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30 transition-colors`}
-                        style={innerStyle}
-                      />
-                      <p className="text-[11px] opacity-65">
-                        Solo números. Se utiliza para validar identidad y accesos en garita.
-                      </p>
-                    </div>
-                  )}
-
                   <div className="space-y-1">
                     <label htmlFor="reg-password" className="block text-xs font-semibold opacity-90">
                       Contraseña
@@ -658,19 +581,17 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                     </div>
                   </div>
 
-                  {!isOwner && (
-                    <label className="flex items-start gap-2.5 text-xs opacity-80 cursor-pointer select-none">
-                      <input
-                        type="checkbox"
-                        checked={acceptsWhatsapp}
-                        onChange={(e) => setAcceptsWhatsapp(e.target.checked)}
-                        className="mt-0.5 h-4 w-4 rounded accent-emerald-500 cursor-pointer shrink-0"
-                      />
-                      <span className="leading-snug">
-                        Acepto que me contacten por SMS y WhatsApp.
-                      </span>
-                    </label>
-                  )}
+                  <label className="flex items-start gap-2.5 text-xs opacity-80 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={acceptsWhatsapp}
+                      onChange={(e) => setAcceptsWhatsapp(e.target.checked)}
+                      className="mt-0.5 h-4 w-4 rounded accent-emerald-500 cursor-pointer shrink-0"
+                    />
+                    <span className="leading-snug">
+                      Acepto que me contacten por SMS y WhatsApp.
+                    </span>
+                  </label>
 
                   <label className="flex items-start gap-2.5 pt-0.5 text-xs opacity-80 cursor-pointer select-none">
                     <input
@@ -700,148 +621,6 @@ export default function RegisterView({ onRegisterSuccess, onViewChange }) {
                       <span>Continuar</span>
                     )}
                   </button>
-                </>
-              ) : (
-                /* Paso 2 (exclusivo Residente): ubicación en la comunidad */
-                <>
-                  <div
-                    className={`rounded-xl px-3.5 py-2.5 border ${cardBorder} flex items-center justify-between gap-2 text-xs`}
-                    style={innerStyle}
-                  >
-                    <span className="truncate opacity-85 font-medium">{email}</span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setErrorMsg('');
-                        setStep(1);
-                      }}
-                      className="font-bold hover:underline cursor-pointer shrink-0"
-                      style={{ color: accentColor }}
-                    >
-                      Editar datos
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label htmlFor="reg-country" className="block text-xs font-semibold opacity-90">
-                      Comunidad / Barrio
-                    </label>
-                    <select
-                      id="reg-country"
-                      value={countryId}
-                      onChange={(e) => setCountryId(e.target.value)}
-                      className={`w-full px-3.5 py-3 rounded-xl border ${inputBorder} text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30`}
-                      style={innerStyle}
-                    >
-                      <option value="">Seleccionar comunidad (opcional)</option>
-                      {countries.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="space-y-1.5">
-                      <label
-                        htmlFor="reg-fraction-type"
-                        className="block text-xs font-semibold opacity-90"
-                      >
-                        Tipo de área
-                      </label>
-                      <select
-                        id="reg-fraction-type"
-                        value={fractionType}
-                        onChange={(e) => {
-                          const next = e.target.value;
-                          setFractionType(next);
-                          if (next === 'na') setFraction('');
-                        }}
-                        className={`w-full px-3.5 py-3 rounded-xl border ${inputBorder} text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30`}
-                        style={innerStyle}
-                      >
-                        <option value="na">No aplica</option>
-                        <option value="manzana">Manzana</option>
-                        <option value="fraccion">Fracción</option>
-                      </select>
-                    </div>
-
-                    {fractionType !== 'na' && (
-                      <div className="space-y-1.5">
-                        <label
-                          htmlFor="reg-fraction"
-                          className="block text-xs font-semibold opacity-90"
-                        >
-                          N° {fractionType === 'manzana' ? 'Manzana' : 'Fracción'}
-                        </label>
-                        <input
-                          id="reg-fraction"
-                          type="text"
-                          inputMode="numeric"
-                          required
-                          value={fraction}
-                          onChange={(e) => setFraction(e.target.value.replace(/\D+/g, ''))}
-                          placeholder="Ej. 4"
-                          className={`w-full px-3.5 py-3 rounded-xl border ${inputBorder} text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30`}
-                          style={innerStyle}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label htmlFor="reg-lot" className="block text-xs font-semibold opacity-90">
-                      N° de Lote
-                    </label>
-                    <input
-                      id="reg-lot"
-                      type="text"
-                      inputMode="numeric"
-                      required
-                      value={lotNumber}
-                      onChange={(e) => setLotNumber(e.target.value.replace(/\D+/g, ''))}
-                      placeholder="Ej. 18"
-                      className={`w-full px-3.5 py-3 rounded-xl border ${inputBorder} text-sm font-mono focus:outline-none focus:ring-2 focus:ring-emerald-500/30`}
-                      style={innerStyle}
-                    />
-                    <p className="text-[11px] opacity-65">
-                      Destino predeterminado para tus visitas y Pases QR en garita.
-                    </p>
-                  </div>
-
-                  <div className="space-y-2.5 pt-1">
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="w-full text-white font-bold py-3.5 px-4 rounded-xl text-sm flex items-center justify-center gap-2 transition-opacity hover:opacity-95 cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: accentColor }}
-                    >
-                      {loading ? (
-                        <>
-                          <Loader2 size={16} className="animate-spin" />
-                          <span>Creando cuenta...</span>
-                        </>
-                      ) : (
-                        <span>Crear cuenta</span>
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setErrorMsg('');
-                        setStep(1);
-                      }}
-                      className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold border ${cardBorder} flex items-center justify-center gap-1.5 opacity-85 hover:opacity-100 cursor-pointer`}
-                      style={innerStyle}
-                    >
-                      <ArrowLeft size={14} />
-                      <span>Volver al paso anterior</span>
-                    </button>
-                  </div>
-                </>
-              )}
             </form>
           )}
         </div>

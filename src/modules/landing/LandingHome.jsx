@@ -643,7 +643,7 @@ export default function LandingHome({
                 className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-white/15 shadow-2xl p-2 z-40 space-y-1.5"
                 style={cardStyle}
               >
-                {availableSpecialtyEntries.length > 7 && (
+                {availableSpecialtyEntries.length > 3 && (
                   <div className="relative">
                     <Search
                       size={13}

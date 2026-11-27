@@ -33,6 +33,7 @@ import { useAuth } from './AuthContext';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import { PAGE_SHELL_CLASS } from '../../config/uiTokens';
+import SearchableSelect from '../../components/SearchableSelect';
 
 /**
  * Genera la vista previa legible del destino residencial que se imprimirá en los pases QR.
@@ -129,6 +130,9 @@ export default function AccountView({ onNavigate }) {
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
   const [countryId, setCountryId] = useState('');
+  const [proposedCountryName, setProposedCountryName] = useState('');
+  const [proposedCountryCity, setProposedCountryCity] = useState('');
+  const [proposedCountryProvince, setProposedCountryProvince] = useState('');
   const [fractionType, setFractionType] = useState('na');
   const [fractionNumber, setFractionNumber] = useState('');
   const [lotNumber, setLotNumber] = useState('');
@@ -239,6 +243,7 @@ export default function AccountView({ onNavigate }) {
       lastName.trim() !== (account.last_name || '') ||
       phone.trim() !== (account.phone || '') ||
       countryId !== savedCountry ||
+      (countryId === '__propose__' && proposedCountryName.trim().length > 0) ||
       fractionType !== savedFracType ||
       (fractionType === 'na' ? '' : fractionNumber.trim()) !== savedFracNum ||
       lotNumber.trim() !== savedLot ||
@@ -250,6 +255,7 @@ export default function AccountView({ onNavigate }) {
     lastName,
     phone,
     countryId,
+    proposedCountryName,
     fractionType,
     fractionNumber,
     lotNumber,
@@ -268,12 +274,31 @@ export default function AccountView({ onNavigate }) {
 
     const nextResidentFlag = activatingResidentDraft ? true : canUseResident;
 
+    const isProposingCommunity = countryId === '__propose__';
+    if (isProposingCommunity && proposedCountryName.trim().length < 2) {
+      setFeedback({
+        type: 'error',
+        text: 'Ingresá el nombre de tu barrio o comunidad (mínimo 2 caracteres).',
+      });
+      setSavingProfile(false);
+      return;
+    }
+
     try {
       const payload = {
         first_name: firstName.trim(),
         last_name: lastName.trim(),
         phone: phone.trim(),
-        country_id: countryId ? Number(countryId) : '',
+        country_id: !isProposingCommunity && countryId ? Number(countryId) : '',
+        ...(isProposingCommunity
+          ? {
+              proposed_country: {
+                name: proposedCountryName.trim(),
+                city: proposedCountryCity.trim() || null,
+                province: proposedCountryProvince.trim() || null,
+              },
+            }
+          : {}),
         fraction_type: nextResidentFlag ? fractionType : account?.fraction_type || 'na',
         fraction_number: nextResidentFlag
           ? fractionType === 'na'
@@ -296,6 +321,9 @@ export default function AccountView({ onNavigate }) {
         hydrateForm(data.account);
         updateUser(data.account, data.token || null);
         setActivatingResidentDraft(false);
+        setProposedCountryName('');
+        setProposedCountryCity('');
+        setProposedCountryProvince('');
         setFeedback({
           type: 'success',
           text: activatingResidentDraft
@@ -421,6 +449,9 @@ export default function AccountView({ onNavigate }) {
         hydrateForm(data.account);
         updateUser(data.account, data.token || null);
         setActivatingResidentDraft(false);
+        setProposedCountryName('');
+        setProposedCountryCity('');
+        setProposedCountryProvince('');
         setFeedback({
           type: 'success',
           text:
@@ -925,23 +956,87 @@ export default function AccountView({ onNavigate }) {
               </div>
 
               {showResidentialFields && (
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider opacity-80 mb-1.5 flex items-center gap-1">
-                    <Building2 size={12} /> Comunidad / Barrio
-                  </label>
-                  <select
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-[11px] font-bold uppercase tracking-wider opacity-80 flex items-center gap-1">
+                      <Building2 size={12} /> Comunidad / Barrio
+                    </label>
+                    {account?.country_approval_status === 'pending' && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/50 bg-amber-500/15 text-amber-200">
+                        En validación TrustLink
+                      </span>
+                    )}
+                  </div>
+                  <SearchableSelect
                     value={countryId}
-                    onChange={(e) => setCountryId(e.target.value)}
-                    className={inputBaseClass}
-                    style={innerStyle}
-                  >
-                    <option value="">Sin comunidad asignada</option>
-                    {countries.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(nextVal) => setCountryId(nextVal)}
+                    options={[
+                      ...(account?.country_id &&
+                      account?.country_name &&
+                      !countries.some((c) => String(c.id) === String(account.country_id))
+                        ? [
+                            {
+                              value: String(account.country_id),
+                              label: `${account.country_name} (en validación)`,
+                            },
+                          ]
+                        : []),
+                      ...countries.map((c) => ({
+                        value: String(c.id),
+                        label: c.name,
+                        subtitle: [c.city, c.province].filter(Boolean).join(', '),
+                      })),
+                    ]}
+                    placeholder="Buscar o seleccionar comunidad / barrio..."
+                    searchPlaceholder="Escribí para buscar tu barrio..."
+                    emptyMessage="No encontramos ese barrio en la lista."
+                    extraAction={{
+                      value: '__propose__',
+                      label: 'Mi barrio no figura — Proponer comunidad',
+                      description: 'Requiere validación de TrustLink',
+                    }}
+                    triggerStyle={innerStyle}
+                    panelStyle={cardStyle}
+                    ariaLabel="Seleccionar comunidad o barrio"
+                  />
+
+                  {countryId === '__propose__' && (
+                    <div className="rounded-xl p-3 border border-amber-500/40 bg-amber-950/20 space-y-2">
+                      <input
+                        type="text"
+                        required
+                        maxLength={120}
+                        value={proposedCountryName}
+                        onChange={(e) => setProposedCountryName(e.target.value)}
+                        placeholder="Nombre del barrio o comunidad *"
+                        className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                        style={cardStyle}
+                      />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <input
+                          type="text"
+                          maxLength={100}
+                          value={proposedCountryCity}
+                          onChange={(e) => setProposedCountryCity(e.target.value)}
+                          placeholder="Localidad"
+                          className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                          style={cardStyle}
+                        />
+                        <input
+                          type="text"
+                          maxLength={100}
+                          value={proposedCountryProvince}
+                          onChange={(e) => setProposedCountryProvince(e.target.value)}
+                          placeholder="Provincia"
+                          className="w-full px-3 py-2 rounded-xl border border-white/15 text-xs focus:outline-none"
+                          style={cardStyle}
+                        />
+                      </div>
+                      <p className="text-[11px] text-amber-200/90">
+                        Al guardar, tu barrio quedará en revisión por Operaciones TrustLink.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

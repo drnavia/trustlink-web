@@ -88,6 +88,8 @@ export default function CommunitiesAdminView() {
   const [countryPageSize, setCountryPageSize] = useState(6);
   const [countryTotalPages, setCountryTotalPages] = useState(1);
   const [countryTotalCount, setCountryTotalCount] = useState(0);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
+  const [moderatingCountryId, setModeratingCountryId] = useState(null);
 
   // Formulario desplegable de alta de nueva comunidad
   const [showCreateCountryForm, setShowCreateCountryForm] = useState(false);
@@ -180,6 +182,9 @@ export default function CommunitiesAdminView() {
           setCountryPage(pagination.page || pageToLoad);
           setCountryTotalPages(pagination.totalPages || 1);
           setCountryTotalCount(pagination.total ?? list.length);
+          if (typeof data.pending_approval_count === 'number') {
+            setPendingApprovalCount(data.pending_approval_count);
+          }
         } else {
           setCountryLoadError(data.error || `Error HTTP ${res.status} al cargar comunidades.`);
         }
@@ -378,6 +383,43 @@ export default function CommunitiesAdminView() {
     }
   };
 
+  const handleModerateCountryApproval = async (country, approvalStatus) => {
+    setModeratingCountryId(country.id);
+    setCountryFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/external/countries/${country.id}/approval`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ approval_status: approvalStatus }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setCountryFeedback({
+          type: 'success',
+          message:
+            data.message ||
+            (approvalStatus === 'approved'
+              ? 'Comunidad aprobada y publicada en el catálogo.'
+              : 'Propuesta de comunidad rechazada.'),
+        });
+        await Promise.all([
+          fetchAllCountriesForSelector(),
+          fetchCountries(countryPage, countrySearch, countryPageSize, countryStatusFilter),
+        ]);
+      } else {
+        setCountryFeedback({
+          type: 'error',
+          message: data.error || 'No se pudo moderar la comunidad propuesta.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al moderar comunidad:', error);
+      setCountryFeedback({ type: 'error', message: 'Error de conexión al moderar la comunidad.' });
+    } finally {
+      setModeratingCountryId(null);
+    }
+  };
+
   const handleToggleCountry = async (country) => {
     setCountryFeedback(null);
     try {
@@ -568,6 +610,7 @@ export default function CommunitiesAdminView() {
             showSubmitButton
             chips={[
               { id: 'all', label: 'Todas' },
+              { id: 'pending', label: 'Propuestas pendientes', count: pendingApprovalCount },
               { id: 'active', label: 'Activas' },
               { id: 'inactive', label: 'Inactivas' },
             ]}
@@ -925,18 +968,35 @@ export default function CommunitiesAdminView() {
                         </td>
                         <td className="py-2.5 px-3 font-mono">{c.active_keys_count ?? 0}</td>
                         <td className="py-2.5 px-3">
-                          {c.is_active ? (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                              Activa
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-80"
-                              style={cardStyle}
-                            >
-                              Inactiva
-                            </span>
-                          )}
+                          <div className="flex flex-col gap-1 items-start">
+                            {c.approval_status === 'pending' ? (
+                              <>
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/70 text-amber-200 border border-amber-500/60">
+                                  Propuesta · En revisión
+                                </span>
+                                {(c.requested_by_name || c.requested_by_email) && (
+                                  <span className="text-[10px] opacity-75">
+                                    Por {c.requested_by_name || c.requested_by_email}
+                                  </span>
+                                )}
+                              </>
+                            ) : c.approval_status === 'rejected' ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950/70 text-rose-200 border border-rose-700/60">
+                                Rechazada
+                              </span>
+                            ) : c.is_active ? (
+                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
+                                Activa
+                              </span>
+                            ) : (
+                              <span
+                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-80"
+                                style={cardStyle}
+                              >
+                                Inactiva
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           {isEditing ? (
@@ -960,6 +1020,26 @@ export default function CommunitiesAdminView() {
                             </div>
                           ) : (
                             <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                              {c.approval_status === 'pending' && (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={moderatingCountryId === c.id}
+                                    onClick={() => handleModerateCountryApproval(c, 'approved')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                                  >
+                                    <Check size={12} /> Aprobar barrio
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={moderatingCountryId === c.id}
+                                    onClick={() => handleModerateCountryApproval(c, 'rejected')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-45"
+                                  >
+                                    <X size={12} /> Rechazar
+                                  </button>
+                                </>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => startEditingCountryBilling(c)}
