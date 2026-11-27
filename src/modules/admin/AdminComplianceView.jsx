@@ -43,6 +43,7 @@ import {
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
   FIELD_INPUT_CLASS,
+  STANDARD_SPECIALTIES_CATALOG,
   TRUST_LEVEL_THEME,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
@@ -50,6 +51,7 @@ import { downloadCsv } from '../../utils/csvExport';
 import AdminPageHeader from '../../components/admin/AdminPageHeader';
 import AdminListToolbar from '../../components/admin/AdminListToolbar';
 import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import SearchableSelect from '../../components/SearchableSelect';
 import ProviderTrustBadge, {
   TrustChecksStrip,
   TrustLevelMeter,
@@ -180,6 +182,25 @@ export default function AdminComplianceView() {
   const [compliancePage, setCompliancePage] = useState(1);
   const [compliancePageSize, setCompliancePageSize] = useState(6);
   const [showTrustGuide, setShowTrustGuide] = useState(false);
+
+  // Verificación de rol Superadmin (resguardo visual adicional al control del backend)
+  const isSuperadminUser = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('trustlink_user');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      return String(parsed?.role || '').toLowerCase() === 'superadmin';
+    } catch {
+      return false;
+    }
+  }, []);
+
+  // Modal exclusivo Superadmin para agregar una especialidad a un prestador desde la columna Rubros
+  const [specialtyModalPerson, setSpecialtyModalPerson] = useState(null);
+  const [selectedCatalogSpecialty, setSelectedCatalogSpecialty] = useState('');
+  const [customAdminSpecialty, setCustomAdminSpecialty] = useState('');
+  const [savingAdminSpecialty, setSavingAdminSpecialty] = useState(false);
+  const [specialtyModalError, setSpecialtyModalError] = useState('');
 
   // Filtros y paginación homologada (6 / 12 / 24 / 50) para Reclamos y Garantía
   const [disputeSearch, setDisputeSearch] = useState('');
@@ -836,6 +857,69 @@ export default function AdminComplianceView() {
   };
 
   /**
+   * Abre el modal exclusivo de `superadmin` para agregar una especialidad al prestador.
+   */
+  const openAddSpecialtyModal = (person) => {
+    setSpecialtyModalPerson(person);
+    setSelectedCatalogSpecialty('');
+    setCustomAdminSpecialty('');
+    setSpecialtyModalError('');
+  };
+
+  /**
+   * Envía al backend `POST /api/v1/providers/admin/specialty` (exclusivo `superadmin`)
+   * para asignar la especialidad elegida al prestador y recarga el listado.
+   */
+  const handleSubmitAdminSpecialty = async (e) => {
+    e.preventDefault();
+    if (!specialtyModalPerson?.user_id) return;
+    const finalSpecialty =
+      selectedCatalogSpecialty === '__custom__'
+        ? customAdminSpecialty.trim()
+        : selectedCatalogSpecialty.trim();
+
+    if (!finalSpecialty || finalSpecialty.length < 2) {
+      setSpecialtyModalError('Elegí una especialidad del catálogo o escribí un nombre válido.');
+      return;
+    }
+
+    setSavingAdminSpecialty(true);
+    setSpecialtyModalError('');
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/admin/specialty`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${localStorage.getItem('trustlink_token') || ''}`,
+        },
+        body: JSON.stringify({
+          user_id: specialtyModalPerson.user_id,
+          specialty: finalSpecialty,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(
+          data.message || `Especialidad "${finalSpecialty}" agregada a ${specialtyModalPerson.full_name}.`
+        );
+        setSpecialtyModalPerson(null);
+        setSelectedCatalogSpecialty('');
+        setCustomAdminSpecialty('');
+        await fetchAllProviders();
+      } else {
+        setSpecialtyModalError(data.error || 'No se pudo agregar la especialidad.');
+      }
+    } catch (error) {
+      console.error('Error al agregar especialidad desde Superadmin:', error);
+      setSpecialtyModalError('Error de conexión al guardar la especialidad.');
+    } finally {
+      setSavingAdminSpecialty(false);
+    }
+  };
+
+  /**
    * Resuelve o desestima un reclamo post-servicio exigiendo una nota de resolución obligatoria.
    * Limpia el borrador de la nota y refresca los reclamos al finalizar.
    *
@@ -1068,29 +1152,7 @@ export default function AdminComplianceView() {
             </button>
           ))}
 
-        {/* 2) Acciones de Nivel N4 (cotejo PDF) */}
-        {person.isPersonApproved && !hasExpiredDocs && (
-          <button
-            type="button"
-            disabled={isAutoVerifyBusy}
-            onClick={() => handleToggleAutoVerify(person.user_id, !person.auto_verified)}
-            title={
-              person.auto_verified
-                ? 'Sello oficial N4 Verificado activo (cotejo PDF OK). Clic para revocar a N3.'
-                : 'Confirmar cotejo de PDFs vs. datos cargados y otorgar tilde N4 Verificado'
-            }
-            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45 ${
-              person.auto_verified
-                ? 'border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30'
-                : 'border-sky-400/50 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22'
-            }`}
-          >
-            <VerifiedSeal size={13} />
-            {person.auto_verified ? 'N4 Verificado ✓' : 'Otorgar N4 (Cotejo PDF)'}
-          </button>
-        )}
-
-        {/* 3) Resto: rechazar documentación pendiente */}
+        {/* 2) Acciones de Nivel N2–N3: rechazar documentación en revisión */}
         {!person.isPersonApproved &&
           canRejectOrRevoke &&
           (isConfirmingReject ? (
@@ -1119,9 +1181,31 @@ export default function AdminComplianceView() {
               title="Rechaza la documentación cargada y solicita recarga al prestador"
               className="border border-rose-500/45 bg-rose-950/30 hover:bg-rose-950/60 text-rose-200 font-bold px-2.5 py-1.5 rounded-lg text-[11px] inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45"
             >
-              <XCircle size={12} /> Rechazar docs
+              <XCircle size={12} /> {hasCriminal ? 'Rechazar N3' : 'Rechazar N2'}
             </button>
           ))}
+
+        {/* 3) Acciones de Nivel N4 (cotejo PDF) */}
+        {person.isPersonApproved && !hasExpiredDocs && (
+          <button
+            type="button"
+            disabled={isAutoVerifyBusy}
+            onClick={() => handleToggleAutoVerify(person.user_id, !person.auto_verified)}
+            title={
+              person.auto_verified
+                ? 'Sello oficial N4 Verificado activo (cotejo PDF OK). Clic para revocar a N3.'
+                : 'Confirmar cotejo de PDFs vs. datos cargados y otorgar tilde N4 Verificado'
+            }
+            className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border inline-flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-45 ${
+              person.auto_verified
+                ? 'border-sky-400/60 bg-sky-500/20 text-sky-100 hover:bg-sky-500/30'
+                : 'border-sky-400/50 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22'
+            }`}
+          >
+            <VerifiedSeal size={13} />
+            {person.auto_verified ? 'N4 Verificado ✓' : 'Otorgar N4 (Cotejo PDF)'}
+          </button>
+        )}
       </div>
     );
   };
@@ -1641,40 +1725,56 @@ export default function AdminComplianceView() {
                         </div>
                       )}
 
-                    {/* Rubros estándar (chips informativos sin botones repetidos) */}
-                    {person.standardSpecs.length > 0 && (
+                    {/* Rubros estándar (chips informativos + alta directa exclusiva Superadmin) */}
+                    {(person.standardSpecs.length > 0 || (isSuperadminUser && person.user_id && person.user_is_active !== false)) && (
                       <div className="space-y-1.5">
-                        <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
-                          Especialidades de catálogo ({person.standardSpecs.length})
-                        </span>
-                        <div className="flex flex-wrap gap-1.5">
-                          {visibleStandardSpecs.map((spec) => {
-                            const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
-                            return (
-                              <span
-                                key={spec.provider_id}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-semibold"
-                                style={cardStyle}
-                              >
-                                <span>{spec.specialty}</span>
-                                <span
-                                  className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${statusMeta.cls}`}
-                                >
-                                  {statusMeta.label}
-                                </span>
-                              </span>
-                            );
-                          })}
-                          {hiddenStandardCount > 0 && (
-                            <span
-                              className="inline-flex items-center px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-bold opacity-80"
-                              style={cardStyle}
-                              title={person.standardSpecs.slice(3).map((s) => s.specialty).join(' · ')}
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                            Especialidades de catálogo ({person.standardSpecs.length})
+                          </span>
+                          {isSuperadminUser && person.user_id && person.user_is_active !== false && (
+                            <button
+                              type="button"
+                              onClick={() => openAddSpecialtyModal(person)}
+                              title="Agregar una especialidad a este prestador (exclusivo Superadmin)"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 text-[10px] font-bold transition-colors cursor-pointer"
                             >
-                              +{hiddenStandardCount} más
-                            </span>
+                              <Plus size={10} /> Rubro
+                            </button>
                           )}
                         </div>
+                        {person.standardSpecs.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {visibleStandardSpecs.map((spec) => {
+                              const statusMeta = getUnifiedStatusMeta(spec.status, 'compliance');
+                              return (
+                                <span
+                                  key={spec.provider_id}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-semibold"
+                                  style={cardStyle}
+                                >
+                                  <span>{spec.specialty}</span>
+                                  <span
+                                    className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full border ${statusMeta.cls}`}
+                                  >
+                                    {statusMeta.label}
+                                  </span>
+                                </span>
+                              );
+                            })}
+                            {hiddenStandardCount > 0 && (
+                              <span
+                                className="inline-flex items-center px-2.5 py-1 rounded-lg border border-white/15 text-[11px] font-bold opacity-80"
+                                style={cardStyle}
+                                title={person.standardSpecs.slice(3).map((s) => s.specialty).join(' · ')}
+                              >
+                                +{hiddenStandardCount} más
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] opacity-60 italic">Sin especialidades aún</p>
+                        )}
                       </div>
                     )}
 
@@ -1750,7 +1850,7 @@ export default function AdminComplianceView() {
                               }
                             >
                               <Check size={12} />
-                              {person.identity_verified ? 'DNI Validado' : 'Validar DNI (→ N1)'}
+                              {person.identity_verified ? 'N1 Validado' : 'Validar N1'}
                             </button>
                           )}
                         {hasProfile ? (
@@ -2107,35 +2207,45 @@ export default function AdminComplianceView() {
                           )}
                         </td>
 
-                        {/* 4. Rubros: chips sobrios + moderación en línea solo cuando hay personalizados */}
+                        {/* 4. Rubros: chips sobrios + botón "+ Rubro" exclusivo Superadmin + moderación */}
                         <td className="py-3.5 px-3">
                           {hasProfile ? (
                             <div className="space-y-1.5">
-                              {person.standardSpecs.length > 0 && (
-                                <div className="flex flex-wrap gap-1">
-                                  {person.standardSpecs.slice(0, 3).map((spec) => (
-                                    <span
-                                      key={spec.provider_id}
-                                      className="px-2 py-0.5 rounded-md border border-white/12 text-[10px] font-semibold"
-                                      style={cardStyle}
+                              <div className="flex flex-wrap items-center gap-1">
+                                {person.standardSpecs.slice(0, 3).map((spec) => (
+                                  <span
+                                    key={spec.provider_id}
+                                    className="px-2 py-0.5 rounded-md border border-white/12 text-[10px] font-semibold"
+                                    style={cardStyle}
+                                  >
+                                    {spec.specialty}
+                                  </span>
+                                ))}
+                                {person.standardSpecs.length > 3 && (
+                                  <span
+                                    className="px-2 py-0.5 rounded-md border border-white/12 text-[10px] font-bold opacity-75"
+                                    style={cardStyle}
+                                    title={person.standardSpecs
+                                      .slice(3)
+                                      .map((s) => s.specialty)
+                                      .join(' · ')}
+                                  >
+                                    +{person.standardSpecs.length - 3}
+                                  </span>
+                                )}
+                                {isSuperadminUser &&
+                                  person.user_id &&
+                                  person.user_is_active !== false && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openAddSpecialtyModal(person)}
+                                      title="Agregar especialidad a este prestador (exclusivo Superadmin)"
+                                      className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 text-[10px] font-bold transition-colors cursor-pointer"
                                     >
-                                      {spec.specialty}
-                                    </span>
-                                  ))}
-                                  {person.standardSpecs.length > 3 && (
-                                    <span
-                                      className="px-2 py-0.5 rounded-md border border-white/12 text-[10px] font-bold opacity-75"
-                                      style={cardStyle}
-                                      title={person.standardSpecs
-                                        .slice(3)
-                                        .map((s) => s.specialty)
-                                        .join(' · ')}
-                                    >
-                                      +{person.standardSpecs.length - 3}
-                                    </span>
+                                      <Plus size={10} /> Rubro
+                                    </button>
                                   )}
-                                </div>
-                              )}
+                              </div>
                               {person.customSpecs.map((spec) => (
                                 <div
                                   key={spec.provider_id}
@@ -2156,13 +2266,27 @@ export default function AdminComplianceView() {
                               ))}
                             </div>
                           ) : (
-                            <span className="text-[11px] opacity-60 italic whitespace-nowrap">
-                              Sin especialidades aún
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-[11px] opacity-60 italic whitespace-nowrap">
+                                Sin especialidades aún
+                              </span>
+                              {isSuperadminUser &&
+                                person.user_id &&
+                                person.user_is_active !== false && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openAddSpecialtyModal(person)}
+                                    title="Agregar especialidad a este prestador (exclusivo Superadmin)"
+                                    className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 text-[10px] font-bold transition-colors cursor-pointer whitespace-nowrap"
+                                  >
+                                    <Plus size={10} /> Rubro
+                                  </button>
+                                )}
+                            </div>
                           )}
                         </td>
 
-                        {/* 5. Acciones: solo botones reales y jerarquía limpia (patrón Comunidades) */}
+                        {/* 5. Acciones: niveles N1 → N2/N3 → N4 agrupados de menor a mayor, luego Eje Comercial y resto */}
                         <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           {person.user_is_active === false ? (
                             <span className="text-[11px] text-rose-300/80 italic">
@@ -2170,7 +2294,7 @@ export default function AdminComplianceView() {
                             </span>
                           ) : (
                             <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                              {/* 1) Niveles de menor a mayor: N1 → N3 → N4 */}
+                              {/* 1) Niveles de menor a mayor: N1 → N2/N3 → N4 */}
 
                               {/* N1 · Validar DNI */}
                               {person.user_id &&
@@ -2185,7 +2309,7 @@ export default function AdminComplianceView() {
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-400/55 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 transition-colors cursor-pointer disabled:opacity-45"
                                   >
                                     <Check size={12} />
-                                    <span>Validar DNI</span>
+                                    <span>Validar N1</span>
                                   </button>
                                 )}
 
@@ -2205,9 +2329,8 @@ export default function AdminComplianceView() {
                                 </button>
                               )}
 
-                              {/* N3 · Revocar N3 (cuando ya está aprobado en N3/N4, confirmación en 2 clics) */}
-                              {person.isPersonApproved &&
-                                canRejectOrRevoke &&
+                              {/* N2/N3 · Rechazar N2 / Rechazar N3 o Revocar N3 (confirmación en 2 clics) */}
+                              {canRejectOrRevoke &&
                                 (isConfirmingReject ? (
                                   <div className="inline-flex items-center gap-1">
                                     <button
@@ -2233,11 +2356,21 @@ export default function AdminComplianceView() {
                                     type="button"
                                     onClick={() => setConfirmRejectKey(rejectKey)}
                                     disabled={isBusyCompliance}
-                                    title="Revoca la aprobación N3/N4 y pausa la emisión de Pases QR"
+                                    title={
+                                      person.isPersonApproved
+                                        ? 'Revoca la aprobación N3/N4 y pausa la emisión de Pases QR'
+                                        : 'Rechaza la documentación cargada y solicita recarga al prestador'
+                                    }
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer disabled:opacity-45"
                                   >
                                     <X size={12} />
-                                    <span>Revocar N3</span>
+                                    <span>
+                                      {person.isPersonApproved
+                                        ? 'Revocar N3'
+                                        : hasCriminal
+                                          ? 'Rechazar N3'
+                                          : 'Rechazar N2'}
+                                    </span>
                                   </button>
                                 ))}
 
@@ -2269,43 +2402,7 @@ export default function AdminComplianceView() {
                                 </button>
                               )}
 
-                              {/* 2) Resto de acciones: Rechazar docs, Destacado (Eje Comercial) y Recordar */}
-
-                              {/* Rechazar documentación en revisión (confirmación en 2 clics) */}
-                              {!person.isPersonApproved &&
-                                canRejectOrRevoke &&
-                                (isConfirmingReject ? (
-                                  <div className="inline-flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleUpdateUserCompliance(person.user_id, 'rejected')
-                                      }
-                                      disabled={isBusyCompliance}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer disabled:opacity-45"
-                                    >
-                                      <Check size={11} /> Confirmar
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setConfirmRejectKey(null)}
-                                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
-                                    >
-                                      <X size={11} /> No
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setConfirmRejectKey(rejectKey)}
-                                    disabled={isBusyCompliance}
-                                    title="Rechaza la documentación cargada y solicita recarga al prestador"
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer disabled:opacity-45"
-                                  >
-                                    <X size={12} />
-                                    <span>Rechazar docs</span>
-                                  </button>
-                                ))}
+                              {/* 2) Resto de acciones: Eje Comercial (Destacado) y Recordar */}
 
                               {/* Gestión comercial Destacado (eje independiente, solo N3+) */}
                               {person.user_id &&
@@ -2536,6 +2633,144 @@ export default function AdminComplianceView() {
             innerStyle={innerStyle}
           />
         </section>
+      )}
+
+      {/* Modal exclusivo Superadmin para agregar especialidad a un prestador desde la columna Rubros */}
+      {isSuperadminUser && specialtyModalPerson && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Agregar especialidad al prestador"
+        >
+          <form
+            onSubmit={handleSubmitAdminSpecialty}
+            className="w-full max-w-md rounded-2xl border border-white/15 p-5 space-y-4 shadow-2xl text-xs"
+            style={cardStyle}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-0.5 min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-indigo-300">
+                  Gestión Superadmin · Rubros
+                </p>
+                <h3 className="text-base font-extrabold truncate">
+                  Agregar especialidad
+                </h3>
+                <p className="text-[11px] opacity-75 truncate">
+                  {specialtyModalPerson.full_name} · DNI {specialtyModalPerson.dni}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSpecialtyModalPerson(null)}
+                className="p-1.5 rounded-lg border border-white/15 opacity-75 hover:opacity-100 cursor-pointer"
+                style={innerStyle}
+              >
+                <X size={14} />
+              </button>
+            </div>
+
+            {specialtyModalPerson.specialties.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                  Rubros actuales ({specialtyModalPerson.specialties.length})
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {specialtyModalPerson.specialties.map((s) => (
+                    <span
+                      key={s.provider_id}
+                      className="px-2 py-0.5 rounded-md border border-white/12 text-[10px] font-semibold"
+                      style={innerStyle}
+                    >
+                      {s.specialty}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="block text-[11px] font-bold opacity-85">
+                Especialidad / Rubro
+              </label>
+              <SearchableSelect
+                value={selectedCatalogSpecialty}
+                onChange={(val) => {
+                  setSelectedCatalogSpecialty(val);
+                  setSpecialtyModalError('');
+                }}
+                options={STANDARD_SPECIALTIES_CATALOG.filter((cat) => {
+                  const existingNorm = specialtyModalPerson.specialties.map((s) =>
+                    String(s.specialty || '').trim().toLowerCase()
+                  );
+                  return !existingNorm.includes(cat.trim().toLowerCase());
+                }).map((cat) => ({ value: cat, label: cat }))}
+                placeholder="Seleccionar del catálogo..."
+                searchPlaceholder="Buscar especialidad..."
+                emptyMessage="No encontramos ese rubro en el catálogo."
+                extraAction={{
+                  value: '__custom__',
+                  label: 'Otra especialidad (escribir manualmente)',
+                  description: 'Se asigna directamente aprobada por Superadmin',
+                }}
+                triggerStyle={innerStyle}
+                panelStyle={cardStyle}
+                ariaLabel="Seleccionar especialidad"
+              />
+
+              {selectedCatalogSpecialty === '__custom__' && (
+                <input
+                  type="text"
+                  value={customAdminSpecialty}
+                  onChange={(e) => {
+                    setCustomAdminSpecialty(e.target.value);
+                    setSpecialtyModalError('');
+                  }}
+                  placeholder="Ej: Instalador de Paneles Solares"
+                  maxLength={100}
+                  className={`w-full ${FIELD_INPUT_CLASS}`}
+                  style={innerStyle}
+                  autoFocus
+                />
+              )}
+            </div>
+
+            {specialtyModalError && (
+              <div className="bg-rose-950/50 border border-rose-800 text-rose-200 px-3 py-2 rounded-xl text-[11px] flex items-center gap-1.5">
+                <AlertCircle size={13} className="shrink-0 text-rose-400" />
+                <span>{specialtyModalError}</span>
+              </div>
+            )}
+
+            <p className="text-[11px] opacity-70 leading-snug">
+              Hereda automáticamente la documentación vigente del prestador y queda visible al
+              instante (si ya tiene DNI validado, sube a N1; si ya está aprobado en N3/N4, queda
+              habilitada para Pases QR).
+            </p>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setSpecialtyModalPerson(null)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 cursor-pointer"
+              >
+                <X size={13} /> Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  savingAdminSpecialty ||
+                  !selectedCatalogSpecialty ||
+                  (selectedCatalogSpecialty === '__custom__' &&
+                    customAdminSpecialty.trim().length < 2)
+                }
+                className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
+              >
+                <Check size={13} /> {savingAdminSpecialty ? 'Guardando...' : 'Agregar rubro'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
     </div>
   );
