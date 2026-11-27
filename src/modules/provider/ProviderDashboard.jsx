@@ -836,13 +836,17 @@ export default function ProviderDashboard({
             resolvedFrom ||
             null
           : null;
-      let resolvedTo = latestVersion?.valid_to || profTo || null;
-      if (slot === 'criminal' && !resolvedTo && resolvedIssuedAt) {
+      let standard180Expiry = null;
+      if (slot === 'criminal' && resolvedIssuedAt) {
         const issuedDate = new Date(resolvedIssuedAt);
         if (!Number.isNaN(issuedDate.getTime())) {
           issuedDate.setDate(issuedDate.getDate() + 180);
-          resolvedTo = issuedDate.toISOString().slice(0, 10);
+          standard180Expiry = issuedDate.toISOString().slice(0, 10);
         }
+      }
+      let resolvedTo = latestVersion?.valid_to || profTo || null;
+      if (slot === 'criminal' && !resolvedTo && standard180Expiry) {
+        resolvedTo = standard180Expiry;
       }
       const resolvedAuditStatus =
         latestVersion?.status || fallbackProf?.status || primaryProf?.status || 'pending';
@@ -868,6 +872,7 @@ export default function ProviderDashboard({
         validFrom: resolvedFrom,
         validTo: resolvedTo,
         issuedAt: resolvedIssuedAt,
+        standard180Expiry,
         metadata: resolvedMetadata,
         auditStatus: resolvedAuditStatus,
         isMissing,
@@ -2618,21 +2623,19 @@ export default function ProviderDashboard({
               statusLabel: directoryReadiness.artOk
                 ? isQrReadyOrHigher
                   ? 'Aprobado'
-                  : 'En revisión'
+                  : 'Logrado'
                 : directoryReadiness.artExpired
                   ? 'Vencido'
                   : 'Pendiente',
               statusTone: directoryReadiness.artOk
-                ? isQrReadyOrHigher
-                  ? 'done'
-                  : 'info'
+                ? 'done'
                 : directoryReadiness.artExpired
                   ? 'danger'
                   : 'pending',
               detail: directoryReadiness.artOk
                 ? isQrReadyOrHigher
                   ? 'Póliza de Seguro AP / ART vigente y aprobada.'
-                  : 'Seguro cargado y en revisión de TrustLink.'
+                  : 'Seguro cargado · pasa a aprobación final en Nivel 3.'
                 : 'Cargá Seguro de Accidentes Personales (si trabajás solo) o Póliza ART (si tenés ayudantes).',
               cta: !directoryReadiness.artOk
                 ? {
@@ -2783,7 +2786,6 @@ export default function ProviderDashboard({
                           <ProviderTrustBadge
                             trust={directoryReadiness.resolvedTrustBadge}
                             size="md"
-                            showScale
                           />
                           {directoryReadiness.isFeaturedPartner && <FeaturedPartnerBadge compact />}
                           <TrustChecksStrip
@@ -3344,11 +3346,19 @@ export default function ProviderDashboard({
                 style={innerStyle}
               >
                 <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1 min-w-0">
+                  <div className="space-y-1.5 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
+                      <span
+                        title="Requisito de Nivel 1 · Perfil Básico"
+                        className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-500/15 text-slate-200 shrink-0"
+                      >
+                        N1
+                      </span>
                       <span className="font-bold text-sm">
                         Documento de Identidad (DNI{profileData.dni ? ` ${profileData.dni}` : ''})
                       </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {directoryReadiness.identityVerified ? (
                         <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-950/80 text-emerald-300 border-emerald-700/60">
                           DNI Validado ✓
@@ -3647,9 +3657,25 @@ export default function ProviderDashboard({
                       </div>
                     ) : docItem.isMissing ? (
                       <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1 min-w-0">
+                        <div className="space-y-1.5 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              title={
+                                docItem.slot === 'insurance'
+                                  ? 'Requisito de Nivel 2 · Seguro en revisión'
+                                  : 'Requisito de Nivel 3 · Pase QR habilitado'
+                              }
+                              className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border shrink-0 ${
+                                docItem.slot === 'insurance'
+                                  ? 'border-sky-400/50 bg-sky-500/15 text-sky-200'
+                                  : 'border-teal-400/50 bg-teal-500/15 text-teal-200'
+                              }`}
+                            >
+                              {docItem.slot === 'insurance' ? 'N2' : 'N3'}
+                            </span>
                             <span className="font-bold text-sm">{displayDocTitle}</span>
+                          </div>
+                          <div>
                             <span
                               className="text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-amber-600/50 bg-amber-950/60 text-amber-200"
                             >
@@ -3687,10 +3713,26 @@ export default function ProviderDashboard({
                       </div>
                     ) : (
                       <div className="flex items-start justify-between gap-3">
-                        <div className="space-y-1 min-w-0">
+                        <div className="space-y-1.5 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
+                            <span
+                              title={
+                                docItem.slot === 'insurance'
+                                  ? 'Requisito de Nivel 2 · Seguro en revisión'
+                                  : 'Requisito de Nivel 3 · Pase QR habilitado'
+                              }
+                              className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border shrink-0 ${
+                                docItem.slot === 'insurance'
+                                  ? 'border-sky-400/50 bg-sky-500/15 text-sky-200'
+                                  : 'border-teal-400/50 bg-teal-500/15 text-teal-200'
+                              }`}
+                            >
+                              {docItem.slot === 'insurance' ? 'N2' : 'N3'}
+                            </span>
                             <span className="font-bold text-sm">{displayDocTitle}</span>
-                            {docItem.validTo ? (
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {docItem.validTo || docItem.standard180Expiry ? (
                               <span
                                 className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                                   validity.tone === 'success'
@@ -3755,9 +3797,11 @@ export default function ProviderDashboard({
                           )}
                           <p className="opacity-75">
                             {docItem.slot === 'criminal'
-                              ? docItem.validTo
-                                ? `Vigencia calculada (estándar 180d): hasta ${formatDateShort(docItem.validTo)}`
-                                : 'Cargá la fecha de emisión para calcular vigencia por barrio.'
+                              ? docItem.standard180Expiry
+                                ? `Vigencia estándar (180d): hasta ${formatDateShort(docItem.standard180Expiry)} · ajustable por barrio`
+                                : docItem.validTo
+                                  ? `Vencimiento registrado: ${formatDateShort(docItem.validTo)}`
+                                  : 'Cargá la fecha de emisión para calcular vigencia por barrio.'
                               : docItem.validTo
                                 ? `Vigencia: ${formatDateShort(docItem.validFrom)} → ${formatDateShort(docItem.validTo)}`
                                 : `Desde ${formatDateShort(docItem.validFrom)} · Cargá la fecha de vencimiento con "Renovar / Editar"`}
@@ -3879,9 +3923,15 @@ export default function ProviderDashboard({
           >
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold flex items-center gap-2 flex-wrap">
                   <Award size={18} className="text-emerald-400 shrink-0" />
                   <span>Especialidades y Credenciales</span>
+                  <span
+                    title="Tener al menos 1 rubro visible es requisito de Nivel 1 (Perfil Básico)"
+                    className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-500/15 text-slate-200"
+                  >
+                    Requisito N1
+                  </span>
                 </h2>
                 <p className="text-xs opacity-75">
                   Administrá tus rubros habilitados y su visibilidad en el directorio.
@@ -3993,6 +4043,15 @@ export default function ProviderDashboard({
                 {activeSpecialtiesCount} activa(s)
               </span>
             </div>
+
+            {profileData.providers.length > 0 &&
+              directoryReadiness.isVisibleInDirectory &&
+              !directoryReadiness.canIssuePass && (
+                <p className="text-[11px] opacity-80 rounded-xl px-3 py-2 border border-sky-500/30 bg-sky-950/25 text-sky-200">
+                  Tus rubros visibles figuran hoy para consultas (N1–N2). Al aprobarse tu
+                  documentación pasarán automáticamente a <strong>Pase QR activo</strong>.
+                </p>
+              )}
 
             <div className="space-y-3">
               {profileData.providers.length === 0 ? (
@@ -4135,17 +4194,18 @@ export default function ProviderDashboard({
                               </p>
                             )}
                             {(isHidden ||
-                              p.status !== 'approved' ||
+                              p.status === 'rejected' ||
+                              (!directoryReadiness.isVisibleInDirectory && p.status !== 'approved') ||
                               (p.is_custom_specialty &&
                                 p.specialty_approval_status === 'pending')) && (
                               <p className="opacity-75 text-[11px]">
                                 {isHidden
                                   ? 'Oculta manualmente: los residentes no verán este rubro hasta que lo vuelvas a mostrar.'
-                                  : p.is_custom_specialty &&
-                                      p.specialty_approval_status === 'pending'
-                                    ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
-                                    : directoryReadiness.isVisibleInDirectory
-                                      ? 'Visible para consultas (Nivel 1–2). Al aprobar documentación habilitará Pases QR.'
+                                  : p.status === 'rejected'
+                                    ? 'Rubro rechazado por Administración. Podés editarlo o consultar con soporte.'
+                                    : p.is_custom_specialty &&
+                                        p.specialty_approval_status === 'pending'
+                                      ? 'Especialidad personalizada en revisión por Operaciones TrustLink.'
                                       : 'Se publicará en el directorio al validar tu DNI y documentación.'}
                               </p>
                             )}
