@@ -57,6 +57,8 @@ import { useAuth } from '../auth/AuthContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import SearchableSelect from '../../components/SearchableSelect';
+import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import { paginateItems } from '../../utils/adminPagination';
 import ProviderTrustBadge, {
   FeaturedPartnerBadge,
   ProviderAvatar,
@@ -84,9 +86,6 @@ import {
   formatDateTimeAR,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
-
-/** Cantidad máxima de tarjetas de Pases QR visibles por página en el listado. */
-const PASSES_PER_PAGE = 6;
 
 /** Cantidad máxima de chips de especialidad visibles por tarjeta antes de agrupar con "+N más". */
 const MAX_VISIBLE_CARD_SPECIALTIES = 3;
@@ -157,6 +156,7 @@ const formatLocalDateTime = (value) => {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    hour12: false,
   });
 };
 
@@ -494,11 +494,15 @@ export default function ResidentDashboard({
     return 'all';
   });
   const [servicesSearch, setServicesSearch] = useState('');
+  const [servicesPage, setServicesPage] = useState(1);
+  const [servicesPageSize, setServicesPageSize] = useState(6);
+  const [expandedVisitChats, setExpandedVisitChats] = useState({});
   const [expandedRatingContractId, setExpandedRatingContractId] = useState(null);
 
-  /** Navega a "2. Mis Servicios" aplicando el filtro contextual solicitado. */
+  /** Navega a "Mis Servicios" aplicando el filtro contextual solicitado. */
   const openServicesView = (nextFilter = 'all') => {
     setServicesFilter(nextFilter);
+    setServicesPage(1);
     setActiveStep('services');
   };
 
@@ -604,6 +608,8 @@ export default function ResidentDashboard({
   const [showTrustGuide, setShowTrustGuide] = useState(false);
   const [togglingFavoriteUserId, setTogglingFavoriteUserId] = useState(null);
   const [directorySortBy, setDirectorySortBy] = useState('featured');
+  const [directoryPage, setDirectoryPage] = useState(1);
+  const [directoryPageSize, setDirectoryPageSize] = useState(12);
   // Ficha Completa unificada del prestador (pestañas: 'overview' | 'reviews' | 'qa')
   const [profileModalProvider, setProfileModalProvider] = useState(null);
   const [profileModalTab, setProfileModalTab] = useState('overview');
@@ -677,6 +683,7 @@ export default function ResidentDashboard({
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passesPage, setPassesPage] = useState(1);
+  const [passesPageSize, setPassesPageSize] = useState(6);
   const [cancellingPassId, setCancellingPassId] = useState(null);
   const [passListFeedback, setPassListFeedback] = useState({ type: '', text: '' });
 
@@ -1951,13 +1958,15 @@ export default function ResidentDashboard({
     });
   }, [myPasses, passSearch, passStatusFilter]);
 
-  // Cálculo de páginas totales y porción de pases visibles en la página actual
-  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
-  const paginatedPasses = useMemo(() => {
-    const safePage = Math.min(passesPage, totalPassPages);
-    const startIdx = (safePage - 1) * PASSES_PER_PAGE;
-    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
-  }, [filteredPasses, passesPage, totalPassPages]);
+  // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) para Pases QR
+  const {
+    pageItems: paginatedPasses,
+    safePage: safePassesPage,
+    totalPages: totalPassPages,
+  } = useMemo(
+    () => paginateItems(filteredPasses, passesPage, passesPageSize),
+    [filteredPasses, passesPage, passesPageSize]
+  );
 
   /**
    * Inicia el pago de un contrato pendiente. Si el backend devuelve una URL de checkout
@@ -2367,6 +2376,25 @@ export default function ResidentDashboard({
       unratedServicesCount: counts.unrated,
     };
   }, [contracts, reviewContracts, myPasses, myVisits, providers, servicesFilter, servicesSearch]);
+
+  // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) para Mis Servicios y Directorio
+  const {
+    pageItems: paginatedUnifiedServices,
+    safePage: safeServicesPage,
+    totalPages: totalServicesPages,
+  } = useMemo(
+    () => paginateItems(filteredUnifiedServices, servicesPage, servicesPageSize),
+    [filteredUnifiedServices, servicesPage, servicesPageSize]
+  );
+
+  const {
+    pageItems: paginatedDirectoryProviders,
+    safePage: safeDirectoryPage,
+    totalPages: totalDirectoryPages,
+  } = useMemo(
+    () => paginateItems(filteredProviders, directoryPage, directoryPageSize),
+    [filteredProviders, directoryPage, directoryPageSize]
+  );
 
   // Contexto residencial personal para el encabezado (comunidad, área y lote)
   const residentLocationLabel = useMemo(() => {
@@ -3175,9 +3203,10 @@ export default function ResidentDashboard({
               )}
             </div>
           ) : (
-            /* Grilla 3 columnas con tarjetas minimalistas (regla de los 5 datos, escaneables en 3s) */
+            /* Grilla 3 columnas con tarjetas minimalistas y paginación estándar */
+            <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
-              {filteredProviders.map((provider) => {
+              {paginatedDirectoryProviders.map((provider) => {
                 const providerId = Number(provider.provider_id || provider.id);
                 const fullName =
                   `${provider.first_name || ''} ${provider.last_name || ''}`.trim() ||
@@ -3506,6 +3535,23 @@ export default function ResidentDashboard({
                 );
               })}
             </div>
+            {filteredProviders.length > 0 && (
+              <AdminPaginationBar
+                page={safeDirectoryPage}
+                totalPages={totalDirectoryPages}
+                totalItems={filteredProviders.length}
+                pageSize={directoryPageSize}
+                onPageChange={setDirectoryPage}
+                onPageSizeChange={(nextSize) => {
+                  setDirectoryPageSize(nextSize);
+                  setDirectoryPage(1);
+                }}
+                loading={loadingProviders}
+                itemLabel="prestadores"
+                innerStyle={innerStyle}
+              />
+            )}
+            </>
           )}
         </section>
       )}
@@ -3521,26 +3567,16 @@ export default function ResidentDashboard({
                 <span>Mis Servicios</span>
               </h2>
               <p className="text-xs opacity-75">
-                Seguí tus visitas, acuerdos, pagos ({gatewayConfig.platform_fee_percent}% plataforma /{' '}
-                {100 - gatewayConfig.platform_fee_percent}% prestador), comprobantes y reseñas en un solo lugar.
+                Seguí tus visitas, acuerdos, pagos, comprobantes y reseñas en un solo lugar.
               </p>
             </div>
 
             <div className="flex items-center gap-2 flex-wrap shrink-0">
-              <span
-                className={`text-[11px] font-bold px-2.5 py-1.5 rounded-xl border ${
-                  gatewayConfig.gateway_mode === 'mercadopago'
-                    ? 'border-sky-500/40 bg-sky-950/50 text-sky-200'
-                    : 'border-white/15 opacity-85'
-                }`}
-                style={gatewayConfig.gateway_mode === 'mercadopago' ? undefined : innerStyle}
-              >
-                {gatewayConfig.gateway_mode === 'mercadopago'
-                  ? gatewayConfig.sandbox
-                    ? 'Mercado Pago (Sandbox)'
-                    : 'Mercado Pago Activo'
-                  : 'Modo Piloto'}
-              </span>
+              {gatewayConfig.gateway_mode === 'mercadopago' && (
+                <span className="text-[11px] font-bold px-2.5 py-1.5 rounded-xl border border-sky-500/40 bg-sky-950/50 text-sky-200">
+                  {gatewayConfig.sandbox ? 'Mercado Pago (Sandbox)' : 'Mercado Pago Activo'}
+                </span>
+              )}
 
               <button
                 type="button"
@@ -3557,23 +3593,25 @@ export default function ResidentDashboard({
                 <span>{showNewOrderForm ? 'Cerrar' : 'Nueva Orden de Pago'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={() => {
-                  fetchMyVisits();
-                  fetchContractsData();
-                  fetchReviewsData();
-                  fetchMyPasses();
-                }}
-                className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
-                style={innerStyle}
-                title="Actualizar Mis Servicios"
-              >
-                <RefreshCw
-                  size={15}
-                  className={loadingVisits || loadingContracts || loadingReviews ? 'animate-spin' : ''}
-                />
-              </button>
+              {!useGlobalHeader && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    fetchMyVisits();
+                    fetchContractsData();
+                    fetchReviewsData();
+                    fetchMyPasses();
+                  }}
+                  className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer"
+                  style={innerStyle}
+                  title="Actualizar Mis Servicios"
+                >
+                  <RefreshCw
+                    size={15}
+                    className={loadingVisits || loadingContracts || loadingReviews ? 'animate-spin' : ''}
+                  />
+                </button>
+              )}
             </div>
           </div>
 
@@ -3594,7 +3632,7 @@ export default function ResidentDashboard({
               {eligibleOrderPasses.length === 0 ? (
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-amber-500/35 bg-amber-950/25 text-amber-100">
                   <span>
-                    Aún no tenés pases QR elegibles. Emití primero un pase en el Paso 3 o elegí un prestador en el Paso 1.
+                    Aún no tenés pases QR elegibles. Emití primero un pase en Pases QR o elegí un prestador en Prestadores.
                   </span>
                   <button
                     type="button"
@@ -3777,7 +3815,10 @@ export default function ResidentDashboard({
               <input
                 type="text"
                 value={servicesSearch}
-                onChange={(e) => setServicesSearch(e.target.value)}
+                onChange={(e) => {
+                  setServicesSearch(e.target.value);
+                  setServicesPage(1);
+                }}
                 placeholder="Buscar en Mis Servicios por prestador, trabajo o #número..."
                 className={`w-full pl-9 pr-9 py-2 ${FIELD_INPUT_CLASS}`}
                 style={innerStyle}
@@ -3785,7 +3826,10 @@ export default function ResidentDashboard({
               {servicesSearch && (
                 <button
                   type="button"
-                  onClick={() => setServicesSearch('')}
+                  onClick={() => {
+                    setServicesSearch('');
+                    setServicesPage(1);
+                  }}
                   aria-label="Limpiar búsqueda en Mis Servicios"
                   className="absolute right-3 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
                 >
@@ -3810,7 +3854,10 @@ export default function ResidentDashboard({
                   <button
                     key={chip.id}
                     type="button"
-                    onClick={() => setServicesFilter(chip.id)}
+                    onClick={() => {
+                      setServicesFilter(chip.id);
+                      setServicesPage(1);
+                    }}
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
                       active
                         ? 'text-white border-transparent shadow-sm'
@@ -3832,6 +3879,7 @@ export default function ResidentDashboard({
                   onClick={() => {
                     setServicesFilter('all');
                     setServicesSearch('');
+                    setServicesPage(1);
                   }}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
                 >
@@ -3857,7 +3905,7 @@ export default function ResidentDashboard({
               </p>
               <p className="opacity-75">
                 {servicesCounts.all === 0
-                  ? 'Buscá un prestador verificado en 1. Prestadores para coordinar tu primera visita.'
+                  ? 'Buscá un prestador verificado en Prestadores para coordinar tu primera visita.'
                   : 'Probá seleccionar "Todos" o limpiar la búsqueda.'}
               </p>
               <button
@@ -3865,17 +3913,17 @@ export default function ResidentDashboard({
                 onClick={() =>
                   servicesCounts.all === 0
                     ? setActiveStep('providers')
-                    : (setServicesFilter('all'), setServicesSearch(''))
+                    : (setServicesFilter('all'), setServicesSearch(''), setServicesPage(1))
                 }
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer"
                 style={{ backgroundColor: primaryColor }}
               >
-                {servicesCounts.all === 0 ? 'Ir a 1. Prestadores' : 'Ver todos mis servicios'}
+                {servicesCounts.all === 0 ? 'Ir a Prestadores' : 'Ver todos mis servicios'}
               </button>
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredUnifiedServices.map((entry) => {
+              {paginatedUnifiedServices.map((entry) => {
                 /* ===== TARJETA UNIFICADA DE CONTRATO / SERVICIO (Pago + Conformidad + Comprobante + Reseña + Reclamo) ===== */
                 if (entry.kind === 'contract') {
                   const {
@@ -3957,23 +4005,26 @@ export default function ResidentDashboard({
                       {/* Cuerpo principal: Prestador + trabajo + progreso de 4 hitos */}
                       <div className="p-4 space-y-3">
                         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="text-sm font-extrabold">{providerDisplay}</h3>
-                              {specialty && (
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                  {specialty}
-                                </span>
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <ProviderAvatar name={providerDisplay} size="sm" />
+                            <div className="space-y-1 min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className="text-sm font-extrabold">{providerDisplay}</h3>
+                                {specialty && (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                    {specialty}
+                                  </span>
+                                )}
+                              </div>
+                              {contract.description && (
+                                <p className="text-xs opacity-85">{contract.description}</p>
+                              )}
+                              {contract.completed_at && (
+                                <p className="text-[11px] text-emerald-300/90">
+                                  Conformidad registrada el {formatDateTimeAR(contract.completed_at)}
+                                </p>
                               )}
                             </div>
-                            {contract.description && (
-                              <p className="text-xs opacity-85">{contract.description}</p>
-                            )}
-                            {contract.completed_at && (
-                              <p className="text-[11px] text-emerald-300/90">
-                                Conformidad registrada el {formatDateTimeAR(contract.completed_at)}
-                              </p>
-                            )}
                           </div>
 
                           {/* Mini progreso de 4 hitos del servicio */}
@@ -4011,9 +4062,15 @@ export default function ResidentDashboard({
                           </div>
                         </div>
 
-                        {/* Reseñas ya emitidas o recibidas (compactas en la misma tarjeta) */}
+                        {/* Reseñas ya emitidas o recibidas (ocupa todo el ancho si hay una sola) */}
                         {(hasRatedProvider || reviewInfo?.owner_review_rating) && (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                          <div
+                            className={`grid grid-cols-1 ${
+                              hasRatedProvider && reviewInfo?.owner_review_rating
+                                ? 'md:grid-cols-2'
+                                : ''
+                            } gap-2`}
+                          >
                             {hasRatedProvider && (
                               <div className="rounded-xl p-2.5 bg-emerald-950/25 border border-emerald-800/40 space-y-1">
                                 <span className="font-bold text-emerald-300">
@@ -4245,13 +4302,32 @@ export default function ResidentDashboard({
                 const { visit, meta, matchedProvider, canIssueQr, providerDisplay } = entry;
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
                 const isCountering = counterVisitId === visit.id;
+                const isChatExpanded = Boolean(expandedVisitChats[visit.id]);
+                const visitTrustLevel = Number(
+                  matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
+                );
+                const visitBadgeLabel =
+                  meta.isConfirmed && !canIssueQr ? 'Acordada · Sin Pase QR' : meta.label;
+                const visitBadgeCls =
+                  meta.isConfirmed && !canIssueQr
+                    ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                    : meta.badgeClass;
                 const cardBorderCls = meta.isPendingResident
                   ? 'border-sky-400/55 ring-1 ring-sky-400/20'
-                  : meta.isConfirmed
+                  : meta.isConfirmed && canIssueQr
                     ? 'border-emerald-500/45'
-                    : meta.isPendingProvider
+                    : meta.isConfirmed && !canIssueQr
                       ? 'border-amber-500/35'
-                      : 'border-white/10 opacity-85';
+                      : meta.isPendingProvider
+                        ? 'border-amber-500/35'
+                        : 'border-white/10 opacity-85';
+                const visibleMsgs = meta.isClosed
+                  ? isChatExpanded
+                    ? msgs
+                    : []
+                  : isChatExpanded || msgs.length <= 2
+                    ? msgs
+                    : msgs.slice(-2);
 
                 return (
                   <article
@@ -4271,42 +4347,58 @@ export default function ResidentDashboard({
                         </span>
                         <span className="opacity-45">·</span>
                         <span
-                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${meta.badgeClass}`}
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
                         >
-                          {meta.label}
+                          {visitBadgeLabel}
                         </span>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold shrink-0">
-                        <span
-                          className={`px-2 py-0.5 rounded-md border ${
-                            meta.isConfirmed
-                              ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
-                              : 'border-sky-400/40 bg-sky-500/10 text-sky-200'
-                          }`}
-                        >
-                          {meta.isConfirmed ? '✓ Visita acordada' : '● Coordinando visita'}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md border border-white/10 opacity-55">
-                          ○ Pase QR
-                        </span>
-                        <span className="px-2 py-0.5 rounded-md border border-white/10 opacity-45">
-                          ○ Conformidad
-                        </span>
-                      </div>
+                      {!meta.isClosed && (
+                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold shrink-0">
+                          <span
+                            className={`px-2 py-0.5 rounded-md border ${
+                              meta.isConfirmed
+                                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                                : 'border-sky-400/40 bg-sky-500/10 text-sky-200'
+                            }`}
+                          >
+                            {meta.isConfirmed ? '✓ Visita acordada' : '● Coordinando visita'}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md border ${
+                              meta.isConfirmed && canIssueQr
+                                ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                                : 'border-white/10 opacity-55'
+                            }`}
+                          >
+                            {meta.isConfirmed && canIssueQr ? '● Pase QR' : '○ Pase QR'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md border border-white/10 opacity-45">
+                            ○ Conformidad
+                          </span>
+                        </div>
+                      )}
                     </div>
 
                     {/* Cuerpo de la Visita */}
                     <div className="p-4 space-y-3">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <h3 className="text-sm font-extrabold">{providerDisplay}</h3>
-                          <p className="opacity-75 text-[11px]">
-                            Domicilio:{' '}
-                            <strong>
-                              {visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}
-                            </strong>
-                          </p>
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <ProviderAvatar
+                            name={providerDisplay}
+                            level={visitTrustLevel}
+                            isDanger={Boolean(matchedProvider?.has_expired_docs)}
+                            size="sm"
+                          />
+                          <div className="min-w-0">
+                            <h3 className="text-sm font-extrabold truncate">{providerDisplay}</h3>
+                            <p className="opacity-75 text-[11px]">
+                              Domicilio:{' '}
+                              <strong>
+                                {visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}
+                              </strong>
+                            </p>
+                          </div>
                         </div>
 
                         <div
@@ -4466,21 +4558,63 @@ export default function ResidentDashboard({
                         </div>
                       )}
 
-                      {/* Historial de mensajes */}
+                      {/* Historial de mensajes (compacto en visitas abiertas, colapsable en visitas cerradas) */}
                       {msgs.length > 0 && (
-                        <div className="rounded-xl p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-28 overflow-y-auto">
-                          {msgs.map((m, idx) => (
-                            <p key={m.id || idx} className="text-xs leading-relaxed">
-                              <strong
-                                className={`uppercase text-[10px] mr-1.5 ${
-                                  m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
-                                }`}
-                              >
-                                {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
-                              </strong>
-                              <span>{m.text}</span>
-                            </p>
-                          ))}
+                        <div className="space-y-1.5">
+                          {meta.isClosed ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedVisitChats((prev) => ({
+                                  ...prev,
+                                  [visit.id]: !prev[visit.id],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold opacity-80 hover:opacity-100 cursor-pointer"
+                            >
+                              <MessageSquare size={12} className="text-sky-300" />
+                              <span>
+                                {isChatExpanded
+                                  ? `Ocultar historial (${msgs.length})`
+                                  : `Ver historial de mensajes (${msgs.length})`}
+                              </span>
+                            </button>
+                          ) : msgs.length > 2 ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setExpandedVisitChats((prev) => ({
+                                  ...prev,
+                                  [visit.id]: !prev[visit.id],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 hover:underline cursor-pointer"
+                            >
+                              <MessageSquare size={11} />
+                              <span>
+                                {isChatExpanded
+                                  ? 'Mostrar solo los últimos 2 mensajes'
+                                  : `Ver historial completo (${msgs.length} mensajes)`}
+                              </span>
+                            </button>
+                          ) : null}
+
+                          {visibleMsgs.length > 0 && (
+                            <div className="rounded-xl p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto tl-scroll">
+                              {visibleMsgs.map((m, idx) => (
+                                <p key={m.id || idx} className="text-xs leading-relaxed">
+                                  <strong
+                                    className={`uppercase text-[10px] mr-1.5 ${
+                                      m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                                    }`}
+                                  >
+                                    {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
+                                  </strong>
+                                  <span>{m.text}</span>
+                                </p>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -4518,13 +4652,13 @@ export default function ResidentDashboard({
                             {!canIssueQr ? (
                               <>
                                 <span className="text-[11px] text-amber-200 font-semibold inline-flex items-center gap-1">
-                                  <AlertCircle size={13} /> Acuerdo confirmado · Prestador aún sin Nivel 4 para Pase QR
+                                  <AlertCircle size={13} /> Acuerdo confirmado · El prestador aún está completando su verificación para Pase QR
                                 </span>
                                 <span
-                                  title="El prestador debe tener su documentación vigente y aprobada (Nivel 4 Verificado) para habilitar Pase QR"
+                                  title="El prestador debe tener su documentación aprobada y vigente (Nivel 3 o superior) para habilitar Pases QR en garita"
                                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
                                 >
-                                  <QrCode size={13} /> QR requiere Nivel 4
+                                  <QrCode size={13} /> Pendiente de Pase QR
                                 </span>
                               </>
                             ) : (
@@ -4568,8 +4702,7 @@ export default function ResidentDashboard({
                             <button
                               type="button"
                               onClick={() => openVisitModalForProvider(matchedProvider)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer"
-                              style={{ backgroundColor: primaryColor }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
                             >
                               <Calendar size={12} /> Solicitar nueva visita
                             </button>
@@ -4580,6 +4713,21 @@ export default function ResidentDashboard({
                   </article>
                 );
               })}
+
+              <AdminPaginationBar
+                page={safeServicesPage}
+                totalPages={totalServicesPages}
+                totalItems={filteredUnifiedServices.length}
+                pageSize={servicesPageSize}
+                onPageChange={setServicesPage}
+                onPageSizeChange={(nextSize) => {
+                  setServicesPageSize(nextSize);
+                  setServicesPage(1);
+                }}
+                loading={loadingVisits || loadingContracts || loadingReviews}
+                itemLabel="servicios"
+                innerStyle={innerStyle}
+              />
             </div>
           )}
         </section>
@@ -4842,34 +4990,22 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Paginación del listado de Pases QR */}
-          {filteredPasses.length > PASSES_PER_PAGE && (
-            <div className="flex items-center justify-between pt-2 text-xs">
-              <span className="opacity-75">
-                Página {Math.min(passesPage, totalPassPages)} de {totalPassPages} (
-                {filteredPasses.length} pases)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={passesPage <= 1}
-                  onClick={() => setPassesPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
-                  style={innerStyle}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={passesPage >= totalPassPages}
-                  onClick={() => setPassesPage((p) => Math.min(totalPassPages, p + 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
-                  style={innerStyle}
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+          {/* Paginación estándar homologada del listado de Pases QR */}
+          {filteredPasses.length > 0 && (
+            <AdminPaginationBar
+              page={safePassesPage}
+              totalPages={totalPassPages}
+              totalItems={filteredPasses.length}
+              pageSize={passesPageSize}
+              onPageChange={setPassesPage}
+              onPageSizeChange={(nextSize) => {
+                setPassesPageSize(nextSize);
+                setPassesPage(1);
+              }}
+              loading={loadingPasses}
+              itemLabel="pases QR"
+              innerStyle={innerStyle}
+            />
           )}
         </section>
       )}

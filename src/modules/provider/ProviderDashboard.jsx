@@ -56,6 +56,8 @@ import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
 import QrCodeDisplay from '../../components/QrCodeDisplay';
 import SearchableSelect from '../../components/SearchableSelect';
+import AdminPaginationBar from '../../components/admin/AdminPaginationBar';
+import { paginateItems } from '../../utils/adminPagination';
 import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import ProviderCalendarManager from '../../components/ProviderCalendarManager';
 import ProviderTrustBadge, {
@@ -74,9 +76,6 @@ import {
   formatDateTimeAR,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
-
-/** Cantidad máxima de pases QR mostrados por página en la pestaña de Pases. */
-const PASSES_PER_PAGE = 6;
 
 /** Enlace oficial del Registro Nacional de Reincidencia para tramitar Antecedentes Penales en Argentina. */
 const CRIMINAL_RECORD_OFFICIAL_URL =
@@ -382,6 +381,7 @@ export default function ProviderDashboard({
   const [passSearch, setPassSearch] = useState('');
   const [passStatusFilter, setPassStatusFilter] = useState('all');
   const [passPage, setPassPage] = useState(1);
+  const [passPageSize, setPassPageSize] = useState(6);
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
@@ -1807,13 +1807,15 @@ export default function ProviderDashboard({
     });
   }, [assignedPasses, passSearch, passStatusFilter]);
 
-  // Cálculo de paginación segura sobre la lista de pases filtrados
-  const totalPassPages = Math.max(1, Math.ceil(filteredPasses.length / PASSES_PER_PAGE));
-  const paginatedPasses = useMemo(() => {
-    const safePage = Math.min(passPage, totalPassPages);
-    const startIdx = (safePage - 1) * PASSES_PER_PAGE;
-    return filteredPasses.slice(startIdx, startIdx + PASSES_PER_PAGE);
-  }, [filteredPasses, passPage, totalPassPages]);
+  // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) sobre la lista de pases filtrados
+  const {
+    pageItems: paginatedPasses,
+    safePage: safePassPage,
+    totalPages: totalPassPages,
+  } = useMemo(
+    () => paginateItems(filteredPasses, passPage, passPageSize),
+    [filteredPasses, passPage, passPageSize]
+  );
 
   // Indicadores derivados para badges de navegación y resumen del encabezado
   const activePassesCount = assignedPasses.filter(
@@ -5779,34 +5781,21 @@ export default function ProviderDashboard({
             </div>
           )}
 
-          {/* Controles de paginación para los pases QR filtrados */}
-          {filteredPasses.length > PASSES_PER_PAGE && (
-            <div className="flex items-center justify-between pt-2 text-xs">
-              <span className="opacity-75">
-                Página {Math.min(passPage, totalPassPages)} de {totalPassPages} (
-                {filteredPasses.length} pases)
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={passPage <= 1}
-                  onClick={() => setPassPage((p) => Math.max(1, p - 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
-                  style={innerStyle}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  disabled={passPage >= totalPassPages}
-                  onClick={() => setPassPage((p) => Math.min(totalPassPages, p + 1))}
-                  className="px-3 py-1.5 rounded-lg border border-slate-700/80 font-bold disabled:opacity-40 cursor-pointer"
-                  style={innerStyle}
-                >
-                  Siguiente
-                </button>
-              </div>
-            </div>
+          {/* Paginación homologada para los pases QR filtrados */}
+          {filteredPasses.length > 0 && (
+            <AdminPaginationBar
+              page={safePassPage}
+              totalPages={totalPassPages}
+              totalItems={filteredPasses.length}
+              pageSize={passPageSize}
+              onPageChange={setPassPage}
+              onPageSizeChange={(nextSize) => {
+                setPassPageSize(nextSize);
+                setPassPage(1);
+              }}
+              itemLabel="pases QR"
+              innerStyle={innerStyle}
+            />
           )}
         </section>
       ) : (
