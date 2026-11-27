@@ -187,7 +187,7 @@ export function getUnifiedStatusMeta(rawStatus, domain = 'generic') {
 /**
  * Escala cromática oficial unificada de Confianza Progresiva (`N0..N4`):
  * - `N1` (Perfil Básico): Plata / Slate neutro — identidad + especialidad, solo consultas.
- * - `N2` (Seguro en revisión / Doc. en validación): Naranja cálido — seguro cargado, aún sin QR.
+ * - `N2` (En verificación): Índigo informativo — documentación cargada en revisión, aún sin QR.
  * - `N3` (Pase QR habilitado): Verde Esmeralda — documentación aprobada, luz verde en garita.
  * - `N4` (Verificado): Azul Oficial (`#1D9BF0` / Sky) + sello festoneado.
  * Fuente única compartida entre `ProviderTrustBadge`, `ProviderDashboard`, `ResidentDashboard` y `LandingHome`.
@@ -203,38 +203,38 @@ export const TRUST_LEVEL_THEME = {
     bar: 'bg-amber-400/90',
   },
   1: {
-    badge: 'border-slate-300/50 bg-slate-400/15 text-slate-100',
-    pill: 'border-slate-300/50 bg-slate-400/15 text-slate-100',
-    card: 'border-slate-400/40 bg-slate-400/10',
-    cardHeader: 'border-slate-400/30 bg-slate-400/10',
-    cardRing: 'border-slate-400/35',
+    badge: 'border-slate-300/40 bg-slate-400/12 text-slate-200',
+    pill: 'border-slate-300/40 bg-slate-400/12 text-slate-200',
+    card: 'border-slate-400/35 bg-slate-400/8',
+    cardHeader: 'border-slate-400/25 bg-slate-400/8',
+    cardRing: 'border-white/12',
     tableRow: 'border-l-3 border-l-slate-300 bg-slate-400/8 hover:bg-slate-400/12',
     bar: 'bg-slate-300',
   },
   2: {
-    badge: 'border-orange-400/60 bg-orange-500/18 text-orange-200',
-    pill: 'border-orange-400/60 bg-orange-500/18 text-orange-200',
-    card: 'border-orange-400/50 bg-orange-500/12',
-    cardHeader: 'border-orange-400/40 bg-orange-500/12',
-    cardRing: 'border-orange-400/45',
-    tableRow: 'border-l-3 border-l-orange-400 bg-orange-500/8 hover:bg-orange-500/12',
-    bar: 'bg-orange-400',
+    badge: 'border-indigo-400/45 bg-indigo-500/14 text-indigo-200',
+    pill: 'border-indigo-400/45 bg-indigo-500/14 text-indigo-200',
+    card: 'border-indigo-400/40 bg-indigo-500/10',
+    cardHeader: 'border-indigo-400/30 bg-indigo-500/10',
+    cardRing: 'border-white/12',
+    tableRow: 'border-l-3 border-l-indigo-400 bg-indigo-500/8 hover:bg-indigo-500/12',
+    bar: 'bg-indigo-400',
   },
   3: {
-    badge: 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200',
-    pill: 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200',
-    card: 'border-emerald-400/50 bg-emerald-500/12',
-    cardHeader: 'border-emerald-400/40 bg-emerald-500/12',
-    cardRing: 'border-emerald-400/45',
+    badge: 'border-emerald-400/55 bg-emerald-500/16 text-emerald-200',
+    pill: 'border-emerald-400/55 bg-emerald-500/16 text-emerald-200',
+    card: 'border-emerald-400/45 bg-emerald-500/10',
+    cardHeader: 'border-emerald-400/35 bg-emerald-500/10',
+    cardRing: 'border-emerald-400/40',
     tableRow: 'border-l-3 border-l-emerald-400 bg-emerald-500/8 hover:bg-emerald-500/12',
     bar: 'bg-emerald-400',
   },
   4: {
-    badge: 'border-sky-400/65 bg-sky-500/20 text-sky-100 shadow-xs shadow-sky-500/10',
-    pill: 'border-sky-400/65 bg-sky-500/20 text-sky-100',
-    card: 'border-sky-400/55 bg-sky-500/14',
-    cardHeader: 'border-sky-400/45 bg-sky-500/14',
-    cardRing: 'border-sky-400/50',
+    badge: 'border-sky-400/55 bg-sky-500/16 text-sky-100 shadow-xs shadow-sky-500/10',
+    pill: 'border-sky-400/55 bg-sky-500/16 text-sky-100',
+    card: 'border-sky-400/50 bg-sky-500/12',
+    cardHeader: 'border-sky-400/40 bg-sky-500/12',
+    cardRing: 'border-sky-400/45',
     tableRow: 'border-l-3 border-l-sky-400 bg-sky-500/8 hover:bg-sky-500/12',
     bar: 'bg-sky-400',
   },

@@ -59,6 +59,7 @@ import QrCodeDisplay from '../../components/QrCodeDisplay';
 import SearchableSelect from '../../components/SearchableSelect';
 import ProviderTrustBadge, {
   FeaturedPartnerBadge,
+  ProviderAvatar,
   TrustChecksStrip,
   TrustLevelsGuide,
   VerifiedSeal,
@@ -79,6 +80,7 @@ import {
   ITEM_CARD_CLASS,
   FIELD_INPUT_CLASS,
   REVIEW_MICRO_TAGS,
+  TRUST_LEVEL_THEME,
   formatDateTimeAR,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
@@ -2797,6 +2799,17 @@ export default function ResidentDashboard({
                     <X size={11} />
                   </button>
                 )}
+                {useGlobalHeader && isControlledSpecialty && selectedSpecialty !== 'Todos' && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSpecialty('Todos')}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border border-emerald-400/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                    title="Quitar filtro de rubro"
+                  >
+                    <span>Rubro: {selectedSpecialty}</span>
+                    <X size={11} />
+                  </button>
+                )}
                 {onlyFavorites && (
                   <button
                     type="button"
@@ -2836,7 +2849,7 @@ export default function ResidentDashboard({
                   style={showTrustGuide ? undefined : innerStyle}
                 >
                   <HelpCircle size={13} className="shrink-0" />
-                  <span>Niveles N1–N4</span>
+                  <span>Niveles de confianza</span>
                 </button>
               </div>
             </div>
@@ -2892,13 +2905,13 @@ export default function ResidentDashboard({
                   style={showTrustGuide ? undefined : innerStyle}
                 >
                   <HelpCircle size={13} className="shrink-0" />
-                  <span>Niveles N1–N4</span>
+                  <span>Niveles de confianza</span>
                 </button>
               </div>
             </div>
           )}
 
-          {/* Guía desplegable de los 5 niveles de confianza */}
+          {/* Guía desplegable de niveles de confianza */}
           {showTrustGuide && (
             <TrustLevelsGuide
               innerStyle={innerStyle}
@@ -2937,102 +2950,106 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Barra única de filtros (Opción A): selector desplegable de Rubros escalable + 3 filtros rápidos de decisión */}
+          {/* Barra única de filtros: evita duplicar el desplegable de Rubros cuando ya vive en Zona 2B */}
           <div className="flex flex-wrap items-center gap-1.5 text-xs">
-            {/* Selector desplegable de Rubros con conteos y búsqueda interna cuando crece el catálogo */}
-            <div className="relative" ref={specialtyMenuRef}>
-              <button
-                type="button"
-                onClick={() => setSpecialtyMenuOpen((prev) => !prev)}
-                aria-expanded={specialtyMenuOpen}
-                aria-haspopup="listbox"
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
-                  selectedSpecialty !== 'Todos'
-                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                    : 'border-white/15 opacity-90 hover:opacity-100'
-                }`}
-                style={selectedSpecialty !== 'Todos' ? undefined : innerStyle}
-              >
-                <SlidersHorizontal size={12} className="shrink-0 opacity-85" />
-                <span>
-                  {selectedSpecialty === 'Todos'
-                    ? `Rubro: Todos (${Math.max(0, availableSpecialtyEntries.length - 1)})`
-                    : selectedSpecialty}
-                </span>
-                <ChevronDown
-                  size={13}
-                  className={`shrink-0 opacity-75 transition-transform ${
-                    specialtyMenuOpen ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
+            {/* Selector desplegable de Rubros (solo en modo standalone sin barra global) */}
+            {!(useGlobalHeader && isControlledSpecialty) && (
+              <>
+                <div className="relative" ref={specialtyMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setSpecialtyMenuOpen((prev) => !prev)}
+                    aria-expanded={specialtyMenuOpen}
+                    aria-haspopup="listbox"
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl font-bold border transition-all cursor-pointer ${
+                      selectedSpecialty !== 'Todos'
+                        ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                        : 'border-white/15 opacity-90 hover:opacity-100'
+                    }`}
+                    style={selectedSpecialty !== 'Todos' ? undefined : innerStyle}
+                  >
+                    <SlidersHorizontal size={12} className="shrink-0 opacity-85" />
+                    <span>
+                      {selectedSpecialty === 'Todos'
+                        ? `Rubro: Todos (${Math.max(0, availableSpecialtyEntries.length - 1)})`
+                        : selectedSpecialty}
+                    </span>
+                    <ChevronDown
+                      size={13}
+                      className={`shrink-0 opacity-75 transition-transform ${
+                        specialtyMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
 
-              {specialtyMenuOpen && (
-                <div
-                  role="listbox"
-                  aria-label="Seleccionar rubro"
-                  className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-white/15 shadow-2xl p-2 z-40 space-y-1.5"
-                  style={cardStyle}
-                >
-                  {availableSpecialtyEntries.length > 3 && (
-                    <div className="relative">
-                      <Search
-                        size={13}
-                        className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
-                      />
-                      <input
-                        type="text"
-                        value={specialtyMenuQuery}
-                        onChange={(e) => setSpecialtyMenuQuery(e.target.value)}
-                        placeholder="Filtrar rubro..."
-                        className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
-                        style={innerStyle}
-                        autoFocus
-                      />
+                  {specialtyMenuOpen && (
+                    <div
+                      role="listbox"
+                      aria-label="Seleccionar rubro"
+                      className="absolute left-0 mt-1.5 w-64 rounded-2xl border border-white/15 shadow-2xl p-2 z-40 space-y-1.5"
+                      style={cardStyle}
+                    >
+                      {availableSpecialtyEntries.length > 3 && (
+                        <div className="relative">
+                          <Search
+                            size={13}
+                            className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+                          />
+                          <input
+                            type="text"
+                            value={specialtyMenuQuery}
+                            onChange={(e) => setSpecialtyMenuQuery(e.target.value)}
+                            placeholder="Filtrar rubro..."
+                            className="w-full pl-8 pr-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                            style={innerStyle}
+                            autoFocus
+                          />
+                        </div>
+                      )}
+
+                      <div className="max-h-60 overflow-y-auto space-y-0.5">
+                        {availableSpecialtyEntries
+                          .filter(({ name }) => {
+                            const q = specialtyMenuQuery.trim().toLowerCase();
+                            return !q || name.toLowerCase().includes(q);
+                          })
+                          .map(({ name: spec, count }) => {
+                            const active = selectedSpecialty === spec;
+                            return (
+                              <button
+                                key={spec}
+                                type="button"
+                                role="option"
+                                aria-selected={active}
+                                onClick={() => {
+                                  setSelectedSpecialty(spec);
+                                  setSpecialtyMenuOpen(false);
+                                  setSpecialtyMenuQuery('');
+                                }}
+                                className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
+                                  active
+                                    ? 'bg-emerald-500/20 text-emerald-200'
+                                    : 'hover:bg-white/8 opacity-85 hover:opacity-100'
+                                }`}
+                              >
+                                <span className="truncate">
+                                  {spec === 'Todos' ? 'Todos los rubros' : spec}
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 shrink-0">
+                                  <span className="text-[10px] opacity-65">({count})</span>
+                                  {active && <Check size={12} className="text-emerald-400" />}
+                                </span>
+                              </button>
+                            );
+                          })}
+                      </div>
                     </div>
                   )}
-
-                  <div className="max-h-60 overflow-y-auto space-y-0.5">
-                    {availableSpecialtyEntries
-                      .filter(({ name }) => {
-                        const q = specialtyMenuQuery.trim().toLowerCase();
-                        return !q || name.toLowerCase().includes(q);
-                      })
-                      .map(({ name: spec, count }) => {
-                        const active = selectedSpecialty === spec;
-                        return (
-                          <button
-                            key={spec}
-                            type="button"
-                            role="option"
-                            aria-selected={active}
-                            onClick={() => {
-                              setSelectedSpecialty(spec);
-                              setSpecialtyMenuOpen(false);
-                              setSpecialtyMenuQuery('');
-                            }}
-                            className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-left cursor-pointer transition-colors ${
-                              active
-                                ? 'bg-emerald-500/20 text-emerald-200'
-                                : 'hover:bg-white/8 opacity-85 hover:opacity-100'
-                            }`}
-                          >
-                            <span className="truncate">
-                              {spec === 'Todos' ? 'Todos los rubros' : spec}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5 shrink-0">
-                              <span className="text-[10px] opacity-65">({count})</span>
-                              {active && <Check size={12} className="text-emerald-400" />}
-                            </span>
-                          </button>
-                        );
-                      })}
-                  </div>
                 </div>
-              )}
-            </div>
 
-            <span className="hidden sm:inline-block h-4 w-px bg-white/15 mx-0.5" aria-hidden="true" />
+                <span className="hidden sm:inline-block h-4 w-px bg-white/15 mx-0.5" aria-hidden="true" />
+              </>
+            )}
 
             <button
               type="button"
@@ -3043,10 +3060,10 @@ export default function ResidentDashboard({
                   : 'border-white/12 opacity-80 hover:opacity-100'
               }`}
               style={onlyVerified ? undefined : innerStyle}
-              title="Mostrar solo prestadores Nivel 3 (Pase QR habilitado) y Nivel 4 (Verificado) con documentación vigente"
+              title="Mostrar solo prestadores con documentación aprobada y Pase QR habilitado (niveles N3 y N4)"
             >
               <ShieldCheck size={12} />
-              <span>Con Pase QR (N3–N4)</span>
+              <span>Con Pase QR</span>
             </button>
 
             <button
@@ -3167,7 +3184,7 @@ export default function ResidentDashboard({
                   provider.email ||
                   'Prestador Verificado';
                 const ratingNum = Number(provider.rating_avg || 0);
-                const ratingText = ratingNum > 0 ? ratingNum.toFixed(1) : 'Nuevo';
+                const hasRating = ratingNum > 0;
                 const reviewsCount = Number(provider.reviews_count || 0);
                 const jobsCount = Number(provider.total_jobs ?? provider.completed_jobs ?? 0);
                 const providerIdsList =
@@ -3179,9 +3196,7 @@ export default function ResidentDashboard({
                 const visitMeta = getVisitStatusMeta(activeVisit);
                 const isVerifiedMember = Boolean(provider.is_verified_member);
                 const membershipBadgeLabel =
-                  provider.membership_tier === 'verified_pro'
-                    ? 'Socio Verificado Pro'
-                    : 'Socio Verificado';
+                  provider.membership_tier === 'verified_pro' ? 'Destacado Pro' : 'Destacado';
                 const hasExpiredDocs = Boolean(provider.has_expired_docs);
                 const isFavorite = Boolean(provider.is_favorite);
                 const availableToday = Boolean(provider.available_today);
@@ -3206,34 +3221,23 @@ export default function ResidentDashboard({
                 const cardTrust = provider.trust_badge || {
                   level: provider.auto_verified ? 4 : 3,
                   label: provider.auto_verified ? 'Verificado' : 'Pase QR habilitado',
-                  tone: hasExpiredDocs ? 'danger' : provider.auto_verified ? 'emerald' : 'teal',
+                  tone: hasExpiredDocs ? 'danger' : provider.auto_verified ? 'sky' : 'emerald',
                   can_issue_pass: !hasExpiredDocs,
                   has_expired_docs: hasExpiredDocs,
                 };
                 const trustLevel = Number(provider.trust_level ?? cardTrust.level ?? 0);
                 const canIssueQrForCard =
                   provider.can_issue_pass !== false && !hasExpiredDocs && trustLevel >= 3;
+                // Diseño por excepción: en tarjetas N1 (Perfil Básico) no agregamos badge repetitivo
+                const showTrustBadge = hasExpiredDocs || trustLevel >= 2;
+                const showMetaRow =
+                  showTrustBadge || (isFeaturedPartner && !hasExpiredDocs) || hasRating;
 
-                const headerBandClass = hasExpiredDocs
-                  ? 'border-rose-500/35 bg-rose-950/30'
-                  : trustLevel >= 4
-                    ? 'border-sky-400/45 bg-sky-500/14'
-                    : trustLevel === 3
-                      ? 'border-emerald-400/40 bg-emerald-500/12'
-                      : trustLevel === 2
-                        ? 'border-orange-400/40 bg-orange-500/12'
-                        : 'border-slate-400/30 bg-slate-400/8';
                 const cardRingClass = hasExpiredDocs
                   ? 'border-rose-500/40'
                   : isFeaturedPartner
-                    ? 'border-amber-400/60 ring-1 ring-amber-400/25'
-                    : trustLevel >= 4
-                      ? 'border-sky-400/50'
-                      : trustLevel === 3
-                        ? 'border-emerald-400/45'
-                        : trustLevel === 2
-                          ? 'border-orange-400/45'
-                          : 'border-slate-400/30';
+                    ? 'border-amber-400/55 ring-1 ring-amber-400/20'
+                    : (TRUST_LEVEL_THEME[trustLevel]?.cardRing || 'border-white/12');
 
                 const repLabel = provider.reputation?.level_label || 'Nuevo en TrustLink';
                 const repDotClass =
@@ -3252,34 +3256,67 @@ export default function ResidentDashboard({
                 return (
                   <article
                     key={providerId}
-                    className={`rounded-2xl border overflow-hidden flex flex-col justify-between h-full transition-transform hover:-translate-y-0.5 ${cardRingClass}`}
+                    className={`rounded-2xl border p-4 flex flex-col justify-between gap-3.5 h-full transition-transform hover:-translate-y-0.5 ${cardRingClass}`}
                     style={innerStyle}
                   >
-                    <div>
-                      {/* 1. Cabecera de confianza compacta (insignia + destacado + rating + favorito) */}
-                      <div
-                        className={`px-4 py-2.5 border-b flex items-center justify-between gap-2 ${headerBandClass}`}
-                      >
-                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                          <ProviderTrustBadge trust={cardTrust} compact />
-                          {isFeaturedPartner && !hasExpiredDocs && (
-                            <FeaturedPartnerBadge compact label={membershipBadgeLabel} />
-                          )}
-                        </div>
+                    {/* Cuerpo limpio y continuo: Avatar + Identidad + Favorito -> Confianza/Rating -> Rubros -> Señales */}
+                    <div className="space-y-3">
+                      <div className="space-y-2.5">
+                        {/* 1. Cabecera humana: Avatar circular + Nombre (+ tilde N4 único) + Favorito aislado */}
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <ProviderAvatar
+                              name={fullName}
+                              avatarUrl={provider.avatar_url || provider.photo_url || ''}
+                              level={trustLevel}
+                              isDanger={hasExpiredDocs}
+                            />
+                            <div className="min-w-0 space-y-1">
+                              <button
+                                type="button"
+                                onClick={() => openProviderProfile(provider, 'overview')}
+                                className="inline-flex items-center gap-1.5 max-w-full text-left text-sm sm:text-base font-extrabold leading-snug hover:underline cursor-pointer"
+                              >
+                                <span className="truncate">{fullName}</span>
+                                {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={16} />}
+                              </button>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => openProviderProfile(provider, 'reviews')}
-                            title="Ver reputación y reseñas"
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-bold border border-amber-500/35 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 cursor-pointer"
-                          >
-                            <Star size={11} className="fill-amber-400 text-amber-400" />
-                            <span>{ratingText}</span>
-                            {reviewsCount > 0 && (
-                              <span className="opacity-75 font-normal">({reviewsCount})</span>
-                            )}
-                          </button>
+                              {/* 2. Confianza por excepción + Rating real */}
+                              {showMetaRow && (
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  {showTrustBadge && (
+                                    <ProviderTrustBadge
+                                      trust={cardTrust}
+                                      compact
+                                      suppressSeal
+                                      labelOverride={
+                                        trustLevel >= 4 && !hasExpiredDocs
+                                          ? 'Verificado · Pase QR'
+                                          : ''
+                                      }
+                                    />
+                                  )}
+                                  {isFeaturedPartner && !hasExpiredDocs && (
+                                    <FeaturedPartnerBadge compact label={membershipBadgeLabel} />
+                                  )}
+                                  {hasRating && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openProviderProfile(provider, 'reviews')}
+                                      title="Ver reseñas verificadas"
+                                      className="inline-flex items-center gap-1 text-xs font-bold text-amber-300 hover:underline cursor-pointer"
+                                    >
+                                      <Star size={12} className="fill-amber-400 text-amber-400 shrink-0" />
+                                      <span>{ratingNum.toFixed(1)}</span>
+                                      {reviewsCount > 0 && (
+                                        <span className="opacity-70 font-normal">({reviewsCount})</span>
+                                      )}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
 
                           <button
                             type="button"
@@ -3287,125 +3324,106 @@ export default function ResidentDashboard({
                             disabled={togglingFavoriteUserId === Number(provider.user_id)}
                             title={isFavorite ? 'Quitar de Favoritos' : 'Guardar en Favoritos'}
                             aria-label={isFavorite ? 'Quitar de favoritos' : 'Guardar en favoritos'}
-                            className={`p-1 rounded-lg border transition-all cursor-pointer ${
+                            className={`p-1.5 rounded-lg border transition-all cursor-pointer shrink-0 ${
                               isFavorite
                                 ? 'border-rose-500/50 bg-rose-500/15 text-rose-300'
-                                : 'border-white/15 opacity-70 hover:opacity-100'
+                                : 'border-white/12 bg-white/5 opacity-65 hover:opacity-100'
                             }`}
-                            style={isFavorite ? undefined : cardStyle}
                           >
-                            <Heart size={12} className={isFavorite ? 'fill-rose-400 text-rose-400' : ''} />
+                            <Heart size={13} className={isFavorite ? 'fill-rose-400 text-rose-400' : ''} />
                           </button>
                         </div>
-                      </div>
 
-                      {/* 2. Cuerpo limpio: Nombre, Rubros, 1 señal operativa y 1 línea de reputación */}
-                      <div className="p-4 space-y-3">
-                        <div className="space-y-1.5">
-                          <button
-                            type="button"
-                            onClick={() => openProviderProfile(provider, 'overview')}
-                            className="inline-flex items-center gap-1.5 max-w-full text-left text-sm sm:text-base font-extrabold leading-snug hover:underline cursor-pointer"
-                          >
-                            <span className="truncate">{fullName}</span>
-                            {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={16} />}
-                          </button>
-
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {visibleSpecialties.map((spec) => {
-                              const isHighlighted =
-                                selectedSpecialty !== 'Todos' &&
-                                spec.toLowerCase().includes(selectedFilterKey);
-                              return (
-                                <span
-                                  key={spec}
-                                  className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
-                                    isHighlighted
-                                      ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                                      : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
-                                  }`}
-                                >
-                                  {spec}
-                                </span>
-                              );
-                            })}
-                            {extraSpecialties.length > 0 && (
+                        {/* 3. Rubros */}
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {visibleSpecialties.map((spec) => {
+                            const isHighlighted =
+                              selectedSpecialty !== 'Todos' &&
+                              spec.toLowerCase().includes(selectedFilterKey);
+                            return (
                               <span
-                                title={`Otros rubros: ${extraSpecialties.join(', ')}`}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded-md border border-white/15 opacity-80"
-                                style={cardStyle}
+                                key={spec}
+                                className={`text-[11px] font-bold px-2 py-0.5 rounded-md border ${
+                                  isHighlighted
+                                    ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                                    : 'border-emerald-500/25 bg-emerald-500/10 text-emerald-300'
+                                }`}
                               >
-                                +{extraSpecialties.length}
+                                {spec}
                               </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* 3. Línea única de señal operativa + reputación */}
-                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] opacity-85">
-                          <span className="inline-flex items-center gap-1.5 font-semibold">
-                            <span className={`w-2 h-2 rounded-full shrink-0 ${repDotClass}`} />
-                            <span>{repLabel}</span>
-                          </span>
-                          <span className="opacity-50">·</span>
-                          <span>
-                            {jobsCount > 0
-                              ? `${jobsCount} ${jobsCount === 1 ? 'trabajo' : 'trabajos'}`
-                              : canIssueQrForCard
-                                ? 'Pase QR listo'
-                                : 'Solo consultas'}
-                          </span>
-                          {!hasExpiredDocs && acceptsEmergencies ? (
-                            <>
-                              <span className="opacity-50">·</span>
-                              <span className="font-bold text-rose-300">Urgencias 24h</span>
-                            </>
-                          ) : !hasExpiredDocs && availableToday ? (
-                            <>
-                              <span className="opacity-50">·</span>
-                              <span className="font-semibold text-emerald-300">Disponible hoy</span>
-                            </>
-                          ) : null}
-                          {provider.response_label && (
-                            <>
-                              <span className="opacity-50">·</span>
-                              <span className="text-sky-300 font-semibold">{provider.response_label}</span>
-                            </>
+                            );
+                          })}
+                          {extraSpecialties.length > 0 && (
+                            <span
+                              title={`Otros rubros: ${extraSpecialties.join(', ')}`}
+                              className="text-[10px] font-semibold px-2 py-0.5 rounded-md border border-white/15 bg-white/5 opacity-80"
+                            >
+                              +{extraSpecialties.length}
+                            </span>
                           )}
                         </div>
+                      </div>
 
-                        {/* 4. Estado compacto solo si ya existe una visita en curso */}
-                        {activeVisit && (
-                          <div className="pt-0.5">
-                            <span
-                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                                visitMeta.isConfirmed && !canIssueQrForCard
-                                  ? 'border-amber-500/45 bg-amber-950/45 text-amber-200'
-                                  : visitMeta.badgeClass
-                              }`}
-                            >
-                              <Calendar size={10} />
-                              <span>
-                                {visitMeta.isConfirmed && !canIssueQrForCard
-                                  ? 'Visita acordada · Pendiente N3 para QR'
-                                  : visitMeta.label}
-                              </span>
-                            </span>
-                          </div>
+                      {/* 4. Línea única de señal operativa + reputación */}
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] opacity-85">
+                        <span className="inline-flex items-center gap-1.5 font-semibold">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${repDotClass}`} />
+                          <span>{repLabel}</span>
+                        </span>
+                        <span className="opacity-50">·</span>
+                        <span>
+                          {jobsCount > 0
+                            ? `${jobsCount} ${jobsCount === 1 ? 'trabajo' : 'trabajos'}`
+                            : canIssueQrForCard
+                              ? 'Pase QR listo'
+                              : 'Solo consultas'}
+                        </span>
+                        {!hasExpiredDocs && acceptsEmergencies ? (
+                          <>
+                            <span className="opacity-50">·</span>
+                            <span className="font-bold text-rose-300">Urgencias 24h</span>
+                          </>
+                        ) : !hasExpiredDocs && availableToday ? (
+                          <>
+                            <span className="opacity-50">·</span>
+                            <span className="font-semibold text-emerald-300">Disponible hoy</span>
+                          </>
+                        ) : null}
+                        {provider.response_label && (
+                          <>
+                            <span className="opacity-50">·</span>
+                            <span className="text-sky-300 font-semibold">{provider.response_label}</span>
+                          </>
                         )}
                       </div>
+
+                      {/* 5. Estado compacto solo si ya existe una visita en curso */}
+                      {activeVisit && (
+                        <div className="pt-0.5">
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                              visitMeta.isConfirmed && !canIssueQrForCard
+                                ? 'border-amber-500/45 bg-amber-950/45 text-amber-200'
+                                : visitMeta.badgeClass
+                            }`}
+                          >
+                            <Calendar size={10} />
+                            <span>
+                              {visitMeta.isConfirmed && !canIssueQrForCard
+                                ? 'Visita acordada · Pendiente de Pase QR'
+                                : visitMeta.label}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    {/* 5. Pie limpio y uniforme: Ver ficha + CTA principal con jerarquía honesta */}
-                    <div
-                      className="px-4 py-3 border-t border-white/10 flex items-center justify-between gap-2"
-                      style={cardStyle}
-                    >
+                    {/* 6. Pie liviano e integrado: Ver ficha + CTA principal con ícono semántico */}
+                    <div className="pt-3 border-t border-white/10 flex items-center justify-between gap-2">
                       <button
                         type="button"
                         onClick={() => openProviderProfile(provider, 'overview')}
-                        className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 opacity-85 hover:opacity-100 cursor-pointer shrink-0"
-                        style={innerStyle}
+                        className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer shrink-0 transition-colors"
                       >
                         Ver ficha
                       </button>
@@ -3479,7 +3497,7 @@ export default function ResidentDashboard({
                           onClick={() => openVisitModalForProvider(provider)}
                           className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
                         >
-                          <Calendar size={13} />
+                          <MessageSquare size={13} />
                           <span>Consultar</span>
                         </button>
                       )}
@@ -5883,23 +5901,28 @@ export default function ResidentDashboard({
               {/* Cabecera fija de la Ficha */}
               <div className="p-5 pb-3 border-b border-white/10 space-y-3 shrink-0">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1.5 min-w-0">
+                  <div className="space-y-2 min-w-0">
+                    <h3 className="text-lg font-black tracking-tight inline-flex items-center gap-2 max-w-full">
+                      <span className="truncate">{fullName}</span>
+                      {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={19} />}
+                    </h3>
                     <div className="flex flex-wrap items-center gap-2">
-                      <ProviderTrustBadge trust={cardTrust} size="md" showScale />
+                      <ProviderTrustBadge trust={cardTrust} size="md" showScale suppressSeal />
                       {isFeaturedPartner && !hasExpiredDocs && (
                         <FeaturedPartnerBadge compact />
                       )}
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-bold border border-amber-500/35 bg-amber-500/10 text-amber-300">
-                        <Star size={11} className="fill-amber-400 text-amber-400" />
-                        {Number(provider.rating_avg || 0) > 0
-                          ? Number(provider.rating_avg).toFixed(1)
-                          : 'Nuevo'}
-                      </span>
+                      {Number(provider.rating_avg || 0) > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-300">
+                          <Star size={12} className="fill-amber-400 text-amber-400" />
+                          <span>{Number(provider.rating_avg).toFixed(1)}</span>
+                          {reviewsBadgeCount > 0 && (
+                            <span className="opacity-70 font-normal">({reviewsBadgeCount})</span>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-semibold opacity-65">Sin reseñas aún</span>
+                      )}
                     </div>
-                    <h3 className="text-lg font-black tracking-tight inline-flex items-center gap-2">
-                      <span>{fullName}</span>
-                      {trustLevel >= 4 && !hasExpiredDocs && <VerifiedSeal size={19} />}
-                    </h3>
                     <div className="flex flex-wrap items-center gap-1.5">
                       {specialties.map((spec) => (
                         <span
@@ -6320,7 +6343,7 @@ export default function ResidentDashboard({
                     className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer"
                     style={{ backgroundColor: primaryColor }}
                   >
-                    <Calendar size={14} />
+                    {canIssueQr ? <Calendar size={14} /> : <MessageSquare size={14} />}
                     <span>{canIssueQr ? 'Solicitar Visita' : 'Consultar / Pedir presupuesto'}</span>
                   </button>
                 )}

@@ -57,9 +57,9 @@ const TRUST_SCALE_ITEMS = [
   },
   {
     level: 2,
-    label: 'Seguro en revisión',
-    tone: 'orange',
-    desc: 'Seguro AP (independiente) o Póliza ART (con ayudantes) cargada. Solo consultas, aún sin Pase QR.',
+    label: 'En verificación',
+    tone: 'indigo',
+    desc: 'Documentación de respaldo cargada (Seguro AP/ART y/o Antecedentes) en revisión por TrustLink. Solo consultas, aún sin Pase QR.',
   },
   {
     level: 3,
@@ -71,9 +71,61 @@ const TRUST_SCALE_ITEMS = [
     level: 4,
     label: 'Verificado',
     tone: 'sky',
-    desc: 'Tilde oficial TrustLink: coincidencia cotejada de todos los PDFs contra los datos cargados.',
+    desc: 'Tilde oficial TrustLink: coincidencia cotejada de todos los PDFs contra los datos cargados y Pase QR habilitado.',
   },
 ];
+
+/**
+ * Avatar circular compacto con iniciales (o foto si existe) y anillo sutil según nivel N1–N4.
+ * Aporta identidad humana y mejora la escaneabilidad en grillas de prestadores.
+ */
+export function ProviderAvatar({
+  name = '',
+  avatarUrl = '',
+  level = 0,
+  isDanger = false,
+  size = 'md',
+}) {
+  const parts = String(name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  const initials =
+    parts.length >= 2
+      ? `${parts[0][0]}${parts[1][0]}`.toUpperCase()
+      : (parts[0] || 'PR').slice(0, 2).toUpperCase();
+
+  const levelNum = Math.min(4, Math.max(0, Number(level ?? 0)));
+  const toneClass = isDanger
+    ? 'border-rose-400/50 bg-rose-500/15 text-rose-200'
+    : levelNum >= 4
+      ? 'border-sky-400/55 bg-sky-500/18 text-sky-100'
+      : levelNum === 3
+        ? 'border-emerald-400/50 bg-emerald-500/16 text-emerald-100'
+        : levelNum === 2
+          ? 'border-indigo-400/45 bg-indigo-500/15 text-indigo-100'
+          : 'border-white/15 bg-white/8 text-slate-200';
+
+  const sizeClass =
+    size === 'lg'
+      ? 'w-11 h-11 text-sm'
+      : size === 'sm'
+        ? 'w-7 h-7 text-[10px]'
+        : 'w-9 h-9 text-xs';
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-flex items-center justify-center rounded-full border font-extrabold tracking-tight shrink-0 overflow-hidden select-none ${toneClass} ${sizeClass}`}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt="" className="w-full h-full object-cover" />
+      ) : (
+        initials
+      )}
+    </span>
+  );
+}
 
 /**
  * Sello oficial de verificación estilo X / Instagram (celeste/azul `#1D9BF0` con tilde blanco).
@@ -119,6 +171,8 @@ export default function ProviderTrustBadge({
   showLevel = false,
   showScale = false,
   compact = false,
+  suppressSeal = false,
+  labelOverride = '',
   size = 'sm',
 }) {
   if (!trust || !trust.label) return null;
@@ -136,7 +190,10 @@ export default function ProviderTrustBadge({
     ? TONE_STYLES.danger.Icon
     : trust.tone === 'gold'
       ? TONE_STYLES.gold.Icon
-      : TRUST_LEVEL_ICONS[levelNum] || UserCheck;
+      : isOfficialN4 && suppressSeal
+        ? ShieldCheck
+        : TRUST_LEVEL_ICONS[levelNum] || UserCheck;
+  const displayLabel = labelOverride || trust.label;
   const tooltip = [
     `Nivel ${levelNum}/4 · ${trust.label}`,
     trust.sublabel,
@@ -158,13 +215,13 @@ export default function ProviderTrustBadge({
       title={tooltip}
       className={`inline-flex items-center rounded-lg border font-bold whitespace-nowrap shrink-0 ${cls} ${sizeClass}`}
     >
-      {isOfficialN4 ? (
+      {isOfficialN4 && !suppressSeal ? (
         <VerifiedSeal size={iconSize + 3} title={tooltip} />
       ) : (
         <Icon size={iconSize} className="shrink-0" />
       )}
       {showLevel && <span className="opacity-80 font-mono">N{levelNum}</span>}
-      <span>{trust.label}</span>
+      <span>{displayLabel}</span>
       {showScale && (
         <span className="opacity-80 font-mono text-[10px] pl-1 border-l border-current/25">
           {levelNum}/4
@@ -178,7 +235,7 @@ export default function ProviderTrustBadge({
  * Insignia transparente del Eje Comercial (desacoplada de N1–N4).
  * Solo se muestra en prestadores habilitados (`N3` o `N4`) con plan comercial vigente.
  */
-export function FeaturedPartnerBadge({ compact = false }) {
+export function FeaturedPartnerBadge({ compact = false, label = 'Destacado' }) {
   return (
     <span
       title="Visibilidad comercial prioritaria (habilitada exclusivamente para prestadores N3–N4 con documentación vigente)"
@@ -187,7 +244,7 @@ export function FeaturedPartnerBadge({ compact = false }) {
       }`}
     >
       <Sparkles size={10} className="text-amber-300 shrink-0" />
-      <span>Destacado</span>
+      <span>{label || 'Destacado'}</span>
     </span>
   );
 }
@@ -305,13 +362,13 @@ export function TrustLevelMeter({ level = 0, isDanger = false }) {
   const numericLevel = Math.max(0, Math.min(4, Number(level || 0)));
   const segmentTitles = [
     'N1 · Perfil Básico (DNI validado + Especialidad)',
-    'N2 · Cobertura cargada (Seguro AP / ART en revisión)',
+    'N2 · En verificación (Seguro AP / ART en revisión)',
     'N3 · Pase QR habilitado (Antecedentes + aprobación)',
     'N4 · Verificado TrustLink (PDFs cotejados automáticamente)',
   ];
   const segmentColors = [
     'bg-slate-300',
-    'bg-orange-400',
+    'bg-indigo-400',
     'bg-emerald-400',
     'bg-sky-400',
   ];
@@ -357,7 +414,7 @@ export function TrustLevelsGuide({ innerStyle, onClose }) {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-bold">
           <ShieldCheck size={15} className="text-emerald-400 shrink-0" />
-          <span>¿Cómo leer los Niveles de Confianza (N1 a N4)?</span>
+          <span>¿Cómo funcionan los niveles de confianza (N1 a N4)?</span>
         </div>
         {typeof onClose === 'function' && (
           <button

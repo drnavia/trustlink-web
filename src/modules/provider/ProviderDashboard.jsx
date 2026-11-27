@@ -2732,7 +2732,7 @@ export default function ProviderDashboard({
                           isDanger
                             ? 'text-rose-400 shrink-0'
                             : level === 2
-                              ? 'text-orange-400 shrink-0'
+                              ? 'text-indigo-400 shrink-0'
                               : level === 1
                                 ? 'text-slate-300 shrink-0'
                                 : 'text-amber-400 shrink-0'

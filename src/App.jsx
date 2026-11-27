@@ -35,6 +35,7 @@ import {
   Calendar,
   MessageSquare,
   Star,
+  LayoutGrid,
 } from 'lucide-react';
 
 import { BrandingProvider, useBranding } from './modules/branding/BrandingContext';
@@ -1140,18 +1141,25 @@ function MainAppContent() {
                         onClick={() => setRubrosMenuOpen((prev) => !prev)}
                         aria-expanded={rubrosMenuOpen}
                         aria-haspopup="listbox"
-                        className={subBarLinkClass(
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 my-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer shrink-0 ${
                           rubrosMenuOpen ||
-                            (residentTab === 'providers' && residentSpecialty !== 'Todos')
-                        )}
+                          (residentTab === 'providers' && residentSpecialty !== 'Todos')
+                            ? isDarkTheme
+                              ? 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200'
+                              : 'border-emerald-500/50 bg-emerald-50 text-emerald-800'
+                            : isDarkTheme
+                              ? 'border-white/15 bg-white/6 hover:bg-white/12 opacity-95 hover:opacity-100'
+                              : 'border-black/15 bg-black/5 hover:bg-black/10 opacity-95 hover:opacity-100'
+                        }`}
                         title="Explorar prestadores por rubro"
                       >
+                        <LayoutGrid size={12} className="shrink-0 opacity-85" />
                         <span>
                           {residentSpecialty !== 'Todos' ? residentSpecialty : 'Rubros'}
                         </span>
                         <ChevronDown
                           size={12}
-                          className={`opacity-75 transition-transform shrink-0 ${
+                          className={`opacity-80 transition-transform shrink-0 ${
                             rubrosMenuOpen ? 'rotate-180' : ''
                           }`}
                         />
@@ -1373,15 +1381,22 @@ function MainAppContent() {
                       onClick={() => setLandingRubrosOpen((prev) => !prev)}
                       aria-expanded={landingRubrosOpen}
                       aria-haspopup="listbox"
-                      className={subBarLinkClass(
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 my-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer shrink-0 ${
                         landingRubrosOpen || landingSpecialty !== 'Todos'
-                      )}
+                          ? isDarkTheme
+                            ? 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200'
+                            : 'border-emerald-500/50 bg-emerald-50 text-emerald-800'
+                          : isDarkTheme
+                            ? 'border-white/15 bg-white/6 hover:bg-white/12 opacity-95 hover:opacity-100'
+                            : 'border-black/15 bg-black/5 hover:bg-black/10 opacity-95 hover:opacity-100'
+                      }`}
                       title="Filtrar vidriera pública por rubro"
                     >
+                      <LayoutGrid size={12} className="shrink-0 opacity-85" />
                       <span>{landingSpecialty !== 'Todos' ? landingSpecialty : 'Rubros'}</span>
                       <ChevronDown
                         size={12}
-                        className={`opacity-75 transition-transform shrink-0 ${
+                        className={`opacity-80 transition-transform shrink-0 ${
                           landingRubrosOpen ? 'rotate-180' : ''
                         }`}
                       />
