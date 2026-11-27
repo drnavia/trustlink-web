@@ -689,6 +689,11 @@ export default function ResidentDashboard({
   const [loadingCounterAvail, setLoadingCounterAvail] = useState(false);
   const [selectedCounterDay, setSelectedCounterDay] = useState('');
 
+  // Paso 2b: Respuesta formal del residente ante presupuestos recibidos
+  const [respondingQuoteVisitId, setRespondingQuoteVisitId] = useState(null);
+  const [requestingQuoteChangesId, setRequestingQuoteChangesId] = useState(null);
+  const [quoteChangesDraft, setQuoteChangesDraft] = useState('');
+
   // Emisión de pase QR vinculado a un prestador (y opcionalmente a una visita)
   const [qrModalProvider, setQrModalProvider] = useState(null);
   const [qrVisitRequestId, setQrVisitRequestId] = useState(null);
@@ -1725,6 +1730,71 @@ export default function ResidentDashboard({
   };
 
   /**
+   * Responde a un presupuesto formal enviado por el prestador (`POST /api/v1/passes/visit-requests/:id/quote-respond`):
+   * - `approve`: aprueba el presupuesto y genera automáticamente el contrato vinculado al servicio.
+   * - `request_changes`: solicita un ajuste con comentario opcional.
+   *
+   * @param {number|string} visitId - Identificador de la visita presupuestada.
+   * @param {'approve'|'request_changes'} action - Decisión del residente.
+   * @param {string} [feedback=''] - Comentario de ajuste cuando `action === 'request_changes'`.
+   * @returns {Promise<void>}
+   */
+  const handleRespondVisitQuote = async (visitId, action, feedback = '') => {
+    setRespondingQuoteVisitId(visitId);
+    setVisitActionFeedback({ type: '', text: '' });
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/passes/visit-requests/${visitId}/quote-respond`,
+        {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            action,
+            feedback: String(feedback || '').trim() || undefined,
+          }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setRequestingQuoteChangesId(null);
+        setQuoteChangesDraft('');
+        const feedbackMsg =
+          data.message ||
+          (action === 'approve'
+            ? 'Presupuesto aprobado. Tu orden de servicio quedó lista.'
+            : 'Pedido de ajuste enviado al prestador.');
+        setVisitActionFeedback({ type: 'success', text: feedbackMsg });
+        if (action === 'approve') {
+          setPaymentFeedback({ type: 'success', text: feedbackMsg });
+        }
+        await Promise.all([
+          fetchMyVisits(),
+          fetchContractsData(),
+          fetchReviewsData(),
+          fetchMyPasses(),
+        ]);
+        // Al aprobar, el contrato recién creado absorbe la visita: transicionamos el modal al expediente del contrato
+        if (action === 'approve' && data.contract?.id) {
+          setSelectedServiceKey(`contract-${data.contract.id}`);
+        }
+      } else {
+        setVisitActionFeedback({
+          type: 'error',
+          text: data.error || 'No se pudo procesar tu respuesta sobre el presupuesto.',
+        });
+      }
+    } catch (error) {
+      console.error('Error al responder presupuesto de visita:', error);
+      setVisitActionFeedback({
+        type: 'error',
+        text: 'Error de conexión al responder el presupuesto.',
+      });
+    } finally {
+      setRespondingQuoteVisitId(null);
+    }
+  };
+
+  /**
    * Envía un mensaje de seguimiento dentro del hilo de una solicitud de visita existente
    * y recarga el historial para reflejar la conversación actualizada.
    *
@@ -2442,8 +2512,13 @@ export default function ResidentDashboard({
       const activePassStatus = String(activePass?.status || '').toLowerCase();
       const hasActiveOrUsedPass = activePassStatus === 'pending' || activePassStatus === 'used';
       const passIsUsed = activePassStatus === 'used';
+      const quoteStatus = String(visit.quote_status || '').toLowerCase();
+      const quoteAmount = Number(visit.quote_amount || 0);
+      const hasPendingQuote = !meta.isClosed && quoteStatus === 'sent' && quoteAmount > 0;
+      const quoteChangesRequested = !meta.isClosed && quoteStatus === 'changes_requested';
 
       const needsAction =
+        hasPendingQuote ||
         meta.isPendingResident ||
         (meta.isConfirmed && canIssueQr && !hasActiveOrUsedPass) ||
         passIsUsed;
@@ -2454,7 +2529,7 @@ export default function ResidentDashboard({
       const serviceTitle =
         String(visit.service_title || '').trim() ||
         (visitSpecialtyLabel ? `Servicio de ${visitSpecialtyLabel}` : `Solicitud de visita #${visit.id}`);
-      const ts = new Date(visit.preferred_date || visit.created_at || 0).getTime() || 0;
+      const ts = new Date(visit.quoted_at || visit.preferred_date || visit.created_at || 0).getTime() || 0;
 
       unified.push({
         key: `visit-${visit.id}`,
@@ -2468,20 +2543,26 @@ export default function ResidentDashboard({
         activePass,
         hasActiveOrUsedPass,
         passIsUsed,
+        quoteStatus,
+        quoteAmount,
+        hasPendingQuote,
+        quoteChangesRequested,
         providerDisplay,
         specialty: visitSpecialtyLabel,
         serviceTitle,
-        searchableText: `${visit.id} ${serviceTitle} ${visitSpecialtyLabel} ${providerDisplay} ${visit.notes || ''} visita ${visit.lot_number || ''}`.toLowerCase(),
+        searchableText: `${visit.id} ${serviceTitle} ${visitSpecialtyLabel} ${providerDisplay} ${visit.notes || ''} ${visit.quote_description || ''} presupuesto visita ${visit.lot_number || ''}`.toLowerCase(),
         needsAction,
         hasOpenDispute: false,
         hasRatedProvider: true,
-        actionPriority: meta.isPendingResident
+        actionPriority: hasPendingQuote
           ? 0
-          : passIsUsed
+          : meta.isPendingResident
             ? 1
-            : meta.isConfirmed && canIssueQr && !hasActiveOrUsedPass
+            : passIsUsed
               ? 2
-              : 8,
+              : meta.isConfirmed && canIssueQr && !hasActiveOrUsedPass
+                ? 3
+                : 8,
         sortTs: ts,
       });
     });
@@ -2583,8 +2664,21 @@ export default function ResidentDashboard({
   const quickContinueCards = useMemo(() => {
     const cards = [];
 
-    // 1. Servicio con contrapropuesta o listo para emitir Pase QR (centrado en el servicio)
-    if (pendingResidentVisitsCount > 0) {
+    // 1. Presupuesto recibido, contrapropuesta de horario o servicio listo para Pase QR
+    const pendingQuoteService = allUnifiedServices.find(
+      (entry) => entry.kind === 'visit' && entry.hasPendingQuote
+    );
+    if (pendingQuoteService) {
+      cards.push({
+        id: `visit-quote-${pendingQuoteService.id}`,
+        eyebrow: 'Presupuesto recibido',
+        title: `${pendingQuoteService.serviceTitle} · $${pendingQuoteService.quoteAmount.toLocaleString('es-AR')}`,
+        cta: 'Revisar presupuesto',
+        tone: 'amber',
+        actionType: 'open_service_detail',
+        serviceKey: pendingQuoteService.key,
+      });
+    } else if (pendingResidentVisitsCount > 0) {
       cards.push({
         id: 'visit-confirm',
         eyebrow: 'Requiere tu confirmación',
@@ -2917,6 +3011,9 @@ export default function ResidentDashboard({
                 const handleQuickAction = () => {
                   if (item.actionType === 'go_visits_confirm') {
                     openServicesView('visits');
+                  } else if (item.actionType === 'open_service_detail' && item.serviceKey) {
+                    openServicesView('action');
+                    setSelectedServiceKey(item.serviceKey);
                   } else if (item.actionType === 'emit_qr' && item.provider) {
                     openQrModalForProvider(item.provider, {
                       providerId: item.visit?.provider_id,
@@ -2952,7 +3049,7 @@ export default function ResidentDashboard({
                       onClick={handleQuickAction}
                       className="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer shrink-0 whitespace-nowrap"
                       style={
-                        item.actionType === 'emit_qr'
+                        item.actionType === 'emit_qr' || item.actionType === 'open_service_detail'
                           ? { backgroundColor: primaryColor, color: '#ffffff', borderColor: 'transparent' }
                           : cardStyle
                       }
@@ -4075,7 +4172,7 @@ export default function ResidentDashboard({
                   );
                 }
 
-                /* ===== FILA MINIMALISTA DE VISITA (Centrada en el Servicio -> evoluciona con Pase QR y Pago) ===== */
+                /* ===== FILA MINIMALISTA DE VISITA (Centrada en el Servicio -> evoluciona con Presupuesto, Pase QR y Pago) ===== */
                 const {
                   visit,
                   meta,
@@ -4084,6 +4181,9 @@ export default function ResidentDashboard({
                   activePass,
                   hasActiveOrUsedPass,
                   passIsUsed,
+                  hasPendingQuote,
+                  quoteChangesRequested,
+                  quoteAmount,
                   providerDisplay,
                   specialty: visitSpecialtyLabel,
                   serviceTitle,
@@ -4092,22 +4192,31 @@ export default function ResidentDashboard({
                 const visitTrustLevel = Number(
                   matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
                 );
-                const visitBadgeLabel = passIsUsed
-                  ? 'Ingreso registrado'
-                  : hasActiveOrUsedPass
-                    ? 'Pase QR vigente'
-                    : meta.isConfirmed && !canIssueQr
-                      ? 'Acordada · Sin Pase QR'
-                      : meta.label;
-                const visitBadgeCls = passIsUsed
-                  ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
-                  : hasActiveOrUsedPass
-                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-                    : meta.isConfirmed && !canIssueQr
-                      ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
-                      : meta.badgeClass;
-                const cardBorderCls =
-                  meta.isPendingResident || passIsUsed
+                const visitBadgeLabel = hasPendingQuote
+                  ? 'Presupuesto recibido'
+                  : quoteChangesRequested
+                    ? 'Ajuste solicitado'
+                    : passIsUsed
+                      ? 'Ingreso registrado'
+                      : hasActiveOrUsedPass
+                        ? 'Pase QR vigente'
+                        : meta.isConfirmed && !canIssueQr
+                          ? 'Acordada · Sin Pase QR'
+                          : meta.label;
+                const visitBadgeCls = hasPendingQuote
+                  ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+                  : quoteChangesRequested
+                    ? 'bg-amber-500/10 text-amber-200 border-amber-400/35'
+                    : passIsUsed
+                      ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                      : hasActiveOrUsedPass
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                        : meta.isConfirmed && !canIssueQr
+                          ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                          : meta.badgeClass;
+                const cardBorderCls = hasPendingQuote
+                  ? 'border-amber-400/60 ring-1 ring-amber-400/25'
+                  : meta.isPendingResident || passIsUsed
                     ? 'border-sky-400/55 ring-1 ring-sky-400/20'
                     : (meta.isConfirmed && canIssueQr) || hasActiveOrUsedPass
                       ? 'border-emerald-500/45'
@@ -4179,12 +4288,18 @@ export default function ResidentDashboard({
                         </div>
                       </button>
 
-                      {/* Derecha: Horario compacto + máx. 2 acciones contextuales */}
+                      {/* Derecha: Monto (si hay presupuesto) u Horario compacto + máx. 2 acciones contextuales */}
                       <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
-                          <Clock size={12} className="text-emerald-400 shrink-0" />
-                          <span>{scheduleShort}</span>
-                        </span>
+                        {hasPendingQuote ? (
+                          <span className="font-mono font-black text-sm text-amber-200 mr-1 whitespace-nowrap">
+                            ${quoteAmount.toLocaleString('es-AR')}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
+                            <Clock size={12} className="text-emerald-400 shrink-0" />
+                            <span>{scheduleShort}</span>
+                          </span>
+                        )}
 
                         <button
                           type="button"
@@ -4201,7 +4316,17 @@ export default function ResidentDashboard({
                           )}
                         </button>
 
-                        {hasActiveOrUsedPass ? (
+                        {hasPendingQuote ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedServiceKey(entry.key)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <FileText size={13} />
+                            <span>Revisar presupuesto</span>
+                          </button>
+                        ) : hasActiveOrUsedPass ? (
                           <button
                             type="button"
                             onClick={() =>
@@ -6268,6 +6393,8 @@ export default function ResidentDashboard({
         const closeDetailModal = () => {
           setSelectedServiceKey(null);
           setCounterVisitId(null);
+          setRequestingQuoteChangesId(null);
+          setQuoteChangesDraft('');
         };
 
         if (selectedServiceEntry.kind === 'visit') {
@@ -6280,29 +6407,41 @@ export default function ResidentDashboard({
             activePass,
             hasActiveOrUsedPass,
             passIsUsed,
+            hasPendingQuote,
+            quoteChangesRequested,
+            quoteAmount,
             providerDisplay,
             specialty: visitSpecialtyLabel,
             serviceTitle,
           } = selectedServiceEntry;
           const msgs = Array.isArray(visit.messages) ? visit.messages : [];
           const isCountering = counterVisitId === visit.id;
+          const isRequestingQuoteChanges = requestingQuoteChangesId === visit.id;
           const visitTrustLevel = Number(
             matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
           );
-          const visitBadgeLabel = passIsUsed
-            ? 'Ingreso registrado'
-            : hasActiveOrUsedPass
-              ? 'Pase QR vigente'
-              : meta.isConfirmed && !canIssueQr
-                ? 'Acordada · Sin Pase QR'
-                : meta.label;
-          const visitBadgeCls = passIsUsed
-            ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
-            : hasActiveOrUsedPass
-              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
-              : meta.isConfirmed && !canIssueQr
-                ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
-                : meta.badgeClass;
+          const visitBadgeLabel = hasPendingQuote
+            ? 'Presupuesto recibido'
+            : quoteChangesRequested
+              ? 'Ajuste solicitado'
+              : passIsUsed
+                ? 'Ingreso registrado'
+                : hasActiveOrUsedPass
+                  ? 'Pase QR vigente'
+                  : meta.isConfirmed && !canIssueQr
+                    ? 'Acordada · Sin Pase QR'
+                    : meta.label;
+          const visitBadgeCls = hasPendingQuote
+            ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+            : quoteChangesRequested
+              ? 'bg-amber-500/10 text-amber-200 border-amber-400/35'
+              : passIsUsed
+                ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                : hasActiveOrUsedPass
+                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                  : meta.isConfirmed && !canIssueQr
+                    ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+                    : meta.badgeClass;
 
           return (
             <div
@@ -6369,6 +6508,21 @@ export default function ResidentDashboard({
                       </span>
                       <span
                         className={`px-2.5 py-1 rounded-lg border ${
+                          hasPendingQuote
+                            ? 'border-amber-400/55 bg-amber-500/15 text-amber-200'
+                            : quoteChangesRequested
+                              ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                              : 'border-white/10 opacity-50'
+                        }`}
+                      >
+                        {hasPendingQuote
+                          ? '● Presupuesto recibido'
+                          : quoteChangesRequested
+                            ? '● Ajuste pedido'
+                            : '○ Presupuesto'}
+                      </span>
+                      <span
+                        className={`px-2.5 py-1 rounded-lg border ${
                           hasActiveOrUsedPass
                             ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
                             : meta.isConfirmed && canIssueQr
@@ -6390,6 +6544,127 @@ export default function ResidentDashboard({
                         }`}
                       >
                         {passIsUsed ? '● Pago / Conf.' : '○ Pago / Conf.'}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Tarjeta de Presupuesto Recibido (Aprobar -> crea contrato automático / Pedir ajuste) */}
+                  {hasPendingQuote && (
+                    <div className="rounded-xl p-4 border border-amber-400/55 bg-amber-950/30 space-y-3">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-1 min-w-0">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300 inline-flex items-center gap-1.5">
+                            <FileText size={12} />
+                            <span>Presupuesto formal recibido</span>
+                          </span>
+                          <p className="text-xs font-semibold leading-relaxed">
+                            {visit.quote_description || serviceTitle}
+                          </p>
+                          {visit.quote_notes && (
+                            <p className="text-[11px] opacity-80">{visit.quote_notes}</p>
+                          )}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="block text-[10px] uppercase opacity-70 font-semibold">
+                            Total
+                          </span>
+                          <span className="font-mono font-black text-lg text-amber-200">
+                            ${quoteAmount.toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <p className="text-[11px] opacity-80">
+                        Si aprobás este presupuesto, se genera automáticamente la orden de servicio por{' '}
+                        <strong className="font-mono">${quoteAmount.toLocaleString('es-AR')}</strong>{' '}
+                        vinculada a este trabajo.
+                      </p>
+
+                      {!isRequestingQuoteChanges ? (
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <button
+                            type="button"
+                            disabled={respondingQuoteVisitId === visit.id}
+                            onClick={() => handleRespondVisitQuote(visit.id, 'approve')}
+                            className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shadow-sm"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <CheckCircle2 size={14} />
+                            <span>
+                              {respondingQuoteVisitId === visit.id
+                                ? 'Aprobando...'
+                                : 'Aprobar presupuesto'}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            disabled={respondingQuoteVisitId === visit.id}
+                            onClick={() => {
+                              setRequestingQuoteChangesId(visit.id);
+                              setQuoteChangesDraft('');
+                            }}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold border border-amber-400/45 text-amber-100 hover:bg-amber-900/40 cursor-pointer"
+                          >
+                            Pedir ajuste
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          className="rounded-xl p-3 border border-white/15 space-y-2"
+                          style={cardStyle}
+                        >
+                          <label className="block text-[11px] font-bold text-amber-200">
+                            ¿Qué te gustaría ajustar del presupuesto?
+                          </label>
+                          <input
+                            type="text"
+                            value={quoteChangesDraft}
+                            onChange={(e) => setQuoteChangesDraft(e.target.value)}
+                            placeholder="Ej: ¿Podemos hacerlo sin provisión de materiales o desglosar mano de obra?"
+                            className={`w-full ${FIELD_INPUT_CLASS}`}
+                            style={innerStyle}
+                          />
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setRequestingQuoteChangesId(null);
+                                setQuoteChangesDraft('');
+                              }}
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 cursor-pointer"
+                              style={innerStyle}
+                            >
+                              Cancelar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={respondingQuoteVisitId === visit.id}
+                              onClick={() =>
+                                handleRespondVisitQuote(
+                                  visit.id,
+                                  'request_changes',
+                                  quoteChangesDraft
+                                )
+                              }
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white cursor-pointer disabled:opacity-50"
+                            >
+                              {respondingQuoteVisitId === visit.id
+                                ? 'Enviando...'
+                                : 'Enviar pedido de ajuste'}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {quoteChangesRequested && (
+                    <div className="rounded-xl p-3 border border-amber-500/35 bg-amber-950/25 text-amber-100 text-[11px] flex items-start gap-2">
+                      <AlertCircle size={14} className="text-amber-300 shrink-0 mt-0.5" />
+                      <span>
+                        Pediste un ajuste sobre el presupuesto anterior
+                        {quoteAmount > 0 ? ` ($${quoteAmount.toLocaleString('es-AR')})` : ''}.
+                        Esperando nueva cotización del prestador.
                       </span>
                     </div>
                   )}
@@ -6865,11 +7140,16 @@ export default function ResidentDashboard({
 
               {/* Cuerpo desplazable del Modal de Servicio */}
               <div className="p-5 overflow-y-auto tl-scroll space-y-4 flex-1">
-                {/* Progreso de 4 hitos */}
+                {/* Progreso de hitos */}
                 <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
                   <span className="px-2.5 py-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
                     ✓ Visita
                   </span>
+                  {linkedVisit?.quote_status === 'approved' && (
+                    <span className="px-2.5 py-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
+                      ✓ Presupuesto
+                    </span>
+                  )}
                   <span
                     className={`px-2.5 py-1 rounded-lg border ${
                       contract.pass_id || linkedPass

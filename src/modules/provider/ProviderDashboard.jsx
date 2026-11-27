@@ -374,6 +374,14 @@ export default function ProviderDashboard({
   const [reschedulingVisitId, setReschedulingVisitId] = useState(null);
   const [rescheduleDateDraft, setRescheduleDateDraft] = useState('');
 
+  // Paso 4b: Presupuestos formales vinculados a una solicitud de visita
+  const [quoteModalVisit, setQuoteModalVisit] = useState(null);
+  const [quoteAmountDraft, setQuoteAmountDraft] = useState('');
+  const [quoteDescriptionDraft, setQuoteDescriptionDraft] = useState('');
+  const [quoteNotesDraft, setQuoteNotesDraft] = useState('');
+  const [savingQuote, setSavingQuote] = useState(false);
+  const [quoteModalError, setQuoteModalError] = useState('');
+
   // Paso 5: Pases QR — listado asignado, búsqueda, filtro por estado, paginación y modal de detalle
   const [assignedPasses, setAssignedPasses] = useState([]);
   const [loadingPasses, setLoadingPasses] = useState(false);
@@ -1663,6 +1671,86 @@ export default function ProviderDashboard({
       setErrorMsg('Error de conexión al responder la visita.');
     } finally {
       setRespondingVisitId(null);
+    }
+  };
+
+  /**
+   * Abre el modal de presupuesto formal precargando el título del servicio o un presupuesto previo.
+   * @param {Object} visit - Solicitud de visita sobre la cual se cotiza el trabajo.
+   */
+  const openQuoteModal = (visit) => {
+    setQuoteModalVisit(visit);
+    setQuoteDescriptionDraft(
+      String(visit?.quote_description || visit?.service_title || '').trim()
+    );
+    setQuoteAmountDraft(
+      visit?.quote_amount && Number(visit.quote_amount) > 0 ? String(Number(visit.quote_amount)) : ''
+    );
+    setQuoteNotesDraft(String(visit?.quote_notes || '').trim());
+    setQuoteModalError('');
+    setErrorMsg('');
+    setSuccessMsg('');
+  };
+
+  /**
+   * Envía o actualiza el presupuesto formal del prestador para una visita (`POST /api/v1/passes/visit-requests/:id/quote`).
+   * @param {React.FormEvent<HTMLFormElement>} e - Evento de envío del formulario.
+   * @returns {Promise<void>}
+   */
+  const handleSubmitVisitQuote = async (e) => {
+    e.preventDefault();
+    if (!quoteModalVisit?.id) return;
+
+    const numericAmount = Number(quoteAmountDraft);
+    const cleanDescription = String(quoteDescriptionDraft || '').trim();
+    const cleanNotes = String(quoteNotesDraft || '').trim();
+
+    if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+      setQuoteModalError('Ingresá un monto total válido mayor a cero.');
+      return;
+    }
+    if (cleanDescription.length < 3) {
+      setQuoteModalError('Describí brevemente qué trabajo incluye el presupuesto.');
+      return;
+    }
+
+    setSavingQuote(true);
+    setQuoteModalError('');
+    try {
+      const response = await fetch(
+        `${API_BASE}/api/v1/passes/visit-requests/${quoteModalVisit.id}/quote`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            amount: numericAmount,
+            description: cleanDescription,
+            notes: cleanNotes || null,
+          }),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(
+          data.message ||
+            `Presupuesto de $${numericAmount.toLocaleString('es-AR')} enviado al residente.`
+        );
+        setQuoteModalVisit(null);
+        setQuoteAmountDraft('');
+        setQuoteDescriptionDraft('');
+        setQuoteNotesDraft('');
+        await fetchIncomingVisits();
+      } else {
+        setQuoteModalError(data.error || 'No se pudo enviar el presupuesto.');
+      }
+    } catch (error) {
+      console.error('Error al enviar presupuesto de visita:', error);
+      setQuoteModalError('Error de conexión al enviar el presupuesto.');
+    } finally {
+      setSavingQuote(false);
     }
   };
 
@@ -5451,19 +5539,104 @@ export default function ProviderDashboard({
                     {/* Zona de decisión contextual según estado */}
                     <div className="pt-2.5 border-t border-white/10 space-y-2.5">
                       {isConfirmed ? (
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
-                          <span className="inline-flex items-center gap-1.5 font-semibold">
-                            <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-                            <span>Horario reservado en tu agenda. El residente ya puede emitir el Pase QR.</span>
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => setActiveStep('schedule')}
-                            className="px-2.5 py-1 rounded-lg font-bold border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-950/80 cursor-pointer shrink-0"
-                          >
-                            Ver en Agenda
-                          </button>
-                        </div>
+                        (() => {
+                          const quoteStatus = String(visit.quote_status || '').toLowerCase();
+                          const quoteAmount = Number(visit.quote_amount || 0);
+                          return (
+                            <div className="space-y-2.5">
+                              {/* Estado del presupuesto formal vinculado a esta visita */}
+                              {quoteStatus === 'approved' ? (
+                                <div className="rounded-xl p-2.5 border border-emerald-500/40 bg-emerald-950/35 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
+                                  <span className="inline-flex items-center gap-1.5 font-bold">
+                                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                                    <span>
+                                      Presupuesto aprobado ·{' '}
+                                      <span className="font-mono">
+                                        ${quoteAmount.toLocaleString('es-AR')}
+                                      </span>
+                                    </span>
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveStep('reviews')}
+                                    className="px-2.5 py-1 rounded-lg font-bold border border-emerald-400/45 bg-emerald-950/60 hover:bg-emerald-900/70 cursor-pointer shrink-0"
+                                  >
+                                    Ver en Reputación e Ingresos
+                                  </button>
+                                </div>
+                              ) : quoteStatus === 'sent' ? (
+                                <div className="rounded-xl p-2.5 border border-sky-500/35 bg-sky-950/30 flex flex-wrap items-center justify-between gap-2 text-[11px] text-sky-100">
+                                  <div className="space-y-0.5 min-w-0">
+                                    <p className="font-bold">
+                                      Presupuesto enviado ·{' '}
+                                      <span className="font-mono text-sky-200">
+                                        ${quoteAmount.toLocaleString('es-AR')}
+                                      </span>
+                                    </p>
+                                    <p className="opacity-80">
+                                      Esperando aprobación o consulta del residente.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openQuoteModal(visit)}
+                                    className="px-2.5 py-1 rounded-lg font-bold border border-sky-400/45 hover:bg-sky-900/50 cursor-pointer shrink-0"
+                                  >
+                                    Editar presupuesto
+                                  </button>
+                                </div>
+                              ) : quoteStatus === 'changes_requested' ? (
+                                <div className="rounded-xl p-2.5 border border-amber-500/45 bg-amber-950/35 flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-100">
+                                  <div className="space-y-0.5 min-w-0">
+                                    <p className="font-bold text-amber-200">
+                                      El residente pidió un ajuste sobre tu presupuesto
+                                    </p>
+                                    <p className="opacity-80">
+                                      Revisá el comentario en el hilo y enviá una cotización actualizada.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => openQuoteModal(visit)}
+                                    className="px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer shrink-0"
+                                    style={{ backgroundColor: primaryColor }}
+                                  >
+                                    Enviar nuevo presupuesto
+                                  </button>
+                                </div>
+                              ) : null}
+
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
+                                <span className="inline-flex items-center gap-1.5 font-semibold">
+                                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                                  <span>
+                                    Horario reservado en tu agenda. El residente ya puede emitir el Pase QR.
+                                  </span>
+                                </span>
+                                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveStep('schedule')}
+                                    className="px-2.5 py-1.5 rounded-lg font-bold border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-950/80 cursor-pointer"
+                                  >
+                                    Ver en Agenda
+                                  </button>
+                                  {!quoteStatus && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openQuoteModal(visit)}
+                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer hover:opacity-95"
+                                      style={{ backgroundColor: primaryColor }}
+                                    >
+                                      <FileText size={13} />
+                                      <span>Enviar presupuesto</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()
                       ) : isClosed ? (
                         <p className="text-[11px] opacity-70">
                           Solicitud cerrada ({badgeLabel.toLowerCase()}).
@@ -6124,6 +6297,150 @@ export default function ProviderDashboard({
                 Cerrar
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Enviar o actualizar Presupuesto Formal vinculado a una Visita */}
+      {quoteModalVisit && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+          onClick={() => !savingQuote && setQuoteModalVisit(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="space-y-0.5 min-w-0">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 inline-flex items-center gap-1.5">
+                  <FileText size={12} />
+                  <span>
+                    {quoteModalVisit.quote_status
+                      ? 'Actualizar presupuesto'
+                      : 'Nuevo presupuesto formal'}
+                  </span>
+                </span>
+                <h3 className="text-base font-black truncate">
+                  {quoteModalVisit.service_title ||
+                    (quoteModalVisit.service_specialty || quoteModalVisit.provider_specialty
+                      ? `Servicio de ${quoteModalVisit.service_specialty || quoteModalVisit.provider_specialty}`
+                      : `Visita #${quoteModalVisit.id}`)}
+                </h3>
+                <p className="text-[11px] opacity-75">
+                  Residente: <strong className="opacity-95">{quoteModalVisit.owner_name || 'Residente'}</strong> · Visita #{quoteModalVisit.id}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={savingQuote}
+                onClick={() => setQuoteModalVisit(null)}
+                aria-label="Cerrar modal de presupuesto"
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {quoteModalError && (
+              <div className="rounded-xl p-3 border border-rose-500/45 bg-rose-950/50 text-rose-200 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-400" />
+                <span>{quoteModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSubmitVisitQuote} className="space-y-3.5">
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">
+                  Alcance del trabajo presupuestado *
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  maxLength={500}
+                  value={quoteDescriptionDraft}
+                  onChange={(e) => setQuoteDescriptionDraft(e.target.value)}
+                  placeholder="Ej: Cambio de válvula, sellado de cañería bajo mesada y prueba de presión."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none resize-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">
+                  Monto total del presupuesto (ARS) *
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono font-bold opacity-70">
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="any"
+                    value={quoteAmountDraft}
+                    onChange={(e) => setQuoteAmountDraft(e.target.value)}
+                    placeholder="Ej: 85000"
+                    className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-slate-700/80 text-sm font-mono font-bold focus:outline-none"
+                    style={innerStyle}
+                  />
+                </div>
+                {Number(quoteAmountDraft) > 0 && (
+                  <div className="flex items-center justify-between gap-2 pt-1 text-[11px] opacity-85">
+                    <span>Comisión plataforma (7%):</span>
+                    <span className="font-mono">
+                      ${Math.round(Number(quoteAmountDraft) * 0.07).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+                {Number(quoteAmountDraft) > 0 && (
+                  <div className="flex items-center justify-between gap-2 text-[11px] font-bold text-emerald-300">
+                    <span>Tu ingreso neto estimado (93%):</span>
+                    <span className="font-mono">
+                      ${Math.round(Number(quoteAmountDraft) * 0.93).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">
+                  Materiales, plazo o condiciones (opcional)
+                </label>
+                <input
+                  type="text"
+                  maxLength={300}
+                  value={quoteNotesDraft}
+                  onChange={(e) => setQuoteNotesDraft(e.target.value)}
+                  placeholder="Ej: Incluye materiales. Demora estimada: 1 jornada. Validez: 7 días."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  disabled={savingQuote}
+                  onClick={() => setQuoteModalVisit(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingQuote}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <Send size={13} />
+                  <span>{savingQuote ? 'Enviando...' : 'Enviar presupuesto'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
