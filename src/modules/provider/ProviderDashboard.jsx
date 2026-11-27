@@ -51,6 +51,7 @@ import {
   ChevronDown,
   ChevronUp,
   ExternalLink,
+  RotateCcw,
 } from 'lucide-react';
 import { useBranding } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -62,6 +63,7 @@ import { ReputationThermometer } from '../../components/HomeProtectedBadge';
 import ProviderCalendarManager from '../../components/ProviderCalendarManager';
 import ProviderTrustBadge, {
   FeaturedPartnerBadge,
+  ProviderAvatar,
   TrustChecksStrip,
   VerifiedSeal,
 } from '../../components/ProviderTrustBadge';
@@ -71,6 +73,7 @@ import {
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
   ITEM_CARD_CLASS,
+  FIELD_INPUT_CLASS,
   STANDARD_SPECIALTIES_CATALOG,
   TRUST_LEVEL_THEME,
   formatDateTimeAR,
@@ -169,6 +172,39 @@ function getPassStatusLabel(status) {
   if (normalized === 'expired') return 'Vencido';
   if (normalized === 'cancelled') return 'Cancelado';
   return status || 'Sin estado';
+}
+
+/** Normaliza domicilio de visita evitando duplicar la palabra "Lote". */
+function formatVisitAddressProvider(fractionNumber, lotNumber) {
+  const frac = String(fractionNumber || '').trim();
+  const rawLot = String(lotNumber || '').trim();
+  const cleanLot = rawLot ? (/^lote\b/i.test(rawLot) ? rawLot : `Lote ${rawLot}`) : 'Lote —';
+  return frac ? `${frac} · ${cleanLot}` : cleanLot;
+}
+
+/** Formatea franja horaria compacta en 24h (`25/11 · 09:00–10:00`) simétrica a Mis Servicios. */
+function formatVisitScheduleShortProvider(preferredDate, preferredEndDate) {
+  if (!preferredDate) return 'A convenir';
+  const start = new Date(preferredDate);
+  if (Number.isNaN(start.getTime())) return String(preferredDate);
+  const datePart = start.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  const startTimePart = start.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  if (preferredEndDate) {
+    const end = new Date(preferredEndDate);
+    if (!Number.isNaN(end.getTime())) {
+      const endTimePart = end.toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      return `${datePart} · ${startTimePart}–${endTimePart}`;
+    }
+  }
+  return `${datePart} · ${startTimePart}`;
 }
 
 /**
@@ -379,11 +415,17 @@ export default function ProviderDashboard({
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [scheduleRefreshKey, setScheduleRefreshKey] = useState(0);
 
-  // Paso 4: Solicitudes de Visita — pedidos entrantes, filtro rápido, borradores de respuesta y repactación de horario
+  // Paso 4: Solicitudes de Visita — pedidos entrantes, búsqueda, filtros, paginación y modal de detalle
   const [incomingVisits, setIncomingVisits] = useState([]);
   const [loadingVisits, setLoadingVisits] = useState(false);
   const [visitStatusFilter, setVisitStatusFilter] = useState('all');
+  const [visitSearch, setVisitSearch] = useState('');
+  const [visitPage, setVisitPage] = useState(1);
+  const [visitPageSize, setVisitPageSize] = useState(6);
+  const [selectedVisitDetailId, setSelectedVisitDetailId] = useState(null);
   const [visitReplyDrafts, setVisitReplyDrafts] = useState({});
+  const [visitMessageDrafts, setVisitMessageDrafts] = useState({});
+  const [sendingVisitMessageId, setSendingVisitMessageId] = useState(null);
   const [respondingVisitId, setRespondingVisitId] = useState(null);
   const [reschedulingVisitId, setReschedulingVisitId] = useState(null);
   const [rescheduleDateDraft, setRescheduleDateDraft] = useState('');
@@ -1690,6 +1732,39 @@ export default function ProviderDashboard({
   };
 
   /**
+   * Envía un mensaje de seguimiento del prestador en el hilo de una visita activa
+   * (`POST /api/v1/passes/visit-requests/:id/messages`) desde el Modal de Detalle.
+   */
+  const handleSendProviderVisitMessage = async (visitId) => {
+    const text = String(visitMessageDrafts[visitId] || '').trim();
+    if (!text) return;
+    setSendingVisitMessageId(visitId);
+    setErrorMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/passes/visit-requests/${visitId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ text }),
+      });
+      if (response.ok) {
+        setVisitMessageDrafts((prev) => ({ ...prev, [visitId]: '' }));
+        await fetchIncomingVisits();
+      } else {
+        const data = await response.json().catch(() => ({}));
+        setErrorMsg(data.error || 'No se pudo enviar el mensaje.');
+      }
+    } catch (error) {
+      console.error('Error al enviar mensaje de visita desde prestador:', error);
+      setErrorMsg('Error de conexión al enviar el mensaje.');
+    } finally {
+      setSendingVisitMessageId(null);
+    }
+  };
+
+  /**
    * Abre el modal de presupuesto formal precargando el título del servicio o un presupuesto previo.
    * @param {Object} visit - Solicitud de visita sobre la cual se cotiza el trabajo.
    */
@@ -2000,30 +2075,82 @@ export default function ProviderDashboard({
     }
   };
 
-  // Contadores y filtrado de solicitudes de visita por estado (Paso 4)
+  // Contadores, búsqueda, orden de prioridad y paginación de Solicitudes y Visitas (paridad con Mis Servicios)
   const { visitCounts, filteredVisits } = useMemo(() => {
+    const q = visitSearch.trim().toLowerCase();
     const counts = incomingVisits.reduce(
       (acc, v) => {
         const st = String(v.status || '').toLowerCase();
+        const qSt = String(v.quote_status || '').toLowerCase();
+        const isClosed = st === 'declined' || st === 'cancelled';
+        const needsAction =
+          st === 'pending_provider' || st === 'pending' || (!isClosed && qSt === 'changes_requested');
         acc.all += 1;
+        if (needsAction) acc.action += 1;
         if (st === 'confirmed') acc.confirmed += 1;
-        else if (st === 'declined' || st === 'cancelled') acc.closed += 1;
+        else if (isClosed) acc.closed += 1;
         else acc.pending += 1;
         return acc;
       },
-      { all: 0, pending: 0, confirmed: 0, closed: 0 }
+      { all: 0, action: 0, pending: 0, confirmed: 0, closed: 0 }
     );
-    const list = incomingVisits.filter((v) => {
-      const st = String(v.status || '').toLowerCase();
-      if (visitStatusFilter === 'pending') {
-        return st === 'pending_provider' || st === 'pending' || st === 'pending_resident';
-      }
-      if (visitStatusFilter === 'confirmed') return st === 'confirmed';
-      if (visitStatusFilter === 'closed') return st === 'declined' || st === 'cancelled';
-      return true;
-    });
+
+    const list = incomingVisits
+      .filter((v) => {
+        const st = String(v.status || '').toLowerCase();
+        const qSt = String(v.quote_status || '').toLowerCase();
+        const isClosed = st === 'declined' || st === 'cancelled';
+        const needsAction =
+          st === 'pending_provider' || st === 'pending' || (!isClosed && qSt === 'changes_requested');
+
+        if (visitStatusFilter === 'action' && !needsAction) return false;
+        if (
+          visitStatusFilter === 'pending' &&
+          !(st === 'pending_provider' || st === 'pending' || st === 'pending_resident')
+        ) {
+          return false;
+        }
+        if (visitStatusFilter === 'confirmed' && st !== 'confirmed') return false;
+        if (visitStatusFilter === 'closed' && !isClosed) return false;
+
+        if (q) {
+          const searchable = `${v.id} ${v.service_title || ''} ${v.service_specialty || ''} ${
+            v.provider_specialty || ''
+          } ${v.owner_name || ''} ${v.fraction_number || ''} ${v.lot_number || ''} ${
+            v.notes || ''
+          }`.toLowerCase();
+          if (!searchable.includes(q)) return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (visitStatusFilter === 'action') {
+          const aPri = String(a.status || '').toLowerCase() === 'pending_provider' ? 0 : 1;
+          const bPri = String(b.status || '').toLowerCase() === 'pending_provider' ? 0 : 1;
+          if (aPri !== bPri) return aPri - bPri;
+        }
+        return Number(b.id || 0) - Number(a.id || 0);
+      });
+
     return { visitCounts: counts, filteredVisits: list };
-  }, [incomingVisits, visitStatusFilter]);
+  }, [incomingVisits, visitStatusFilter, visitSearch]);
+
+  const {
+    pageItems: paginatedVisits,
+    safePage: safeVisitPage,
+    totalPages: totalVisitPages,
+  } = useMemo(
+    () => paginateItems(filteredVisits, visitPage, visitPageSize),
+    [filteredVisits, visitPage, visitPageSize]
+  );
+
+  const selectedVisitDetail = useMemo(
+    () =>
+      selectedVisitDetailId
+        ? incomingVisits.find((v) => Number(v.id) === Number(selectedVisitDetailId)) || null
+        : null,
+    [incomingVisits, selectedVisitDetailId]
+  );
 
   // Filtra los pases QR asignados por estado y coincidencia textual (residente, lote, patente, token o ID)
   const filteredPasses = useMemo(() => {
@@ -5600,20 +5727,20 @@ export default function ProviderDashboard({
           }
         />
       ) : activeStep === 'visits' ? (
-        /* PASO 4: SOLICITUDES Y CONFIRMACIÓN DE VISITAS */
+        /* PASO 4: SOLICITUDES Y CONFIRMACIÓN DE VISITAS (Paridad estética y UX/UI con "Mis Servicios") */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
-          {/* Cabecera de Solicitudes de Visita y botón de recarga */}
+          {/* Cabecera limpia de Solicitudes y Visitas */}
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <MessageSquare size={18} className="text-emerald-400 shrink-0" />
                 <span>Solicitudes y Confirmación de Visitas</span>
               </h2>
               <p className="text-xs opacity-75">
-                Respondé a los residentes y confirmá tu disponibilidad para bloquear el horario y habilitar el Pase QR.
+                Seguí pedidos de residentes, confirmá horarios, enviá presupuestos y chateá en un solo lugar.
               </p>
             </div>
             <button
@@ -5626,11 +5753,32 @@ export default function ProviderDashboard({
             </button>
           </div>
 
-          {/* Filtros rápidos de estado de visitas + listado con máquina bilateral de acuerdo */}
-          {incomingVisits.length > 0 && (
+          {/* Buscador + chips de filtro homologados con Mis Servicios */}
+          <div className="space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={visitSearch}
+                onChange={(e) => {
+                  setVisitSearch(e.target.value);
+                  setVisitPage(1);
+                }}
+                placeholder="Buscar por residente, trabajo, rubro, lote o #número..."
+                className={`w-full pl-9 pr-3 ${FIELD_INPUT_CLASS}`}
+                style={innerStyle}
+              />
+            </div>
+
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               {[
                 { id: 'all', label: 'Todas', count: visitCounts.all },
+                ...(visitCounts.action > 0 || visitStatusFilter === 'action'
+                  ? [{ id: 'action', label: 'Requiere tu acción', count: visitCounts.action }]
+                  : []),
                 { id: 'pending', label: 'Pendientes', count: visitCounts.pending },
                 { id: 'confirmed', label: 'Acordadas', count: visitCounts.confirmed },
                 { id: 'closed', label: 'Cerradas', count: visitCounts.closed },
@@ -5640,7 +5788,10 @@ export default function ProviderDashboard({
                   <button
                     key={chip.id}
                     type="button"
-                    onClick={() => setVisitStatusFilter(chip.id)}
+                    onClick={() => {
+                      setVisitStatusFilter(chip.id);
+                      setVisitPage(1);
+                    }}
                     className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
                       active
                         ? 'text-white border-transparent shadow-sm'
@@ -5655,409 +5806,292 @@ export default function ProviderDashboard({
                   </button>
                 );
               })}
-            </div>
-          )}
 
+              {(visitStatusFilter !== 'all' || visitSearch.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVisitStatusFilter('all');
+                    setVisitSearch('');
+                    setVisitPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Listado horizontal minimalista (Divulgación progresiva -> Modal de Detalle) */}
           {loadingVisits ? (
-            <p className="text-xs opacity-75 py-8 text-center">Cargando visitas solicitadas...</p>
+            <p className="text-xs opacity-75 py-8 text-center">Cargando solicitudes de visita...</p>
           ) : filteredVisits.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+              className="rounded-xl p-8 text-center text-xs opacity-80 border border-white/10 space-y-2"
               style={innerStyle}
             >
-              {incomingVisits.length === 0
-                ? 'Todavía no tenés solicitudes de visita pendientes de coordinación.'
-                : 'No hay visitas en el estado seleccionado.'}
+              <p className="font-bold text-sm">
+                {incomingVisits.length === 0
+                  ? 'Todavía no recibiste solicitudes de visita.'
+                  : 'No hay solicitudes que coincidan con el filtro actual.'}
+              </p>
+              <p className="opacity-75">
+                {incomingVisits.length === 0
+                  ? 'Cuando un residente te solicite turno o reserve un servicio con precio fijo, aparecerá acá.'
+                  : 'Probá seleccionar "Todas" o limpiar la búsqueda.'}
+              </p>
             </div>
           ) : (
-            <div className={ITEMS_GRID_CLASS}>
-              {filteredVisits.map((visit) => {
+            <div className="space-y-2.5">
+              {paginatedVisits.map((visit) => {
                 const statusLower = String(visit.status || '').toLowerCase();
                 const isConfirmed = statusLower === 'confirmed';
-                const isPendingProvider = statusLower === 'pending_provider' || statusLower === 'pending';
+                const isPendingProvider =
+                  statusLower === 'pending_provider' || statusLower === 'pending';
                 const isPendingResident = statusLower === 'pending_resident';
                 const isClosed = statusLower === 'declined' || statusLower === 'cancelled';
-                const isRescheduling = reschedulingVisitId === visit.id;
+                const quoteStatus = String(visit.quote_status || '').toLowerCase();
+                const quoteAmount = Number(visit.quote_amount || 0);
+                const isFixedPrice = Boolean(visit.service_package_id) && quoteAmount > 0;
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+                const ownerLabel = visit.owner_name || 'Residente';
+                const specialtyLabel = visit.service_specialty || visit.provider_specialty || '';
+                const serviceTitle =
+                  String(visit.service_title || '').trim() ||
+                  (specialtyLabel ? `Servicio de ${specialtyLabel}` : `Visita #${visit.id}`);
+                const addressLabel = formatVisitAddressProvider(
+                  visit.fraction_number,
+                  visit.lot_number
+                );
+                const scheduleShort = formatVisitScheduleShortProvider(
+                  visit.preferred_date,
+                  visit.preferred_end_date
+                );
 
-                const cardBorderCls = isPendingProvider
-                  ? 'border-amber-500/45'
-                  : isPendingResident
-                  ? 'border-sky-500/40'
-                  : isConfirmed
-                  ? 'border-emerald-500/40'
-                  : 'border-slate-800/70 opacity-85';
+                const badgeLabel =
+                  !isClosed && quoteStatus === 'changes_requested'
+                    ? 'Ajuste solicitado'
+                    : isPendingProvider
+                      ? 'Pendiente de respuesta'
+                      : isConfirmed && quoteStatus === 'approved'
+                        ? isFixedPrice
+                          ? 'Acordada · Precio fijo'
+                          : 'Presupuesto aprobado'
+                        : isConfirmed && quoteStatus === 'sent'
+                          ? 'Presupuesto enviado'
+                          : isConfirmed
+                            ? 'Acordada · En agenda'
+                            : isPendingResident
+                              ? 'Contrapropuesta enviada'
+                              : statusLower === 'declined'
+                                ? 'Sin disponibilidad'
+                                : 'Cancelada por residente';
 
-                const badgeCls = isConfirmed
-                  ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
-                  : isPendingResident
-                  ? 'bg-sky-950/80 text-sky-200 border-sky-500/50'
-                  : isClosed
-                  ? 'bg-rose-950/80 text-rose-300 border-rose-700/60'
-                  : 'bg-amber-950/80 text-amber-200 border-amber-600/60';
+                const badgeCls =
+                  !isClosed && (isPendingProvider || quoteStatus === 'changes_requested')
+                    ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+                    : isConfirmed && quoteStatus === 'sent'
+                      ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                      : isConfirmed
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                        : isPendingResident
+                          ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                          : 'bg-rose-500/15 text-rose-200 border-rose-500/40';
 
-                const badgeLabel = isConfirmed
-                  ? 'Acordada · En agenda'
-                  : isPendingResident
-                  ? 'Contrapropuesta enviada'
-                  : statusLower === 'declined'
-                  ? 'Sin disponibilidad'
-                  : statusLower === 'cancelled'
-                  ? 'Cancelada por residente'
-                  : 'Pendiente de tu respuesta';
+                const rowBorderCls =
+                  !isClosed && (isPendingProvider || quoteStatus === 'changes_requested')
+                    ? 'border-amber-400/55 ring-1 ring-amber-400/20'
+                    : isConfirmed
+                      ? 'border-emerald-500/40'
+                      : isPendingResident
+                        ? 'border-sky-400/45'
+                        : 'border-white/10 opacity-85 hover:opacity-100';
 
                 return (
                   <article
                     key={visit.id}
-                    className={`rounded-2xl p-4 border flex flex-col justify-between gap-3 text-xs ${cardBorderCls}`}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${rowBorderCls}`}
                     style={innerStyle}
                   >
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-start justify-between gap-2">
-                        <div className="space-y-1 min-w-0">
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="font-extrabold text-sm">
-                              {visit.service_title ||
-                                (visit.service_specialty || visit.provider_specialty
-                                  ? `Servicio de ${visit.service_specialty || visit.provider_specialty}`
-                                  : `Visita #${visit.id}`)}
-                            </span>
-                            {(visit.service_specialty || visit.provider_specialty) && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                {visit.service_specialty || visit.provider_specialty}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda clicable: Avatar + Título del servicio + Rubro + Estado -> Residente · Domicilio · Mensajes */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReschedulingVisitId(null);
+                          setSelectedVisitDetailId(visit.id);
+                        }}
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                      >
+                        <ProviderAvatar
+                          name={ownerLabel}
+                          level={isConfirmed ? 3 : 1}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              {serviceTitle}
+                            </h3>
+                            {specialtyLabel && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {specialtyLabel}
                               </span>
                             )}
-                            {Boolean(visit.service_package_id) && Number(visit.quote_amount || 0) > 0 && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-400/45 bg-amber-500/15 text-amber-200 font-mono">
-                                Precio fijo · ${Number(visit.quote_amount).toLocaleString('es-AR')}
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${badgeCls}`}
+                            >
+                              {badgeLabel}
+                            </span>
+                            {isFixedPrice && !isConfirmed && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-200 font-mono shrink-0">
+                                Precio fijo
                               </span>
                             )}
                           </div>
-                          <p className="opacity-80">
-                            Residente: <strong>{visit.owner_name || 'Residente'}</strong> · Visita #{visit.id} ·{' '}
-                            <strong>
-                              {visit.fraction_number ? `${visit.fraction_number} · ` : ''}
-                              {visit.lot_number
-                                ? /^lote\b/i.test(String(visit.lot_number).trim())
-                                  ? visit.lot_number
-                                  : `Lote ${visit.lot_number}`
-                                : 'Lote —'}
-                            </strong>
-                          </p>
-                        </div>
-                        <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full border shrink-0 ${badgeCls}`}>
-                          {badgeLabel}
-                        </span>
-                      </div>
 
-                      {/* Franja horaria destacada según la fase del acuerdo */}
-                      <div
-                        className="rounded-xl px-3 py-2 border border-white/10 flex items-center justify-between gap-2 flex-wrap"
-                        style={cardStyle}
-                      >
-                        <span className="inline-flex items-center gap-1.5 font-semibold">
-                          <Clock size={13} className="text-emerald-400 shrink-0" />
-                          <span>
-                            {isConfirmed
-                              ? 'Horario acordado:'
-                              : isPendingResident
-                              ? 'Horario que propusiste:'
-                              : 'Horario solicitado:'}
-                          </span>
-                        </span>
-                        <span className="font-bold">
-                          {visit.preferred_date
-                            ? (() => {
-                                const startStr = formatDateTimeAR(visit.preferred_date);
-                                if (!visit.preferred_end_date) return startStr;
-                                const s = new Date(visit.preferred_date);
-                                const e = new Date(visit.preferred_end_date);
-                                if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime())) return startStr;
-                                const sameDay =
-                                  s.getFullYear() === e.getFullYear() &&
-                                  s.getMonth() === e.getMonth() &&
-                                  s.getDate() === e.getDate();
-                                const endTime = e.toLocaleTimeString('es-AR', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                  hour12: false,
-                                });
-                                return sameDay
-                                  ? `${startStr} → ${endTime}`
-                                  : `${startStr} → ${formatDateTimeAR(visit.preferred_end_date)}`;
-                              })()
-                            : 'A convenir'}
-                        </span>
-                      </div>
-
-                      {/* Hilo de mensajes intercambiados entre residente y prestador */}
-                      {msgs.length > 0 && (
-                        <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5 max-h-32 overflow-y-auto">
-                          {msgs.map((m, idx) => (
-                            <p key={m.id || idx} className="text-xs leading-relaxed">
-                              <strong
-                                className={`uppercase text-[10px] mr-1.5 ${
-                                  m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
-                                }`}
-                              >
-                                {m.sender_role === 'provider' ? 'Vos:' : 'Residente:'}
-                              </strong>
-                              <span>{m.text}</span>
-                            </p>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Zona de decisión contextual según estado */}
-                    <div className="pt-2.5 border-t border-white/10 space-y-2.5">
-                      {isConfirmed ? (
-                        (() => {
-                          const quoteStatus = String(visit.quote_status || '').toLowerCase();
-                          const quoteAmount = Number(visit.quote_amount || 0);
-                          return (
-                            <div className="space-y-2.5">
-                              {/* Estado del presupuesto formal vinculado a esta visita */}
-                              {quoteStatus === 'approved' ? (
-                                <div className="rounded-xl p-2.5 border border-emerald-500/40 bg-emerald-950/35 flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
-                                  <span className="inline-flex items-center gap-1.5 font-bold">
-                                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
-                                    <span>
-                                      Presupuesto aprobado ·{' '}
-                                      <span className="font-mono">
-                                        ${quoteAmount.toLocaleString('es-AR')}
-                                      </span>
-                                    </span>
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveStep('reviews')}
-                                    className="px-2.5 py-1 rounded-lg font-bold border border-emerald-400/45 bg-emerald-950/60 hover:bg-emerald-900/70 cursor-pointer shrink-0"
-                                  >
-                                    Ver en Reputación e Ingresos
-                                  </button>
-                                </div>
-                              ) : quoteStatus === 'sent' ? (
-                                <div className="rounded-xl p-2.5 border border-sky-500/35 bg-sky-950/30 flex flex-wrap items-center justify-between gap-2 text-[11px] text-sky-100">
-                                  <div className="space-y-0.5 min-w-0">
-                                    <p className="font-bold">
-                                      Presupuesto enviado ·{' '}
-                                      <span className="font-mono text-sky-200">
-                                        ${quoteAmount.toLocaleString('es-AR')}
-                                      </span>
-                                    </p>
-                                    <p className="opacity-80">
-                                      Esperando aprobación o consulta del residente.
-                                    </p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => openQuoteModal(visit)}
-                                    className="px-2.5 py-1 rounded-lg font-bold border border-sky-400/45 hover:bg-sky-900/50 cursor-pointer shrink-0"
-                                  >
-                                    Editar presupuesto
-                                  </button>
-                                </div>
-                              ) : quoteStatus === 'changes_requested' ? (
-                                <div className="rounded-xl p-2.5 border border-amber-500/45 bg-amber-950/35 flex flex-wrap items-center justify-between gap-2 text-[11px] text-amber-100">
-                                  <div className="space-y-0.5 min-w-0">
-                                    <p className="font-bold text-amber-200">
-                                      El residente pidió un ajuste sobre tu presupuesto
-                                    </p>
-                                    <p className="opacity-80">
-                                      Revisá el comentario en el hilo y enviá una cotización actualizada.
-                                    </p>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => openQuoteModal(visit)}
-                                    className="px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer shrink-0"
-                                    style={{ backgroundColor: primaryColor }}
-                                  >
-                                    Enviar nuevo presupuesto
-                                  </button>
-                                </div>
-                              ) : null}
-
-                              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-200">
-                                <span className="inline-flex items-center gap-1.5 font-semibold">
-                                  <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                            <span>
+                              de <strong className="font-semibold opacity-95">{ownerLabel}</strong>
+                            </span>
+                            <span className="opacity-45">·</span>
+                            <span>{addressLabel}</span>
+                            {msgs.length > 0 && (
+                              <>
+                                <span className="opacity-45">·</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <MessageSquare size={11} className="opacity-80" />
                                   <span>
-                                    Horario reservado en tu agenda. El residente ya puede emitir el Pase QR.
+                                    {msgs.length} {msgs.length === 1 ? 'mensaje' : 'mensajes'}
                                   </span>
                                 </span>
-                                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                                  <button
-                                    type="button"
-                                    onClick={() => setActiveStep('schedule')}
-                                    className="px-2.5 py-1.5 rounded-lg font-bold border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-950/80 cursor-pointer"
-                                  >
-                                    Ver en Agenda
-                                  </button>
-                                  {!quoteStatus && (
-                                    <button
-                                      type="button"
-                                      onClick={() => openQuoteModal(visit)}
-                                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-bold text-white cursor-pointer hover:opacity-95"
-                                      style={{ backgroundColor: primaryColor }}
-                                    >
-                                      <FileText size={13} />
-                                      <span>Enviar presupuesto</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()
-                      ) : isClosed ? (
-                        <p className="text-[11px] opacity-70">
-                          Solicitud cerrada ({badgeLabel.toLowerCase()}).
-                        </p>
-                      ) : (
-                        <>
-                          {isPendingResident && !isRescheduling && (
-                            <div className="rounded-xl p-2.5 border border-sky-500/35 bg-sky-950/30 text-sky-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                              <span>
-                                Esperando que el residente confirme tu contrapropuesta o sugiera otro turno.
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => openVisitReschedule(visit)}
-                                className="px-2.5 py-1 rounded-lg font-bold border border-sky-400/45 hover:bg-sky-900/50 cursor-pointer shrink-0"
-                              >
-                                Cambiar propuesta
-                              </button>
-                            </div>
-                          )}
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </button>
 
-                          {/* Panel inline: Repactar fecha y horario */}
-                          {isRescheduling ? (
-                            <div
-                              className="rounded-xl p-3 border border-sky-500/40 bg-sky-950/20 space-y-2.5"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-bold text-sky-200 flex items-center gap-1.5">
-                                  <Calendar size={13} /> Proponer nuevo día y horario
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => setReschedulingVisitId(null)}
-                                  className="opacity-70 hover:opacity-100 cursor-pointer"
-                                >
-                                  <X size={14} />
-                                </button>
-                              </div>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                <div>
-                                  <label className="block text-[10px] opacity-80 mb-1">
-                                    Nueva fecha y hora propuesta
-                                  </label>
-                                  <input
-                                    type="datetime-local"
-                                    value={rescheduleDateDraft}
-                                    onChange={(e) => setRescheduleDateDraft(e.target.value)}
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                                <div>
-                                  <label className="block text-[10px] opacity-80 mb-1">
-                                    Mensaje aclaratorio (opcional)
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={visitReplyDrafts[visit.id] || ''}
-                                    onChange={(e) =>
-                                      setVisitReplyDrafts((prev) => ({
-                                        ...prev,
-                                        [visit.id]: e.target.value,
-                                      }))
-                                    }
-                                    placeholder="Ej: Ese día estoy en obra, ¿te sirve a las 15:00?"
-                                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                                    style={cardStyle}
-                                  />
-                                </div>
-                              </div>
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => setReschedulingVisitId(null)}
-                                  className={rowActionBtnClass}
-                                  style={cardStyle}
-                                >
-                                  Cancelar
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={respondingVisitId === visit.id}
-                                  onClick={() =>
-                                    handleRespondVisit(visit.id, 'propose', rescheduleDateDraft)
-                                  }
-                                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  {respondingVisitId === visit.id
-                                    ? 'Enviando...'
-                                    : 'Enviar propuesta al residente'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : isPendingProvider ? (
-                            <div className="space-y-2">
-                              <input
-                                type="text"
-                                value={visitReplyDrafts[visit.id] || ''}
-                                onChange={(e) =>
-                                  setVisitReplyDrafts((prev) => ({
-                                    ...prev,
-                                    [visit.id]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Mensaje opcional para el residente..."
-                                className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
-                                style={cardStyle}
-                              />
-                              <div className="flex flex-wrap items-center justify-end gap-2">
-                                <button
-                                  type="button"
-                                  disabled={respondingVisitId === visit.id}
-                                  onClick={() => handleRespondVisit(visit.id, 'decline')}
-                                  className="px-3 py-2 rounded-xl text-xs font-bold border border-rose-500/40 bg-rose-950/30 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-50"
-                                >
-                                  Sin disponibilidad
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={respondingVisitId === visit.id}
-                                  onClick={() => openVisitReschedule(visit)}
-                                  className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-500/45 bg-sky-950/35 text-sky-200 hover:bg-sky-950/65 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                >
-                                  <Calendar size={13} /> Repactar horario
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={respondingVisitId === visit.id}
-                                  onClick={() => handleRespondVisit(visit.id, 'confirm')}
-                                  className="px-3.5 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  <CheckCircle2 size={13} />
-                                  {respondingVisitId === visit.id
-                                    ? 'Guardando...'
-                                    : 'Confirmar horario'}
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </>
-                      )}
+                      {/* Derecha: Horario/Monto compacto + máx. 2 acciones limpias */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                        {quoteAmount > 0 && (quoteStatus === 'sent' || quoteStatus === 'approved' || isFixedPrice) ? (
+                          <span className="font-mono font-black text-sm text-emerald-300 mr-1 whitespace-nowrap">
+                            ${quoteAmount.toLocaleString('es-AR')}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
+                            <Clock size={12} className="text-emerald-400 shrink-0" />
+                            <span>{scheduleShort}</span>
+                          </span>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReschedulingVisitId(null);
+                            setSelectedVisitDetailId(visit.id);
+                          }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                        >
+                          {!isClosed && msgs.length > 0 ? (
+                            <>
+                              <MessageSquare size={12} className="text-sky-300" />
+                              <span>Mensajes</span>
+                            </>
+                          ) : (
+                            <span>Ver detalle</span>
+                          )}
+                        </button>
+
+                        {isPendingProvider ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setReschedulingVisitId(null);
+                              setSelectedVisitDetailId(visit.id);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <CheckCircle2 size={13} />
+                            <span>Responder</span>
+                          </button>
+                        ) : isConfirmed && quoteStatus === 'changes_requested' ? (
+                          <button
+                            type="button"
+                            onClick={() => openQuoteModal(visit)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <FileText size={13} />
+                            <span>Nuevo presupuesto</span>
+                          </button>
+                        ) : isConfirmed && !quoteStatus ? (
+                          <button
+                            type="button"
+                            onClick={() => openQuoteModal(visit)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <FileText size={13} />
+                            <span>Enviar presupuesto</span>
+                          </button>
+                        ) : isConfirmed && quoteStatus === 'sent' ? (
+                          <button
+                            type="button"
+                            onClick={() => openQuoteModal(visit)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-200 hover:bg-sky-500/22 cursor-pointer"
+                          >
+                            <Edit3 size={12} />
+                            <span>Editar presupuesto</span>
+                          </button>
+                        ) : isConfirmed && quoteStatus === 'approved' ? (
+                          <button
+                            type="button"
+                            onClick={() => setActiveStep('reviews')}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/40 bg-emerald-500/12 text-emerald-200 hover:bg-emerald-500/22 cursor-pointer"
+                          >
+                            <CheckCircle2 size={12} />
+                            <span>Ver ingresos</span>
+                          </button>
+                        ) : isPendingResident ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              openVisitReschedule(visit);
+                              setSelectedVisitDetailId(visit.id);
+                            }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-200 hover:bg-sky-500/22 cursor-pointer"
+                          >
+                            <Calendar size={12} />
+                            <span>Cambiar horario</span>
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
                   </article>
                 );
               })}
             </div>
+          )}
+
+          {/* Paginación estándar homologada (`6 / 12 / 24 / 50`) */}
+          {filteredVisits.length > 0 && (
+            <AdminPaginationBar
+              page={safeVisitPage}
+              totalPages={totalVisitPages}
+              totalItems={filteredVisits.length}
+              pageSize={visitPageSize}
+              onPageChange={setVisitPage}
+              onPageSizeChange={(nextSize) => {
+                setVisitPageSize(nextSize);
+                setVisitPage(1);
+              }}
+              loading={loadingVisits}
+              itemLabel="solicitudes"
+              innerStyle={innerStyle}
+            />
           )}
         </section>
       ) : activeStep === 'passes' ? (
@@ -6491,6 +6525,525 @@ export default function ProviderDashboard({
           )}
         </section>
       )}
+
+      {/* Modal: Detalle de Solicitud / Visita del Prestador (Divulgación progresiva simétrica a Mis Servicios) */}
+      {selectedVisitDetail && (() => {
+        const visit = selectedVisitDetail;
+        const statusLower = String(visit.status || '').toLowerCase();
+        const isConfirmed = statusLower === 'confirmed';
+        const isPendingProvider = statusLower === 'pending_provider' || statusLower === 'pending';
+        const isPendingResident = statusLower === 'pending_resident';
+        const isClosed = statusLower === 'declined' || statusLower === 'cancelled';
+        const isRescheduling = reschedulingVisitId === visit.id;
+        const quoteStatus = String(visit.quote_status || '').toLowerCase();
+        const quoteAmount = Number(visit.quote_amount || 0);
+        const isFixedPrice = Boolean(visit.service_package_id) && quoteAmount > 0;
+        const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+        const ownerLabel = visit.owner_name || 'Residente';
+        const specialtyLabel = visit.service_specialty || visit.provider_specialty || '';
+        const serviceTitle =
+          String(visit.service_title || '').trim() ||
+          (specialtyLabel ? `Servicio de ${specialtyLabel}` : `Visita #${visit.id}`);
+        const addressLabel = formatVisitAddressProvider(visit.fraction_number, visit.lot_number);
+
+        const badgeLabel =
+          !isClosed && quoteStatus === 'changes_requested'
+            ? 'Ajuste solicitado'
+            : isPendingProvider
+              ? 'Pendiente de respuesta'
+              : isConfirmed && quoteStatus === 'approved'
+                ? isFixedPrice
+                  ? 'Acordada · Precio fijo'
+                  : 'Presupuesto aprobado'
+                : isConfirmed && quoteStatus === 'sent'
+                  ? 'Presupuesto enviado'
+                  : isConfirmed
+                    ? 'Acordada · En agenda'
+                    : isPendingResident
+                      ? 'Contrapropuesta enviada'
+                      : statusLower === 'declined'
+                        ? 'Sin disponibilidad'
+                        : 'Cancelada por residente';
+
+        const badgeCls =
+          !isClosed && (isPendingProvider || quoteStatus === 'changes_requested')
+            ? 'bg-amber-500/20 text-amber-200 border-amber-400/50'
+            : isConfirmed && quoteStatus === 'sent'
+              ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+              : isConfirmed
+                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40'
+                : isPendingResident
+                  ? 'bg-sky-500/15 text-sky-200 border-sky-400/45'
+                  : 'bg-rose-500/15 text-rose-200 border-rose-500/40';
+
+        const closeVisitModal = () => {
+          setSelectedVisitDetailId(null);
+          setReschedulingVisitId(null);
+        };
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+            onClick={closeVisitModal}
+          >
+            <div
+              className="w-full max-w-xl rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden text-xs"
+              style={cardStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Cabecera fija del Modal de Solicitud */}
+              <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <ProviderAvatar name={ownerLabel} level={isConfirmed ? 3 : 1} size="md" />
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-black truncate">{serviceTitle}</h3>
+                      {specialtyLabel && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                          {specialtyLabel}
+                        </span>
+                      )}
+                      <span
+                        className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${badgeCls}`}
+                      >
+                        {badgeLabel}
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-75">
+                      Residente: <strong className="opacity-95">{ownerLabel}</strong> · Visita #{visit.id} ·{' '}
+                      {addressLabel}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeVisitModal}
+                  aria-label="Cerrar detalle de solicitud"
+                  className="p-1.5 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Cuerpo desplazable */}
+              <div className="p-5 overflow-y-auto tl-scroll space-y-4 flex-1">
+                {/* Hitos del servicio (solo en solicitudes activas) */}
+                {!isClosed && (
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg border ${
+                        isConfirmed
+                          ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                          : 'border-amber-400/45 bg-amber-500/10 text-amber-200'
+                      }`}
+                    >
+                      {isConfirmed ? '✓ Horario acordado' : '● Coordinando horario'}
+                    </span>
+                    <span
+                      className={`px-2.5 py-1 rounded-lg border ${
+                        quoteStatus === 'approved'
+                          ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                          : quoteStatus === 'sent'
+                            ? 'border-sky-400/40 bg-sky-500/10 text-sky-200'
+                            : quoteStatus === 'changes_requested'
+                              ? 'border-amber-400/50 bg-amber-500/15 text-amber-200'
+                              : 'border-white/10 opacity-50'
+                      }`}
+                    >
+                      {quoteStatus === 'approved'
+                        ? isFixedPrice
+                          ? '✓ Precio fijo'
+                          : '✓ Presupuesto aprobado'
+                        : quoteStatus === 'sent'
+                          ? '● Presupuesto enviado'
+                          : quoteStatus === 'changes_requested'
+                            ? '● Ajuste pedido'
+                            : '○ Presupuesto'}
+                    </span>
+                    <span
+                      className={`px-2.5 py-1 rounded-lg border ${
+                        isConfirmed
+                          ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                          : 'border-white/10 opacity-45'
+                      }`}
+                    >
+                      {isConfirmed ? '✓ En tu Agenda' : '○ Agenda'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Resumen de horario + acceso directo a Agenda */}
+                <div
+                  className="rounded-xl p-3.5 border border-white/10 flex flex-wrap items-center justify-between gap-2"
+                  style={innerStyle}
+                >
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                      {isConfirmed
+                        ? 'Horario acordado'
+                        : isPendingResident
+                          ? 'Horario que propusiste'
+                          : 'Horario solicitado'}
+                    </span>
+                    <p className="font-bold inline-flex items-center gap-1.5 text-xs">
+                      <Clock size={13} className="text-emerald-400 shrink-0" />
+                      <span>
+                        {visit.preferred_date
+                          ? `${formatDateTimeAR(visit.preferred_date)}${
+                              visit.preferred_end_date
+                                ? ` → ${new Date(visit.preferred_end_date).toLocaleTimeString(
+                                    'es-AR',
+                                    { hour: '2-digit', minute: '2-digit', hour12: false }
+                                  )}`
+                                : ''
+                            }`
+                          : 'A convenir'}
+                      </span>
+                    </p>
+                  </div>
+                  {isConfirmed && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeVisitModal();
+                        setActiveStep('schedule');
+                      }}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-emerald-500/40 bg-emerald-950/50 text-emerald-200 hover:bg-emerald-950/80 cursor-pointer shrink-0"
+                    >
+                      Ver en Agenda
+                    </button>
+                  )}
+                </div>
+
+                {/* Tarjeta de Presupuesto / Precio Fijo cuando corresponde */}
+                {!isClosed && (quoteAmount > 0 || quoteStatus === 'changes_requested') && (
+                  <div
+                    className={`rounded-xl p-3.5 border space-y-2 ${
+                      quoteStatus === 'approved'
+                        ? 'border-emerald-500/40 bg-emerald-950/25'
+                        : quoteStatus === 'changes_requested'
+                          ? 'border-amber-400/50 bg-amber-950/30'
+                          : 'border-sky-500/40 bg-sky-950/25'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="space-y-0.5 min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wider opacity-80">
+                          {isFixedPrice
+                            ? 'Servicio con precio fijo'
+                            : quoteStatus === 'approved'
+                              ? 'Presupuesto aprobado por el residente'
+                              : quoteStatus === 'changes_requested'
+                                ? 'El residente pidió un ajuste'
+                                : 'Presupuesto enviado'}
+                        </span>
+                        {visit.quote_description && (
+                          <p className="text-xs font-semibold leading-relaxed">
+                            {visit.quote_description}
+                          </p>
+                        )}
+                        {visit.quote_notes && (
+                          <p className="text-[11px] opacity-80">{visit.quote_notes}</p>
+                        )}
+                      </div>
+                      {quoteAmount > 0 && (
+                        <div className="text-right shrink-0">
+                          <span className="block font-mono font-black text-base text-emerald-300">
+                            ${quoteAmount.toLocaleString('es-AR')}
+                          </span>
+                          <span className="text-[10px] opacity-75 font-mono">
+                            Neto 93%: ${Math.round(quoteAmount * 0.93).toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Decisión de turno (cuando está pendiente o repactando) */}
+                {!isConfirmed && !isClosed && (
+                  <div className="space-y-2.5">
+                    {isPendingResident && !isRescheduling && (
+                      <div className="rounded-xl p-3 border border-sky-500/35 bg-sky-950/30 text-sky-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                        <span>
+                          Esperando que el residente confirme tu contrapropuesta o sugiera otro turno.
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => openVisitReschedule(visit)}
+                          className="px-2.5 py-1 rounded-lg font-bold border border-sky-400/45 hover:bg-sky-900/50 cursor-pointer shrink-0"
+                        >
+                          Cambiar propuesta
+                        </button>
+                      </div>
+                    )}
+
+                    {isRescheduling ? (
+                      <div className="rounded-xl p-3.5 border border-sky-500/40 bg-sky-950/25 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-bold text-sky-200 flex items-center gap-1.5">
+                            <Calendar size={13} /> Proponer nuevo día y horario
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setReschedulingVisitId(null)}
+                            className="opacity-70 hover:opacity-100 cursor-pointer"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-[10px] opacity-80 mb-1">
+                              Nueva fecha y hora propuesta
+                            </label>
+                            <input
+                              type="datetime-local"
+                              value={rescheduleDateDraft}
+                              onChange={(e) => setRescheduleDateDraft(e.target.value)}
+                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] opacity-80 mb-1">
+                              Mensaje aclaratorio (opcional)
+                            </label>
+                            <input
+                              type="text"
+                              value={visitReplyDrafts[visit.id] || ''}
+                              onChange={(e) =>
+                                setVisitReplyDrafts((prev) => ({
+                                  ...prev,
+                                  [visit.id]: e.target.value,
+                                }))
+                              }
+                              placeholder="Ej: Ese día estoy en obra, ¿te sirve a las 15:00?"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs"
+                              style={cardStyle}
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setReschedulingVisitId(null)}
+                            className={rowActionBtnClass}
+                            style={cardStyle}
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            disabled={respondingVisitId === visit.id}
+                            onClick={() =>
+                              handleRespondVisit(visit.id, 'propose', rescheduleDateDraft)
+                            }
+                            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            {respondingVisitId === visit.id
+                              ? 'Enviando...'
+                              : 'Enviar propuesta al residente'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : isPendingProvider ? (
+                      <div
+                        className="rounded-xl p-3.5 border border-amber-400/45 bg-amber-950/25 space-y-2.5"
+                      >
+                        <p className="font-bold text-amber-200 text-xs">
+                          Respondé disponibilidad al residente
+                        </p>
+                        <input
+                          type="text"
+                          value={visitReplyDrafts[visit.id] || ''}
+                          onChange={(e) =>
+                            setVisitReplyDrafts((prev) => ({
+                              ...prev,
+                              [visit.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="Mensaje opcional al confirmar o rechazar..."
+                          className={`w-full ${FIELD_INPUT_CLASS}`}
+                          style={cardStyle}
+                        />
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            disabled={respondingVisitId === visit.id}
+                            onClick={() => handleRespondVisit(visit.id, 'decline')}
+                            className="px-3 py-2 rounded-xl text-xs font-bold border border-rose-500/40 bg-rose-950/30 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-50"
+                          >
+                            Sin disponibilidad
+                          </button>
+                          <button
+                            type="button"
+                            disabled={respondingVisitId === visit.id}
+                            onClick={() => openVisitReschedule(visit)}
+                            className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-500/45 bg-sky-950/35 text-sky-200 hover:bg-sky-950/65 inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            <Calendar size={13} /> Repactar horario
+                          </button>
+                          <button
+                            type="button"
+                            disabled={respondingVisitId === visit.id}
+                            onClick={() => handleRespondVisit(visit.id, 'confirm')}
+                            className="px-3.5 py-2 rounded-xl text-xs font-bold text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <CheckCircle2 size={13} />
+                            {respondingVisitId === visit.id
+                              ? 'Guardando...'
+                              : 'Confirmar horario'}
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* Hilo de mensajes completo + envío directo de mensajes de seguimiento */}
+                <div className="space-y-2">
+                  <span className="text-[11px] font-bold uppercase tracking-wider opacity-70 inline-flex items-center gap-1.5">
+                    <MessageSquare size={12} />
+                    <span>Mensajes ({msgs.length})</span>
+                  </span>
+
+                  <div
+                    className="rounded-xl p-3.5 border border-white/10 space-y-2 max-h-56 overflow-y-auto tl-scroll"
+                    style={innerStyle}
+                  >
+                    {msgs.length === 0 ? (
+                      <p className="text-[11px] opacity-65 text-center py-2">
+                        Todavía no intercambiaron mensajes en esta solicitud.
+                      </p>
+                    ) : (
+                      msgs.map((m, idx) => (
+                        <p key={m.id || idx} className="text-xs leading-relaxed">
+                          <strong
+                            className={`uppercase text-[10px] mr-1.5 ${
+                              m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                            }`}
+                          >
+                            {m.sender_role === 'provider' ? 'Vos:' : 'Residente:'}
+                          </strong>
+                          <span>{m.text}</span>
+                        </p>
+                      ))
+                    )}
+                  </div>
+
+                  {!isClosed && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={visitMessageDrafts[visit.id] || ''}
+                        onChange={(e) =>
+                          setVisitMessageDrafts((prev) => ({
+                            ...prev,
+                            [visit.id]: e.target.value,
+                          }))
+                        }
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' && (visitMessageDrafts[visit.id] || '').trim()) {
+                            e.preventDefault();
+                            handleSendProviderVisitMessage(visit.id);
+                          }
+                        }}
+                        placeholder="Escribí un mensaje para el residente..."
+                        className={`flex-1 ${FIELD_INPUT_CLASS}`}
+                        style={innerStyle}
+                      />
+                      <button
+                        type="button"
+                        disabled={sendingVisitMessageId === visit.id}
+                        onClick={() => handleSendProviderVisitMessage(visit.id)}
+                        className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        <Send size={13} />
+                        <span>Enviar</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Pie fijo del Modal */}
+              <div
+                className="px-5 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0"
+                style={innerStyle}
+              >
+                <button
+                  type="button"
+                  onClick={closeVisitModal}
+                  className="px-3.5 py-2 rounded-xl font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                  style={cardStyle}
+                >
+                  Cerrar
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {isConfirmed && !quoteStatus && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeVisitModal();
+                        openQuoteModal(visit);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <FileText size={13} />
+                      <span>Enviar presupuesto</span>
+                    </button>
+                  )}
+                  {isConfirmed && quoteStatus === 'changes_requested' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeVisitModal();
+                        openQuoteModal(visit);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <FileText size={13} />
+                      <span>Enviar nuevo presupuesto</span>
+                    </button>
+                  )}
+                  {isConfirmed && quoteStatus === 'sent' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeVisitModal();
+                        openQuoteModal(visit);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/15 text-sky-100 hover:bg-sky-500/25 cursor-pointer"
+                    >
+                      <Edit3 size={13} />
+                      <span>Editar presupuesto</span>
+                    </button>
+                  )}
+                  {isConfirmed && quoteStatus === 'approved' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeVisitModal();
+                        setActiveStep('reviews');
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border border-emerald-500/45 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                    >
+                      <CheckCircle2 size={13} />
+                      <span>Ver en Reputación e Ingresos</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal para visualizar el token QR completo */}
       {selectedPassModal && (
