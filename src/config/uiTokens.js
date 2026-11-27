@@ -183,3 +183,54 @@ export function getUnifiedStatusMeta(rawStatus, domain = 'generic') {
     cls: 'bg-slate-800/80 text-slate-300 border-slate-700',
   };
 }
+
+/**
+ * Escala cromática oficial unificada de Confianza Progresiva (`N0..N4`):
+ * - `N1` (Perfil Básico): Plata / Slate neutro — identidad + especialidad, solo consultas.
+ * - `N2` (Seguro en revisión / Doc. en validación): Naranja cálido — seguro cargado, aún sin QR.
+ * - `N3` (Pase QR habilitado): Verde Esmeralda — documentación aprobada, luz verde en garita.
+ * - `N4` (Verificado): Azul Oficial (`#1D9BF0` / Sky) + sello festoneado.
+ * Fuente única compartida entre `ProviderTrustBadge`, `ProviderDashboard`, `ResidentDashboard` y `LandingHome`.
+ */
+export const TRUST_LEVEL_THEME = {
+  0: {
+    badge: 'border-slate-500/45 bg-slate-500/15 text-slate-300',
+    pill: 'border-slate-500/45 bg-slate-500/15 text-slate-300',
+    card: 'border-white/10 bg-black/20',
+    cardHeader: 'border-white/10 bg-black/15',
+    cardRing: 'border-white/10',
+    bar: 'bg-amber-400/90',
+  },
+  1: {
+    badge: 'border-slate-300/50 bg-slate-400/15 text-slate-100',
+    pill: 'border-slate-300/50 bg-slate-400/15 text-slate-100',
+    card: 'border-slate-400/40 bg-slate-400/10',
+    cardHeader: 'border-slate-400/30 bg-slate-400/10',
+    cardRing: 'border-slate-400/35',
+    bar: 'bg-slate-300',
+  },
+  2: {
+    badge: 'border-orange-400/60 bg-orange-500/18 text-orange-200',
+    pill: 'border-orange-400/60 bg-orange-500/18 text-orange-200',
+    card: 'border-orange-400/50 bg-orange-500/12',
+    cardHeader: 'border-orange-400/40 bg-orange-500/12',
+    cardRing: 'border-orange-400/45',
+    bar: 'bg-orange-400',
+  },
+  3: {
+    badge: 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200',
+    pill: 'border-emerald-400/60 bg-emerald-500/18 text-emerald-200',
+    card: 'border-emerald-400/50 bg-emerald-500/12',
+    cardHeader: 'border-emerald-400/40 bg-emerald-500/12',
+    cardRing: 'border-emerald-400/45',
+    bar: 'bg-emerald-400',
+  },
+  4: {
+    badge: 'border-sky-400/65 bg-sky-500/20 text-sky-100 shadow-xs shadow-sky-500/10',
+    pill: 'border-sky-400/65 bg-sky-500/20 text-sky-100',
+    card: 'border-sky-400/55 bg-sky-500/14',
+    cardHeader: 'border-sky-400/45 bg-sky-500/14',
+    cardRing: 'border-sky-400/50',
+    bar: 'bg-sky-400',
+  },
+};

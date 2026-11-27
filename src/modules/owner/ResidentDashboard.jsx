@@ -3216,22 +3216,24 @@ export default function ResidentDashboard({
 
                 const headerBandClass = hasExpiredDocs
                   ? 'border-rose-500/35 bg-rose-950/30'
-                  : isFeaturedPartner
-                    ? 'border-amber-400/40 bg-amber-500/12'
-                    : trustLevel >= 4
-                      ? 'border-sky-400/40 bg-sky-500/10'
-                      : trustLevel === 3
-                        ? 'border-teal-500/35 bg-teal-500/10'
-                        : 'border-white/10 bg-black/15';
+                  : trustLevel >= 4
+                    ? 'border-sky-400/45 bg-sky-500/14'
+                    : trustLevel === 3
+                      ? 'border-emerald-400/40 bg-emerald-500/12'
+                      : trustLevel === 2
+                        ? 'border-orange-400/40 bg-orange-500/12'
+                        : 'border-slate-400/30 bg-slate-400/8';
                 const cardRingClass = hasExpiredDocs
                   ? 'border-rose-500/40'
                   : isFeaturedPartner
-                    ? 'border-amber-400/55 ring-1 ring-amber-400/20'
+                    ? 'border-amber-400/60 ring-1 ring-amber-400/25'
                     : trustLevel >= 4
-                      ? 'border-sky-400/45'
+                      ? 'border-sky-400/50'
                       : trustLevel === 3
-                        ? 'border-teal-500/40'
-                        : 'border-white/10';
+                        ? 'border-emerald-400/45'
+                        : trustLevel === 2
+                          ? 'border-orange-400/45'
+                          : 'border-slate-400/30';
 
                 const repLabel = provider.reputation?.level_label || 'Nuevo en TrustLink';
                 const repDotClass =

@@ -1554,10 +1554,12 @@ function MainAppContent() {
                   size={13}
                   className={`shrink-0 ${
                     Number(providerHeaderMeta.trustLevel) >= 3
-                      ? 'text-teal-400'
-                      : isDarkTheme
-                        ? 'text-sky-400'
-                        : 'text-sky-600'
+                      ? 'text-emerald-400'
+                      : Number(providerHeaderMeta.trustLevel) === 2
+                        ? 'text-orange-400'
+                        : isDarkTheme
+                          ? 'text-slate-300'
+                          : 'text-slate-600'
                   }`}
                 />
               )}

@@ -70,6 +70,7 @@ import {
   ITEMS_GRID_CLASS,
   ITEM_CARD_CLASS,
   STANDARD_SPECIALTIES_CATALOG,
+  TRUST_LEVEL_THEME,
   formatDateTimeAR,
   getUnifiedStatusMeta,
 } from '../../config/uiTokens';
@@ -2462,9 +2463,11 @@ export default function ProviderDashboard({
             (directoryReadiness.hasApprovedCompliance &&
               (directoryReadiness.criminalExpired || directoryReadiness.artExpired))
               ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
-              : directoryReadiness.isVisibleInDirectory
-                ? 'border-sky-700/75 bg-sky-950/35 text-sky-100'
-                : 'border-amber-700/80 bg-amber-950/35 text-amber-100'
+              : directoryReadiness.trustLevel === 2
+                ? 'border-orange-400/60 bg-orange-950/35 text-orange-100'
+                : directoryReadiness.trustLevel === 1
+                  ? 'border-slate-400/45 bg-slate-900/55 text-slate-100'
+                  : 'border-amber-700/80 bg-amber-950/35 text-amber-100'
           }`}
         >
           <div className="flex items-center gap-2 min-w-0">
@@ -2496,28 +2499,30 @@ export default function ProviderDashboard({
             (directoryReadiness.hasApprovedCompliance &&
               (directoryReadiness.criminalExpired || directoryReadiness.artExpired));
           const isQrReadyOrHigher = directoryReadiness.canIssuePass && !isDanger;
-          const isPartialVisible =
-            directoryReadiness.isVisibleInDirectory && !isQrReadyOrHigher && !isDanger;
 
           const calloutBoxClass = isDanger
             ? 'border-rose-800/80 bg-rose-950/40 text-rose-100'
             : level >= 4 && isQrReadyOrHigher
-              ? 'border-emerald-600/70 bg-emerald-950/35 text-emerald-50'
-              : isQrReadyOrHigher
-                ? 'border-teal-600/65 bg-teal-950/30 text-teal-50'
-                : isPartialVisible
-                  ? 'border-sky-700/75 bg-sky-950/35 text-sky-100'
-                  : 'border-amber-700/80 bg-amber-950/35 text-amber-100';
+              ? 'border-sky-400/65 bg-sky-950/35 text-sky-50'
+              : level === 3 && isQrReadyOrHigher
+                ? 'border-emerald-500/65 bg-emerald-950/30 text-emerald-50'
+                : level === 2
+                  ? 'border-orange-400/60 bg-orange-950/30 text-orange-50'
+                  : level === 1
+                    ? 'border-slate-400/45 bg-slate-900/55 text-slate-100'
+                    : 'border-amber-700/80 bg-amber-950/35 text-amber-100';
 
           const progressFillClass = isDanger
             ? 'bg-rose-400/90'
             : level >= 4 && isQrReadyOrHigher
-              ? 'bg-emerald-400/90'
-              : isQrReadyOrHigher
-                ? 'bg-teal-400/90'
-                : isPartialVisible
-                  ? 'bg-sky-400/90'
-                  : 'bg-amber-400/90';
+              ? 'bg-sky-400'
+              : level === 3 && isQrReadyOrHigher
+                ? 'bg-emerald-400'
+                : level === 2
+                  ? 'bg-orange-400'
+                  : level === 1
+                    ? 'bg-slate-300'
+                    : 'bg-amber-400/90';
 
           const showFullLadder = showTrustRoadmapExpanded;
 
@@ -2719,16 +2724,18 @@ export default function ProviderDashboard({
                     {isQrReadyOrHigher && level >= 4 ? (
                       <VerifiedSeal size={17} />
                     ) : isQrReadyOrHigher ? (
-                      <CheckCircle2 size={15} className="text-teal-400 shrink-0" />
+                      <CheckCircle2 size={15} className="text-emerald-400 shrink-0" />
                     ) : (
                       <AlertCircle
                         size={15}
                         className={
                           isDanger
                             ? 'text-rose-400 shrink-0'
-                            : isPartialVisible
-                              ? 'text-sky-400 shrink-0'
-                              : 'text-amber-400 shrink-0'
+                            : level === 2
+                              ? 'text-orange-400 shrink-0'
+                              : level === 1
+                                ? 'text-slate-300 shrink-0'
+                                : 'text-amber-400 shrink-0'
                         }
                       />
                     )}
@@ -2807,38 +2814,48 @@ export default function ProviderDashboard({
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                     {levelSteps.map((st) => {
+                      const levelTheme = TRUST_LEVEL_THEME[st.num] || TRUST_LEVEL_THEME[0];
+                      const shortTitle = st.title.replace(/^N\d\s*·\s*/, '');
+                      const isActiveOrReached = st.done || st.isCurrent || st.statusTone === 'info';
+
                       const cardToneClass =
-                        st.statusTone === 'done'
-                          ? 'border-emerald-700/55 bg-emerald-950/30'
-                          : st.statusTone === 'danger'
-                            ? 'border-rose-700/65 bg-rose-950/35'
-                            : st.statusTone === 'info'
-                              ? 'border-sky-600/55 bg-sky-950/30'
-                              : 'border-white/10 bg-black/25';
+                        st.statusTone === 'danger'
+                          ? 'border-rose-700/65 bg-rose-950/35'
+                          : isActiveOrReached
+                            ? levelTheme.card
+                            : `${levelTheme.card} opacity-75`;
 
                       const pillToneClass =
                         st.statusTone === 'done'
-                          ? 'bg-emerald-950/80 text-emerald-300 border-emerald-700/70'
+                          ? 'bg-emerald-950/85 text-emerald-300 border-emerald-600/60'
                           : st.statusTone === 'danger'
-                            ? 'bg-rose-950/80 text-rose-300 border-rose-700/70'
+                            ? 'bg-rose-950/85 text-rose-300 border-rose-700/70'
                             : st.statusTone === 'info'
-                              ? 'bg-sky-950/80 text-sky-200 border-sky-600/70'
+                              ? 'bg-black/45 text-white/95 border-white/25'
                               : st.statusTone === 'pending'
-                                ? 'bg-black/35 text-amber-200 border-amber-700/60'
-                                : 'bg-black/35 opacity-75 border-white/15';
+                                ? 'bg-black/40 text-amber-200 border-amber-600/50'
+                                : 'bg-black/40 text-slate-300 border-white/15';
 
                       return (
                         <div
                           key={st.num}
-                          className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 ${cardToneClass} ${
-                            st.isCurrent ? 'ring-1 ring-white/30' : ''
+                          className={`p-2.5 rounded-xl border flex flex-col justify-between gap-2 transition-colors ${cardToneClass} ${
+                            st.isCurrent ? 'ring-1 ring-white/45 shadow-sm' : ''
                           }`}
                         >
                           <div className="space-y-1">
-                            <div className="flex items-center justify-between gap-1">
-                              <span className="font-bold text-[11px]">{st.title}</span>
+                            <div className="flex items-center justify-between gap-1.5">
+                              <span className="inline-flex items-center gap-1.5 font-bold text-[11px] min-w-0">
+                                <span
+                                  className={`font-mono text-[10px] font-extrabold px-1.5 py-0.5 rounded border shrink-0 ${levelTheme.pill}`}
+                                >
+                                  N{st.num}
+                                </span>
+                                <span className="truncate">{shortTitle}</span>
+                                {st.num === 4 && <VerifiedSeal size={13} />}
+                              </span>
                               <span
-                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap ${pillToneClass}`}
+                                className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border whitespace-nowrap shrink-0 ${pillToneClass}`}
                               >
                                 {st.statusLabel}
                               </span>
@@ -3350,7 +3367,7 @@ export default function ProviderDashboard({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span
                         title="Requisito de Nivel 1 · Perfil Básico"
-                        className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-500/15 text-slate-200 shrink-0"
+                        className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border shrink-0 ${TRUST_LEVEL_THEME[1].pill}`}
                       >
                         N1
                       </span>
@@ -3667,8 +3684,8 @@ export default function ProviderDashboard({
                               }
                               className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border shrink-0 ${
                                 docItem.slot === 'insurance'
-                                  ? 'border-sky-400/50 bg-sky-500/15 text-sky-200'
-                                  : 'border-teal-400/50 bg-teal-500/15 text-teal-200'
+                                  ? TRUST_LEVEL_THEME[2].pill
+                                  : TRUST_LEVEL_THEME[3].pill
                               }`}
                             >
                               {docItem.slot === 'insurance' ? 'N2' : 'N3'}
@@ -3723,8 +3740,8 @@ export default function ProviderDashboard({
                               }
                               className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border shrink-0 ${
                                 docItem.slot === 'insurance'
-                                  ? 'border-sky-400/50 bg-sky-500/15 text-sky-200'
-                                  : 'border-teal-400/50 bg-teal-500/15 text-teal-200'
+                                  ? TRUST_LEVEL_THEME[2].pill
+                                  : TRUST_LEVEL_THEME[3].pill
                               }`}
                             >
                               {docItem.slot === 'insurance' ? 'N2' : 'N3'}
@@ -3928,7 +3945,7 @@ export default function ProviderDashboard({
                   <span>Especialidades y Credenciales</span>
                   <span
                     title="Tener al menos 1 rubro visible es requisito de Nivel 1 (Perfil Básico)"
-                    className="text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border border-slate-400/40 bg-slate-500/15 text-slate-200"
+                    className={`text-[10px] font-mono font-extrabold px-2 py-0.5 rounded-md border ${TRUST_LEVEL_THEME[1].pill}`}
                   >
                     Requisito N1
                   </span>

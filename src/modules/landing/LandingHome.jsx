@@ -832,11 +832,17 @@ export default function LandingHome({
                 const repMeta = getCompactReputationMeta(prov);
                 const jobsCount = Number(prov.completed_jobs || 0);
 
-                const cardBorderClass = isFeatured
-                  ? 'border-amber-400/50'
-                  : isVerified
-                    ? 'border-emerald-500/40'
-                    : subtleBorder;
+                const cardBorderClass = prov.has_expired_docs
+                  ? 'border-rose-500/40'
+                  : isFeatured
+                    ? 'border-amber-400/55 ring-1 ring-amber-400/20'
+                    : level >= 4
+                      ? 'border-sky-400/50'
+                      : level === 3
+                        ? 'border-emerald-400/45'
+                        : level === 2
+                          ? 'border-orange-400/45'
+                          : 'border-slate-400/30';
 
                 return (
                   <article

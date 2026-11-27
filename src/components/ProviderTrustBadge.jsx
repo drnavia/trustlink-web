@@ -24,32 +24,26 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
+import { TRUST_LEVEL_THEME } from '../config/uiTokens';
 
-/** Estilos semánticos por tono de insignia (sobrios y legibles en temas oscuros y claros). */
+/** Ícono representativo por nivel de confianza (`N0..N4`). */
+const TRUST_LEVEL_ICONS = {
+  0: UserCheck,
+  1: UserCheck,
+  2: FileCheck2,
+  3: ShieldCheck,
+  4: BadgeCheck,
+};
+
+/** Estilos semánticos de respaldo por tono (alertas/comercial). */
 const TONE_STYLES = {
   gold: {
     cls: 'border-amber-400/65 bg-amber-500/20 text-amber-200 shadow-sm shadow-amber-500/10',
     Icon: Award,
   },
-  emerald: {
-    cls: 'border-emerald-400/65 bg-emerald-500/20 text-emerald-200 shadow-xs shadow-emerald-500/10',
-    Icon: BadgeCheck,
-  },
-  teal: {
-    cls: 'border-teal-400/55 bg-teal-500/15 text-teal-200',
-    Icon: ShieldCheck,
-  },
-  sky: {
-    cls: 'border-sky-400/50 bg-sky-500/15 text-sky-200',
-    Icon: FileCheck2,
-  },
   danger: {
     cls: 'border-rose-500/55 bg-rose-500/15 text-rose-200',
     Icon: AlertCircle,
-  },
-  slate: {
-    cls: 'border-slate-500/50 bg-slate-500/15 text-slate-200',
-    Icon: UserCheck,
   },
 };
 
@@ -64,19 +58,19 @@ const TRUST_SCALE_ITEMS = [
   {
     level: 2,
     label: 'Seguro en revisión',
-    tone: 'sky',
+    tone: 'orange',
     desc: 'Seguro AP (independiente) o Póliza ART (con ayudantes) cargada. Solo consultas, aún sin Pase QR.',
   },
   {
     level: 3,
     label: 'Pase QR habilitado',
-    tone: 'teal',
+    tone: 'emerald',
     desc: 'DNI, Seguro AP/ART y Antecedentes aprobados dentro de la vigencia del barrio. Habilita Pases QR en garita.',
   },
   {
     level: 4,
     label: 'Verificado',
-    tone: 'emerald',
+    tone: 'sky',
     desc: 'Tilde oficial TrustLink: coincidencia cotejada de todos los PDFs contra los datos cargados.',
   },
 ];
@@ -129,13 +123,20 @@ export default function ProviderTrustBadge({
 }) {
   if (!trust || !trust.label) return null;
 
-  const toneKey = trust.tone && TONE_STYLES[trust.tone] ? trust.tone : 'slate';
   const levelNum = Math.min(4, Math.max(0, Number(trust.level ?? 0)));
-  const isOfficialN4 = levelNum >= 4 && toneKey !== 'danger';
-  const { cls: baseCls, Icon } = TONE_STYLES[toneKey];
-  const cls = isOfficialN4
-    ? 'border-sky-400/60 bg-sky-500/18 text-sky-100 shadow-xs shadow-sky-500/10'
-    : baseCls;
+  const isDanger = trust.tone === 'danger' || Boolean(trust.has_expired_docs);
+  const isOfficialN4 = levelNum >= 4 && !isDanger;
+  const levelTheme = TRUST_LEVEL_THEME[levelNum] || TRUST_LEVEL_THEME[0];
+  const cls = isDanger
+    ? TONE_STYLES.danger.cls
+    : trust.tone === 'gold'
+      ? TONE_STYLES.gold.cls
+      : levelTheme.badge;
+  const Icon = isDanger
+    ? TONE_STYLES.danger.Icon
+    : trust.tone === 'gold'
+      ? TONE_STYLES.gold.Icon
+      : TRUST_LEVEL_ICONS[levelNum] || UserCheck;
   const tooltip = [
     `Nivel ${levelNum}/4 · ${trust.label}`,
     trust.sublabel,
@@ -309,10 +310,10 @@ export function TrustLevelMeter({ level = 0, isDanger = false }) {
     'N4 · Verificado TrustLink (PDFs cotejados automáticamente)',
   ];
   const segmentColors = [
-    'bg-slate-400',
-    'bg-sky-400',
-    'bg-teal-400',
+    'bg-slate-300',
+    'bg-orange-400',
     'bg-emerald-400',
+    'bg-sky-400',
   ];
 
   return (
@@ -370,25 +371,22 @@ export function TrustLevelsGuide({ innerStyle, onClose }) {
         )}
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-        {TRUST_SCALE_ITEMS.map((item) => (
-          <div
-            key={item.level}
-            className={`rounded-xl p-2.5 border space-y-1.5 ${
-              item.level === 4
-                ? 'border-sky-400/50 bg-sky-500/10'
-                : item.level === 3
-                  ? 'border-teal-400/40 bg-teal-500/10'
-                  : 'border-white/10 bg-black/20'
-            }`}
-          >
-            <ProviderTrustBadge
-              trust={{ level: item.level, label: item.label, tone: item.tone }}
-              showLevel
-              compact
-            />
-            <p className="text-[11px] opacity-80 leading-snug">{item.desc}</p>
-          </div>
-        ))}
+        {TRUST_SCALE_ITEMS.map((item) => {
+          const theme = TRUST_LEVEL_THEME[item.level] || TRUST_LEVEL_THEME[0];
+          return (
+            <div
+              key={item.level}
+              className={`rounded-xl p-2.5 border space-y-1.5 ${theme.card}`}
+            >
+              <ProviderTrustBadge
+                trust={{ level: item.level, label: item.label, tone: item.tone }}
+                showLevel
+                compact
+              />
+              <p className="text-[11px] opacity-85 leading-snug">{item.desc}</p>
+            </div>
+          );
+        })}
       </div>
       <p className="text-[11px] opacity-75">
         <strong className="text-amber-300">Destacado:</strong> visibilidad comercial opcional
