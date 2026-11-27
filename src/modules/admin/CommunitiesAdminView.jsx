@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Copy,
+  CreditCard,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -1046,7 +1047,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 disabled={savingCountryId === c.id}
                                 onClick={() => handleSaveCountryEdit(c.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
                               >
                                 <Check size={12} /> Guardar
                               </button>
@@ -1054,8 +1055,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 onClick={() => setEditingCountryId(null)}
                                 title="Cancelar edición"
-                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
-                                style={cardStyle}
+                                className="inline-flex items-center justify-center px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
                               >
                                 <X size={12} />
                               </button>
@@ -1072,15 +1072,15 @@ export default function CommunitiesAdminView() {
                                   })
                                 }
                                 title="Extender licencia B2B +30 días"
-                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 transition-colors cursor-pointer disabled:opacity-45"
                               >
-                                +30d
+                                <Plus size={11} /> 30d
                               </button>
                               <button
                                 type="button"
                                 disabled={savingBillingCountryId === c.id}
                                 onClick={() => handleSaveCountryBilling(c.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
                               >
                                 <Check size={12} /> Guardar
                               </button>
@@ -1088,8 +1088,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 onClick={() => setEditingBillingCountryId(null)}
                                 title="Cancelar edición de licencia"
-                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
-                                style={cardStyle}
+                                className="inline-flex items-center justify-center px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
                               >
                                 <X size={12} />
                               </button>
@@ -1100,7 +1099,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 disabled={moderatingCountryId === c.id}
                                 onClick={() => handleModerateCountryApproval(c, 'approved')}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer disabled:opacity-45"
                               >
                                 <Check size={12} /> Aprobar
                               </button>
@@ -1108,7 +1107,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 disabled={moderatingCountryId === c.id}
                                 onClick={() => handleModerateCountryApproval(c, 'rejected')}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 text-rose-200 hover:bg-rose-950/65 transition-colors cursor-pointer disabled:opacity-45"
                               >
                                 <X size={12} /> Rechazar
                               </button>
@@ -1116,8 +1115,7 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 onClick={() => startEditingCountry(c)}
                                 title="Editar datos del barrio antes de aprobar"
-                                className="p-1.5 rounded-lg border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
-                                style={cardStyle}
+                                className="inline-flex items-center justify-center p-1.5 rounded-lg border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 transition-colors cursor-pointer"
                               >
                                 <Pencil size={12} />
                               </button>
@@ -1128,16 +1126,15 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 onClick={() => startEditingCountryBilling(c)}
                                 title="Gestionar plan B2B, cuota QR y extensión +30 días"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/12 text-amber-200 hover:bg-amber-500/22 transition-colors cursor-pointer"
                               >
-                                Licencia
+                                <CreditCard size={12} /> Licencia
                               </button>
                               <button
                                 type="button"
                                 onClick={() => startEditingCountry(c)}
                                 title="Editar barrio, ubicación y vigencia de Antecedentes"
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 opacity-90 hover:opacity-100 cursor-pointer"
-                                style={cardStyle}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 transition-colors cursor-pointer"
                               >
                                 <Pencil size={11} /> Editar
                               </button>
@@ -1339,18 +1336,28 @@ export default function CommunitiesAdminView() {
                             <button
                               type="button"
                               onClick={() => handleRotateIntegrationKey(integ)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
-                              style={cardStyle}
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-400/45 bg-indigo-500/12 hover:bg-indigo-500/22 text-indigo-100 transition-colors cursor-pointer"
                             >
                               <RotateCcw size={11} /> Rotar
                             </button>
                             <button
                               type="button"
                               onClick={() => handleToggleIntegrationKey(integ)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
-                              style={cardStyle}
+                              className={
+                                integ.is_active
+                                  ? 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 hover:bg-rose-950/65 text-rose-200 transition-colors cursor-pointer'
+                                  : 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer'
+                              }
                             >
-                              {integ.is_active ? 'Revocar' : 'Activar'}
+                              {integ.is_active ? (
+                                <>
+                                  <X size={12} /> Revocar
+                                </>
+                              ) : (
+                                <>
+                                  <Check size={12} /> Activar
+                                </>
+                              )}
                             </button>
                           </div>
                         </td>

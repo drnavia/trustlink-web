@@ -33,6 +33,8 @@ import {
   Check,
   X,
   Clock,
+  Plus,
+  ShieldOff,
 } from 'lucide-react';
 import { useBranding, DEFAULT_BRANDING_CONFIG } from '../branding/BrandingContext';
 import { API_BASE } from '../../config/api';
@@ -906,17 +908,16 @@ export default function AdminComplianceView() {
                 type="button"
                 onClick={() => handleUpdateStatus(spec.provider_id, 'rejected')}
                 disabled={isBusy}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+                className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
               >
-                Confirmar
+                <Check size={11} /> Confirmar
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmRejectKey(null)}
-                className="px-2 py-1 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
-                style={cardStyle}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 cursor-pointer"
               >
-                No
+                <X size={11} /> No
               </button>
             </div>
           ) : (
@@ -1062,17 +1063,16 @@ export default function AdminComplianceView() {
                 type="button"
                 onClick={() => handleUpdateUserCompliance(person.user_id, 'rejected')}
                 disabled={isBusy}
-                className="bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+                className="inline-flex items-center gap-1 bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
               >
-                {person.isPersonApproved ? 'Confirmar revocación' : 'Confirmar rechazo'}
+                <Check size={11} /> {person.isPersonApproved ? 'Confirmar revocación' : 'Confirmar rechazo'}
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmRejectKey(null)}
-                className="px-2 py-1.5 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
-                style={cardStyle}
+                className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 cursor-pointer"
               >
-                No
+                <X size={11} /> No
               </button>
             </div>
           ) : (
@@ -1411,18 +1411,17 @@ export default function AdminComplianceView() {
                                 type="button"
                                 onClick={() => handleManageMembership(person.user_id, 'extend', 30)}
                                 disabled={updatingMembershipUserId === person.user_id}
-                                className="border border-amber-400/50 bg-amber-500/10 hover:bg-amber-500/20 text-amber-200 font-bold px-2 py-1 rounded-lg text-[11px] cursor-pointer disabled:opacity-45"
+                                className="inline-flex items-center gap-0.5 border border-amber-400/50 bg-amber-500/12 hover:bg-amber-500/22 text-amber-200 font-bold px-2 py-1 rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-45"
                               >
-                                +30d
+                                <Plus size={11} /> 30d
                               </button>
                               <button
                                 type="button"
                                 onClick={() => handleManageMembership(person.user_id, 'cancel')}
                                 disabled={updatingMembershipUserId === person.user_id}
-                                className="border border-white/15 hover:opacity-90 font-semibold px-2 py-1 rounded-lg text-[11px] opacity-80 cursor-pointer disabled:opacity-45"
-                                style={cardStyle}
+                                className="inline-flex items-center gap-1 border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 font-bold px-2 py-1 rounded-lg text-[11px] transition-colors cursor-pointer disabled:opacity-45"
                               >
-                                Quitar Destacado
+                                <X size={11} /> Quitar Destacado
                               </button>
                             </>
                           )}
@@ -1707,7 +1706,7 @@ export default function AdminComplianceView() {
                               onClick={() =>
                                 handleToggleIdentity(person.user_id, !person.identity_verified)
                               }
-                              className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer disabled:opacity-45 ${
+                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer disabled:opacity-45 ${
                                 person.identity_verified
                                   ? 'border-sky-500/40 bg-sky-950/50 text-sky-200 hover:bg-sky-900/60'
                                   : 'border-indigo-400/50 bg-indigo-500/20 text-indigo-100 hover:bg-indigo-500/30'
@@ -1718,7 +1717,8 @@ export default function AdminComplianceView() {
                                   : 'Validar DNI para habilitar Perfil Básico (Nivel 1) en el directorio'
                               }
                             >
-                              {person.identity_verified ? 'DNI Validado ✓' : 'Validar DNI (→ N1)'}
+                              <Check size={12} />
+                              {person.identity_verified ? 'DNI Validado' : 'Validar DNI (→ N1)'}
                             </button>
                           )}
                         {hasProfile ? (
@@ -2186,12 +2186,15 @@ export default function AdminComplianceView() {
                                   }
                                   className={
                                     person.auto_verified
-                                      ? 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 hover:opacity-100 opacity-85 transition-opacity cursor-pointer disabled:opacity-45'
+                                      ? 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-sky-400/45 bg-sky-500/12 hover:bg-sky-500/22 text-sky-200 transition-colors cursor-pointer disabled:opacity-45'
                                       : 'inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-sky-400/60 bg-sky-500/20 hover:bg-sky-500/30 text-sky-100 transition-colors cursor-pointer disabled:opacity-45'
                                   }
-                                  style={person.auto_verified ? cardStyle : undefined}
                                 >
-                                  {!person.auto_verified && <VerifiedSeal size={12} />}
+                                  {person.auto_verified ? (
+                                    <ShieldOff size={12} />
+                                  ) : (
+                                    <VerifiedSeal size={12} />
+                                  )}
                                   <span>{person.auto_verified ? 'Quitar N4' : 'Otorgar N4'}</span>
                                 </button>
                               )}
@@ -2208,9 +2211,9 @@ export default function AdminComplianceView() {
                                       }
                                       disabled={updatingMembershipUserId === person.user_id}
                                       title="Extender Plan Destacado +30 días"
-                                      className="px-2 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/12 hover:bg-amber-500/22 text-amber-200 cursor-pointer disabled:opacity-45"
+                                      className="inline-flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/12 hover:bg-amber-500/22 text-amber-200 transition-colors cursor-pointer disabled:opacity-45"
                                     >
-                                      +30d
+                                      <Plus size={11} /> 30d
                                     </button>
                                     <button
                                       type="button"
@@ -2219,10 +2222,9 @@ export default function AdminComplianceView() {
                                       }
                                       disabled={updatingMembershipUserId === person.user_id}
                                       title="Quitar Plan Destacado"
-                                      className="px-2 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 opacity-80 hover:opacity-100 cursor-pointer disabled:opacity-45"
-                                      style={cardStyle}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer disabled:opacity-45"
                                     >
-                                      Sin Destacado
+                                      <X size={11} /> Sin Destacado
                                     </button>
                                   </>
                                 ) : canGrantFeatured ? (
@@ -2249,17 +2251,16 @@ export default function AdminComplianceView() {
                                         handleUpdateUserCompliance(person.user_id, 'rejected')
                                       }
                                       disabled={isBusyCompliance}
-                                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white cursor-pointer disabled:opacity-45"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors cursor-pointer disabled:opacity-45"
                                     >
-                                      Confirmar
+                                      <Check size={11} /> Confirmar
                                     </button>
                                     <button
                                       type="button"
                                       onClick={() => setConfirmRejectKey(null)}
-                                      className="px-2 py-1.5 rounded-lg text-[11px] border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
-                                      style={cardStyle}
+                                      className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-bold border border-slate-400/35 bg-slate-500/12 hover:bg-slate-500/22 text-slate-200 transition-colors cursor-pointer"
                                     >
-                                      No
+                                      <X size={11} /> No
                                     </button>
                                   </div>
                                 ) : (
