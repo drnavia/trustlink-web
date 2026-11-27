@@ -671,6 +671,7 @@ export default function ResidentDashboard({
   const [visitDurationMin, setVisitDurationMin] = useState(60);
   const [visitServiceTitle, setVisitServiceTitle] = useState('');
   const [visitSpecialty, setVisitSpecialty] = useState('');
+  const [visitSelectedPackage, setVisitSelectedPackage] = useState(null);
   const [visitNotes, setVisitNotes] = useState('');
   const [savingVisit, setSavingVisit] = useState(false);
   const [visitFeedback, setVisitFeedback] = useState({ type: '', text: '' });
@@ -1510,21 +1511,27 @@ export default function ResidentDashboard({
    *
    * @param {Object} provider - Prestador destinatario de la solicitud.
    */
-  const openVisitModalForProvider = (provider) => {
+  const openVisitModalForProvider = (provider, preselectedPackage = null) => {
     const providerSpecs = getProviderSpecialties(provider);
     const matchingFilterSpec =
       selectedSpecialty !== 'Todos'
         ? providerSpecs.find((s) => s.toLowerCase() === selectedSpecialty.toLowerCase())
         : null;
+    const durationMin = preselectedPackage
+      ? Math.max(60, Number(preselectedPackage.estimated_duration_minutes || 60))
+      : 60;
     setVisitModalProvider(provider);
+    setVisitSelectedPackage(preselectedPackage || null);
     setVisitFraction(user?.fraction_number || '');
     setVisitLot(user?.lot_number || '');
     const defaultStart = new Date(Date.now() + 60 * 60 * 1000);
-    setVisitDurationMin(60);
+    setVisitDurationMin(durationMin);
     setVisitDate(toLocalDateTimeInput(defaultStart));
-    setVisitEndDate(toLocalDateTimeInput(new Date(defaultStart.getTime() + 60 * 60 * 1000)));
-    setVisitServiceTitle('');
-    setVisitSpecialty(matchingFilterSpec || providerSpecs[0] || '');
+    setVisitEndDate(toLocalDateTimeInput(new Date(defaultStart.getTime() + durationMin * 60 * 1000)));
+    setVisitServiceTitle(preselectedPackage ? String(preselectedPackage.title || '') : '');
+    setVisitSpecialty(
+      preselectedPackage?.specialty || matchingFilterSpec || providerSpecs[0] || ''
+    );
     setVisitNotes('');
     setVisitFeedback({ type: '', text: '' });
   };
@@ -1590,6 +1597,7 @@ export default function ResidentDashboard({
           duration_minutes: Math.max(60, visitDurationMin),
           service_title: visitServiceTitle.trim(),
           service_specialty: visitSpecialty.trim() || null,
+          service_package_id: visitSelectedPackage?.id || null,
           notes: visitNotes.trim() || visitServiceTitle.trim(),
         }),
       });
@@ -1711,7 +1719,10 @@ export default function ResidentDashboard({
         });
         setFollowupDrafts((prev) => ({ ...prev, [visitId]: '' }));
         setCounterVisitId(null);
-        await fetchMyVisits();
+        await Promise.all([fetchMyVisits(), fetchContractsData(), fetchReviewsData()]);
+        if (action === 'accept' && data.contract?.id) {
+          setSelectedServiceKey(`contract-${data.contract.id}`);
+        }
       } else {
         setVisitActionFeedback({
           type: 'error',
@@ -3689,27 +3700,50 @@ export default function ResidentDashboard({
                         )}
                       </div>
 
-                      {/* 5. Señal discreta si ya tenés servicios en curso con este prestador (sin secuestrar el CTA) */}
-                      {activeProviderServices.length > 0 && (
-                        <div className="pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              openServicesView('all');
-                              if (activeProviderServices.length === 1) {
-                                setSelectedServiceKey(activeProviderServices[0].key);
-                              }
-                            }}
-                            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-300 hover:text-sky-200 hover:underline cursor-pointer"
-                            title="Ver el seguimiento en Mis Servicios"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
-                            <span>
-                              {activeProviderServices.length === 1
-                                ? '1 servicio en curso →'
-                                : `${activeProviderServices.length} servicios en curso →`}
-                            </span>
-                          </button>
+                      {/* 5. Señal discreta de catálogo con precio fijo y/o servicios en curso */}
+                      {((Array.isArray(provider.service_packages) && provider.service_packages.length > 0) ||
+                        activeProviderServices.length > 0) && (
+                        <div className="pt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                          {Array.isArray(provider.service_packages) &&
+                            provider.service_packages.length > 0 && (() => {
+                              const minPkgPrice = Math.min(
+                                ...provider.service_packages.map((p) => Number(p.fixed_price || 0)).filter((n) => n > 0)
+                              );
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => openProviderProfile(provider, 'overview')}
+                                  className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-300 hover:text-emerald-200 hover:underline cursor-pointer"
+                                  title="Ver catálogo de servicios con precio fijo"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                  <span>
+                                    Precio fijo desde ${minPkgPrice.toLocaleString('es-AR')} (
+                                    {provider.service_packages.length}) →
+                                  </span>
+                                </button>
+                              );
+                            })()}
+                          {activeProviderServices.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                openServicesView('all');
+                                if (activeProviderServices.length === 1) {
+                                  setSelectedServiceKey(activeProviderServices[0].key);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-sky-300 hover:text-sky-200 hover:underline cursor-pointer"
+                              title="Ver el seguimiento en Mis Servicios"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+                              <span>
+                                {activeProviderServices.length === 1
+                                  ? '1 servicio en curso →'
+                                  : `${activeProviderServices.length} servicios en curso →`}
+                              </span>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -4265,6 +4299,11 @@ export default function ResidentDashboard({
                             >
                               {visitBadgeLabel}
                             </span>
+                            {Boolean(visit.service_package_id) && quoteAmount > 0 && !hasPendingQuote && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-400/40 bg-emerald-500/15 text-emerald-200 font-mono shrink-0">
+                                Precio fijo · ${quoteAmount.toLocaleString('es-AR')}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
@@ -4747,61 +4786,155 @@ export default function ResidentDashboard({
                 )}
               </div>
 
-              {/* Identidad del servicio solicitado (Fase 1: trazabilidad por trabajo) */}
+              {/* Identidad del servicio solicitado (Catálogo Precio Fijo o Trabajo a presupuestar) */}
               {(() => {
                 const modalSpecs = getProviderSpecialties(visitModalProvider);
+                const providerPkgs = Array.isArray(visitModalProvider.service_packages)
+                  ? visitModalProvider.service_packages
+                  : [];
                 return (
                   <div className="rounded-xl p-3 border border-slate-700/80 space-y-2.5" style={innerStyle}>
-                    {modalSpecs.length > 1 ? (
+                    {providerPkgs.length > 0 && (
                       <div className="space-y-1.5">
-                        <label className="block font-semibold opacity-90">
-                          Rubro del servicio
-                        </label>
+                        <div className="flex items-center justify-between gap-2">
+                          <label className="block font-semibold opacity-90">
+                            Modalidad de contratación
+                          </label>
+                          {visitSelectedPackage && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVisitSelectedPackage(null);
+                                setVisitServiceTitle('');
+                                syncVisitWindowFromStart(visitDate, 60);
+                              }}
+                              className="text-[11px] font-semibold text-sky-300 hover:underline cursor-pointer"
+                            >
+                              Cambiar a trabajo a presupuestar
+                            </button>
+                          )}
+                        </div>
                         <div className="flex flex-wrap gap-1.5">
-                          {modalSpecs.map((spec) => {
-                            const active = visitSpecialty === spec;
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setVisitSelectedPackage(null);
+                              setVisitServiceTitle('');
+                              syncVisitWindowFromStart(visitDate, 60);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                              !visitSelectedPackage
+                                ? 'border-sky-400 bg-sky-500/20 text-sky-100'
+                                : 'border-white/15 opacity-75 hover:opacity-100'
+                            }`}
+                            style={!visitSelectedPackage ? undefined : cardStyle}
+                          >
+                            A presupuestar
+                          </button>
+                          {providerPkgs.map((pkg) => {
+                            const selected = Number(visitSelectedPackage?.id) === Number(pkg.id);
                             return (
                               <button
-                                key={spec}
+                                key={pkg.id}
                                 type="button"
-                                onClick={() => setVisitSpecialty(spec)}
+                                onClick={() => {
+                                  const dur = Math.max(60, Number(pkg.estimated_duration_minutes || 60));
+                                  setVisitSelectedPackage(pkg);
+                                  setVisitServiceTitle(pkg.title || '');
+                                  setVisitSpecialty(pkg.specialty || modalSpecs[0] || '');
+                                  syncVisitWindowFromStart(visitDate, dur);
+                                }}
                                 className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
-                                  active
+                                  selected
                                     ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
                                     : 'border-white/15 opacity-80 hover:opacity-100'
                                 }`}
-                                style={active ? undefined : cardStyle}
+                                style={selected ? undefined : cardStyle}
                               >
-                                {spec}
+                                {pkg.title} · ${Number(pkg.fixed_price).toLocaleString('es-AR')}
                               </button>
                             );
                           })}
                         </div>
                       </div>
-                    ) : modalSpecs.length === 1 ? (
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-[11px] opacity-75">Rubro seleccionado</span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                          {modalSpecs[0]}
-                        </span>
-                      </div>
-                    ) : null}
+                    )}
 
-                    <div>
-                      <label className="block font-semibold mb-1 opacity-90">
-                        ¿Qué servicio o trabajo necesitás? *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={120}
-                        value={visitServiceTitle}
-                        onChange={(e) => setVisitServiceTitle(e.target.value)}
-                        placeholder="Ej: Revisión de tablero eléctrico, pérdida bajo mesada..."
-                        className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
-                        style={cardStyle}
-                      />
-                    </div>
+                    {visitSelectedPackage ? (
+                      <div className="rounded-xl p-3 border border-emerald-500/40 bg-emerald-950/30 space-y-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="space-y-0.5 min-w-0">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                              Servicio con precio fijo · Sin espera de presupuesto
+                            </span>
+                            <p className="text-xs font-extrabold">{visitSelectedPackage.title}</p>
+                            <p className="text-[11px] opacity-80">
+                              {visitSelectedPackage.specialty} · ~{visitSelectedPackage.estimated_duration_minutes || 60} min
+                            </p>
+                          </div>
+                          <span className="font-mono font-black text-base text-emerald-300 shrink-0">
+                            ${Number(visitSelectedPackage.fixed_price).toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                        {visitSelectedPackage.includes_description && (
+                          <p className="text-[11px] opacity-85 pt-0.5">
+                            {visitSelectedPackage.includes_description}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        {modalSpecs.length > 1 ? (
+                          <div className="space-y-1.5">
+                            <label className="block font-semibold opacity-90">
+                              Rubro del servicio
+                            </label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {modalSpecs.map((spec) => {
+                                const active = visitSpecialty === spec;
+                                return (
+                                  <button
+                                    key={spec}
+                                    type="button"
+                                    onClick={() => setVisitSpecialty(spec)}
+                                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all cursor-pointer ${
+                                      active
+                                        ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                        : 'border-white/15 opacity-80 hover:opacity-100'
+                                    }`}
+                                    style={active ? undefined : cardStyle}
+                                  >
+                                    {spec}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : modalSpecs.length === 1 ? (
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-[11px] opacity-75">Rubro seleccionado</span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                              {modalSpecs[0]}
+                            </span>
+                          </div>
+                        ) : null}
+
+                        <div>
+                          <label className="block font-semibold mb-1 opacity-90">
+                            ¿Qué servicio o trabajo necesitás? *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            maxLength={120}
+                            value={visitServiceTitle}
+                            onChange={(e) => setVisitServiceTitle(e.target.value)}
+                            placeholder="Ej: Revisión de tablero eléctrico, pérdida bajo mesada..."
+                            className="w-full px-3 py-2 rounded-xl border border-slate-700/80"
+                            style={cardStyle}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 );
               })()}
@@ -5089,7 +5222,11 @@ export default function ResidentDashboard({
                     className="px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
                     style={{ backgroundColor: primaryColor }}
                   >
-                    {savingVisit ? 'Enviando...' : 'Enviar Solicitud'}
+                    {savingVisit
+                      ? 'Enviando...'
+                      : visitSelectedPackage
+                        ? `Reservar por $${Number(visitSelectedPackage.fixed_price).toLocaleString('es-AR')}`
+                        : 'Enviar Solicitud'}
                   </button>
                 )}
               </div>
@@ -5853,6 +5990,62 @@ export default function ResidentDashboard({
               <div className="p-5 overflow-y-auto space-y-4 flex-1">
                 {profileModalTab === 'overview' && (
                   <>
+                    {/* Servicios con precio fijo publicados por el prestador (reserva directa sin presupuesto) */}
+                    {Array.isArray(provider.service_packages) && provider.service_packages.length > 0 && (
+                      <div className="rounded-xl p-4 border border-emerald-500/35 bg-emerald-950/20 space-y-2.5">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                            Servicios con precio fijo ({provider.service_packages.length})
+                          </span>
+                          <span className="text-[10px] opacity-80">
+                            Reservás horario directo · sin esperar presupuesto
+                          </span>
+                        </div>
+                        <div className="space-y-2">
+                          {provider.service_packages.map((pkg) => (
+                            <div
+                              key={pkg.id}
+                              className="rounded-xl p-3 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                              style={innerStyle}
+                            >
+                              <div className="space-y-0.5 min-w-0">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-extrabold text-xs">{pkg.title}</span>
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                                    {pkg.specialty}
+                                  </span>
+                                  <span className="text-[10px] opacity-70">
+                                    ~{pkg.estimated_duration_minutes || 60} min
+                                  </span>
+                                </div>
+                                {pkg.includes_description && (
+                                  <p className="text-[11px] opacity-80 leading-relaxed">
+                                    {pkg.includes_description}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between sm:justify-end gap-2.5 shrink-0">
+                                <span className="font-mono font-black text-sm text-emerald-300">
+                                  ${Number(pkg.fixed_price || 0).toLocaleString('es-AR')}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setProfileModalProvider(null);
+                                    openVisitModalForProvider(provider, pkg);
+                                  }}
+                                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-white cursor-pointer hover:opacity-95 whitespace-nowrap"
+                                  style={{ backgroundColor: primaryColor }}
+                                >
+                                  Reservar
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Respaldo documental real (DNI · ART · Antecedentes · Pase QR) */}
                     <div className="rounded-xl p-4 border border-white/10 space-y-2.5" style={innerStyle}>
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -7147,7 +7340,7 @@ export default function ResidentDashboard({
                   </span>
                   {linkedVisit?.quote_status === 'approved' && (
                     <span className="px-2.5 py-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
-                      ✓ Presupuesto
+                      {linkedVisit?.service_package_id ? '✓ Precio fijo' : '✓ Presupuesto'}
                     </span>
                   )}
                   <span

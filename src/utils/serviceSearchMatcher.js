@@ -250,22 +250,32 @@ export function matchesProviderQuery(provider, rawQuery) {
   );
   const email = normalizeSearchText(provider?.email || '');
   const bio = normalizeSearchText(provider?.service_bio || '');
+  const packagesText = Array.isArray(provider?.service_packages)
+    ? normalizeSearchText(
+        provider.service_packages
+          .map((pkg) => `${pkg?.title || ''} ${pkg?.specialty || ''} ${pkg?.includes_description || ''}`)
+          .join(' ')
+      )
+    : '';
 
-  // Coincidencia textual directa en campos del perfil
+  // Coincidencia textual directa en campos del perfil o servicios con precio fijo
   if (
     fullName.includes(q) ||
     specialty.includes(q) ||
     email.includes(q) ||
-    bio.includes(q)
+    bio.includes(q) ||
+    packagesText.includes(q)
   ) {
     return true;
   }
 
-  // Coincidencia semántica por síntomas/sinónimos contra la especialidad o bio del prestador
+  // Coincidencia semántica por síntomas/sinónimos contra la especialidad, bio o paquetes del prestador
   const roots = resolveSymptomSpecialtyRoots(q);
   if (roots.length === 0) return false;
 
-  return roots.some((root) => specialty.includes(root) || bio.includes(root));
+  return roots.some(
+    (root) => specialty.includes(root) || bio.includes(root) || packagesText.includes(root)
+  );
 }
 
 /**

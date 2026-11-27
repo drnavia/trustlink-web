@@ -964,6 +964,19 @@ export default function LandingHome({
                             <span className="text-emerald-300 font-semibold">Presupuesto s/cargo</span>
                           </>
                         )}
+                        {Array.isArray(prov.service_packages) && prov.service_packages.length > 0 && (
+                          <>
+                            <span className="opacity-50">·</span>
+                            <span className="text-emerald-300 font-semibold font-mono">
+                              Desde $
+                              {Math.min(
+                                ...prov.service_packages
+                                  .map((p) => Number(p.fixed_price || 0))
+                                  .filter((n) => n > 0)
+                              ).toLocaleString('es-AR')}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1188,6 +1201,34 @@ export default function LandingHome({
                   {selectedProfileModal.service_bio}
                 </p>
               )}
+
+              {Array.isArray(selectedProfileModal.service_packages) &&
+                selectedProfileModal.service_packages.length > 0 && (
+                  <div className="rounded-xl p-3.5 border border-emerald-500/30 bg-emerald-950/20 space-y-2">
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300">
+                      Servicios con precio fijo ({selectedProfileModal.service_packages.length})
+                    </p>
+                    <div className="space-y-1.5">
+                      {selectedProfileModal.service_packages.slice(0, 4).map((pkg) => (
+                        <div
+                          key={pkg.id}
+                          className="flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-lg border border-white/10"
+                          style={innerStyle}
+                        >
+                          <span className="font-semibold truncate">
+                            {pkg.title}{' '}
+                            <span className="text-[10px] opacity-70">
+                              (~{pkg.estimated_duration_minutes || 60} min)
+                            </span>
+                          </span>
+                          <span className="font-mono font-bold text-emerald-300 shrink-0">
+                            ${Number(pkg.fixed_price || 0).toLocaleString('es-AR')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs opacity-80">
                 <span>

@@ -240,6 +240,7 @@ export default function ProviderDashboard({
     response_stats: null,
     commercial_profile: null,
     public_questions: [],
+    service_packages: [],
   });
   const [showDocHistory, setShowDocHistory] = useState(false);
   const [showMembershipPlans, setShowMembershipPlans] = useState(false);
@@ -261,6 +262,19 @@ export default function ProviderDashboard({
   ]);
   const [commServiceBio, setCommServiceBio] = useState('');
   const [savingCommercial, setSavingCommercial] = useState(false);
+
+  // Catálogo de Servicios con Precio Fijo del prestador (Paso 3)
+  const [pkgModalOpen, setPkgModalOpen] = useState(false);
+  const [editingPackage, setEditingPackage] = useState(null);
+  const [pkgSpecialty, setPkgSpecialty] = useState('');
+  const [pkgTitle, setPkgTitle] = useState('');
+  const [pkgIncludes, setPkgIncludes] = useState('');
+  const [pkgPrice, setPkgPrice] = useState('');
+  const [pkgDuration, setPkgDuration] = useState(60);
+  const [savingPackage, setSavingPackage] = useState(false);
+  const [pkgModalError, setPkgModalError] = useState('');
+  const [togglingPackageId, setTogglingPackageId] = useState(null);
+  const [deletingPackageId, setDeletingPackageId] = useState(null);
 
   // Preguntas públicas de la comunidad (Q&A estilo ficha de producto)
   const [showQaPanel, setShowQaPanel] = useState(false);
@@ -458,6 +472,7 @@ export default function ProviderDashboard({
           response_stats: data.response_stats || null,
           commercial_profile: comm,
           public_questions: data.public_questions || [],
+          service_packages: Array.isArray(data.service_packages) ? data.service_packages : [],
         });
         setCommAcceptsEmergencies(Boolean(comm.accepts_emergencies));
         setCommQuotePolicy(comm.quote_visit_policy || 'consultar');
@@ -1751,6 +1766,146 @@ export default function ProviderDashboard({
       setQuoteModalError('Error de conexión al enviar el presupuesto.');
     } finally {
       setSavingQuote(false);
+    }
+  };
+
+  /**
+   * Abre el modal para publicar un nuevo servicio con precio fijo.
+   */
+  const openCreatePackageModal = () => {
+    const firstSpec = profileData.providers?.[0]?.specialty || STANDARD_SPECIALTIES_CATALOG[0];
+    setEditingPackage(null);
+    setPkgSpecialty(firstSpec);
+    setPkgTitle('');
+    setPkgIncludes('');
+    setPkgPrice('');
+    setPkgDuration(60);
+    setPkgModalError('');
+    setPkgModalOpen(true);
+  };
+
+  /**
+   * Abre el modal para editar un servicio con precio fijo existente.
+   * @param {Object} pkg - Paquete de servicio seleccionado.
+   */
+  const openEditPackageModal = (pkg) => {
+    setEditingPackage(pkg);
+    setPkgSpecialty(pkg.specialty || profileData.providers?.[0]?.specialty || '');
+    setPkgTitle(pkg.title || '');
+    setPkgIncludes(pkg.includes_description || '');
+    setPkgPrice(pkg.fixed_price ? String(Number(pkg.fixed_price)) : '');
+    setPkgDuration(Number(pkg.estimated_duration_minutes || 60));
+    setPkgModalError('');
+    setPkgModalOpen(true);
+  };
+
+  /**
+   * Crea o actualiza un servicio con precio fijo en el catálogo del prestador.
+   */
+  const handleSaveServicePackage = async (e) => {
+    e.preventDefault();
+    const numericPrice = Number(pkgPrice);
+    if (String(pkgTitle || '').trim().length < 3) {
+      setPkgModalError('Indicá un título claro del servicio (ej: Mantenimiento anual de termotanque).');
+      return;
+    }
+    if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+      setPkgModalError('Ingresá un precio fijo válido mayor a cero.');
+      return;
+    }
+
+    setSavingPackage(true);
+    setPkgModalError('');
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const isEdit = Boolean(editingPackage?.id);
+      const url = isEdit
+        ? `${API_BASE}/api/v1/providers/service-packages/${editingPackage.id}`
+        : `${API_BASE}/api/v1/providers/service-packages`;
+      const response = await fetch(url, {
+        method: isEdit ? 'PATCH' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({
+          specialty: pkgSpecialty,
+          title: pkgTitle.trim(),
+          includes_description: pkgIncludes.trim() || null,
+          fixed_price: numericPrice,
+          estimated_duration_minutes: Number(pkgDuration || 60),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Servicio con precio fijo guardado.');
+        setPkgModalOpen(false);
+        setEditingPackage(null);
+        await fetchProviderProfile();
+      } else {
+        setPkgModalError(data.error || 'No se pudo guardar el servicio.');
+      }
+    } catch (error) {
+      console.error('Error al guardar servicio con precio fijo:', error);
+      setPkgModalError('Error de conexión al guardar el servicio.');
+    } finally {
+      setSavingPackage(false);
+    }
+  };
+
+  /**
+   * Pausa o reactiva un servicio con precio fijo del catálogo.
+   */
+  const handleTogglePackageActive = async (pkg) => {
+    setTogglingPackageId(pkg.id);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/service-packages/${pkg.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          ...getAuthHeaders(),
+        },
+        body: JSON.stringify({ is_active: !pkg.is_active }),
+      });
+      if (response.ok) {
+        setSuccessMsg(
+          pkg.is_active
+            ? `Servicio "${pkg.title}" pausado en el directorio.`
+            : `Servicio "${pkg.title}" reactivado en el directorio.`
+        );
+        await fetchProviderProfile();
+      }
+    } catch (error) {
+      console.error('Error al alternar estado del servicio:', error);
+    } finally {
+      setTogglingPackageId(null);
+    }
+  };
+
+  /**
+   * Elimina un servicio con precio fijo del catálogo.
+   */
+  const handleDeleteServicePackage = async (pkgId) => {
+    setDeletingPackageId(pkgId);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/providers/service-packages/${pkgId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) {
+        setSuccessMsg(data.message || 'Servicio eliminado de tu catálogo.');
+        await fetchProviderProfile();
+      }
+    } catch (error) {
+      console.error('Error al eliminar servicio con precio fijo:', error);
+    } finally {
+      setDeletingPackageId(null);
     }
   };
 
@@ -4605,6 +4760,119 @@ export default function ProviderDashboard({
             )}
           </section>
 
+          {/* Tarjeta 1C-bis: Catálogo de Servicios con Precio Fijo (Paso 3) */}
+          <section
+            className="lg:col-span-2 rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3 text-xs"
+            style={cardStyle}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <FileText size={15} className="text-emerald-400 shrink-0" />
+                  <h3 className="text-sm font-bold">Servicios con Precio Fijo</h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
+                    {(profileData.service_packages || []).filter((p) => p.is_active).length} activos
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-75">
+                  Publicá trabajos estandarizados (ej: mantenimiento de termotanque o caldera) con precio cerrado para que los residentes reserven turno sin esperar presupuesto.
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={(profileData.providers || []).length === 0}
+                onClick={openCreatePackageModal}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer hover:opacity-95 disabled:opacity-50 shrink-0 self-start sm:self-auto"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Plus size={14} />
+                <span>Agregar servicio</span>
+              </button>
+            </div>
+
+            {!Array.isArray(profileData.service_packages) || profileData.service_packages.length === 0 ? (
+              <div
+                className="rounded-xl p-4 border border-white/10 text-[11px] opacity-80 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                style={innerStyle}
+              >
+                <span>
+                  Todavía no publicaste servicios con precio fijo. Podés sumar los trabajos que siempre cotizás igual para convertir más rápido.
+                </span>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {profileData.service_packages.map((pkg) => (
+                  <div
+                    key={pkg.id}
+                    className={`rounded-xl p-3.5 border flex flex-col justify-between gap-2.5 ${
+                      pkg.is_active ? 'border-emerald-500/30' : 'border-white/10 opacity-65'
+                    }`}
+                    style={innerStyle}
+                  >
+                    <div className="space-y-1.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 space-y-1">
+                          <h4 className="font-extrabold text-sm leading-snug">{pkg.title}</h4>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                              {pkg.specialty}
+                            </span>
+                            <span className="text-[10px] font-semibold opacity-75 inline-flex items-center gap-1">
+                              <Clock size={11} /> ~{pkg.estimated_duration_minutes || 60} min
+                            </span>
+                            {!pkg.is_active && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-600 bg-slate-800 text-slate-300">
+                                Pausado
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <span className="font-mono font-black text-sm text-emerald-300 shrink-0">
+                          ${Number(pkg.fixed_price || 0).toLocaleString('es-AR')}
+                        </span>
+                      </div>
+                      {pkg.includes_description && (
+                        <p className="text-[11px] opacity-80 leading-relaxed">
+                          {pkg.includes_description}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        disabled={togglingPackageId === pkg.id}
+                        onClick={() => handleTogglePackageActive(pkg)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
+                        style={cardStyle}
+                      >
+                        {pkg.is_active ? <EyeOff size={12} /> : <Eye size={12} />}
+                        <span>{pkg.is_active ? 'Pausar' : 'Activar'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openEditPackageModal(pkg)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-sky-500/35 bg-sky-950/35 text-sky-200 hover:bg-sky-950/60 cursor-pointer"
+                      >
+                        <Edit3 size={12} />
+                        <span>Editar</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingPackageId === pkg.id}
+                        onClick={() => handleDeleteServicePackage(pkg.id)}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-rose-500/35 bg-rose-950/30 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 size={12} />
+                        <span>Eliminar</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* Tarjeta 1D: Eje Comercial · Plan Destacado — visible solo desde Nivel 3 o si ya está activo */}
           {canShowMembershipCard && (
           <div
@@ -5457,6 +5725,11 @@ export default function ProviderDashboard({
                             {(visit.service_specialty || visit.provider_specialty) && (
                               <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
                                 {visit.service_specialty || visit.provider_specialty}
+                              </span>
+                            )}
+                            {Boolean(visit.service_package_id) && Number(visit.quote_amount || 0) > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-amber-400/45 bg-amber-500/15 text-amber-200 font-mono">
+                                Precio fijo · ${Number(visit.quote_amount).toLocaleString('es-AR')}
                               </span>
                             )}
                           </div>
@@ -6438,6 +6711,161 @@ export default function ProviderDashboard({
                 >
                   <Send size={13} />
                   <span>{savingQuote ? 'Enviando...' : 'Enviar presupuesto'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Crear o editar Servicio con Precio Fijo */}
+      {pkgModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+          onClick={() => !savingPackage && setPkgModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
+            style={cardStyle}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                  Catálogo de precio fijo
+                </span>
+                <h3 className="text-base font-black">
+                  {editingPackage ? 'Editar servicio con precio fijo' : 'Nuevo servicio con precio fijo'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                disabled={savingPackage}
+                onClick={() => setPkgModalOpen(false)}
+                aria-label="Cerrar modal de servicio"
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {pkgModalError && (
+              <div className="rounded-xl p-3 border border-rose-500/45 bg-rose-950/50 text-rose-200 flex items-start gap-2">
+                <AlertCircle size={15} className="shrink-0 mt-0.5 text-rose-400" />
+                <span>{pkgModalError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveServicePackage} className="space-y-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block font-semibold opacity-90">Rubro / Especialidad *</label>
+                  <select
+                    value={pkgSpecialty}
+                    onChange={(e) => setPkgSpecialty(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                    style={innerStyle}
+                  >
+                    {(profileData.providers || []).map((prof) => (
+                      <option key={prof.id} value={prof.specialty}>
+                        {prof.specialty}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="block font-semibold opacity-90">Duración estimada</label>
+                  <select
+                    value={pkgDuration}
+                    onChange={(e) => setPkgDuration(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                    style={innerStyle}
+                  >
+                    <option value={60}>1 hora (60 min)</option>
+                    <option value={90}>1 h 30 min (90 min)</option>
+                    <option value={120}>2 horas (120 min)</option>
+                    <option value={180}>3 horas (180 min)</option>
+                    <option value={240}>4 horas (240 min)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">Nombre del servicio *</label>
+                <input
+                  type="text"
+                  required
+                  maxLength={140}
+                  value={pkgTitle}
+                  onChange={(e) => setPkgTitle(e.target.value)}
+                  placeholder="Ej: Mantenimiento anual de termotanque"
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">Precio fijo total (ARS) *</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono font-bold opacity-70">
+                    $
+                  </span>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="any"
+                    value={pkgPrice}
+                    onChange={(e) => setPkgPrice(e.target.value)}
+                    placeholder="Ej: 45000"
+                    className="w-full pl-7 pr-3 py-2.5 rounded-xl border border-slate-700/80 text-sm font-mono font-bold focus:outline-none"
+                    style={innerStyle}
+                  />
+                </div>
+                {Number(pkgPrice) > 0 && (
+                  <div className="flex items-center justify-between gap-2 pt-1 text-[11px] font-bold text-emerald-300">
+                    <span>Tu ingreso neto estimado (93%):</span>
+                    <span className="font-mono">
+                      ${Math.round(Number(pkgPrice) * 0.93).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold opacity-90">
+                  ¿Qué incluye este servicio? (opcional)
+                </label>
+                <textarea
+                  rows={3}
+                  maxLength={400}
+                  value={pkgIncludes}
+                  onChange={(e) => setPkgIncludes(e.target.value)}
+                  placeholder="Ej: Purga completa, limpieza de quemador, control de ánodo de magnesio y prueba de funcionamiento."
+                  className="w-full px-3 py-2 rounded-xl border border-slate-700/80 text-xs focus:outline-none resize-none"
+                  style={innerStyle}
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  disabled={savingPackage}
+                  onClick={() => setPkgModalOpen(false)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPackage}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold text-white cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <Save size={13} />
+                  <span>{savingPackage ? 'Guardando...' : editingPackage ? 'Guardar cambios' : 'Publicar servicio'}</span>
                 </button>
               </div>
             </form>
