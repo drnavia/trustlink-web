@@ -418,56 +418,49 @@ export default function LandingHome({
   return (
     <section className="max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 md:py-6 space-y-6">
       {/* 1. FRANJA DE PRESENTACIÓN COMPACTA (sin empujar la vidriera fuera del primer pantallazo) */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2.5">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-2.5">
         <div className="space-y-0.5 min-w-0">
           <h1 className="text-lg sm:text-2xl font-black tracking-tight leading-snug">
             Prestadores verificados para tu comunidad
           </h1>
           <p className="text-xs sm:text-sm opacity-75">
-            DNI, Seguro AP/ART y antecedentes penales validados para ingresar con Pase QR. Ingresá para consultar o coordinar visitas.
+            DNI, Seguro AP/ART y antecedentes penales validados para ingresar con Pase QR.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          {networkSummary && networkSummary.total_active_providers > 0 && (
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${subtleBorder}`}
-              style={cardStyle}
-            >
-              <ShieldCheck size={12} className="text-emerald-400 shrink-0" />
-              <span>
-                {networkSummary.verified_providers > 0
-                  ? `${networkSummary.verified_providers} ${
-                      networkSummary.verified_providers === 1
-                        ? 'verificado con QR'
-                        : 'verificados con QR'
-                    }`
-                  : `${networkSummary.total_active_providers} en red`}
-              </span>
-            </span>
+        {networkSummary &&
+          (networkSummary.total_active_providers > 0 || networkSummary.total_communities > 0) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-semibold opacity-80 shrink-0">
+              {networkSummary.total_active_providers > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <ShieldCheck size={13} className="text-emerald-400 shrink-0" />
+                  <span>
+                    {networkSummary.verified_providers >= 5
+                      ? `${networkSummary.verified_providers} verificados con QR`
+                      : `${networkSummary.total_active_providers} ${
+                          networkSummary.total_active_providers === 1
+                            ? 'prestador'
+                            : 'prestadores'
+                        } en red`}
+                  </span>
+                </span>
+              )}
+              {networkSummary.total_active_providers > 0 && networkSummary.total_communities > 0 && (
+                <span className="opacity-40" aria-hidden="true">
+                  ·
+                </span>
+              )}
+              {networkSummary.total_communities > 0 && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 size={13} className="text-sky-400 shrink-0" />
+                  <span>
+                    {networkSummary.total_communities}{' '}
+                    {networkSummary.total_communities === 1 ? 'comunidad' : 'comunidades'}
+                  </span>
+                </span>
+              )}
+            </div>
           )}
-          {networkSummary && networkSummary.total_communities > 0 && (
-            <span
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${subtleBorder}`}
-              style={cardStyle}
-            >
-              <Building2 size={12} className="text-sky-400 shrink-0" />
-              <span>
-                {networkSummary.total_communities}{' '}
-                {networkSummary.total_communities === 1 ? 'comunidad' : 'comunidades'}
-              </span>
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => goRegisterWithRole('provider')}
-            className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-bold border ${subtleBorder} hover:opacity-95 cursor-pointer`}
-            style={cardStyle}
-          >
-            <Briefcase size={11} className="text-emerald-400 shrink-0" />
-            <span>¿Ofrecés servicios? Postulate</span>
-          </button>
-        </div>
       </div>
 
       {/* 2. VIDRIERA PÚBLICA DE PRESTADORES — PROTAGONISTA INMEDIATO (misma estética limpia del Portal Residente) */}
