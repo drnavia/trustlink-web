@@ -161,6 +161,43 @@ const formatLocalDateTime = (value) => {
 };
 
 /**
+ * Normaliza el domicilio de una visita evitando duplicar la palabra "Lote" (ej. "Lote Lote 15").
+ */
+const formatVisitAddress = (fractionNumber, lotNumber) => {
+  const frac = String(fractionNumber || '').trim();
+  const rawLot = String(lotNumber || '').trim();
+  const cleanLot = rawLot ? (/^lote\b/i.test(rawLot) ? rawLot : `Lote ${rawLot}`) : 'Lote —';
+  return frac ? `${frac} · ${cleanLot}` : cleanLot;
+};
+
+/**
+ * Formatea el rango horario compacto de una visita (`26/11 · 11:00–12:00`).
+ */
+const formatVisitScheduleShort = (preferredDate, preferredEndDate) => {
+  if (!preferredDate) return 'A convenir';
+  const start = new Date(preferredDate);
+  if (Number.isNaN(start.getTime())) return String(preferredDate);
+  const datePart = start.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+  const startTimePart = start.toLocaleTimeString('es-AR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  if (preferredEndDate) {
+    const end = new Date(preferredEndDate);
+    if (!Number.isNaN(end.getTime())) {
+      const endTimePart = end.toLocaleTimeString('es-AR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      });
+      return `${datePart} · ${startTimePart}–${endTimePart}`;
+    }
+  }
+  return `${datePart} · ${startTimePart}`;
+};
+
+/**
  * Calcula la etiqueta y clases visuales del badge de estado de cobertura ART
  * para un integrante de cuadrilla en función de su fecha de vencimiento.
  *
@@ -496,8 +533,7 @@ export default function ResidentDashboard({
   const [servicesSearch, setServicesSearch] = useState('');
   const [servicesPage, setServicesPage] = useState(1);
   const [servicesPageSize, setServicesPageSize] = useState(6);
-  const [expandedVisitChats, setExpandedVisitChats] = useState({});
-  const [expandedRatingContractId, setExpandedRatingContractId] = useState(null);
+  const [selectedServiceKey, setSelectedServiceKey] = useState(null);
 
   /** Navega a "Mis Servicios" aplicando el filtro contextual solicitado. */
   const openServicesView = (nextFilter = 'all') => {
@@ -2202,9 +2238,10 @@ export default function ResidentDashboard({
     setOnlyVerifiedMembers(false);
   };
 
-  // Línea de tiempo unificada de "2. Mis Servicios" (estilo "Mis Compras"):
+  // Línea de tiempo unificada de "Mis Servicios" (estilo "Mis Compras"):
   // combina contratos/pagos/reseñas y visitas en un único historial filtrable y buscable.
-  const { servicesCounts, filteredUnifiedServices, unratedServicesCount } = useMemo(() => {
+  const { allUnifiedServices, servicesCounts, filteredUnifiedServices, unratedServicesCount } =
+    useMemo(() => {
     const reviewByContractId = new Map();
     reviewContracts.forEach((rc) => {
       const cid = Number(rc.contract_id ?? rc.id);
@@ -2371,11 +2408,17 @@ export default function ResidentDashboard({
       });
 
     return {
+      allUnifiedServices: unified,
       servicesCounts: counts,
       filteredUnifiedServices: filtered,
       unratedServicesCount: counts.unrated,
     };
   }, [contracts, reviewContracts, myPasses, myVisits, providers, servicesFilter, servicesSearch]);
+
+  const selectedServiceEntry = useMemo(
+    () => (selectedServiceKey ? allUnifiedServices.find((e) => e.key === selectedServiceKey) || null : null),
+    [allUnifiedServices, selectedServiceKey]
+  );
 
   // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) para Mis Servicios y Directorio
   const {
@@ -3559,7 +3602,7 @@ export default function ResidentDashboard({
       {/* PASO 2: MIS SERVICIOS (unificado estilo "Mis Compras": Visitas + Pagos/Contratos + Comprobantes + Reseñas + Reclamos) */}
       {activeStep === 'services' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          {/* Cabecera unificada de Mis Servicios */}
+          {/* Cabecera limpia de Mis Servicios */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
@@ -3581,16 +3624,16 @@ export default function ResidentDashboard({
               <button
                 type="button"
                 onClick={() => {
-                  if (!showNewOrderForm && !orderPassId && eligibleOrderPasses.length > 0) {
+                  if (!orderPassId && eligibleOrderPasses.length > 0) {
                     setOrderPassId(String(eligibleOrderPasses[0].id));
                   }
-                  setShowNewOrderForm((prev) => !prev);
+                  setShowNewOrderForm(true);
                 }}
                 className="text-white font-bold px-3.5 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 transition-opacity hover:opacity-95 cursor-pointer shadow-sm"
                 style={{ backgroundColor: primaryColor }}
               >
-                {showNewOrderForm ? <X size={14} /> : <Plus size={14} />}
-                <span>{showNewOrderForm ? 'Cerrar' : 'Nueva Orden de Pago'}</span>
+                <Plus size={14} />
+                <span>Nueva Orden de Pago</span>
               </button>
 
               {!useGlobalHeader && (
@@ -3614,138 +3657,6 @@ export default function ResidentDashboard({
               )}
             </div>
           </div>
-
-          {/* Formulario desplegable: Generar Orden de Pago desde Visita / Pase QR */}
-          {showNewOrderForm && (
-            <form
-              onSubmit={handleCreateOrderFromPass}
-              className="rounded-xl p-4 border border-white/15 space-y-3 text-xs"
-              style={innerStyle}
-            >
-              <div>
-                <p className="font-bold">Generar Orden de Pago desde Pase QR</p>
-                <p className="text-[11px] opacity-75">
-                  Seleccioná el pase de la visita realizada, detallá el trabajo y cargá el monto acordado.
-                </p>
-              </div>
-
-              {eligibleOrderPasses.length === 0 ? (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-xl border border-amber-500/35 bg-amber-950/25 text-amber-100">
-                  <span>
-                    Aún no tenés pases QR elegibles. Emití primero un pase en Pases QR o elegí un prestador en Prestadores.
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setActiveStep('passes')}
-                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer shrink-0"
-                    style={{ backgroundColor: primaryColor }}
-                  >
-                    Ir a Pases QR
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                    <div>
-                      <label className="block text-[11px] opacity-80 mb-1">Pase QR / Prestador</label>
-                      <select
-                        value={orderPassId || String(eligibleOrderPasses[0]?.id || '')}
-                        onChange={(e) => setOrderPassId(e.target.value)}
-                        className={`w-full ${FIELD_INPUT_CLASS}`}
-                        style={cardStyle}
-                      >
-                        {eligibleOrderPasses.map((pass) => {
-                          const passStatusLabel = getUnifiedStatusMeta(pass.status, 'pass').label;
-                          const providerName =
-                            pass.provider_name || `Prestador #${pass.provider_id}`;
-                          return (
-                            <option key={pass.id} value={String(pass.id)}>
-                              Pase #{pass.id} · {providerName} · {passStatusLabel}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] opacity-80 mb-1">Trabajo realizado</label>
-                      <input
-                        type="text"
-                        required
-                        maxLength={200}
-                        value={orderDescription}
-                        onChange={(e) => setOrderDescription(e.target.value)}
-                        placeholder="Ej: Reparación de pérdida y revisión"
-                        className={`w-full ${FIELD_INPUT_CLASS}`}
-                        style={cardStyle}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] opacity-80 mb-1">Monto acordado ($)</label>
-                      <input
-                        type="number"
-                        required
-                        min="1"
-                        step="0.01"
-                        value={orderAmount}
-                        onChange={(e) => setOrderAmount(e.target.value)}
-                        placeholder="Ej: 45000"
-                        className={`w-full ${FIELD_INPUT_CLASS}`}
-                        style={cardStyle}
-                      />
-                    </div>
-                  </div>
-
-                  {Number(orderAmount) > 0 && (
-                    <div className="flex flex-wrap items-center gap-3 text-[11px] px-3 py-2 rounded-lg border border-white/10 bg-black/20">
-                      <span>
-                        Comisión TrustLink ({gatewayConfig.platform_fee_percent}%):{' '}
-                        <strong className="font-mono">
-                          $
-                          {(
-                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
-                            100
-                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
-                        </strong>
-                      </span>
-                      <span>
-                        Neto prestador ({100 - Number(gatewayConfig.platform_fee_percent || 7)}%):{' '}
-                        <strong className="font-mono text-emerald-300">
-                          $
-                          {(
-                            Number(orderAmount) -
-                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
-                              100
-                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
-                        </strong>
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowNewOrderForm(false)}
-                      className="px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
-                      style={cardStyle}
-                    >
-                      Cancelar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={creatingOrder}
-                      className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                      style={{ backgroundColor: primaryColor }}
-                    >
-                      <Plus size={13} />
-                      {creatingOrder ? 'Creando orden...' : 'Crear Orden de Pago'}
-                    </button>
-                  </div>
-                </>
-              )}
-            </form>
-          )}
 
           {/* Feedback consolidado de visitas, pagos/conformidad y reseñas */}
           {visitActionFeedback.text && (
@@ -3841,11 +3752,15 @@ export default function ResidentDashboard({
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               {[
                 { id: 'all', label: 'Todos', count: servicesCounts.all },
-                { id: 'action', label: 'Requiere tu acción', count: servicesCounts.action },
+                ...(servicesCounts.action > 0 || servicesFilter === 'action'
+                  ? [{ id: 'action', label: 'Requiere tu acción', count: servicesCounts.action }]
+                  : []),
                 { id: 'visits', label: 'Visitas', count: servicesCounts.visits },
                 { id: 'contracts', label: 'Pagos y contratos', count: servicesCounts.contracts },
-                { id: 'unrated', label: 'Por calificar', count: servicesCounts.unrated },
-                ...(servicesCounts.disputes > 0
+                ...(servicesCounts.unrated > 0 || servicesFilter === 'unrated'
+                  ? [{ id: 'unrated', label: 'Por calificar', count: servicesCounts.unrated }]
+                  : []),
+                ...(servicesCounts.disputes > 0 || servicesFilter === 'disputes'
                   ? [{ id: 'disputes', label: 'Con reclamo', count: servicesCounts.disputes }]
                   : []),
               ].map((chip) => {
@@ -3922,14 +3837,13 @@ export default function ResidentDashboard({
               </button>
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2.5">
               {paginatedUnifiedServices.map((entry) => {
-                /* ===== TARJETA UNIFICADA DE CONTRATO / SERVICIO (Pago + Conformidad + Comprobante + Reseña + Reclamo) ===== */
+                /* ===== FILA MINIMALISTA DE CONTRATO / SERVICIO (Divulgación progresiva -> Modal de Detalle) ===== */
                 if (entry.kind === 'contract') {
                   const {
                     contract,
                     reviewInfo,
-                    linkedPass,
                     providerDisplay,
                     specialty,
                     isCompleted,
@@ -3938,371 +3852,152 @@ export default function ResidentDashboard({
                   } = entry;
                   const cid = contract.id;
                   const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
-                  const feePercent = Number(gatewayConfig.platform_fee_percent ?? 7);
-                  const feeAmount = Number(((totalAmount * feePercent) / 100).toFixed(2));
-                  const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
                   const isPending = String(contract.status || '').toLowerCase() === 'pending';
                   const isInProgress = String(contract.status || '').toLowerCase() === 'in_progress';
                   const statusMeta = getUnifiedStatusMeta(contract.status, 'contract');
-                  const showInlineRating =
-                    !hasRatedProvider &&
-                    (servicesFilter === 'unrated' || expandedRatingContractId === cid);
+                  const createdDateShort = contract.created_at
+                    ? new Date(contract.created_at).toLocaleDateString('es-AR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                      })
+                    : `Servicio #${cid}`;
 
                   return (
                     <article
                       key={entry.key}
-                      className={`rounded-2xl border overflow-hidden text-xs ${
+                      className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${
                         hasOpenDispute
                           ? 'border-rose-500/45'
                           : !isCompleted
                             ? 'border-amber-500/35'
-                            : 'border-white/10'
+                            : 'border-white/10 hover:border-white/20'
                       }`}
                       style={innerStyle}
                     >
-                      {/* Cabecera estilo "Mis Compras": fecha + estado + monto */}
-                      <div
-                        className="px-4 py-2.5 border-b border-white/10 flex flex-wrap items-center justify-between gap-2"
-                        style={cardStyle}
-                      >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold opacity-90">
-                            {contract.created_at
-                              ? formatDateTimeAR(contract.created_at)
-                              : `Servicio #${cid}`}
-                          </span>
-                          <span className="opacity-45">·</span>
-                          <span
-                            className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
-                          >
-                            {statusMeta.label}
-                          </span>
-                          {hasOpenDispute && (
-                            <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
-                              Reclamo abierto
-                            </span>
-                          )}
-                          {!hasRatedProvider && isCompleted && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/45 bg-amber-500/15 text-amber-200">
-                              Por calificar
-                            </span>
-                          )}
-                        </div>
+                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                        {/* Izquierda clicable: Avatar + Nombre/Rubro + Estado + 1 línea resumen */}
+                        <button
+                          type="button"
+                          onClick={() => setSelectedServiceKey(entry.key)}
+                          className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                        >
+                          <ProviderAvatar name={providerDisplay} level={3} size="md" />
+                          <div className="min-w-0 flex-1 space-y-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-sm font-extrabold truncate group-hover:underline">
+                                {providerDisplay}
+                              </h3>
+                              {specialty && (
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300">
+                                  {specialty}
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                              >
+                                {statusMeta.label}
+                              </span>
+                              {hasOpenDispute && (
+                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border border-rose-700/70 bg-rose-950/60 text-rose-200">
+                                  Reclamo abierto
+                                </span>
+                              )}
+                            </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          <span className="font-mono font-black text-sm">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                              {contract.description && (
+                                <>
+                                  <span className="truncate max-w-md">{contract.description}</span>
+                                  <span className="opacity-45">·</span>
+                                </>
+                              )}
+                              <span>{createdDateShort}</span>
+                              {hasRatedProvider && reviewInfo?.provider_review_rating ? (
+                                <>
+                                  <span className="opacity-45">·</span>
+                                  <span className="inline-flex items-center gap-1 font-bold text-amber-300 opacity-100">
+                                    <Star size={11} className="fill-amber-400 text-amber-400" />
+                                    <span>{reviewInfo.provider_review_rating}/5</span>
+                                  </span>
+                                </>
+                              ) : isCompleted ? (
+                                <>
+                                  <span className="opacity-45">·</span>
+                                  <span className="font-semibold text-amber-300 opacity-100">
+                                    Por calificar
+                                  </span>
+                                </>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+
+                        {/* Derecha: Monto + máx. 2 acciones limpias */}
+                        <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                          <span className="font-mono font-black text-sm mr-1">
                             ${totalAmount.toLocaleString('es-AR')}
                           </span>
-                          <span
-                            title={`Comisión TrustLink (${feePercent}%): $${feeAmount.toLocaleString('es-AR')} · Neto prestador (${100 - feePercent}%): $${payoutAmount.toLocaleString('es-AR')}`}
-                            className="text-[10px] opacity-65 hidden sm:inline"
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedServiceKey(entry.key)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
                           >
-                            (Servicio #{cid})
-                          </span>
-                        </div>
-                      </div>
+                            Ver detalle
+                          </button>
 
-                      {/* Cuerpo principal: Prestador + trabajo + progreso de 4 hitos */}
-                      <div className="p-4 space-y-3">
-                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                          <div className="flex items-start gap-2.5 min-w-0">
-                            <ProviderAvatar name={providerDisplay} size="sm" />
-                            <div className="space-y-1 min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <h3 className="text-sm font-extrabold">{providerDisplay}</h3>
-                                {specialty && (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                                    {specialty}
-                                  </span>
-                                )}
-                              </div>
-                              {contract.description && (
-                                <p className="text-xs opacity-85">{contract.description}</p>
-                              )}
-                              {contract.completed_at && (
-                                <p className="text-[11px] text-emerald-300/90">
-                                  Conformidad registrada el {formatDateTimeAR(contract.completed_at)}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Mini progreso de 4 hitos del servicio */}
-                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold shrink-0">
-                            <span className="px-2 py-0.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
-                              ✓ Visita
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-md border ${
-                                contract.pass_id || linkedPass
-                                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
-                                  : 'border-white/10 opacity-55'
-                              }`}
+                          {isPending ? (
+                            <button
+                              type="button"
+                              disabled={payingContractId === cid}
+                              onClick={() => handlePayContract(cid)}
+                              className="py-1.5 px-3.5 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50 shadow-sm"
+                              style={{ backgroundColor: primaryColor }}
                             >
-                              {contract.pass_id || linkedPass ? '✓ Pase QR' : '○ Pase QR'}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-md border ${
-                                isCompleted
-                                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
-                                  : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-                              }`}
+                              {payingContractId === cid ? 'Procesando...' : 'Confirmar y Pagar'}
+                            </button>
+                          ) : isInProgress ? (
+                            <button
+                              type="button"
+                              disabled={completingContractId === cid}
+                              onClick={() => handleCompleteContract(cid)}
+                              className="inline-flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50 shadow-sm"
+                              style={{ backgroundColor: primaryColor }}
                             >
-                              {isCompleted ? '✓ Conformidad' : '● Pago / Conf.'}
-                            </span>
-                            <span
-                              className={`px-2 py-0.5 rounded-md border ${
-                                hasRatedProvider
-                                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
-                                  : 'border-white/15 opacity-70'
-                              }`}
+                              <CheckCircle2 size={13} />
+                              <span>{completingContractId === cid ? 'Registrando...' : 'Dar conformidad'}</span>
+                            </button>
+                          ) : !hasRatedProvider ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedServiceKey(entry.key)}
+                              className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-amber-400/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 cursor-pointer"
                             >
-                              {hasRatedProvider ? '✓ Reseña' : '○ Reseña'}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Reseñas ya emitidas o recibidas (ocupa todo el ancho si hay una sola) */}
-                        {(hasRatedProvider || reviewInfo?.owner_review_rating) && (
-                          <div
-                            className={`grid grid-cols-1 ${
-                              hasRatedProvider && reviewInfo?.owner_review_rating
-                                ? 'md:grid-cols-2'
-                                : ''
-                            } gap-2`}
-                          >
-                            {hasRatedProvider && (
-                              <div className="rounded-xl p-2.5 bg-emerald-950/25 border border-emerald-800/40 space-y-1">
-                                <span className="font-bold text-emerald-300">
-                                  Tu reseña: ★ {reviewInfo.provider_review_rating}/5
-                                </span>
-                                {reviewInfo.provider_review_comment && (
-                                  <p className="opacity-85 italic">
-                                    “{reviewInfo.provider_review_comment}”
-                                  </p>
-                                )}
-                                {Array.isArray(reviewInfo.provider_review_tags) &&
-                                  reviewInfo.provider_review_tags.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 pt-0.5">
-                                      {reviewInfo.provider_review_tags.map((tag) => (
-                                        <span
-                                          key={tag}
-                                          className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
-                                        >
-                                          {tag}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
-                              </div>
-                            )}
-                            {reviewInfo?.owner_review_rating && (
-                              <div className="rounded-xl p-2.5 bg-sky-950/25 border border-sky-800/40 space-y-1">
-                                <span className="font-bold text-sky-300">
-                                  El prestador te calificó: ★ {reviewInfo.owner_review_rating}/5
-                                </span>
-                                {reviewInfo.owner_review_comment && (
-                                  <p className="opacity-85 italic">
-                                    “{reviewInfo.owner_review_comment}”
-                                  </p>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Formulario inline de calificación con micro-tags (sin cambiar de pestaña) */}
-                        {showInlineRating && (
-                          <div
-                            className="rounded-xl p-3.5 border border-emerald-500/35 space-y-2.5"
-                            style={cardStyle}
-                          >
-                            <p className="font-bold text-emerald-300 flex items-center gap-1.5">
-                              <MessageSquare size={13} />
-                              <span>Calificá tu experiencia con {providerDisplay}</span>
-                            </p>
-                            <div className="flex flex-wrap gap-1.5">
-                              {REVIEW_MICRO_TAGS.map((tag) => {
-                                const selected = (reviewTagsByContract[cid] || []).includes(tag);
-                                return (
-                                  <button
-                                    key={tag}
-                                    type="button"
-                                    onClick={() => toggleReviewTag(cid, tag)}
-                                    className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
-                                      selected
-                                        ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
-                                        : 'border-white/15 opacity-75 hover:opacity-100'
-                                    }`}
-                                    style={selected ? undefined : innerStyle}
-                                  >
-                                    {selected ? '✓ ' : '+ '}
-                                    {tag}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
-                              <select
-                                value={ratingByContract[cid] ?? 5}
-                                onChange={(e) =>
-                                  setRatingByContract((prev) => ({
-                                    ...prev,
-                                    [cid]: Number(e.target.value),
-                                  }))
-                                }
-                                className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                                style={innerStyle}
-                              >
-                                <option value={5}>★★★★★ (5/5)</option>
-                                <option value={4}>★★★★☆ (4/5)</option>
-                                <option value={3}>★★★☆☆ (3/5)</option>
-                                <option value={2}>★★☆☆☆ (2/5)</option>
-                                <option value={1}>★☆☆☆☆ (1/5)</option>
-                              </select>
-                              <input
-                                type="text"
-                                value={commentByContract[cid] ?? ''}
-                                onChange={(e) =>
-                                  setCommentByContract((prev) => ({
-                                    ...prev,
-                                    [cid]: e.target.value,
-                                  }))
-                                }
-                                placeholder="Dejá un comentario breve sobre el servicio..."
-                                className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                                style={innerStyle}
-                              />
-                              <button
-                                type="button"
-                                disabled={submittingReviewId === cid}
-                                onClick={() => handleSubmitProviderReview(cid)}
-                                className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
-                                style={{ backgroundColor: primaryColor }}
-                              >
-                                {submittingReviewId === cid ? 'Guardando...' : 'Enviar Reseña'}
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Barra de acciones directas del servicio */}
-                        <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
-                          <div className="flex flex-wrap items-center gap-2">
-                            {isPending && (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={payingContractId === cid}
-                                  onClick={() => handlePayContract(cid)}
-                                  className="py-1.5 px-3.5 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  {payingContractId === cid ? 'Procesando...' : 'Confirmar y Pagar'}
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={completingContractId === cid}
-                                  onClick={() => handleCompleteContract(cid)}
-                                  className="py-1.5 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
-                                  style={cardStyle}
-                                  title="Registrar conformidad si abonaste en efectivo o acuerdo directo"
-                                >
-                                  {completingContractId === cid ? 'Guardando...' : 'Conformidad (Efectivo)'}
-                                </button>
-                              </>
-                            )}
-
-                            {isInProgress && (
-                              <button
-                                type="button"
-                                disabled={completingContractId === cid}
-                                onClick={() => handleCompleteContract(cid)}
-                                className="inline-flex items-center gap-1.5 py-1.5 px-3.5 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
-                                style={{ backgroundColor: primaryColor }}
-                              >
-                                <CheckCircle2 size={13} />
-                                {completingContractId === cid ? 'Registrando...' : 'Dar Conformidad'}
-                              </button>
-                            )}
-
-                            {!hasRatedProvider && servicesFilter !== 'unrated' && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedRatingContractId((prev) => (prev === cid ? null : cid))
-                                }
-                                className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-amber-400/50 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 cursor-pointer"
-                              >
-                                <Star size={12} />
-                                <span>{expandedRatingContractId === cid ? 'Ocultar reseña' : 'Calificar'}</span>
-                              </button>
-                            )}
-
-                            {(isInProgress || isCompleted) && (
-                              <button
-                                type="button"
-                                disabled={loadingReceiptId === cid}
-                                onClick={() => handleOpenReceipt(cid)}
-                                className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
-                                style={cardStyle}
-                              >
-                                <FileText size={12} className="text-emerald-400" />
-                                <span>{loadingReceiptId === cid ? 'Cargando...' : 'Comprobante'}</span>
-                              </button>
-                            )}
-
-                            {linkedPass?.qr_token && (
-                              <button
-                                type="button"
-                                onClick={() => setViewingQrPass(linkedPass)}
-                                className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer"
-                                style={cardStyle}
-                              >
-                                <QrCode size={12} className="text-sky-300" />
-                                <span>Ver Pase QR</span>
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            {(isInProgress || isCompleted) && !hasOpenDispute && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setDisputeModalContract(contract);
-                                  setDisputeReason('Trabajo incompleto o con fallas');
-                                  setDisputeDetails('');
-                                }}
-                                className="inline-flex items-center gap-1 py-1.5 px-2.5 rounded-xl text-[11px] font-bold border border-rose-800/60 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer"
-                              >
-                                <AlertCircle size={12} />
-                                <span>Reclamo</span>
-                              </button>
-                            )}
-
+                              <Star size={12} />
+                              <span>Calificar</span>
+                            </button>
+                          ) : (
                             <button
                               type="button"
                               onClick={() =>
                                 handleRehireProvider(contract.provider_id, providerDisplay)
                               }
-                              className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-emerald-500/40 bg-emerald-950/35 text-emerald-200 hover:bg-emerald-950/60 cursor-pointer"
+                              className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 cursor-pointer"
                             >
                               <RotateCcw size={12} />
                               <span>Volver a contratar</span>
                             </button>
-                          </div>
+                          )}
                         </div>
                       </div>
                     </article>
                   );
                 }
 
-                /* ===== TARJETA UNIFICADA DE VISITA (Acuerdo bilateral + agenda viva + chat + emisión de Pase QR) ===== */
+                /* ===== FILA MINIMALISTA DE VISITA (Chat, agenda viva y detalle completo en Modal) ===== */
                 const { visit, meta, matchedProvider, canIssueQr, providerDisplay } = entry;
                 const msgs = Array.isArray(visit.messages) ? visit.messages : [];
-                const isCountering = counterVisitId === visit.id;
-                const isChatExpanded = Boolean(expandedVisitChats[visit.id]);
                 const visitTrustLevel = Number(
                   matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
                 );
@@ -4320,393 +4015,121 @@ export default function ResidentDashboard({
                       ? 'border-amber-500/35'
                       : meta.isPendingProvider
                         ? 'border-amber-500/35'
-                        : 'border-white/10 opacity-85';
-                const visibleMsgs = meta.isClosed
-                  ? isChatExpanded
-                    ? msgs
-                    : []
-                  : isChatExpanded || msgs.length <= 2
-                    ? msgs
-                    : msgs.slice(-2);
+                        : 'border-white/10 opacity-85 hover:opacity-100';
+                const addressLabel = formatVisitAddress(visit.fraction_number, visit.lot_number);
+                const scheduleShort = formatVisitScheduleShort(
+                  visit.preferred_date,
+                  visit.preferred_end_date
+                );
 
                 return (
                   <article
                     key={entry.key}
-                    className={`rounded-2xl border overflow-hidden text-xs ${cardBorderCls}`}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${cardBorderCls}`}
                     style={innerStyle}
                   >
-                    {/* Cabecera de Visita */}
-                    <div
-                      className="px-4 py-2.5 border-b border-white/10 flex flex-wrap items-center justify-between gap-2"
-                      style={cardStyle}
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="inline-flex items-center gap-1 font-bold text-sky-300">
-                          <Calendar size={12} />
-                          <span>Visita #{visit.id}</span>
-                        </span>
-                        <span className="opacity-45">·</span>
-                        <span
-                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
-                        >
-                          {visitBadgeLabel}
-                        </span>
-                      </div>
-
-                      {!meta.isClosed && (
-                        <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold shrink-0">
-                          <span
-                            className={`px-2 py-0.5 rounded-md border ${
-                              meta.isConfirmed
-                                ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
-                                : 'border-sky-400/40 bg-sky-500/10 text-sky-200'
-                            }`}
-                          >
-                            {meta.isConfirmed ? '✓ Visita acordada' : '● Coordinando visita'}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded-md border ${
-                              meta.isConfirmed && canIssueQr
-                                ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
-                                : 'border-white/10 opacity-55'
-                            }`}
-                          >
-                            {meta.isConfirmed && canIssueQr ? '● Pase QR' : '○ Pase QR'}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-md border border-white/10 opacity-45">
-                            ○ Conformidad
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Cuerpo de la Visita */}
-                    <div className="p-4 space-y-3">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <ProviderAvatar
-                            name={providerDisplay}
-                            level={visitTrustLevel}
-                            isDanger={Boolean(matchedProvider?.has_expired_docs)}
-                            size="sm"
-                          />
-                          <div className="min-w-0">
-                            <h3 className="text-sm font-extrabold truncate">{providerDisplay}</h3>
-                            <p className="opacity-75 text-[11px]">
-                              Domicilio:{' '}
-                              <strong>
-                                {visit.fraction_number || '—'} / Lote {visit.lot_number || '—'}
-                              </strong>
-                            </p>
-                          </div>
-                        </div>
-
-                        <div
-                          className="rounded-xl px-3 py-1.5 border border-white/10 inline-flex items-center gap-2 self-start sm:self-auto"
-                          style={cardStyle}
-                        >
-                          <Clock size={13} className="text-emerald-400 shrink-0" />
-                          <span className="font-bold">
-                            {visit.preferred_date
-                              ? `${formatDateTimeAR(visit.preferred_date)}${
-                                  visit.preferred_end_date
-                                    ? ` → ${new Date(visit.preferred_end_date).toLocaleTimeString('es-AR', {
-                                        hour: '2-digit',
-                                        minute: '2-digit',
-                                        hour12: false,
-                                      })}`
-                                    : ''
-                                }`
-                              : 'A convenir'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Bloque destacado cuando el prestador repactó otro horario */}
-                      {meta.isPendingResident && (
-                        <div className="rounded-xl p-3 border border-sky-400/45 bg-sky-950/35 space-y-2.5">
-                          <p className="text-sky-100 font-semibold">
-                            El prestador propuso repactar la visita. Si te queda bien, aceptá para acordar la visita y habilitar el Pase QR.
-                          </p>
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda clicable: Avatar + Prestador + Estado + 1 línea resumen */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedServiceKey(entry.key)}
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                      >
+                        <ProviderAvatar
+                          name={providerDisplay}
+                          level={visitTrustLevel}
+                          isDanger={Boolean(matchedProvider?.has_expired_docs)}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              disabled={respondingResidentVisitId === visit.id}
-                              onClick={() => handleResidentVisitResponse(visit.id, 'accept')}
-                              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
-                              style={{ backgroundColor: primaryColor }}
+                            <h3 className="text-sm font-extrabold truncate group-hover:underline">
+                              {providerDisplay}
+                            </h3>
+                            <span
+                              className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
                             >
-                              <CheckCircle2 size={13} />
-                              {respondingResidentVisitId === visit.id
-                                ? 'Confirmando...'
-                                : 'Aceptar horario y habilitar QR'}
-                            </button>
-                            <button
-                              type="button"
-                              disabled={respondingResidentVisitId === visit.id}
-                              onClick={() =>
-                                isCountering
-                                  ? setCounterVisitId(null)
-                                  : openResidentCounterPropose(visit)
-                              }
-                              className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-400/45 text-sky-100 hover:bg-sky-900/40 cursor-pointer"
-                            >
-                              {isCountering ? 'Cerrar agenda' : 'Proponer otro horario'}
-                            </button>
+                              {visitBadgeLabel}
+                            </span>
                           </div>
 
-                          {isCountering && (
-                            <div
-                              className="rounded-xl p-3 border border-white/15 space-y-2.5 mt-1"
-                              style={cardStyle}
-                            >
-                              <p className="font-bold text-[11px] flex items-center gap-1.5">
-                                <Calendar size={12} className="text-emerald-400" />
-                                <span>Elegí un horario libre de la agenda del prestador</span>
-                              </p>
-
-                              {loadingCounterAvail ? (
-                                <p className="text-[11px] opacity-75">Consultando disponibilidad...</p>
-                              ) : counterAvailability && Array.isArray(counterAvailability.days) ? (
-                                (() => {
-                                  const dayObj =
-                                    counterAvailability.days.find((d) => d.date === selectedCounterDay) ||
-                                    counterAvailability.days[0];
-                                  return (
-                                    <div className="space-y-2">
-                                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-                                        {counterAvailability.days.map((day) => {
-                                          const picked = dayObj?.date === day.date;
-                                          const parts = String(day.date || '').split('-');
-                                          return (
-                                            <button
-                                              key={day.date}
-                                              type="button"
-                                              onClick={() => setSelectedCounterDay(day.date)}
-                                              className={`px-2 py-1 rounded-lg border text-[10px] font-bold shrink-0 cursor-pointer ${
-                                                picked
-                                                  ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
-                                                  : day.is_working
-                                                    ? 'border-white/15'
-                                                    : 'border-white/10 opacity-45'
-                                              }`}
-                                              style={picked ? undefined : innerStyle}
-                                            >
-                                              {day.short_label} {parts[2]}/{parts[1]} (
-                                              {day.is_working ? `${day.available_count}` : '0'})
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-
-                                      {dayObj && dayObj.is_working && dayObj.slots.length > 0 ? (
-                                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                                          {dayObj.slots.map((slot) => {
-                                            const val = `${dayObj.date}T${slot.time}`;
-                                            const avail = slot.status === 'available';
-                                            const chosen = counterVisitDate === val;
-                                            return (
-                                              <button
-                                                key={slot.start_iso}
-                                                type="button"
-                                                disabled={!avail}
-                                                onClick={() => setCounterVisitDate(val)}
-                                                className={`px-2 py-1 rounded font-mono text-[10px] font-bold border ${
-                                                  chosen
-                                                    ? 'border-emerald-300 text-white cursor-pointer'
-                                                    : avail
-                                                      ? 'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 cursor-pointer'
-                                                      : 'border-white/10 opacity-35 line-through cursor-not-allowed'
-                                                }`}
-                                                style={chosen ? { backgroundColor: primaryColor } : undefined}
-                                              >
-                                                {slot.time}
-                                              </button>
-                                            );
-                                          })}
-                                        </div>
-                                      ) : (
-                                        <p className="text-[11px] opacity-75">Sin franjas libres este día.</p>
-                                      )}
-                                    </div>
-                                  );
-                                })()
-                              ) : null}
-
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <input
-                                  type="datetime-local"
-                                  value={counterVisitDate}
-                                  onChange={(e) => setCounterVisitDate(e.target.value)}
-                                  className="flex-1 px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs"
-                                  style={innerStyle}
-                                />
-                                <button
-                                  type="button"
-                                  disabled={respondingResidentVisitId === visit.id}
-                                  onClick={() =>
-                                    handleResidentVisitResponse(visit.id, 'propose', counterVisitDate)
-                                  }
-                                  className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  Enviar nueva propuesta
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Historial de mensajes (compacto en visitas abiertas, colapsable en visitas cerradas) */}
-                      {msgs.length > 0 && (
-                        <div className="space-y-1.5">
-                          {meta.isClosed ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedVisitChats((prev) => ({
-                                  ...prev,
-                                  [visit.id]: !prev[visit.id],
-                                }))
-                              }
-                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold opacity-80 hover:opacity-100 cursor-pointer"
-                            >
-                              <MessageSquare size={12} className="text-sky-300" />
-                              <span>
-                                {isChatExpanded
-                                  ? `Ocultar historial (${msgs.length})`
-                                  : `Ver historial de mensajes (${msgs.length})`}
-                              </span>
-                            </button>
-                          ) : msgs.length > 2 ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setExpandedVisitChats((prev) => ({
-                                  ...prev,
-                                  [visit.id]: !prev[visit.id],
-                                }))
-                              }
-                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 hover:underline cursor-pointer"
-                            >
-                              <MessageSquare size={11} />
-                              <span>
-                                {isChatExpanded
-                                  ? 'Mostrar solo los últimos 2 mensajes'
-                                  : `Ver historial completo (${msgs.length} mensajes)`}
-                              </span>
-                            </button>
-                          ) : null}
-
-                          {visibleMsgs.length > 0 && (
-                            <div className="rounded-xl p-3 bg-black/25 border border-white/10 space-y-1.5 max-h-32 overflow-y-auto tl-scroll">
-                              {visibleMsgs.map((m, idx) => (
-                                <p key={m.id || idx} className="text-xs leading-relaxed">
-                                  <strong
-                                    className={`uppercase text-[10px] mr-1.5 ${
-                                      m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
-                                    }`}
-                                  >
-                                    {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
-                                  </strong>
-                                  <span>{m.text}</span>
-                                </p>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Respuesta rápida + acciones de la visita */}
-                      <div className="pt-2.5 border-t border-white/10 space-y-2.5">
-                        {!meta.isClosed && (
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="text"
-                              value={followupDrafts[visit.id] || ''}
-                              onChange={(e) =>
-                                setFollowupDrafts((prev) => ({
-                                  ...prev,
-                                  [visit.id]: e.target.value,
-                                }))
-                              }
-                              placeholder="Escribí un mensaje para el prestador..."
-                              className={`flex-1 ${FIELD_INPUT_CLASS}`}
-                              style={cardStyle}
-                            />
-                            <button
-                              type="button"
-                              disabled={sendingFollowupId === visit.id}
-                              onClick={() => handleSendFollowupMessage(visit.id)}
-                              className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer shrink-0"
-                              style={cardStyle}
-                            >
-                              <Send size={13} /> Enviar
-                            </button>
-                          </div>
-                        )}
-
-                        {meta.isConfirmed ? (
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            {!canIssueQr ? (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                            <span className="font-semibold text-sky-300/90 opacity-100">
+                              Visita #{visit.id}
+                            </span>
+                            <span className="opacity-45">·</span>
+                            <span>{addressLabel}</span>
+                            {msgs.length > 0 && (
                               <>
-                                <span className="text-[11px] text-amber-200 font-semibold inline-flex items-center gap-1">
-                                  <AlertCircle size={13} /> Acuerdo confirmado · El prestador aún está completando su verificación para Pase QR
+                                <span className="opacity-45">·</span>
+                                <span className="inline-flex items-center gap-1">
+                                  <MessageSquare size={11} className="opacity-80" />
+                                  <span>
+                                    {msgs.length} {msgs.length === 1 ? 'mensaje' : 'mensajes'}
+                                  </span>
                                 </span>
-                                <span
-                                  title="El prestador debe tener su documentación aprobada y vigente (Nivel 3 o superior) para habilitar Pases QR en garita"
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-semibold border border-white/15 bg-black/25 opacity-75 select-none"
-                                >
-                                  <QrCode size={13} /> Pendiente de Pase QR
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="text-[11px] text-emerald-300 font-semibold inline-flex items-center gap-1">
-                                  <CheckCircle2 size={13} /> Acuerdo confirmado · Domicilio y horario precargados
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    openQrModalForProvider(matchedProvider, {
-                                      preferredDate: visit.preferred_date,
-                                      preferredEndDate: visit.preferred_end_date,
-                                    })
-                                  }
-                                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
-                                  style={{ backgroundColor: primaryColor }}
-                                >
-                                  <QrCode size={14} /> Emitir Pase QR
-                                </button>
                               </>
                             )}
                           </div>
-                        ) : meta.isPendingProvider ? (
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                            <span className="opacity-75">
-                              El Pase QR se habilita cuando el prestador confirme el horario.
-                            </span>
-                            <button
-                              type="button"
-                              disabled={respondingResidentVisitId === visit.id}
-                              onClick={() => handleResidentVisitResponse(visit.id, 'cancel')}
-                              className="text-rose-300 hover:text-rose-200 font-bold cursor-pointer"
-                            >
-                              Cancelar solicitud
-                            </button>
-                          </div>
+                        </div>
+                      </button>
+
+                      {/* Derecha: Horario compacto + máx. 2 acciones contextuales */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
+                          <Clock size={12} className="text-emerald-400 shrink-0" />
+                          <span>{scheduleShort}</span>
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setSelectedServiceKey(entry.key)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                        >
+                          {!meta.isClosed && msgs.length > 0 ? (
+                            <>
+                              <MessageSquare size={12} className="text-sky-300" />
+                              <span>Mensajes</span>
+                            </>
+                          ) : (
+                            <span>Ver detalle</span>
+                          )}
+                        </button>
+
+                        {meta.isPendingResident ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedServiceKey(entry.key)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Calendar size={13} />
+                            <span>Confirmar horario</span>
+                          </button>
+                        ) : meta.isConfirmed && canIssueQr ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openQrModalForProvider(matchedProvider, {
+                                preferredDate: visit.preferred_date,
+                                preferredEndDate: visit.preferred_end_date,
+                              })
+                            }
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <QrCode size={13} />
+                            <span>Emitir Pase QR</span>
+                          </button>
                         ) : meta.isClosed ? (
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                            <span className="opacity-70">Esta solicitud ya fue cerrada.</span>
-                            <button
-                              type="button"
-                              onClick={() => openVisitModalForProvider(matchedProvider)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
-                            >
-                              <Calendar size={12} /> Solicitar nueva visita
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openVisitModalForProvider(matchedProvider)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
+                          >
+                            <Calendar size={12} />
+                            <span>Nueva visita</span>
+                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -6483,6 +5906,921 @@ export default function ResidentDashboard({
                     <span>{canIssueQr ? 'Solicitar Visita' : 'Consultar / Pedir presupuesto'}</span>
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Modal: Generar Nueva Orden de Pago desde Pase QR */}
+      {showNewOrderForm && (
+        <div
+          className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+          onClick={() => setShowNewOrderForm(false)}
+        >
+          <form
+            onSubmit={handleCreateOrderFromPass}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl border border-slate-700/80 shadow-2xl overflow-hidden text-xs"
+            style={cardStyle}
+          >
+            <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-base font-extrabold">Nueva Orden de Pago</h3>
+                <p className="text-[11px] opacity-75 mt-0.5">
+                  Seleccioná el pase de la visita realizada, detallá el trabajo y cargá el monto acordado.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNewOrderForm(false)}
+                aria-label="Cerrar ventana"
+                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5">
+              {eligibleOrderPasses.length === 0 ? (
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-3.5 rounded-xl border border-amber-500/35 bg-amber-950/25 text-amber-100">
+                  <span>
+                    Aún no tenés pases QR elegibles. Emití primero un pase en Pases QR o elegí un prestador en Prestadores.
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewOrderForm(false);
+                      setActiveStep('passes');
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[11px] font-bold text-white cursor-pointer shrink-0"
+                    style={{ backgroundColor: primaryColor }}
+                  >
+                    Ir a Pases QR
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-[11px] opacity-80 mb-1">Pase QR / Prestador</label>
+                    <select
+                      value={orderPassId || String(eligibleOrderPasses[0]?.id || '')}
+                      onChange={(e) => setOrderPassId(e.target.value)}
+                      className={`w-full ${FIELD_INPUT_CLASS}`}
+                      style={innerStyle}
+                    >
+                      {eligibleOrderPasses.map((pass) => {
+                        const passStatusLabel = getUnifiedStatusMeta(pass.status, 'pass').label;
+                        const providerName = pass.provider_name || `Prestador #${pass.provider_id}`;
+                        return (
+                          <option key={pass.id} value={String(pass.id)}>
+                            Pase #{pass.id} · {providerName} · {passStatusLabel}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] opacity-80 mb-1">Trabajo realizado</label>
+                    <input
+                      type="text"
+                      required
+                      maxLength={200}
+                      value={orderDescription}
+                      onChange={(e) => setOrderDescription(e.target.value)}
+                      placeholder="Ej: Reparación de pérdida y revisión"
+                      className={`w-full ${FIELD_INPUT_CLASS}`}
+                      style={innerStyle}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] opacity-80 mb-1">Monto acordado ($)</label>
+                    <input
+                      type="number"
+                      required
+                      min="1"
+                      step="0.01"
+                      value={orderAmount}
+                      onChange={(e) => setOrderAmount(e.target.value)}
+                      placeholder="Ej: 45000"
+                      className={`w-full ${FIELD_INPUT_CLASS}`}
+                      style={innerStyle}
+                    />
+                  </div>
+
+                  {Number(orderAmount) > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] px-3 py-2 rounded-xl border border-white/10 bg-black/25">
+                      <span>
+                        Comisión TrustLink ({gatewayConfig.platform_fee_percent}%):{' '}
+                        <strong className="font-mono">
+                          $
+                          {(
+                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
+                            100
+                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                        </strong>
+                      </span>
+                      <span>
+                        Neto prestador ({100 - Number(gatewayConfig.platform_fee_percent || 7)}%):{' '}
+                        <strong className="font-mono text-emerald-300">
+                          $
+                          {(
+                            Number(orderAmount) -
+                            (Number(orderAmount) * Number(gatewayConfig.platform_fee_percent || 7)) /
+                              100
+                          ).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                        </strong>
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
+            <div
+              className="px-5 py-3.5 border-t border-white/10 flex items-center justify-end gap-2"
+              style={innerStyle}
+            >
+              <button
+                type="button"
+                onClick={() => setShowNewOrderForm(false)}
+                className="px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                style={cardStyle}
+              >
+                Cancelar
+              </button>
+              {eligibleOrderPasses.length > 0 && (
+                <button
+                  type="submit"
+                  disabled={creatingOrder}
+                  className="text-white font-bold px-4 py-2 rounded-xl text-xs inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  <Plus size={13} />
+                  <span>{creatingOrder ? 'Creando orden...' : 'Crear Orden de Pago'}</span>
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Modal unificado: Detalle de Visita o Servicio (divulgación progresiva de Mis Servicios) */}
+      {selectedServiceEntry && (() => {
+        const closeDetailModal = () => {
+          setSelectedServiceKey(null);
+          setCounterVisitId(null);
+        };
+
+        if (selectedServiceEntry.kind === 'visit') {
+          const { visit, meta, matchedProvider, canIssueQr, providerDisplay } = selectedServiceEntry;
+          const msgs = Array.isArray(visit.messages) ? visit.messages : [];
+          const isCountering = counterVisitId === visit.id;
+          const visitTrustLevel = Number(
+            matchedProvider?.trust_level ?? matchedProvider?.trust_badge?.level ?? 0
+          );
+          const visitBadgeLabel =
+            meta.isConfirmed && !canIssueQr ? 'Acordada · Sin Pase QR' : meta.label;
+          const visitBadgeCls =
+            meta.isConfirmed && !canIssueQr
+              ? 'bg-amber-500/15 text-amber-200 border-amber-500/40'
+              : meta.badgeClass;
+
+          return (
+            <div
+              className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+              onClick={closeDetailModal}
+            >
+              <div
+                className="w-full max-w-xl rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden text-xs"
+                style={cardStyle}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Cabecera del Modal de Visita */}
+                <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <ProviderAvatar
+                      name={providerDisplay}
+                      level={visitTrustLevel}
+                      isDanger={Boolean(matchedProvider?.has_expired_docs)}
+                      size="md"
+                    />
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-black truncate">{providerDisplay}</h3>
+                        <span
+                          className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${visitBadgeCls}`}
+                        >
+                          {visitBadgeLabel}
+                        </span>
+                      </div>
+                      <p className="text-[11px] opacity-75">
+                        Visita #{visit.id} · {formatVisitAddress(visit.fraction_number, visit.lot_number)}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeDetailModal}
+                    aria-label="Cerrar detalle de visita"
+                    className="p-1.5 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                {/* Cuerpo desplazable del Modal de Visita */}
+                <div className="p-5 overflow-y-auto tl-scroll space-y-4 flex-1">
+                  {/* Progreso de hitos (solo en visitas activas) */}
+                  {!meta.isClosed && (
+                    <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                      <span
+                        className={`px-2.5 py-1 rounded-lg border ${
+                          meta.isConfirmed
+                            ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                            : 'border-sky-400/40 bg-sky-500/10 text-sky-200'
+                        }`}
+                      >
+                        {meta.isConfirmed ? '✓ Visita acordada' : '● Coordinando visita'}
+                      </span>
+                      <span
+                        className={`px-2.5 py-1 rounded-lg border ${
+                          meta.isConfirmed && canIssueQr
+                            ? 'border-amber-400/40 bg-amber-500/10 text-amber-200'
+                            : 'border-white/10 opacity-55'
+                        }`}
+                      >
+                        {meta.isConfirmed && canIssueQr ? '● Pase QR listo' : '○ Pase QR'}
+                      </span>
+                      <span className="px-2.5 py-1 rounded-lg border border-white/10 opacity-45">
+                        ○ Conformidad
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Resumen de horario y estado QR */}
+                  <div
+                    className="rounded-xl p-3.5 border border-white/10 flex flex-wrap items-center justify-between gap-2"
+                    style={innerStyle}
+                  >
+                    <div className="space-y-0.5">
+                      <span className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                        Horario coordinado
+                      </span>
+                      <p className="font-bold inline-flex items-center gap-1.5 text-xs">
+                        <Clock size={13} className="text-emerald-400 shrink-0" />
+                        <span>
+                          {visit.preferred_date
+                            ? `${formatDateTimeAR(visit.preferred_date)}${
+                                visit.preferred_end_date
+                                  ? ` → ${new Date(visit.preferred_end_date).toLocaleTimeString(
+                                      'es-AR',
+                                      { hour: '2-digit', minute: '2-digit', hour12: false }
+                                    )}`
+                                  : ''
+                              }`
+                            : 'A convenir'}
+                        </span>
+                      </p>
+                    </div>
+
+                    {meta.isConfirmed && !canIssueQr && (
+                      <span className="text-[11px] text-amber-200 font-semibold inline-flex items-center gap-1">
+                        <AlertCircle size={13} />
+                        <span>Prestador en verificación para Pase QR</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Contrapropuesta de horario con agenda viva */}
+                  {meta.isPendingResident && (
+                    <div className="rounded-xl p-3.5 border border-sky-400/45 bg-sky-950/35 space-y-2.5">
+                      <p className="text-sky-100 font-semibold">
+                        El prestador propuso repactar la visita. Si te queda bien, aceptá para acordar la visita y habilitar el Pase QR.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={respondingResidentVisitId === visit.id}
+                          onClick={() => handleResidentVisitResponse(visit.id, 'accept')}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <CheckCircle2 size={13} />
+                          {respondingResidentVisitId === visit.id
+                            ? 'Confirmando...'
+                            : 'Aceptar horario y habilitar QR'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={respondingResidentVisitId === visit.id}
+                          onClick={() =>
+                            isCountering
+                              ? setCounterVisitId(null)
+                              : openResidentCounterPropose(visit)
+                          }
+                          className="px-3 py-2 rounded-xl text-xs font-bold border border-sky-400/45 text-sky-100 hover:bg-sky-900/40 cursor-pointer"
+                        >
+                          {isCountering ? 'Cerrar agenda' : 'Proponer otro horario'}
+                        </button>
+                      </div>
+
+                      {isCountering && (
+                        <div
+                          className="rounded-xl p-3 border border-white/15 space-y-2.5 mt-1"
+                          style={cardStyle}
+                        >
+                          <p className="font-bold text-[11px] flex items-center gap-1.5">
+                            <Calendar size={12} className="text-emerald-400" />
+                            <span>Elegí un horario libre de la agenda del prestador</span>
+                          </p>
+
+                          {loadingCounterAvail ? (
+                            <p className="text-[11px] opacity-75">Consultando disponibilidad...</p>
+                          ) : counterAvailability && Array.isArray(counterAvailability.days) ? (
+                            (() => {
+                              const dayObj =
+                                counterAvailability.days.find((d) => d.date === selectedCounterDay) ||
+                                counterAvailability.days[0];
+                              return (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-1.5 overflow-x-auto pb-1 tl-scroll">
+                                    {counterAvailability.days.map((day) => {
+                                      const picked = dayObj?.date === day.date;
+                                      const parts = String(day.date || '').split('-');
+                                      return (
+                                        <button
+                                          key={day.date}
+                                          type="button"
+                                          onClick={() => setSelectedCounterDay(day.date)}
+                                          className={`px-2 py-1 rounded-lg border text-[10px] font-bold shrink-0 cursor-pointer ${
+                                            picked
+                                              ? 'border-emerald-400 bg-emerald-500/20 text-emerald-100'
+                                              : day.is_working
+                                                ? 'border-white/15'
+                                                : 'border-white/10 opacity-45'
+                                          }`}
+                                          style={picked ? undefined : innerStyle}
+                                        >
+                                          {day.short_label} {parts[2]}/{parts[1]} (
+                                          {day.is_working ? `${day.available_count}` : '0'})
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {dayObj && dayObj.is_working && dayObj.slots.length > 0 ? (
+                                    <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto tl-scroll">
+                                      {dayObj.slots.map((slot) => {
+                                        const val = `${dayObj.date}T${slot.time}`;
+                                        const avail = slot.status === 'available';
+                                        const chosen = counterVisitDate === val;
+                                        return (
+                                          <button
+                                            key={slot.start_iso}
+                                            type="button"
+                                            disabled={!avail}
+                                            onClick={() => setCounterVisitDate(val)}
+                                            className={`px-2 py-1 rounded font-mono text-[10px] font-bold border ${
+                                              chosen
+                                                ? 'border-emerald-300 text-white cursor-pointer'
+                                                : avail
+                                                  ? 'border-emerald-500/35 bg-emerald-950/35 text-emerald-200 cursor-pointer'
+                                                  : 'border-white/10 opacity-35 line-through cursor-not-allowed'
+                                            }`}
+                                            style={chosen ? { backgroundColor: primaryColor } : undefined}
+                                          >
+                                            {slot.time}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <p className="text-[11px] opacity-75">Sin franjas libres este día.</p>
+                                  )}
+                                </div>
+                              );
+                            })()
+                          ) : null}
+
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input
+                              type="datetime-local"
+                              value={counterVisitDate}
+                              onChange={(e) => setCounterVisitDate(e.target.value)}
+                              className="flex-1 px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs"
+                              style={innerStyle}
+                            />
+                            <button
+                              type="button"
+                              disabled={respondingResidentVisitId === visit.id}
+                              onClick={() =>
+                                handleResidentVisitResponse(visit.id, 'propose', counterVisitDate)
+                              }
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 shrink-0"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              Enviar nueva propuesta
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Chat dedicado de la visita */}
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider opacity-70 inline-flex items-center gap-1.5">
+                      <MessageSquare size={12} />
+                      <span>Mensajes ({msgs.length})</span>
+                    </span>
+
+                    <div
+                      className="rounded-xl p-3.5 border border-white/10 space-y-2 max-h-56 overflow-y-auto tl-scroll"
+                      style={innerStyle}
+                    >
+                      {msgs.length === 0 ? (
+                        <p className="text-[11px] opacity-65 text-center py-2">
+                          Todavía no intercambiaron mensajes en esta solicitud.
+                        </p>
+                      ) : (
+                        msgs.map((m, idx) => (
+                          <p key={m.id || idx} className="text-xs leading-relaxed">
+                            <strong
+                              className={`uppercase text-[10px] mr-1.5 ${
+                                m.sender_role === 'provider' ? 'text-emerald-300' : 'text-sky-300'
+                              }`}
+                            >
+                              {m.sender_role === 'provider' ? 'Prestador:' : 'Vos:'}
+                            </strong>
+                            <span>{m.text}</span>
+                          </p>
+                        ))
+                      )}
+                    </div>
+
+                    {!meta.isClosed && (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={followupDrafts[visit.id] || ''}
+                          onChange={(e) =>
+                            setFollowupDrafts((prev) => ({
+                              ...prev,
+                              [visit.id]: e.target.value,
+                            }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && (followupDrafts[visit.id] || '').trim()) {
+                              e.preventDefault();
+                              handleSendFollowupMessage(visit.id);
+                            }
+                          }}
+                          placeholder="Escribí un mensaje para el prestador..."
+                          className={`flex-1 ${FIELD_INPUT_CLASS}`}
+                          style={innerStyle}
+                        />
+                        <button
+                          type="button"
+                          disabled={sendingFollowupId === visit.id}
+                          onClick={() => handleSendFollowupMessage(visit.id)}
+                          className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer shrink-0"
+                        >
+                          <Send size={13} />
+                          <span>Enviar</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Pie fijo del Modal de Visita */}
+                <div
+                  className="px-5 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0"
+                  style={innerStyle}
+                >
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={closeDetailModal}
+                      className="px-3.5 py-2 rounded-xl font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                      style={cardStyle}
+                    >
+                      Cerrar
+                    </button>
+                    {meta.isPendingProvider && (
+                      <button
+                        type="button"
+                        disabled={respondingResidentVisitId === visit.id}
+                        onClick={() => handleResidentVisitResponse(visit.id, 'cancel')}
+                        className="text-rose-300 hover:text-rose-200 font-bold text-xs cursor-pointer"
+                      >
+                        Cancelar solicitud
+                      </button>
+                    )}
+                  </div>
+
+                  {meta.isConfirmed && canIssueQr ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDetailModal();
+                        openQrModalForProvider(matchedProvider, {
+                          preferredDate: visit.preferred_date,
+                          preferredEndDate: visit.preferred_end_date,
+                        });
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <QrCode size={14} />
+                      <span>Emitir Pase QR</span>
+                    </button>
+                  ) : meta.isClosed ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDetailModal();
+                        openVisitModalForProvider(matchedProvider);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold border border-sky-400/45 bg-sky-500/12 text-sky-100 hover:bg-sky-500/22 cursor-pointer"
+                    >
+                      <Calendar size={13} />
+                      <span>Solicitar nueva visita</span>
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        }
+
+        // Detalle de Contrato / Servicio
+        const {
+          contract,
+          reviewInfo,
+          linkedPass,
+          providerDisplay,
+          specialty,
+          isCompleted,
+          hasRatedProvider,
+          hasOpenDispute,
+        } = selectedServiceEntry;
+        const cid = contract.id;
+        const totalAmount = Number(contract.agreed_amount || contract.amount || 0);
+        const feePercent = Number(gatewayConfig.platform_fee_percent ?? 7);
+        const feeAmount = Number(((totalAmount * feePercent) / 100).toFixed(2));
+        const payoutAmount = Number((totalAmount - feeAmount).toFixed(2));
+        const isPending = String(contract.status || '').toLowerCase() === 'pending';
+        const isInProgress = String(contract.status || '').toLowerCase() === 'in_progress';
+        const statusMeta = getUnifiedStatusMeta(contract.status, 'contract');
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+            onClick={closeDetailModal}
+          >
+            <div
+              className="w-full max-w-xl rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden text-xs"
+              style={cardStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Cabecera del Modal de Servicio */}
+              <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <ProviderAvatar name={providerDisplay} level={3} size="md" />
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-black truncate">{providerDisplay}</h3>
+                      {specialty && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                          {specialty}
+                        </span>
+                      )}
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-75">
+                      Servicio #{cid}
+                      {contract.created_at ? ` · ${formatDateTimeAR(contract.created_at)}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeDetailModal}
+                  aria-label="Cerrar detalle de servicio"
+                  className="p-1.5 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Cuerpo desplazable del Modal de Servicio */}
+              <div className="p-5 overflow-y-auto tl-scroll space-y-4 flex-1">
+                {/* Progreso de 4 hitos */}
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-bold">
+                  <span className="px-2.5 py-1 rounded-lg border border-emerald-500/35 bg-emerald-500/10 text-emerald-300">
+                    ✓ Visita
+                  </span>
+                  <span
+                    className={`px-2.5 py-1 rounded-lg border ${
+                      contract.pass_id || linkedPass
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                        : 'border-white/10 opacity-55'
+                    }`}
+                  >
+                    {contract.pass_id || linkedPass ? '✓ Pase QR' : '○ Pase QR'}
+                  </span>
+                  <span
+                    className={`px-2.5 py-1 rounded-lg border ${
+                      isCompleted
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                        : 'border-amber-500/40 bg-amber-500/10 text-amber-200'
+                    }`}
+                  >
+                    {isCompleted ? '✓ Conformidad' : '● Pago / Conf.'}
+                  </span>
+                  <span
+                    className={`px-2.5 py-1 rounded-lg border ${
+                      hasRatedProvider
+                        ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-300'
+                        : 'border-white/15 opacity-70'
+                    }`}
+                  >
+                    {hasRatedProvider ? '✓ Reseña' : '○ Reseña'}
+                  </span>
+                </div>
+
+                {/* Descripción + desglose económico */}
+                <div className="rounded-xl p-4 border border-white/10 space-y-2.5" style={innerStyle}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                        Trabajo acordado
+                      </span>
+                      <p className="text-xs font-semibold opacity-95">
+                        {contract.description || 'Servicio registrado en TrustLink'}
+                      </p>
+                      {contract.completed_at && (
+                        <p className="text-[11px] text-emerald-300/90">
+                          Conformidad registrada el {formatDateTimeAR(contract.completed_at)}
+                        </p>
+                      )}
+                    </div>
+                    <span className="font-mono font-black text-base shrink-0">
+                      ${totalAmount.toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-[11px] opacity-75">
+                    <span>
+                      Comisión TrustLink ({feePercent}%):{' '}
+                      <strong className="font-mono">${feeAmount.toLocaleString('es-AR')}</strong>
+                    </span>
+                    <span>
+                      Neto prestador ({100 - feePercent}%):{' '}
+                      <strong className="font-mono text-emerald-300">
+                        ${payoutAmount.toLocaleString('es-AR')}
+                      </strong>
+                    </span>
+                  </div>
+                </div>
+
+                {/* Reseñas emitidas/recibidas o formulario de calificación */}
+                {(hasRatedProvider || reviewInfo?.owner_review_rating) && (
+                  <div
+                    className={`grid grid-cols-1 ${
+                      hasRatedProvider && reviewInfo?.owner_review_rating ? 'sm:grid-cols-2' : ''
+                    } gap-2.5`}
+                  >
+                    {hasRatedProvider && (
+                      <div className="rounded-xl p-3 bg-emerald-950/25 border border-emerald-800/40 space-y-1">
+                        <span className="font-bold text-emerald-300">
+                          Tu reseña: ★ {reviewInfo.provider_review_rating}/5
+                        </span>
+                        {reviewInfo.provider_review_comment && (
+                          <p className="opacity-85 italic">
+                            “{reviewInfo.provider_review_comment}”
+                          </p>
+                        )}
+                        {Array.isArray(reviewInfo.provider_review_tags) &&
+                          reviewInfo.provider_review_tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-0.5">
+                              {reviewInfo.provider_review_tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                      </div>
+                    )}
+                    {reviewInfo?.owner_review_rating && (
+                      <div className="rounded-xl p-3 bg-sky-950/25 border border-sky-800/40 space-y-1">
+                        <span className="font-bold text-sky-300">
+                          El prestador te calificó: ★ {reviewInfo.owner_review_rating}/5
+                        </span>
+                        {reviewInfo.owner_review_comment && (
+                          <p className="opacity-85 italic">“{reviewInfo.owner_review_comment}”</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!hasRatedProvider && (
+                  <div
+                    className="rounded-xl p-3.5 border border-emerald-500/35 space-y-2.5"
+                    style={innerStyle}
+                  >
+                    <p className="font-bold text-emerald-300 flex items-center gap-1.5">
+                      <Star size={13} />
+                      <span>Calificá tu experiencia con {providerDisplay}</span>
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {REVIEW_MICRO_TAGS.map((tag) => {
+                        const selected = (reviewTagsByContract[cid] || []).includes(tag);
+                        return (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => toggleReviewTag(cid, tag)}
+                            className={`text-[10px] font-bold px-2.5 py-1 rounded-full border transition-all cursor-pointer ${
+                              selected
+                                ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-200'
+                                : 'border-white/15 opacity-75 hover:opacity-100'
+                            }`}
+                            style={selected ? undefined : cardStyle}
+                          >
+                            {selected ? '✓ ' : '+ '}
+                            {tag}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <select
+                        value={ratingByContract[cid] ?? 5}
+                        onChange={(e) =>
+                          setRatingByContract((prev) => ({
+                            ...prev,
+                            [cid]: Number(e.target.value),
+                          }))
+                        }
+                        className="sm:col-span-4 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                        style={cardStyle}
+                      >
+                        <option value={5}>★★★★★ (5/5)</option>
+                        <option value={4}>★★★★☆ (4/5)</option>
+                        <option value={3}>★★★☆☆ (3/5)</option>
+                        <option value={2}>★★☆☆☆ (2/5)</option>
+                        <option value={1}>★☆☆☆☆ (1/5)</option>
+                      </select>
+                      <input
+                        type="text"
+                        value={commentByContract[cid] ?? ''}
+                        onChange={(e) =>
+                          setCommentByContract((prev) => ({
+                            ...prev,
+                            [cid]: e.target.value,
+                          }))
+                        }
+                        placeholder="Comentario breve sobre el servicio..."
+                        className="sm:col-span-8 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                        style={cardStyle}
+                      />
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={submittingReviewId === cid}
+                        onClick={() => handleSubmitProviderReview(cid)}
+                        className="py-1.5 px-4 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        {submittingReviewId === cid ? 'Guardando...' : 'Enviar reseña'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Documentos y soporte secundario (Reclamo fuera del listado principal) */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(isInProgress || isCompleted) && (
+                      <button
+                        type="button"
+                        disabled={loadingReceiptId === cid}
+                        onClick={() => handleOpenReceipt(cid)}
+                        className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer disabled:opacity-50"
+                      >
+                        <FileText size={12} className="text-emerald-400" />
+                        <span>{loadingReceiptId === cid ? 'Cargando...' : 'Ver comprobante'}</span>
+                      </button>
+                    )}
+                    {linkedPass?.qr_token && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          closeDetailModal();
+                          setViewingQrPass(linkedPass);
+                        }}
+                        className="inline-flex items-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 cursor-pointer"
+                      >
+                        <QrCode size={12} className="text-sky-300" />
+                        <span>Ver Pase QR</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {(isInProgress || isCompleted) && !hasOpenDispute && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDetailModal();
+                        setDisputeModalContract(contract);
+                        setDisputeReason('Trabajo incompleto o con fallas');
+                        setDisputeDetails('');
+                      }}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-300/85 hover:text-rose-200 hover:underline cursor-pointer"
+                    >
+                      <AlertCircle size={12} />
+                      <span>Reportar un problema</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Pie fijo del Modal de Servicio */}
+              <div
+                className="px-5 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0"
+                style={innerStyle}
+              >
+                <button
+                  type="button"
+                  onClick={closeDetailModal}
+                  className="px-3.5 py-2 rounded-xl font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                  style={cardStyle}
+                >
+                  Cerrar
+                </button>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  {isPending ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={completingContractId === cid}
+                        onClick={() => handleCompleteContract(cid)}
+                        className="py-2 px-3 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer disabled:opacity-50"
+                        style={cardStyle}
+                        title="Registrar conformidad si abonaste en efectivo o acuerdo directo"
+                      >
+                        {completingContractId === cid ? 'Guardando...' : 'Conformidad (Efectivo)'}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={payingContractId === cid}
+                        onClick={() => handlePayContract(cid)}
+                        className="py-2 px-4 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
+                        style={{ backgroundColor: primaryColor }}
+                      >
+                        {payingContractId === cid ? 'Procesando...' : 'Confirmar y Pagar'}
+                      </button>
+                    </>
+                  ) : isInProgress ? (
+                    <button
+                      type="button"
+                      disabled={completingContractId === cid}
+                      onClick={() => handleCompleteContract(cid)}
+                      className="inline-flex items-center gap-1.5 py-2 px-4 rounded-xl text-xs font-bold text-white hover:opacity-95 cursor-pointer disabled:opacity-50"
+                      style={{ backgroundColor: primaryColor }}
+                    >
+                      <CheckCircle2 size={13} />
+                      <span>{completingContractId === cid ? 'Registrando...' : 'Dar Conformidad'}</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        closeDetailModal();
+                        handleRehireProvider(contract.provider_id, providerDisplay);
+                      }}
+                      className="inline-flex items-center gap-1.5 py-2 px-4 rounded-xl text-xs font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                    >
+                      <RotateCcw size={13} />
+                      <span>Volver a contratar</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
