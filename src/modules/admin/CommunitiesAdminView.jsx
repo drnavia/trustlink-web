@@ -293,6 +293,7 @@ export default function CommunitiesAdminView() {
   };
 
   const startEditingCountry = (c) => {
+    setEditingBillingCountryId(null);
     setEditingCountryId(c.id);
     setEditCountryName(c.name || '');
     setEditCountryAddress(c.address || '');
@@ -340,6 +341,7 @@ export default function CommunitiesAdminView() {
   };
 
   const startEditingCountryBilling = (country) => {
+    setEditingCountryId(null);
     setEditingBillingCountryId(country.id);
     setBillingPlanDraft(country.plan_code || 'pilot');
     setBillingStatusDraft(country.billing_status || 'active');
@@ -968,12 +970,12 @@ export default function CommunitiesAdminView() {
                               Sin licencia asignada aún
                             </span>
                           ) : isEditingBilling ? (
-                            <div className="space-y-1.5 min-w-56">
+                            <div className="space-y-1.5 min-w-52">
                               <div className="grid grid-cols-2 gap-1.5">
                                 <select
                                   value={billingPlanDraft}
                                   onChange={(e) => setBillingPlanDraft(e.target.value)}
-                                  className="px-2 py-1 rounded-lg border border-white/15 text-[11px]"
+                                  className="px-2 py-1.5 rounded-lg border border-amber-500/55 text-[11px] font-semibold focus:outline-none"
                                   style={cardStyle}
                                 >
                                   {(b2bPlans.length > 0
@@ -993,7 +995,7 @@ export default function CommunitiesAdminView() {
                                 <select
                                   value={billingStatusDraft}
                                   onChange={(e) => setBillingStatusDraft(e.target.value)}
-                                  className="px-2 py-1 rounded-lg border border-white/15 text-[11px]"
+                                  className="px-2 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
                                   style={cardStyle}
                                 >
                                   <option value="active">Activa</option>
@@ -1002,47 +1004,15 @@ export default function CommunitiesAdminView() {
                                   <option value="suspended">Suspendida</option>
                                 </select>
                               </div>
-                              <div className="flex items-center gap-1.5">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={billingQuotaDraft}
-                                  onChange={(e) => setBillingQuotaDraft(e.target.value)}
-                                  placeholder="Cuota QR (vacío=∞)"
-                                  className="w-full px-2 py-1 rounded-lg border border-white/15 text-[11px]"
-                                  style={cardStyle}
-                                />
-                                <button
-                                  type="button"
-                                  disabled={savingBillingCountryId === c.id}
-                                  onClick={() =>
-                                    handleSaveCountryBilling(c.id, {
-                                      billing_status: 'active',
-                                      extend_days: 30,
-                                    })
-                                  }
-                                  title="Extender licencia B2B +30 días"
-                                  className="px-2 py-1 rounded-lg border border-amber-400/50 bg-amber-500/15 text-amber-200 text-[11px] font-bold cursor-pointer shrink-0"
-                                >
-                                  +30d
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={savingBillingCountryId === c.id}
-                                  onClick={() => handleSaveCountryBilling(c.id)}
-                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
-                                >
-                                  OK
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingBillingCountryId(null)}
-                                  className="px-1.5 py-1 rounded-lg border border-white/15 text-[11px] cursor-pointer"
-                                  style={cardStyle}
-                                >
-                                  <X size={11} />
-                                </button>
-                              </div>
+                              <input
+                                type="number"
+                                min="0"
+                                value={billingQuotaDraft}
+                                onChange={(e) => setBillingQuotaDraft(e.target.value)}
+                                placeholder="Cuota QR mensual (vacío = sin tope)"
+                                className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-[11px] focus:outline-none"
+                                style={cardStyle}
+                              />
                             </div>
                           ) : (
                             <div className="space-y-0.5 whitespace-nowrap">
@@ -1076,13 +1046,48 @@ export default function CommunitiesAdminView() {
                                 type="button"
                                 disabled={savingCountryId === c.id}
                                 onClick={() => handleSaveCountryEdit(c.id)}
-                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
                               >
                                 <Check size={12} /> Guardar
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingCountryId(null)}
+                                title="Cancelar edición"
+                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ) : isEditingBilling ? (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={savingBillingCountryId === c.id}
+                                onClick={() =>
+                                  handleSaveCountryBilling(c.id, {
+                                    billing_status: 'active',
+                                    extend_days: 30,
+                                  })
+                                }
+                                title="Extender licencia B2B +30 días"
+                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-amber-400/50 bg-amber-500/15 hover:bg-amber-500/25 text-amber-200 cursor-pointer disabled:opacity-45"
+                              >
+                                +30d
+                              </button>
+                              <button
+                                type="button"
+                                disabled={savingBillingCountryId === c.id}
+                                onClick={() => handleSaveCountryBilling(c.id)}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                              >
+                                <Check size={12} /> Guardar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingBillingCountryId(null)}
+                                title="Cancelar edición de licencia"
                                 className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
                                 style={cardStyle}
                               >
