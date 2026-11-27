@@ -71,7 +71,7 @@ const ACTOR_BENEFITS = [
     badge: 'Residentes',
     title: 'Contratá sin depender de WhatsApp',
     points: [
-      'Prestadores auditados por DNI, póliza ART/seguro y antecedentes.',
+      'Prestadores verificados con DNI, Seguro AP/ART y antecedentes penales.',
       'Pases QR en segundos con destino, horario, vehículo y cuadrilla.',
       'Historial del hogar con acuerdos claros y reseñas de vecinos reales.',
     ],
@@ -424,7 +424,7 @@ export default function LandingHome({
             Prestadores verificados para tu comunidad
           </h1>
           <p className="text-xs sm:text-sm opacity-75">
-            DNI, póliza ART y antecedentes auditados en una sola red. Ingresá para consultar y emitir Pases QR.
+            DNI, Seguro AP/ART y antecedentes penales validados para ingresar con Pase QR. Ingresá para consultar o coordinar visitas.
           </p>
         </div>
 
@@ -1069,7 +1069,7 @@ export default function LandingHome({
             {
               step: '01',
               title: 'Elegís un perfil con respaldo',
-              desc: 'Comparás nivel N1–N4, documentación vigente (DNI, Seguro AP/ART, antecedentes) y reseñas reales.',
+              desc: 'Comparás nivel N1–N4, documentación vigente (DNI, Seguro AP/ART y antecedentes penales) y reseñas reales.',
             },
             {
               step: '02',
