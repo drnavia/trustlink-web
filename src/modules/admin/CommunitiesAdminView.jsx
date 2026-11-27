@@ -610,7 +610,12 @@ export default function CommunitiesAdminView() {
             showSubmitButton
             chips={[
               { id: 'all', label: 'Todas' },
-              { id: 'pending', label: 'Propuestas pendientes', count: pendingApprovalCount },
+              {
+                id: 'pending',
+                label: 'Propuestas pendientes',
+                count: pendingApprovalCount,
+                tone: pendingApprovalCount > 0 ? 'amber' : undefined,
+              },
               { id: 'active', label: 'Activas' },
               { id: 'inactive', label: 'Inactivas' },
             ]}
@@ -774,53 +779,64 @@ export default function CommunitiesAdminView() {
             <div className="overflow-x-auto rounded-xl border border-white/10" style={innerStyle}>
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="border-b border-white/10 opacity-75">
-                    <th className="py-2.5 px-3 font-semibold">ID</th>
-                    <th className="py-2.5 px-3 font-semibold">Barrio</th>
-                    <th className="py-2.5 px-3 font-semibold">Ubicación</th>
-                    <th className="py-2.5 px-3 font-semibold">Licencia B2B / QR mes</th>
-                    <th className="py-2.5 px-3 font-semibold">Claves</th>
-                    <th className="py-2.5 px-3 font-semibold">Estado</th>
-                    <th className="py-2.5 px-3 font-semibold text-right">Acciones</th>
+                  <tr className="border-b border-white/10 text-[11px] uppercase tracking-wider opacity-65">
+                    <th className="py-3 px-4 font-semibold">Comunidad y ubicación</th>
+                    <th className="py-3 px-3 font-semibold whitespace-nowrap">Políticas y garita</th>
+                    <th className="py-3 px-3 font-semibold whitespace-nowrap">Licencia B2B y QR</th>
+                    <th className="py-3 px-3 font-semibold whitespace-nowrap">Estado</th>
+                    <th className="py-3 px-4 font-semibold text-right whitespace-nowrap">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody className="divide-y divide-white/8">
                   {countries.map((c) => {
                     const isEditing = editingCountryId === c.id;
                     const isEditingBilling = editingBillingCountryId === c.id;
+                    const isPendingProposal = c.approval_status === 'pending';
+                    const isRejectedProposal = c.approval_status === 'rejected';
                     const billingBadge = getB2BBillingBadge(c.billing_status);
+                    const billingStatusLower = String(c.billing_status || 'active').toLowerCase();
                     const monthlyUsed = Number(c.monthly_qr_used ?? 0);
                     const monthlyQuota =
                       c.monthly_pass_quota !== null && c.monthly_pass_quota !== undefined
                         ? Number(c.monthly_pass_quota)
                         : null;
-                    const locationSummary =
-                      [c.city, c.province, c.postal_code].filter(Boolean).join(', ') || '—';
+                    const activeKeys = Number(c.active_keys_count ?? 0);
+                    const locationParts = [c.city, c.province, c.postal_code].filter(Boolean);
+                    const locationLine = [c.address, locationParts.join(', ')]
+                      .filter(Boolean)
+                      .join(' · ');
 
                     return (
-                      <tr key={c.id}>
-                        <td className="py-2.5 px-3 font-mono opacity-80">#{c.id}</td>
-                        <td className="py-2.5 px-3 font-semibold">
-                          {isEditing ? (
-                            <input
-                              type="text"
-                              value={editCountryName}
-                              onChange={(e) => setEditCountryName(e.target.value)}
-                              className="w-full px-2.5 py-1 rounded-lg border border-emerald-600 text-xs focus:outline-none"
-                              style={cardStyle}
-                            />
-                          ) : (
-                            <div>
-                              <div>{c.name}</div>
-                              {c.address && (
-                                <div className="text-[11px] opacity-75 font-normal">{c.address}</div>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-2.5 px-3 opacity-85">
+                      <tr
+                        key={c.id}
+                        className={`align-middle transition-colors ${
+                          isPendingProposal
+                            ? 'bg-amber-500/6 border-l-2 border-l-amber-400'
+                            : 'hover:bg-white/4'
+                        }`}
+                      >
+                        {/* 1. Comunidad y ubicación (fusiona ID + Nombre + Dirección + Solicitante) */}
+                        <td className="py-3.5 px-4 min-w-60">
                           {isEditing ? (
                             <div className="space-y-1.5">
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                                <input
+                                  type="text"
+                                  value={editCountryName}
+                                  onChange={(e) => setEditCountryName(e.target.value)}
+                                  placeholder="Nombre del barrio *"
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-emerald-500/70 text-xs font-semibold focus:outline-none"
+                                  style={cardStyle}
+                                />
+                                <input
+                                  type="text"
+                                  value={editCountryAddress}
+                                  onChange={(e) => setEditCountryAddress(e.target.value)}
+                                  placeholder="Dirección / acceso"
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-white/15 text-xs focus:outline-none"
+                                  style={cardStyle}
+                                />
+                              </div>
                               <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5">
                                 <input
                                   type="text"
@@ -847,40 +863,84 @@ export default function CommunitiesAdminView() {
                                   style={cardStyle}
                                 />
                               </div>
-                              <label className="flex items-center gap-2 text-[11px]">
-                                <span className="opacity-80 whitespace-nowrap font-semibold">
-                                  Antecedentes máx.:
-                                </span>
-                                <select
-                                  value={editCountryCriminalWindow}
-                                  onChange={(e) =>
-                                    setEditCountryCriminalWindow(Number(e.target.value))
-                                  }
-                                  className="px-2 py-1 rounded-lg border border-emerald-500/40 text-[11px] font-bold focus:outline-none"
-                                  style={cardStyle}
-                                >
-                                  <option value={30}>30 días</option>
-                                  <option value={90}>90 días</option>
-                                  <option value={180}>180 días (estándar)</option>
-                                  <option value={365}>365 días</option>
-                                </select>
-                              </label>
                             </div>
                           ) : (
+                            <div className="space-y-0.5">
+                              <div className="flex items-baseline gap-2">
+                                <span className="text-[13px] font-bold leading-snug">{c.name}</span>
+                                <span className="text-[10px] font-mono opacity-50 shrink-0">
+                                  #{c.id}
+                                </span>
+                              </div>
+                              <p className="text-[11px] opacity-70 leading-snug">
+                                {locationLine || 'Sin ubicación cargada'}
+                              </p>
+                              {isPendingProposal && (c.requested_by_name || c.requested_by_email) && (
+                                <p className="text-[11px] text-amber-200/90 font-medium pt-0.5">
+                                  Solicitado por {c.requested_by_name || c.requested_by_email}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 2. Políticas (ventana Antecedentes) y Claves API de garita */}
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          {isEditing ? (
+                            <label className="block space-y-1 text-[11px]">
+                              <span className="opacity-75 font-semibold block">
+                                Vigencia Antecedentes
+                              </span>
+                              <select
+                                value={editCountryCriminalWindow}
+                                onChange={(e) =>
+                                  setEditCountryCriminalWindow(Number(e.target.value))
+                                }
+                                className="px-2.5 py-1.5 rounded-lg border border-emerald-500/50 text-xs font-bold focus:outline-none"
+                                style={cardStyle}
+                              >
+                                <option value={30}>30 días</option>
+                                <option value={90}>90 días</option>
+                                <option value={180}>180 días (estándar)</option>
+                                <option value={365}>365 días</option>
+                              </select>
+                            </label>
+                          ) : (
                             <div className="space-y-1">
-                              <div>{locationSummary}</div>
                               <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border border-sky-500/35 bg-sky-500/10 text-sky-300"
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border border-sky-500/35 bg-sky-500/10 text-sky-300 whitespace-nowrap"
                                 title="Antigüedad máxima permitida por este barrio desde la fecha de emisión del certificado de Antecedentes Penales"
                               >
                                 Antecedentes: {Number(c.criminal_record_max_age_days) || 180}d
                               </span>
+                              <div className="text-[11px] flex items-center gap-1.5 opacity-75">
+                                <KeyRound size={11} className="shrink-0 opacity-75" />
+                                <span
+                                  className={
+                                    !isPendingProposal && c.is_active && activeKeys === 0
+                                      ? 'text-amber-300 font-semibold'
+                                      : ''
+                                  }
+                                >
+                                  {isPendingProposal
+                                    ? 'Sin garita vinculada'
+                                    : activeKeys === 0
+                                      ? 'Sin clave API'
+                                      : `${activeKeys} clave${activeKeys === 1 ? '' : 's'} API`}
+                                </span>
+                              </div>
                             </div>
                           )}
                         </td>
-                        <td className="py-2.5 px-3">
-                          {isEditingBilling ? (
-                            <div className="space-y-1.5 min-w-50">
+
+                        {/* 3. Licencia B2B y consumo QR (sin ruido en propuestas pendientes) */}
+                        <td className="py-3.5 px-3">
+                          {isPendingProposal ? (
+                            <span className="text-[11px] opacity-60 italic whitespace-nowrap">
+                              Sin licencia asignada aún
+                            </span>
+                          ) : isEditingBilling ? (
+                            <div className="space-y-1.5 min-w-56">
                               <div className="grid grid-cols-2 gap-1.5">
                                 <select
                                   value={billingPlanDraft}
@@ -927,8 +987,22 @@ export default function CommunitiesAdminView() {
                                 <button
                                   type="button"
                                   disabled={savingBillingCountryId === c.id}
+                                  onClick={() =>
+                                    handleSaveCountryBilling(c.id, {
+                                      billing_status: 'active',
+                                      extend_days: 30,
+                                    })
+                                  }
+                                  title="Extender licencia B2B +30 días"
+                                  className="px-2 py-1 rounded-lg border border-amber-400/50 bg-amber-500/15 text-amber-200 text-[11px] font-bold cursor-pointer shrink-0"
+                                >
+                                  +30d
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingBillingCountryId === c.id}
                                   onClick={() => handleSaveCountryBilling(c.id)}
-                                  className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer shrink-0"
                                 >
                                   OK
                                 </button>
@@ -943,22 +1017,21 @@ export default function CommunitiesAdminView() {
                               </div>
                             </div>
                           ) : (
-                            <div className="space-y-1">
-                              <div className="flex flex-wrap items-center gap-1">
-                                <span
-                                  className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-white/15"
-                                  style={cardStyle}
-                                >
+                            <div className="space-y-0.5 whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-xs">
                                   {c.plan_name || c.plan_code || 'Piloto'}
                                 </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${billingBadge.cls}`}
-                                >
-                                  {billingBadge.label}
-                                </span>
+                                {billingStatusLower !== 'active' && (
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${billingBadge.cls}`}
+                                  >
+                                    {billingBadge.label}
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-[11px] opacity-80 font-mono">
-                                QR mes: {monthlyUsed}{monthlyQuota ? ` / ${monthlyQuota}` : ' (sin tope)'}
+                              <div className="text-[11px] opacity-70 font-mono">
+                                {monthlyUsed} QR / mes{monthlyQuota ? ` (tope ${monthlyQuota})` : ' · sin tope'}
                                 {c.subscription_ends_at
                                   ? ` · vto ${new Date(c.subscription_ends_at).toLocaleDateString('es-AR')}`
                                   : ''}
@@ -966,106 +1039,95 @@ export default function CommunitiesAdminView() {
                             </div>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 font-mono">{c.active_keys_count ?? 0}</td>
-                        <td className="py-2.5 px-3">
-                          <div className="flex flex-col gap-1 items-start">
-                            {c.approval_status === 'pending' ? (
-                              <>
-                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/70 text-amber-200 border border-amber-500/60">
-                                  Propuesta · En revisión
-                                </span>
-                                {(c.requested_by_name || c.requested_by_email) && (
-                                  <span className="text-[10px] opacity-75">
-                                    Por {c.requested_by_name || c.requested_by_email}
-                                  </span>
-                                )}
-                              </>
-                            ) : c.approval_status === 'rejected' ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950/70 text-rose-200 border border-rose-700/60">
-                                Rechazada
-                              </span>
-                            ) : c.is_active ? (
-                              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800">
-                                Activa
-                              </span>
-                            ) : (
-                              <span
-                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-80"
-                                style={cardStyle}
-                              >
-                                Inactiva
-                              </span>
-                            )}
-                          </div>
+
+                        {/* 4. Estado único y nítido en 1 línea */}
+                        <td className="py-3.5 px-3 whitespace-nowrap">
+                          {isPendingProposal ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-950/75 text-amber-200 border border-amber-500/60 whitespace-nowrap">
+                              Propuesta
+                            </span>
+                          ) : isRejectedProposal ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-950/70 text-rose-200 border border-rose-700/60 whitespace-nowrap">
+                              Rechazada
+                            </span>
+                          ) : c.is_active ? (
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-950 text-emerald-300 border border-emerald-800 whitespace-nowrap">
+                              Activa
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border border-white/15 opacity-75 whitespace-nowrap"
+                              style={cardStyle}
+                            >
+                              Inactiva
+                            </span>
+                          )}
                         </td>
-                        <td className="py-2.5 px-3 text-right">
+
+                        {/* 5. Acciones contextuales (máx. 3 controles limpios en 1 línea) */}
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
                           {isEditing ? (
                             <div className="inline-flex items-center gap-1.5">
                               <button
                                 type="button"
                                 disabled={savingCountryId === c.id}
                                 onClick={() => handleSaveCountryEdit(c.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer"
                               >
                                 <Check size={12} /> Guardar
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setEditingCountryId(null)}
-                                className="px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
                                 style={cardStyle}
                               >
                                 <X size={12} />
                               </button>
                             </div>
+                          ) : isPendingProposal ? (
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                disabled={moderatingCountryId === c.id}
+                                onClick={() => handleModerateCountryApproval(c, 'approved')}
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
+                              >
+                                <Check size={12} /> Aprobar
+                              </button>
+                              <button
+                                type="button"
+                                disabled={moderatingCountryId === c.id}
+                                onClick={() => handleModerateCountryApproval(c, 'rejected')}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-45"
+                              >
+                                <X size={12} /> Rechazar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startEditingCountry(c)}
+                                title="Editar datos del barrio antes de aprobar"
+                                className="p-1.5 rounded-lg border border-white/15 opacity-80 hover:opacity-100 cursor-pointer"
+                                style={cardStyle}
+                              >
+                                <Pencil size={12} />
+                              </button>
+                            </div>
                           ) : (
-                            <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
-                              {c.approval_status === 'pending' && (
-                                <>
-                                  <button
-                                    type="button"
-                                    disabled={moderatingCountryId === c.id}
-                                    onClick={() => handleModerateCountryApproval(c, 'approved')}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-500 text-white cursor-pointer disabled:opacity-45"
-                                  >
-                                    <Check size={12} /> Aprobar barrio
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={moderatingCountryId === c.id}
-                                    onClick={() => handleModerateCountryApproval(c, 'rejected')}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-rose-500/45 bg-rose-950/35 text-rose-200 hover:bg-rose-950/60 cursor-pointer disabled:opacity-45"
-                                  >
-                                    <X size={12} /> Rechazar
-                                  </button>
-                                </>
-                              )}
+                            <div className="inline-flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
                                 onClick={() => startEditingCountryBilling(c)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-200 cursor-pointer"
+                                title="Gestionar plan B2B, cuota QR y extensión +30 días"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-amber-500/40 bg-amber-500/10 text-amber-200 hover:bg-amber-500/20 cursor-pointer"
                               >
                                 Licencia
                               </button>
                               <button
                                 type="button"
-                                disabled={savingBillingCountryId === c.id}
-                                onClick={() =>
-                                  handleSaveCountryBilling(c.id, {
-                                    billing_status: 'active',
-                                    extend_days: 30,
-                                  })
-                                }
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
-                                style={cardStyle}
-                                title="Extender licencia B2B +30 días"
-                              >
-                                +30d
-                              </button>
-                              <button
-                                type="button"
                                 onClick={() => startEditingCountry(c)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                title="Editar barrio, ubicación y vigencia de Antecedentes"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/15 opacity-90 hover:opacity-100 cursor-pointer"
                                 style={cardStyle}
                               >
                                 <Pencil size={11} /> Editar
@@ -1073,7 +1135,7 @@ export default function CommunitiesAdminView() {
                               <button
                                 type="button"
                                 onClick={() => handleToggleCountry(c)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border border-white/15 cursor-pointer"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold border border-white/12 opacity-75 hover:opacity-100 cursor-pointer"
                                 style={cardStyle}
                               >
                                 {c.is_active ? 'Desactivar' : 'Activar'}

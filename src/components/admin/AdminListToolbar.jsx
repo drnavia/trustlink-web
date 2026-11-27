@@ -114,6 +114,7 @@ export default function AdminListToolbar({
         <div className="flex flex-wrap items-center gap-2">
           {chips.map((chip) => {
             const isActive = activeChip === chip.id;
+            const isAmberAlert = !isActive && chip.tone === 'amber';
             return (
               <button
                 key={chip.id}
@@ -121,10 +122,14 @@ export default function AdminListToolbar({
                 onClick={() => onChipChange?.(chip.id)}
                 className={`px-3 py-1.5 rounded-xl border font-bold transition-colors cursor-pointer ${
                   isActive
-                    ? 'bg-indigo-600 text-white border-indigo-400 shadow-sm'
-                    : 'border-white/15 opacity-80 hover:opacity-100'
+                    ? chip.tone === 'amber'
+                      ? 'bg-amber-600 text-white border-amber-400 shadow-sm'
+                      : 'bg-indigo-600 text-white border-indigo-400 shadow-sm'
+                    : isAmberAlert
+                      ? 'border-amber-400/60 bg-amber-500/15 text-amber-200 hover:bg-amber-500/25'
+                      : 'border-white/15 opacity-80 hover:opacity-100'
                 }`}
-                style={isActive ? undefined : innerStyle}
+                style={isActive || isAmberAlert ? undefined : innerStyle}
               >
                 {chip.label}
                 {typeof chip.count === 'number' ? ` (${chip.count})` : ''}
