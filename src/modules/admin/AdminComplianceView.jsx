@@ -1850,7 +1850,7 @@ export default function AdminComplianceView() {
                               }
                             >
                               <Check size={12} />
-                              {person.identity_verified ? 'N1 Validado' : 'Validar N1'}
+                              {person.identity_verified ? 'DNI N1 Validado' : 'Validar DNI N1'}
                             </button>
                           )}
                         {hasProfile ? (
@@ -2309,7 +2309,7 @@ export default function AdminComplianceView() {
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-indigo-400/55 bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-100 transition-colors cursor-pointer disabled:opacity-45"
                                   >
                                     <Check size={12} />
-                                    <span>Validar N1</span>
+                                    <span>Validar DNI N1</span>
                                   </button>
                                 )}
 
