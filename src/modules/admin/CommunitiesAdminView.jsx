@@ -806,14 +806,18 @@ export default function CommunitiesAdminView() {
                       .filter(Boolean)
                       .join(' · ');
 
+                    const rowToneClass = isPendingProposal
+                      ? 'border-l-3 border-l-amber-400 bg-amber-500/8 hover:bg-amber-500/12'
+                      : isRejectedProposal
+                        ? 'border-l-3 border-l-rose-400 bg-rose-500/8 hover:bg-rose-500/12'
+                        : c.is_active
+                          ? 'border-l-3 border-l-emerald-400 bg-emerald-500/7 hover:bg-emerald-500/11'
+                          : 'border-l-3 border-l-slate-400 bg-slate-400/7 hover:bg-slate-400/11';
+
                     return (
                       <tr
                         key={c.id}
-                        className={`align-middle transition-colors ${
-                          isPendingProposal
-                            ? 'bg-amber-500/6 border-l-2 border-l-amber-400'
-                            : 'hover:bg-white/4'
-                        }`}
+                        className={`align-middle transition-colors ${rowToneClass}`}
                       >
                         {/* 1. Comunidad y ubicación (fusiona ID + Nombre + Dirección + Solicitante) */}
                         <td className="py-3.5 px-4 min-w-60">

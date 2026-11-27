@@ -199,6 +199,7 @@ export const TRUST_LEVEL_THEME = {
     card: 'border-white/10 bg-black/20',
     cardHeader: 'border-white/10 bg-black/15',
     cardRing: 'border-white/10',
+    tableRow: 'border-l-3 border-l-slate-500/80 bg-slate-500/5 hover:bg-slate-500/10',
     bar: 'bg-amber-400/90',
   },
   1: {
@@ -207,6 +208,7 @@ export const TRUST_LEVEL_THEME = {
     card: 'border-slate-400/40 bg-slate-400/10',
     cardHeader: 'border-slate-400/30 bg-slate-400/10',
     cardRing: 'border-slate-400/35',
+    tableRow: 'border-l-3 border-l-slate-300 bg-slate-400/8 hover:bg-slate-400/12',
     bar: 'bg-slate-300',
   },
   2: {
@@ -215,6 +217,7 @@ export const TRUST_LEVEL_THEME = {
     card: 'border-orange-400/50 bg-orange-500/12',
     cardHeader: 'border-orange-400/40 bg-orange-500/12',
     cardRing: 'border-orange-400/45',
+    tableRow: 'border-l-3 border-l-orange-400 bg-orange-500/8 hover:bg-orange-500/12',
     bar: 'bg-orange-400',
   },
   3: {
@@ -223,6 +226,7 @@ export const TRUST_LEVEL_THEME = {
     card: 'border-emerald-400/50 bg-emerald-500/12',
     cardHeader: 'border-emerald-400/40 bg-emerald-500/12',
     cardRing: 'border-emerald-400/45',
+    tableRow: 'border-l-3 border-l-emerald-400 bg-emerald-500/8 hover:bg-emerald-500/12',
     bar: 'bg-emerald-400',
   },
   4: {
@@ -231,6 +235,7 @@ export const TRUST_LEVEL_THEME = {
     card: 'border-sky-400/55 bg-sky-500/14',
     cardHeader: 'border-sky-400/45 bg-sky-500/14',
     cardRing: 'border-sky-400/50',
+    tableRow: 'border-l-3 border-l-sky-400 bg-sky-500/8 hover:bg-sky-500/12',
     bar: 'bg-sky-400',
   },
 };

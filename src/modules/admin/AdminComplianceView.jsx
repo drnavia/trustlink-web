@@ -1811,14 +1811,12 @@ export default function AdminComplianceView() {
                       (person.isPersonApproved ||
                         (person.primaryStatus !== 'rejected' && (hasCriminal || hasArt)));
 
-                    const rowAccentClass =
-                      hasExpired
-                        ? 'bg-rose-500/6 border-l-2 border-l-rose-400'
-                        : canApproveLevel3
-                          ? 'bg-orange-500/6 border-l-2 border-l-orange-400'
-                          : hasPendingCustom || isDniPendingReview
-                            ? 'bg-amber-500/6 border-l-2 border-l-amber-400'
-                            : 'hover:bg-white/4';
+                    const rowAccentClass = isDangerState
+                      ? 'border-l-3 border-l-rose-400 bg-rose-500/8 hover:bg-rose-500/12'
+                      : (hasPendingCustom || isDniPendingReview) && levelNum === 0
+                        ? 'border-l-3 border-l-amber-400 bg-amber-500/8 hover:bg-amber-500/12'
+                        : (TRUST_LEVEL_THEME[levelNum]?.tableRow ||
+                            TRUST_LEVEL_THEME[0].tableRow);
 
                     const insuranceTooltip = [
                       insMeta?.insurer_name,
