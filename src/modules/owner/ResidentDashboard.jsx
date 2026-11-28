@@ -78,8 +78,6 @@ import {
 import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
-  ITEMS_GRID_CLASS,
-  ITEM_CARD_CLASS,
   FIELD_INPUT_CLASS,
   REVIEW_MICRO_TAGS,
   TRUST_LEVEL_THEME,
@@ -2090,25 +2088,46 @@ export default function ResidentDashboard({
     }
   };
 
-  // Filtra los pases emitidos por estado y por búsqueda textual (prestador, destino, token o ID)
-  const filteredPasses = useMemo(() => {
+  // Contadores por estado y filtrado de Mis Pases QR (paridad con Mis Servicios)
+  const { passCounts, filteredPasses } = useMemo(() => {
+    const counts = myPasses.reduce(
+      (acc, p) => {
+        const st = String(p.status || '').toLowerCase();
+        acc.all += 1;
+        if (st === 'pending') acc.pending += 1;
+        else if (st === 'used') acc.used += 1;
+        else if (st === 'expired') acc.expired += 1;
+        else if (st === 'cancelled') acc.cancelled += 1;
+        return acc;
+      },
+      { all: 0, pending: 0, used: 0, expired: 0, cancelled: 0 }
+    );
+
     const q = passSearch.trim().toLowerCase();
-    return myPasses.filter((passItem) => {
+    const list = myPasses.filter((passItem) => {
       const status = String(passItem.status || '').toLowerCase();
       const matchesStatus = passStatusFilter === 'all' || status === passStatusFilter;
       const providerLabel = String(passItem.provider_name || passItem.provider_id || '').toLowerCase();
+      const serviceLabel = `${passItem.visit_service_title || ''} ${
+        passItem.visit_service_specialty || ''
+      } ${passItem.provider_specialty || ''}`.toLowerCase();
       const destLabel = `${passItem.fraction_number || ''} ${passItem.lot_number || ''}`.toLowerCase();
+      const plateLabel = String(passItem.vehicle_plate || '').toLowerCase();
       const tokenLabel = String(passItem.qr_token || '').toLowerCase();
 
       const matchesQuery =
         !q ||
         providerLabel.includes(q) ||
+        serviceLabel.includes(q) ||
         destLabel.includes(q) ||
+        plateLabel.includes(q) ||
         tokenLabel.includes(q) ||
         String(passItem.id).includes(q);
 
       return matchesStatus && matchesQuery;
     });
+
+    return { passCounts: counts, filteredPasses: list };
   }, [myPasses, passSearch, passStatusFilter]);
 
   // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) para Pases QR
@@ -4447,72 +4466,99 @@ export default function ResidentDashboard({
       {activeStep === 'passes' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
           {/* Encabezado de Pases QR con buscador textual y filtro por estado */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          {/* Cabecera limpia de Mis Pases QR (paridad con Mis Servicios) */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <QrCode size={18} className="text-emerald-400 shrink-0" />
                 <span>Mis Pases QR Emitidos</span>
               </h2>
               <p className="text-xs opacity-75">
-                Consultá el estado de tus autorizaciones, compartí el QR vigente o cancelá pases pendientes.
+                Seguí tus autorizaciones de ingreso, compartí el QR vigente o gestioná pases pendientes en un solo lugar.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={fetchMyPasses}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
+              style={innerStyle}
+              title="Actualizar pases QR"
+            >
+              <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} />
+              <span>Actualizar</span>
+            </button>
+          </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <div className="relative flex-1 sm:w-64">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  value={passSearch}
-                  onChange={(e) => {
-                    setPassSearch(e.target.value);
-                    setPassesPage(1);
-                  }}
-                  placeholder="Buscar por prestador, lote o token..."
-                  className={`w-full pl-8 pr-8 ${FIELD_INPUT_CLASS}`}
-                  style={innerStyle}
-                />
-                {passSearch && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPassSearch('');
-                      setPassesPage(1);
-                    }}
-                    aria-label="Limpiar búsqueda de pases"
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 opacity-70 hover:opacity-100 cursor-pointer"
-                  >
-                    <X size={13} />
-                  </button>
-                )}
-              </div>
-              <select
-                value={passStatusFilter}
+          {/* Buscador full-width + chips de filtro homologados con Mis Servicios */}
+          <div className="space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={passSearch}
                 onChange={(e) => {
-                  setPassStatusFilter(e.target.value);
+                  setPassSearch(e.target.value);
                   setPassesPage(1);
                 }}
-                className={FIELD_INPUT_CLASS}
+                placeholder="Buscar en Pases QR por prestador, servicio, patente, lote o #número..."
+                className={`w-full pl-9 pr-3 ${FIELD_INPUT_CLASS}`}
                 style={innerStyle}
-              >
-                <option value="all">Todos los estados</option>
-                <option value="pending">Vigente</option>
-                <option value="used">Utilizado</option>
-                <option value="expired">Vencido</option>
-                <option value="cancelled">Cancelado</option>
-              </select>
-              <button
-                type="button"
-                onClick={fetchMyPasses}
-                className="p-2 rounded-xl border border-white/15 hover:opacity-90 cursor-pointer self-end sm:self-auto"
-                style={innerStyle}
-                title="Actualizar pases QR"
-              >
-                <RefreshCw size={15} className={loadingPasses ? 'animate-spin' : ''} />
-              </button>
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todos', count: passCounts.all },
+                ...(passCounts.pending > 0 || passStatusFilter === 'pending'
+                  ? [{ id: 'pending', label: 'Vigentes', count: passCounts.pending }]
+                  : []),
+                { id: 'used', label: 'Utilizados', count: passCounts.used },
+                { id: 'expired', label: 'Vencidos', count: passCounts.expired },
+                ...(passCounts.cancelled > 0 || passStatusFilter === 'cancelled'
+                  ? [{ id: 'cancelled', label: 'Cancelados', count: passCounts.cancelled }]
+                  : []),
+              ].map((chip) => {
+                const active = passStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => {
+                      setPassStatusFilter(chip.id);
+                      setPassesPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {(passStatusFilter !== 'all' || passSearch.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPassStatusFilter('all');
+                    setPassSearch('');
+                    setPassesPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -4534,172 +4580,178 @@ export default function ResidentDashboard({
             </div>
           )}
 
-          {/* Estados de carga, vacío o grilla paginada de Pases QR */}
+          {/* Listado horizontal minimalista de Pases QR (Divulgación progresiva -> Modal de QR/Detalle) */}
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR...</p>
           ) : paginatedPasses.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-white/10"
+              className="rounded-xl p-8 text-center text-xs opacity-80 border border-white/10 space-y-2"
               style={innerStyle}
             >
-              No hay pases QR que coincidan con el filtro seleccionado.
+              <p className="font-bold text-sm">
+                {myPasses.length === 0
+                  ? 'Todavía no emitiste ningún Pase QR.'
+                  : 'No hay pases QR que coincidan con el filtro actual.'}
+              </p>
+              <p className="opacity-75">
+                {myPasses.length === 0
+                  ? 'Acordá una visita en Prestadores o Mis Servicios para emitir tu primer Pase QR.'
+                  : 'Probá seleccionar "Todos" o limpiar la búsqueda.'}
+              </p>
             </div>
           ) : (
-            <div className={ITEMS_GRID_CLASS}>
+            <div className="space-y-2.5">
               {paginatedPasses.map((item) => {
-                const isPending = String(item.status || '').toLowerCase() === 'pending';
+                const statusLower = String(item.status || '').toLowerCase();
+                const isPending = statusLower === 'pending';
+                const isUsed = statusLower === 'used';
                 const statusMeta = getUnifiedStatusMeta(item.status, 'pass');
+                const providerDisplay = item.provider_name || `Prestador #${item.provider_id}`;
+                const specialtyLabel =
+                  item.visit_service_specialty || item.provider_specialty || '';
+                const passTitle =
+                  String(item.visit_service_title || '').trim() ||
+                  (specialtyLabel ? `Pase #${item.id} · ${specialtyLabel}` : `Pase #${item.id} · ${providerDisplay}`);
+                const addressLabel = formatVisitAddress(item.fraction_number, item.lot_number);
+                const accessLabel = item.vehicle_plate
+                  ? `Patente ${item.vehicle_plate}`
+                  : 'Ingreso peatonal';
+                const crewCount = Array.isArray(item.authorized_employees)
+                  ? item.authorized_employees.length
+                  : 0;
+                const scheduleShort = formatVisitScheduleShort(item.start_time, item.end_time);
+                const rowBorderCls = isPending
+                  ? 'border-emerald-500/45 ring-1 ring-emerald-500/15'
+                  : isUsed
+                    ? 'border-sky-400/40'
+                    : 'border-white/10 opacity-85 hover:opacity-100';
+
                 return (
-                  <div
+                  <article
                     key={item.id}
-                    className={ITEM_CARD_CLASS}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${rowBorderCls}`}
                     style={innerStyle}
                   >
-                    {/* Detalles del pase: destino, vehículo/acceso, cuadrilla autorizada y vigencia */}
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-bold">
-                          Pase #{item.id} · {item.provider_name || `Prestador #${item.provider_id}`}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
-                        >
-                          {statusMeta.label}
-                        </span>
-                      </div>
-
-                      {item.visit_service_title && (
-                        <p className="text-xs font-semibold text-emerald-300/95 truncate">
-                          Servicio: {item.visit_service_title}
-                        </p>
-                      )}
-
-                      <p className="text-xs opacity-80">
-                        Destino: {formatVisitAddress(item.fraction_number, item.lot_number)}
-                      </p>
-                      <p className="text-xs opacity-80 flex items-center gap-1.5">
-                        <Car size={12} className="text-sky-400 shrink-0" />
-                        <span>Acceso: {item.vehicle_plate || 'Ingreso peatonal'}</span>
-                      </p>
-                      {Array.isArray(item.authorized_employees) && item.authorized_employees.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                          <span className="text-[11px] font-semibold opacity-80 inline-flex items-center gap-1">
-                            <Users size={11} className="text-emerald-400 shrink-0" /> Cuadrilla:
-                          </span>
-                          {item.authorized_employees.map((emp) => (
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda clicable: Avatar + Título/Rubro/Estado -> Prestador · Destino · Acceso */}
+                      <button
+                        type="button"
+                        onClick={() => setViewingQrPass(item)}
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                      >
+                        <ProviderAvatar
+                          name={providerDisplay}
+                          level={isPending ? 3 : 1}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              {passTitle}
+                            </h3>
+                            {specialtyLabel && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {specialtyLabel}
+                              </span>
+                            )}
                             <span
-                              key={emp.id || emp.dni || emp.full_name}
-                              className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
                             >
-                              {emp.full_name}
-                              {emp.dni ? ` · DNI ${emp.dni}` : ''}
+                              {statusMeta.label}
                             </span>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-[11px] opacity-75">
-                        Vigencia: {formatLocalDateTime(item.start_time)} →{' '}
-                        {formatLocalDateTime(item.end_time)}
-                      </p>
-                    </div>
+                          </div>
 
-                    {/* Acciones sobre el token QR (copiar, ver QR, WhatsApp) y gestión de pases vigentes */}
-                    <div className="space-y-2.5 pt-2 border-t border-white/10">
-                      {item.qr_token && (
-                        <div className="flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-white/10">
-                          <code className="text-[11px] truncate opacity-85">{item.qr_token}</code>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              type="button"
-                              onClick={() => handleCopyToken(item.qr_token, item.id)}
-                              className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                            >
-                              {copiedTokenId === item.id ? (
-                                <>
-                                  <Check size={12} className="text-emerald-400" /> Copiado
-                                </>
-                              ) : (
-                                <>
-                                  <Copy size={12} /> Copiar
-                                </>
-                              )}
-                            </button>
-                            {isPending && (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                            <span>
+                              con <strong className="font-semibold opacity-95">{providerDisplay}</strong>
+                            </span>
+                            <span className="opacity-45">·</span>
+                            <span>Pase #{item.id}</span>
+                            <span className="opacity-45">·</span>
+                            <span>{addressLabel}</span>
+                            <span className="opacity-45">·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <Car size={11} className="text-sky-400 shrink-0" />
+                              <span>{accessLabel}</span>
+                            </span>
+                            {crewCount > 0 && (
                               <>
-                                <button
-                                  type="button"
-                                  onClick={() => setViewingQrPass(item)}
-                                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                                  title="Mostrar código QR escaneable"
-                                >
-                                  <QrCode size={12} /> Ver QR
-                                </button>
-                                <a
-                                  href={buildPassWhatsAppUrl(item)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-emerald-700/90 hover:bg-emerald-600 text-white"
-                                  title="Compartir pase QR y cuadrilla por WhatsApp"
-                                >
-                                  <Share2 size={12} /> WhatsApp
-                                </a>
+                                <span className="opacity-45">·</span>
+                                <span className="inline-flex items-center gap-1 text-emerald-300 opacity-100 font-semibold">
+                                  <Users size={11} />
+                                  <span>
+                                    +{crewCount} {crewCount === 1 ? 'ayudante' : 'ayudantes'}
+                                  </span>
+                                </span>
                               </>
                             )}
                           </div>
                         </div>
-                      )}
+                      </button>
 
-                      {isPending ? (
-                        <div className="flex items-center justify-end gap-3">
+                      {/* Derecha: Vigencia compacta 24h + máx. 2 acciones limpias */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
+                          <Clock size={12} className="text-emerald-400 shrink-0" />
+                          <span>{scheduleShort}</span>
+                        </span>
+
+                        <button
+                          type="button"
+                          onClick={() => setViewingQrPass(item)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                        >
+                          {isPending ? (
+                            <>
+                              <QrCode size={12} className="text-emerald-400" />
+                              <span>Ver QR</span>
+                            </>
+                          ) : (
+                            <span>Ver detalle</span>
+                          )}
+                        </button>
+
+                        {isPending ? (
+                          <a
+                            href={buildPassWhatsAppUrl(item)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                            title="Compartir pase QR y cuadrilla por WhatsApp"
+                          >
+                            <Share2 size={12} />
+                            <span>WhatsApp</span>
+                          </a>
+                        ) : isUsed ? (
                           <button
                             type="button"
-                            onClick={() => openEditPassModal(item)}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
+                            onClick={() => openNewOrderForPass(item)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
                           >
-                            <Edit3 size={13} />
-                            Editar pase
+                            <CreditCard size={12} />
+                            <span>Crear orden</span>
                           </button>
+                        ) : (
                           <button
                             type="button"
-                            disabled={cancellingPassId === item.id}
-                            onClick={() => handleCancelPass(item.id)}
-                            className="inline-flex items-center gap-1 text-xs font-bold text-rose-300 hover:text-rose-200 cursor-pointer disabled:opacity-50"
+                            onClick={() =>
+                              handleRehireProvider(
+                                item.provider_id,
+                                item.provider_name || '',
+                                item.vehicle_plate || ''
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-emerald-500/35 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 cursor-pointer"
                           >
-                            <Ban size={13} />
-                            {cancellingPassId === item.id ? 'Cancelando...' : 'Cancelar pase'}
+                            <RotateCcw size={12} />
+                            <span>Volver a contratar</span>
                           </button>
-                        </div>
-                      ) : (
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                          <span className="opacity-70">Pase histórico ({statusMeta.label.toLowerCase()})</span>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            {String(item.status || '').toLowerCase() === 'used' && (
-                              <button
-                                type="button"
-                                onClick={() => openNewOrderForPass(item)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-sky-200 border border-sky-500/40 bg-sky-950/40 hover:bg-sky-950/70 cursor-pointer"
-                              >
-                                <CreditCard size={11} /> Crear orden de pago
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleRehireProvider(
-                                  item.provider_id,
-                                  item.provider_name || '',
-                                  item.vehicle_plate || ''
-                                )
-                              }
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-emerald-300 border border-emerald-500/40 bg-emerald-950/40 hover:bg-emerald-950/70 cursor-pointer"
-                            >
-                              <RotateCcw size={11} /> Volver a contratar
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </div>
+                  </article>
                 );
               })}
             </div>
@@ -5456,87 +5508,174 @@ export default function ResidentDashboard({
         </div>
       )}
 
-      {/* Modal para visualizar QR escaneable de un pase emitido */}
-      {viewingQrPass && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      {/* Modal para visualizar QR escaneable y detalle completo de un pase emitido */}
+      {viewingQrPass && (() => {
+        const isPendingModalPass = String(viewingQrPass.status || '').toLowerCase() === 'pending';
+        const modalPassStatus = getUnifiedStatusMeta(viewingQrPass.status, 'pass');
+        return (
           <div
-            className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs"
-            style={cardStyle}
+            className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+            onClick={() => setViewingQrPass(null)}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
-              <div>
-                <h3 className="text-base font-bold">
-                  Pase QR #{viewingQrPass.id} · {viewingQrPass.provider_name || `Prestador #${viewingQrPass.provider_id}`}
-                </h3>
-                <p className="opacity-75">
-                  Destino: {viewingQrPass.fraction_number || '—'} / Lote {viewingQrPass.lot_number || '—'} ·{' '}
-                  {viewingQrPass.vehicle_plate || 'Ingreso peatonal'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setViewingQrPass(null)}
-                className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Renderizado del código QR escaneable */}
-            <QrCodeDisplay token={viewingQrPass.qr_token} size={200} />
-
-            {/* Listado de integrantes de cuadrilla autorizados en el pase */}
-            {Array.isArray(viewingQrPass.authorized_employees) &&
-              viewingQrPass.authorized_employees.length > 0 && (
-                <div
-                  className="rounded-xl p-3 border border-slate-700/60 space-y-1.5"
-                  style={innerStyle}
-                >
-                  <span className="block text-[10px] font-bold uppercase opacity-75">
-                    Cuadrilla autorizada en este pase ({viewingQrPass.authorized_employees.length})
-                  </span>
-                  <div className="space-y-1">
-                    {viewingQrPass.authorized_employees.map((emp) => (
-                      <div key={emp.id || emp.dni || emp.full_name} className="flex items-center justify-between gap-2">
-                        <span className="font-semibold">
-                          {emp.full_name} {emp.dni ? `· DNI ${emp.dni}` : ''}
-                        </span>
-                        <span className="text-[10px] opacity-75">{emp.role_label || 'Ayudante'}</span>
-                      </div>
-                    ))}
+            <div
+              className="w-full max-w-md rounded-2xl p-6 border border-slate-700/80 shadow-2xl space-y-4 text-xs max-h-[90vh] overflow-y-auto tl-scroll"
+              style={cardStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-3">
+                <div className="space-y-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-black truncate">
+                      {viewingQrPass.visit_service_title || `Pase QR #${viewingQrPass.id}`}
+                    </h3>
+                    <span
+                      className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${modalPassStatus.cls}`}
+                    >
+                      {modalPassStatus.label}
+                    </span>
                   </div>
+                  <p className="opacity-75 text-[11px]">
+                    Pase #{viewingQrPass.id} · {viewingQrPass.provider_name || `Prestador #${viewingQrPass.provider_id}`}
+                  </p>
+                  <p className="opacity-75 text-[11px]">
+                    {formatVisitAddress(viewingQrPass.fraction_number, viewingQrPass.lot_number)} ·{' '}
+                    {viewingQrPass.vehicle_plate || 'Ingreso peatonal'}
+                  </p>
+                  <p className="opacity-75 text-[11px]">
+                    Vigencia: {formatLocalDateTime(viewingQrPass.start_time)} →{' '}
+                    {formatLocalDateTime(viewingQrPass.end_time)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setViewingQrPass(null)}
+                  className="p-1 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Renderizado del código QR escaneable */}
+              <QrCodeDisplay token={viewingQrPass.qr_token} size={200} />
+
+              {/* Listado de integrantes de cuadrilla autorizados en el pase */}
+              {Array.isArray(viewingQrPass.authorized_employees) &&
+                viewingQrPass.authorized_employees.length > 0 && (
+                  <div
+                    className="rounded-xl p-3 border border-slate-700/60 space-y-1.5"
+                    style={innerStyle}
+                  >
+                    <span className="block text-[10px] font-bold uppercase opacity-75">
+                      Cuadrilla autorizada en este pase ({viewingQrPass.authorized_employees.length})
+                    </span>
+                    <div className="space-y-1">
+                      {viewingQrPass.authorized_employees.map((emp) => (
+                        <div key={emp.id || emp.dni || emp.full_name} className="flex items-center justify-between gap-2">
+                          <span className="font-semibold">
+                            {emp.full_name} {emp.dni ? `· DNI ${emp.dni}` : ''}
+                          </span>
+                          <span className="text-[10px] opacity-75">{emp.role_label || 'Ayudante'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {/* Token seleccionable con botón de copia rápida */}
+              <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase opacity-75">Token QR para garita</span>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyToken(viewingQrPass.qr_token, `modal-${viewingQrPass.id}`)}
+                    className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 cursor-pointer"
+                  >
+                    {copiedTokenId === `modal-${viewingQrPass.id}` ? (
+                      <>
+                        <Check size={12} className="text-emerald-400" /> Copiado
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={12} /> Copiar
+                      </>
+                    )}
+                  </button>
+                </div>
+                <code className="block font-mono text-[11px] break-all select-all">
+                  {viewingQrPass.qr_token}
+                </code>
+              </div>
+
+              {/* Gestión completa del pase vigente (Editar / Cancelar) */}
+              {isPendingModalPass && (
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingQrPass;
+                      setViewingQrPass(null);
+                      openEditPassModal(target);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-300 hover:text-sky-200 cursor-pointer"
+                  >
+                    <Edit3 size={13} />
+                    <span>Editar pase</span>
+                  </button>
+                  <button
+                    type="button"
+                    disabled={cancellingPassId === viewingQrPass.id}
+                    onClick={async () => {
+                      await handleCancelPass(viewingQrPass.id);
+                      setViewingQrPass(null);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-bold text-rose-300 hover:text-rose-200 cursor-pointer disabled:opacity-50"
+                  >
+                    <Ban size={13} />
+                    <span>{cancellingPassId === viewingQrPass.id ? 'Cancelando...' : 'Cancelar pase'}</span>
+                  </button>
                 </div>
               )}
 
-            {/* Token seleccionable y acción rápida de envío por WhatsApp */}
-            <div className="rounded-xl p-3 bg-black/25 border border-slate-700/60 space-y-1.5">
-              <span className="block text-[10px] font-bold uppercase opacity-75">Token QR</span>
-              <code className="block font-mono text-[11px] break-all select-all">
-                {viewingQrPass.qr_token}
-              </code>
-            </div>
-
-            <div className="flex items-center justify-between gap-2">
-              <a
-                href={buildPassWhatsAppUrl(viewingQrPass)}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
-              >
-                <Share2 size={13} /> Compartir por WhatsApp
-              </a>
-              <button
-                type="button"
-                onClick={() => setViewingQrPass(null)}
-                className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
-                style={innerStyle}
-              >
-                Cerrar
-              </button>
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                {isPendingModalPass ? (
+                  <a
+                    href={buildPassWhatsAppUrl(viewingQrPass)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-bold bg-emerald-600 hover:bg-emerald-500 text-white"
+                  >
+                    <Share2 size={13} /> Compartir por WhatsApp
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const target = viewingQrPass;
+                      setViewingQrPass(null);
+                      handleRehireProvider(
+                        target.provider_id,
+                        target.provider_name || '',
+                        target.vehicle_plate || ''
+                      );
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer"
+                  >
+                    <RotateCcw size={13} /> Volver a contratar
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setViewingQrPass(null)}
+                  className="px-4 py-2 rounded-xl font-bold border border-slate-700/80 cursor-pointer"
+                  style={innerStyle}
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Modal para editar un pase QR vigente (pending) */}
       {editingPass && (

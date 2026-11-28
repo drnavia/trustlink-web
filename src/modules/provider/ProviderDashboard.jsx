@@ -2152,10 +2152,22 @@ export default function ProviderDashboard({
     [incomingVisits, selectedVisitDetailId]
   );
 
-  // Filtra los pases QR asignados por estado y coincidencia textual (residente, lote, patente, token o ID)
-  const filteredPasses = useMemo(() => {
+  // Contadores por estado y filtrado de pases QR asignados (paridad con Mis Servicios)
+  const { passCounts, filteredPasses } = useMemo(() => {
+    const counts = assignedPasses.reduce(
+      (acc, p) => {
+        const st = String(p.status || '').toLowerCase();
+        acc.all += 1;
+        if (st === 'pending') acc.pending += 1;
+        else if (st === 'used') acc.used += 1;
+        else if (st === 'expired') acc.expired += 1;
+        else if (st === 'cancelled') acc.cancelled += 1;
+        return acc;
+      },
+      { all: 0, pending: 0, used: 0, expired: 0, cancelled: 0 }
+    );
     const q = passSearch.trim().toLowerCase();
-    return assignedPasses.filter((item) => {
+    const list = assignedPasses.filter((item) => {
       const status = String(item.status || '').toLowerCase();
       const matchesStatus = passStatusFilter === 'all' || status === passStatusFilter;
       const residentName = `${item.owner_first_name || ''} ${item.owner_last_name || ''} ${
@@ -2163,6 +2175,7 @@ export default function ProviderDashboard({
       }`.toLowerCase();
       const dest = `${item.fraction_number || ''} ${item.lot_number || ''}`.toLowerCase();
       const plate = String(item.vehicle_plate || item.plate || '').toLowerCase();
+      const spec = String(item.provider_specialty || '').toLowerCase();
       const token = String(item.qr_token || '').toLowerCase();
 
       const matchesQuery =
@@ -2170,11 +2183,13 @@ export default function ProviderDashboard({
         residentName.includes(q) ||
         dest.includes(q) ||
         plate.includes(q) ||
+        spec.includes(q) ||
         token.includes(q) ||
         String(item.id).includes(q);
 
       return matchesStatus && matchesQuery;
     });
+    return { passCounts: counts, filteredPasses: list };
   }, [assignedPasses, passSearch, passStatusFilter]);
 
   // Paginación homologada (`AdminPaginationBar`: 6 / 12 / 24 / 50) sobre la lista de pases filtrados
@@ -6095,67 +6110,103 @@ export default function ProviderDashboard({
           )}
         </section>
       ) : activeStep === 'passes' ? (
-        /* PASO 5: PASES QR ASIGNADOS */
+        /* PASO 5: PASES QR ASIGNADOS (Paridad estética y UX/UI con Mis Servicios y Solicitudes) */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
-          {/* Cabecera de Pases QR con buscador, filtro de estado y recarga */}
-          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          {/* Cabecera limpia de Pases QR */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
+              <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <QrCode size={18} className="text-emerald-400 shrink-0" />
                 <span>Pases QR Asignados para tu Ingreso</span>
               </h2>
               <p className="text-xs opacity-75">
-                Consultá las autorizaciones emitidas por residentes con destino, vigencia y token QR.
+                Consultá tus autorizaciones vigentes para garita, destino, cuadrilla y código QR escaneable.
               </p>
             </div>
+            <button
+              type="button"
+              onClick={fetchAssignedPasses}
+              className={rowActionBtnClass}
+              style={innerStyle}
+              title="Actualizar pases QR"
+            >
+              <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} /> Actualizar
+            </button>
+          </div>
 
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-              <div className="relative">
-                <Search
-                  size={14}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 opacity-60 pointer-events-none"
-                />
-                <input
-                  type="text"
-                  value={passSearch}
-                  onChange={(e) => {
-                    setPassSearch(e.target.value);
-                    setPassPage(1);
-                  }}
-                  placeholder="Buscar residente, lote o patente..."
-                  className="w-full sm:w-56 pl-8 pr-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
-                  style={innerStyle}
-                />
-              </div>
-
-              <select
-                value={passStatusFilter}
+          {/* Buscador full-width + chips de filtro homologados */}
+          <div className="space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={passSearch}
                 onChange={(e) => {
-                  setPassStatusFilter(e.target.value);
+                  setPassSearch(e.target.value);
                   setPassPage(1);
                 }}
-                className="px-3 py-2 rounded-xl text-xs border border-slate-700/80 focus:outline-none"
+                placeholder="Buscar en Pases QR por residente, lote, patente, rubro o #número..."
+                className={`w-full pl-9 pr-3 ${FIELD_INPUT_CLASS}`}
                 style={innerStyle}
-              >
-                <option value="all">Todos los estados</option>
-                <option value="pending">Vigentes / Pendientes</option>
-                <option value="used">Utilizados</option>
-                <option value="expired">Vencidos</option>
-                <option value="cancelled">Cancelados</option>
-              </select>
+              />
+            </div>
 
-              <button
-                type="button"
-                onClick={fetchAssignedPasses}
-                className="p-2 rounded-xl border border-slate-700/80 hover:opacity-90 cursor-pointer self-end sm:self-auto"
-                style={innerStyle}
-                title="Actualizar pases QR"
-              >
-                <RefreshCw size={15} className={loadingPasses ? 'animate-spin' : ''} />
-              </button>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todos', count: passCounts.all },
+                ...(passCounts.pending > 0 || passStatusFilter === 'pending'
+                  ? [{ id: 'pending', label: 'Vigentes', count: passCounts.pending }]
+                  : []),
+                { id: 'used', label: 'Utilizados', count: passCounts.used },
+                { id: 'expired', label: 'Vencidos', count: passCounts.expired },
+                ...(passCounts.cancelled > 0 || passStatusFilter === 'cancelled'
+                  ? [{ id: 'cancelled', label: 'Cancelados', count: passCounts.cancelled }]
+                  : []),
+              ].map((chip) => {
+                const active = passStatusFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => {
+                      setPassStatusFilter(chip.id);
+                      setPassPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {(passStatusFilter !== 'all' || passSearch.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPassStatusFilter('all');
+                    setPassSearch('');
+                    setPassPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -6165,114 +6216,161 @@ export default function ProviderDashboard({
             </div>
           )}
 
-          {/* Grilla paginada de tarjetas de pases QR con destino, acceso y cuadrilla autorizada */}
+          {/* Listado horizontal minimalista de Pases QR asignados (Divulgación progresiva -> Modal QR) */}
           {loadingPasses ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando pases QR asignados...</p>
           ) : paginatedPasses.length === 0 ? (
             <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+              className="rounded-xl p-8 text-center text-xs opacity-80 border border-white/10 space-y-2"
               style={innerStyle}
             >
-              No hay pases QR registrados para tu perfil con los filtros actuales.
+              <p className="font-bold text-sm">
+                {assignedPasses.length === 0
+                  ? 'Todavía no tenés pases QR asignados.'
+                  : 'No hay pases QR que coincidan con el filtro actual.'}
+              </p>
+              <p className="opacity-75">
+                {assignedPasses.length === 0
+                  ? 'Cuando un residente emita un Pase QR para tu visita, aparecerá acá listo para presentar en garita.'
+                  : 'Probá seleccionar "Todos" o limpiar la búsqueda.'}
+              </p>
             </div>
           ) : (
-            <div className={ITEMS_GRID_CLASS}>
+            <div className="space-y-2.5">
               {paginatedPasses.map((passItem) => {
+                const statusLower = String(passItem.status || '').toLowerCase();
+                const isPending = statusLower === 'pending';
+                const isUsed = statusLower === 'used';
                 const ownerLabel =
                   `${passItem.owner_first_name || ''} ${passItem.owner_last_name || ''}`.trim() ||
                   passItem.authorized_by ||
                   'Residente';
                 const plateLabel = passItem.vehicle_plate || passItem.plate || 'Ingreso peatonal';
                 const statusMeta = getUnifiedStatusMeta(passItem.status, 'pass');
+                const addressLabel = formatVisitAddressProvider(
+                  passItem.fraction_number,
+                  passItem.lot_number
+                );
+                const crewCount = Array.isArray(passItem.authorized_employees)
+                  ? passItem.authorized_employees.length
+                  : 0;
+                const scheduleShort = formatVisitScheduleShortProvider(
+                  passItem.start_time,
+                  passItem.end_time
+                );
+                const rowBorderCls = isPending
+                  ? 'border-emerald-500/45 ring-1 ring-emerald-500/15'
+                  : isUsed
+                    ? 'border-sky-400/40'
+                    : 'border-white/10 opacity-85 hover:opacity-100';
 
                 return (
                   <article
                     key={passItem.id}
-                    className={ITEM_CARD_CLASS}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${rowBorderCls}`}
                     style={innerStyle}
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <span className="font-bold text-sm">Pase #{passItem.id}</span>
-                        <p className="opacity-80 mt-0.5">Autorizó: {ownerLabel}</p>
-                      </div>
-                      <span
-                        className={`text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda clicable: Avatar + Pase/Rubro/Estado -> Residente · Destino · Acceso */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPassModal(passItem)}
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
                       >
-                        {statusMeta.label}
-                      </span>
-                    </div>
-
-                    <div className="space-y-1 opacity-85">
-                      <p className="flex items-center gap-1.5">
-                        <MapPin size={13} className="text-emerald-400 shrink-0" />
-                        <span>
-                          Destino: {passItem.fraction_number || 'Sin fracción'} /{' '}
-                          {passItem.lot_number || 'Sin lote'}
-                        </span>
-                      </p>
-                      <p className="flex items-center gap-1.5">
-                        <Car size={13} className="text-sky-400 shrink-0" />
-                        <span>Acceso: {plateLabel}</span>
-                      </p>
-                      {Array.isArray(passItem.authorized_employees) &&
-                        passItem.authorized_employees.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold">
-                              <Users size={12} className="text-emerald-400 shrink-0" /> Cuadrilla:
-                            </span>
-                            {passItem.authorized_employees.map((emp) => (
-                              <span
-                                key={emp.id || emp.dni || emp.full_name}
-                                className="text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-700/60 bg-emerald-950/50 text-emerald-200"
-                              >
-                                {emp.full_name}
-                                {emp.dni ? ` · DNI ${emp.dni}` : ''}
+                        <ProviderAvatar
+                          name={ownerLabel}
+                          level={isPending ? 3 : 1}
+                          size="md"
+                        />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              Pase #{passItem.id} · {ownerLabel}
+                            </h3>
+                            {passItem.provider_specialty && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {passItem.provider_specialty}
                               </span>
-                            ))}
+                            )}
+                            <span
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
+                            >
+                              {statusMeta.label}
+                            </span>
                           </div>
-                        )}
-                      <p className="flex items-center gap-1.5 text-[11px] opacity-75">
-                        <Calendar size={13} className="text-amber-400 shrink-0" />
-                        <span>
-                          Vigencia: {formatDateTime(passItem.start_time)} →{' '}
-                          {formatDateTime(passItem.end_time)}
-                        </span>
-                      </p>
-                    </div>
 
-                    {/* Barra de token QR con copiado rápido y apertura de modal escaneable */}
-                    {passItem.qr_token && (
-                      <div className="pt-1 flex items-center justify-between gap-2 bg-black/25 px-2.5 py-1.5 rounded-lg border border-slate-700/50">
-                        <code className="text-[11px] truncate">{passItem.qr_token}</code>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => handleCopyToken(passItem.qr_token, passItem.id)}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                          >
-                            {copiedPassId === passItem.id ? (
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin size={11} className="text-emerald-400 shrink-0" />
+                              <span>{addressLabel}</span>
+                            </span>
+                            <span className="opacity-45">·</span>
+                            <span className="inline-flex items-center gap-1">
+                              <Car size={11} className="text-sky-400 shrink-0" />
+                              <span>{plateLabel}</span>
+                            </span>
+                            {crewCount > 0 && (
                               <>
-                                <Check size={12} className="text-emerald-400" /> Copiado
-                              </>
-                            ) : (
-                              <>
-                                <Copy size={12} /> Copiar
+                                <span className="opacity-45">·</span>
+                                <span className="inline-flex items-center gap-1 text-emerald-300 opacity-100 font-semibold">
+                                  <Users size={11} />
+                                  <span>
+                                    +{crewCount} {crewCount === 1 ? 'ayudante' : 'ayudantes'}
+                                  </span>
+                                </span>
                               </>
                             )}
-                          </button>
+                          </div>
+                        </div>
+                      </button>
 
+                      {/* Derecha: Vigencia compacta 24h + máx. 2 acciones limpias */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                        <span className="inline-flex items-center gap-1.5 text-[11px] font-bold opacity-90 mr-1 whitespace-nowrap">
+                          <Clock size={12} className="text-emerald-400 shrink-0" />
+                          <span>{scheduleShort}</span>
+                        </span>
+
+                        {isPending && passItem.qr_token ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyToken(passItem.qr_token, passItem.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                            >
+                              {copiedPassId === passItem.id ? (
+                                <>
+                                  <Check size={12} className="text-emerald-400" />
+                                  <span>Copiado</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy size={12} />
+                                  <span>Copiar</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPassModal(passItem)}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                              style={{ backgroundColor: primaryColor }}
+                            >
+                              <QrCode size={13} />
+                              <span>Ver QR</span>
+                            </button>
+                          </>
+                        ) : (
                           <button
                             type="button"
                             onClick={() => setSelectedPassModal(passItem)}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 cursor-pointer"
-                            title="Ver detalle del token QR"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
                           >
-                            <QrCode size={12} /> Ver
+                            <span>Ver detalle</span>
                           </button>
-                        </div>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </article>
                 );
               })}
