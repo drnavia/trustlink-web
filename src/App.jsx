@@ -1370,9 +1370,7 @@ function MainAppContent() {
                 <Star
                   size={13}
                   className={`shrink-0 ${
-                    residentTab === 'reputation' || Number(residentHeaderMeta.ownerRatingAvg || 0) > 0
-                      ? 'text-amber-400 fill-amber-400'
-                      : 'opacity-85'
+                    residentTab === 'reputation' ? 'opacity-100' : 'opacity-85'
                   }`}
                 />
                 <span>Mi Reputación</span>
@@ -1665,22 +1663,6 @@ function MainAppContent() {
                   ? `N${providerHeaderMeta.trustLevel} · ${providerHeaderMeta.trustLabel}`
                   : providerHeaderMeta.trustLabel}
               </span>
-              <span className="opacity-40">·</span>
-              <span className="inline-flex items-center gap-1 shrink-0 opacity-85">
-                <Star
-                  size={11}
-                  className={
-                    Number(providerHeaderMeta.scoring) > 0
-                      ? 'text-amber-400 fill-amber-400'
-                      : 'opacity-60'
-                  }
-                />
-                <span>
-                  {Number(providerHeaderMeta.scoring) > 0
-                    ? Number(providerHeaderMeta.scoring).toFixed(1)
-                    : 'Nuevo'}
-                </span>
-              </span>
             </div>
 
             {/* Derecha: 6 enlaces planos ordenados por frecuencia operativa (sin contadores pasivos) + refresco */}
@@ -1742,8 +1724,24 @@ function MainAppContent() {
                 onClick={() => setProviderTab('reviews')}
                 className={subBarLinkClass(providerTab === 'reviews')}
               >
-                <Star size={13} className="shrink-0 opacity-85" />
+                <Star
+                  size={13}
+                  className={`shrink-0 ${
+                    providerTab === 'reviews' ? 'opacity-100' : 'opacity-85'
+                  }`}
+                />
                 <span>Reputación</span>
+                {Number(providerHeaderMeta.scoring) > 0 && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {Number(providerHeaderMeta.scoring).toFixed(1)}
+                  </span>
+                )}
               </button>
 
               <button

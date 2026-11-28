@@ -72,7 +72,6 @@ import {
   PAGE_SHELL_CLASS,
   SECTION_CARD_CLASS,
   ITEMS_GRID_CLASS,
-  ITEM_CARD_CLASS,
   FIELD_INPUT_CLASS,
   STANDARD_SPECIALTIES_CATALOG,
   TRUST_LEVEL_THEME,
@@ -449,12 +448,17 @@ export default function ProviderDashboard({
   const [copiedPassId, setCopiedPassId] = useState(null);
   const [selectedPassModal, setSelectedPassModal] = useState(null);
 
-  // Paso 6: Contratos, Ingresos netos (93%), comprobantes imprimibles y reseñas cruzadas
+  // Paso 6: Contratos, Ingresos netos (93%), comprobantes imprimibles, filtros y modal de reseñas cruzadas
   const [providerContracts, setProviderContracts] = useState([]);
   const [providerEarningsSummary, setProviderEarningsSummary] = useState(null);
   const [loadingReceiptId, setLoadingReceiptId] = useState(null);
   const [reviewContracts, setReviewContracts] = useState([]);
   const [loadingReviews, setLoadingReviews] = useState(true);
+  const [reputationFilter, setReputationFilter] = useState('all');
+  const [reputationSearch, setReputationSearch] = useState('');
+  const [reputationPage, setReputationPage] = useState(1);
+  const [reputationPageSize, setReputationPageSize] = useState(6);
+  const [selectedReviewContractId, setSelectedReviewContractId] = useState(null);
   const [ownerRatingDrafts, setOwnerRatingDrafts] = useState({});
   const [ownerCommentDrafts, setOwnerCommentDrafts] = useState({});
   const [submittingOwnerReviewId, setSubmittingOwnerReviewId] = useState(null);
@@ -2202,6 +2206,117 @@ export default function ProviderDashboard({
     [filteredPasses, passPage, passPageSize]
   );
 
+  // Consolidación unificada de Contratos + Ingresos netos + Reseñas cruzadas (paridad con Mi Reputación)
+  const { unifiedReputationContracts, reputationCounts, filteredReputationContracts } = useMemo(() => {
+    const byId = new Map();
+
+    (providerContracts || []).forEach((c) => {
+      const cid = Number(c.id);
+      if (!cid) return;
+      byId.set(cid, {
+        contract_id: cid,
+        description: String(c.description || '').trim() || `Servicio #${cid}`,
+        specialty: c.specialty || '',
+        owner_name: c.owner_name || 'Residente',
+        status: c.status || 'completed',
+        agreed_amount: Number(c.agreed_amount || 0),
+        provider_payout: Number(c.provider_payout || Math.round(Number(c.agreed_amount || 0) * 0.93)),
+        open_disputes_count: Number(c.open_disputes_count || 0),
+        created_at: c.completed_at || c.created_at || null,
+        provider_review_rating: null,
+        provider_review_comment: '',
+        provider_review_tags: [],
+        owner_review_id: null,
+        owner_review_rating: null,
+        owner_review_comment: '',
+      });
+    });
+
+    (reviewContracts || []).forEach((rc) => {
+      const cid = Number(rc.contract_id ?? rc.id);
+      if (!cid) return;
+      const existing = byId.get(cid);
+      const ownerLabel =
+        `${rc.owner_first_name || ''} ${rc.owner_last_name || ''}`.trim() ||
+        rc.owner_name ||
+        existing?.owner_name ||
+        'Residente';
+      const agreed = Number(rc.agreed_amount || existing?.agreed_amount || 0);
+      const payout = Number(
+        rc.provider_payout ?? existing?.provider_payout ?? Math.round(agreed * 0.93)
+      );
+
+      byId.set(cid, {
+        contract_id: cid,
+        description: String(rc.description || existing?.description || '').trim() || `Servicio #${cid}`,
+        specialty: rc.specialty || existing?.specialty || '',
+        owner_name: ownerLabel,
+        status: rc.contract_status || rc.status || existing?.status || 'completed',
+        agreed_amount: agreed,
+        provider_payout: payout,
+        open_disputes_count: existing?.open_disputes_count || 0,
+        created_at: rc.created_at || existing?.created_at || null,
+        provider_review_rating: rc.provider_review_rating ? Number(rc.provider_review_rating) : null,
+        provider_review_comment: rc.provider_review_comment || '',
+        provider_review_tags: Array.isArray(rc.provider_review_tags) ? rc.provider_review_tags : [],
+        owner_review_id: rc.owner_review_id || null,
+        owner_review_rating: rc.owner_review_rating ? Number(rc.owner_review_rating) : null,
+        owner_review_comment: rc.owner_review_comment || '',
+      });
+    });
+
+    const all = Array.from(byId.values()).sort((a, b) => b.contract_id - a.contract_id);
+    const counts = {
+      all: all.length,
+      pending_rate: all.filter((i) => !i.owner_review_id && !i.owner_review_rating).length,
+      received: all.filter((i) => i.provider_review_rating !== null).length,
+      disputes: all.filter((i) => i.open_disputes_count > 0).length,
+    };
+
+    const q = reputationSearch.trim().toLowerCase();
+    const filtered = all.filter((item) => {
+      if (reputationFilter === 'pending_rate' && (item.owner_review_id || item.owner_review_rating)) {
+        return false;
+      }
+      if (reputationFilter === 'received' && item.provider_review_rating === null) {
+        return false;
+      }
+      if (reputationFilter === 'disputes' && item.open_disputes_count <= 0) {
+        return false;
+      }
+      if (q) {
+        const hay = `${item.contract_id} ${item.owner_name} ${item.description} ${item.specialty} ${item.provider_review_comment} ${item.owner_review_comment}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return {
+      unifiedReputationContracts: all,
+      reputationCounts: counts,
+      filteredReputationContracts: filtered,
+    };
+  }, [providerContracts, reviewContracts, reputationFilter, reputationSearch]);
+
+  const {
+    pageItems: paginatedReputationContracts,
+    safePage: safeReputationPage,
+    totalPages: totalReputationPages,
+  } = useMemo(
+    () => paginateItems(filteredReputationContracts, reputationPage, reputationPageSize),
+    [filteredReputationContracts, reputationPage, reputationPageSize]
+  );
+
+  const selectedReviewContract = useMemo(
+    () =>
+      selectedReviewContractId
+        ? unifiedReputationContracts.find(
+            (item) => Number(item.contract_id) === Number(selectedReviewContractId)
+          ) || null
+        : null,
+    [unifiedReputationContracts, selectedReviewContractId]
+  );
+
   // Indicadores derivados para badges de navegación y resumen del encabezado
   const activePassesCount = assignedPasses.filter(
     (p) => String(p.status || '').toLowerCase() === 'pending'
@@ -3268,105 +3383,6 @@ export default function ProviderDashboard({
             </section>
           );
         })()}
-
-      {/* Bloque A: Mi Reputación en el Directorio (centralizado exclusivamente en Paso 6 Reputación) */}
-      {!loading &&
-        profileData.reputation &&
-        activeStep === 'reviews' && (
-          <section
-            className="rounded-2xl p-4 sm:p-5 border border-slate-800/80 space-y-3.5 text-xs"
-            style={cardStyle}
-          >
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-              {/* Izquierda: nivel actual, termómetro de 5 segmentos y micro-tags destacados */}
-              <div className="lg:col-span-5 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <Star size={15} className="text-amber-400 fill-amber-400 shrink-0" />
-                    <span>Mi Reputación en el Directorio</span>
-                  </div>
-                  {profileData.reputation.response_label && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 shrink-0">
-                      <Clock size={12} className="shrink-0" />
-                      {profileData.reputation.response_label}
-                    </span>
-                  )}
-                </div>
-                <ReputationThermometer reputation={profileData.reputation} />
-                {Array.isArray(profileData.reputation.top_tags) &&
-                  profileData.reputation.top_tags.length > 0 && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      {profileData.reputation.top_tags.map((item) => (
-                        <span
-                          key={item.tag}
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-200"
-                        >
-                          {item.tag} ({item.count})
-                        </span>
-                      ))}
-                    </div>
-                  )}
-              </div>
-
-              {/* Derecha: 3 KPIs tipográficos de solo lectura (diferenciados visualmente de botones) + próximo hito */}
-              <div className="lg:col-span-7 space-y-2.5">
-                <div className="grid grid-cols-3 gap-2">
-                  <div
-                    className="rounded-xl px-3 py-2 border border-white/10"
-                    style={innerStyle}
-                  >
-                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
-                      Conformados
-                    </p>
-                    <p className="text-base font-extrabold mt-0.5">
-                      {profileData.reputation.completed_jobs ?? 0}
-                    </p>
-                  </div>
-
-                  <div
-                    className="rounded-xl px-3 py-2 border border-white/10"
-                    style={innerStyle}
-                  >
-                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
-                      Reseñas
-                    </p>
-                    <p className="text-base font-extrabold mt-0.5 flex items-baseline gap-1.5">
-                      <span>{profileData.reputation.reviews_count ?? 0}</span>
-                      <span className="text-[11px] font-semibold text-amber-300">
-                        ★ {Number(profileData.reputation.rating_avg || 0).toFixed(1)}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div
-                    className="rounded-xl px-3 py-2 border border-white/10"
-                    style={innerStyle}
-                  >
-                    <p className="text-[10px] uppercase tracking-wider opacity-65 font-semibold">
-                      Reclamos
-                    </p>
-                    <p
-                      className={`text-base font-extrabold mt-0.5 ${
-                        Number(profileData.reputation.disputes_count || 0) > 0
-                          ? 'text-rose-300'
-                          : 'text-emerald-300'
-                      }`}
-                    >
-                      {profileData.reputation.disputes_count ?? 0}
-                    </p>
-                  </div>
-                </div>
-
-                {profileData.reputation.next_milestone && (
-                  <p className="text-[11px] opacity-85 leading-relaxed">
-                    <span className="font-bold opacity-100">Próximo objetivo:</span>{' '}
-                    {profileData.reputation.next_milestone}
-                  </p>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
 
       {/* Estado de carga inicial o vista activa correspondiente al paso seleccionado */}
       {loading ? (
@@ -6413,236 +6429,574 @@ export default function ProviderDashboard({
           )}
         </section>
       ) : (
-        /* PASO 6: INGRESOS NETOS, CONTRATOS, COMPROBANTES Y RESEÑAS CRUZADAS */
+        /* REPUTACIÓN E INGRESOS (Homologado 1:1 con estética minimalista de Mi Reputación / Mis Servicios) */
         <section
           className="rounded-2xl p-5 border border-slate-800/80 space-y-4"
           style={cardStyle}
         >
-          {/* Cabecera de Servicios Realizados y Reputación Cruzada */}
-          <div className="flex items-center justify-between gap-2">
+          {/* Cabecera limpia */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 className="text-base sm:text-lg font-bold flex items-center gap-2">
-                <Star size={18} className="text-emerald-400 shrink-0" />
-                <span>Reputación, Ingresos y Reseñas Cruzadas</span>
+              <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
+                <Star size={18} className="text-amber-400 fill-amber-400 shrink-0" />
+                <span>Reputación e Ingresos</span>
               </h2>
               <p className="text-xs opacity-75">
-                Consultá tu reputación en el directorio, ingresos netos (93%), comprobantes y calificaciones cruzadas.
+                Seguí tu puntuación en el directorio, ingresos netos (93%), comprobantes y reseñas cruzadas.
               </p>
             </div>
-            <span className={listCounterBadgeClass} style={innerStyle}>
-              {reviewContracts.length} contrato(s)
-            </span>
+            {reputationCounts.pending_rate > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReputationFilter('pending_rate');
+                  setReputationPage(1);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95 self-start sm:self-auto shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Star size={13} />
+                <span>Calificar residentes ({reputationCounts.pending_rate})</span>
+              </button>
+            )}
           </div>
 
-          {/* Resumen de Ingresos, Contratos y Comprobantes del Prestador */}
-          {providerEarningsSummary && (
-            <div className="space-y-3 pb-2 border-b border-white/10">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
-                  <div className="text-[10px] uppercase opacity-70">Neto estimado (93%)</div>
-                  <div className="text-base font-black font-mono text-emerald-400 mt-0.5">
-                    ${Number(providerEarningsSummary.total_net_payout || 0).toLocaleString('es-AR')}
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
-                  <div className="text-[10px] uppercase opacity-70">Completados</div>
-                  <div className="text-base font-black font-mono mt-0.5">
-                    {providerEarningsSummary.completed_count ?? 0}
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
-                  <div className="text-[10px] uppercase opacity-70">Pendientes / En curso</div>
-                  <div className="text-base font-black font-mono mt-0.5">
-                    {(providerEarningsSummary.pending_count ?? 0) +
-                      (providerEarningsSummary.in_progress_count ?? 0)}
-                  </div>
-                </div>
-                <div className="p-3 rounded-xl border border-white/10" style={innerStyle}>
-                  <div className="text-[10px] uppercase opacity-70">Reclamos abiertos</div>
-                  <div
-                    className={`text-base font-black font-mono mt-0.5 ${
-                      providerEarningsSummary.open_disputes_count > 0 ? 'text-rose-400' : ''
-                    }`}
-                  >
-                    {providerEarningsSummary.open_disputes_count ?? 0}
-                  </div>
-                </div>
+          {/* Tira resumen compacta unificada (Reputación + Neto 93% + Termómetro) */}
+          <div
+            className="rounded-2xl p-4 border border-amber-400/30 space-y-2.5 text-xs"
+            style={innerStyle}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="inline-flex items-center gap-1.5 font-black text-sm text-amber-300">
+                  <Star size={15} className="fill-amber-400 text-amber-400 shrink-0" />
+                  <span>
+                    {Number(headerScoring) > 0 ? `${Number(headerScoring).toFixed(1)} / 5` : 'Sin puntaje aún'}
+                  </span>
+                </span>
+                {profileData.reputation?.level_label && (
+                  <span className="font-bold opacity-90">{profileData.reputation.level_label}</span>
+                )}
+                <span className="opacity-45">·</span>
+                <span className="opacity-80">
+                  Neto (93%):{' '}
+                  <strong className="font-mono text-emerald-300">
+                    ${Number(providerEarningsSummary?.total_net_payout || 0).toLocaleString('es-AR')}
+                  </strong>
+                </span>
+                <span className="opacity-45">·</span>
+                <span className="opacity-75">
+                  {providerEarningsSummary?.completed_count ??
+                    profileData.reputation?.completed_jobs ??
+                    0}{' '}
+                  conformados
+                </span>
+                <span className="opacity-45">·</span>
+                <span className="opacity-75">
+                  {profileData.reputation?.reviews_count ?? reputationCounts.received} reseñas
+                </span>
+                {(providerEarningsSummary?.open_disputes_count || 0) > 0 && (
+                  <>
+                    <span className="opacity-45">·</span>
+                    <span className="font-bold text-rose-300">
+                      {providerEarningsSummary.open_disputes_count} reclamo(s)
+                    </span>
+                  </>
+                )}
               </div>
 
-              {/* Contratos recientes del prestador con liquidación neta y emisión de comprobante imprimible */}
-              {providerContracts.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs">
-                  {providerContracts.slice(0, 6).map((c) => {
-                    const cMeta = getUnifiedStatusMeta(c.status, 'contract');
-                    return (
-                      <div
-                        key={`earn-${c.id}`}
-                        className="p-3 rounded-xl border border-white/10 flex items-center justify-between gap-2"
-                        style={innerStyle}
+              {profileData.reputation?.response_label && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-sky-300 shrink-0">
+                  <Clock size={12} className="shrink-0" />
+                  <span>{profileData.reputation.response_label}</span>
+                </span>
+              )}
+            </div>
+
+            {profileData.reputation && (
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pt-1 border-t border-white/10">
+                <div className="flex-1 max-w-md">
+                  <ReputationThermometer reputation={profileData.reputation} compact />
+                </div>
+                {profileData.reputation.next_milestone && (
+                  <p className="text-[11px] opacity-75">
+                    <strong className="opacity-95">Próximo objetivo:</strong>{' '}
+                    {profileData.reputation.next_milestone}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Buscador + chips de filtro homologados */}
+          <div className="space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={reputationSearch}
+                onChange={(e) => {
+                  setReputationSearch(e.target.value);
+                  setReputationPage(1);
+                }}
+                placeholder="Buscar por residente, trabajo, rubro, comentario o #contrato..."
+                className={`w-full pl-9 pr-3 ${FIELD_INPUT_CLASS}`}
+                style={innerStyle}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todos', count: reputationCounts.all },
+                ...(reputationCounts.pending_rate > 0 || reputationFilter === 'pending_rate'
+                  ? [{ id: 'pending_rate', label: 'Por calificar', count: reputationCounts.pending_rate }]
+                  : []),
+                { id: 'received', label: 'Con reseña', count: reputationCounts.received },
+                ...(reputationCounts.disputes > 0 || reputationFilter === 'disputes'
+                  ? [{ id: 'disputes', label: 'Con reclamo', count: reputationCounts.disputes }]
+                  : []),
+              ].map((chip) => {
+                const active = reputationFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => {
+                      setReputationFilter(chip.id);
+                      setReputationPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {(reputationFilter !== 'all' || reputationSearch.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReputationFilter('all');
+                    setReputationSearch('');
+                    setReputationPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Listado horizontal minimalista (2 líneas por fila + neto + ratings + acciones limpias) */}
+          {loadingReviews && unifiedReputationContracts.length === 0 ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando tu historial de servicios...</p>
+          ) : paginatedReputationContracts.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-80 border border-white/10 space-y-2"
+              style={innerStyle}
+            >
+              <p className="font-bold text-sm">
+                {unifiedReputationContracts.length === 0
+                  ? 'Todavía no tenés trabajos conformados en tu historial.'
+                  : 'No hay trabajos que coincidan con el filtro actual.'}
+              </p>
+              <p className="opacity-75">
+                {unifiedReputationContracts.length === 0
+                  ? 'Cuando completes servicios con residentes, acá verás tus ingresos netos, comprobantes y reseñas.'
+                  : 'Probá seleccionar "Todos" o limpiar la búsqueda.'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {paginatedReputationContracts.map((item) => {
+                const alreadyRatedOwner = Boolean(item.owner_review_id || item.owner_review_rating);
+                const statusMeta = getUnifiedStatusMeta(item.status, 'contract');
+                const dateShort = item.created_at
+                  ? new Date(item.created_at).toLocaleDateString('es-AR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })
+                  : '';
+                const previewQuote = item.provider_review_comment || item.owner_review_comment;
+
+                return (
+                  <article
+                    key={item.contract_id}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${
+                      item.open_disputes_count > 0
+                        ? 'border-rose-500/45'
+                        : !alreadyRatedOwner
+                          ? 'border-amber-400/40'
+                          : 'border-white/10 hover:border-white/20'
+                    }`}
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda (2 líneas): Título + Rubro + Estado -> Residente · Contrato #id · Fecha · Cita */}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedReviewContractId(item.contract_id)}
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
                       >
-                        <div className="min-w-0 space-y-0.5">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-bold">Contrato #{c.id}</span>
+                        <ProviderAvatar name={item.owner_name} level={3} size="md" />
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              {item.description}
+                            </h3>
+                            {item.specialty && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {item.specialty}
+                              </span>
+                            )}
                             <span
-                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${cMeta.cls}`}
+                              className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
                             >
-                              {cMeta.label}
+                              {statusMeta.label}
                             </span>
-                            {Number(c.open_disputes_count || 0) > 0 && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-700 bg-rose-950/60 text-rose-200">
+                            {item.open_disputes_count > 0 && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-rose-700 bg-rose-950/60 text-rose-200 shrink-0">
                                 Reclamo
                               </span>
                             )}
                           </div>
-                          <p className="opacity-80 truncate">
-                            {c.owner_name} · Neto:{' '}
-                            <strong className="font-mono text-emerald-400">
-                              ${Number(c.provider_payout || 0).toLocaleString('es-AR')}
-                            </strong>
-                          </p>
+
+                          <div className="flex items-center gap-x-2 text-[11px] opacity-75 min-w-0">
+                            <span className="shrink-0">
+                              de <strong className="font-semibold opacity-95">{item.owner_name}</strong>
+                            </span>
+                            <span className="opacity-45 shrink-0">·</span>
+                            <span className="shrink-0">Contrato #{item.contract_id}</span>
+                            {dateShort && (
+                              <>
+                                <span className="opacity-45 shrink-0">·</span>
+                                <span className="shrink-0">{dateShort}</span>
+                              </>
+                            )}
+                            {previewQuote && (
+                              <>
+                                <span className="opacity-45 shrink-0 hidden sm:inline">·</span>
+                                <span className="truncate italic opacity-85 hidden sm:inline">
+                                  “{previewQuote}”
+                                </span>
+                              </>
+                            )}
+                          </div>
                         </div>
+                      </button>
+
+                      {/* Derecha: Neto (93%) + ratings limpios + máx. 2 acciones */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-2.5 shrink-0 pl-12 md:pl-0">
+                        <div className="flex items-center gap-3 whitespace-nowrap mr-1">
+                          {item.provider_payout > 0 && (
+                            <span
+                              className="font-mono font-black text-sm text-emerald-300"
+                              title={`Monto acordado: $${item.agreed_amount.toLocaleString('es-AR')} · Tu neto (93%): $${item.provider_payout.toLocaleString('es-AR')}`}
+                            >
+                              ${item.provider_payout.toLocaleString('es-AR')}
+                            </span>
+                          )}
+                          {item.provider_review_rating !== null && (
+                            <span
+                              className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-300"
+                              title="Calificación recibida del residente"
+                            >
+                              <Star size={11} className="fill-amber-400 text-amber-400" />
+                              <span>{item.provider_review_rating}/5</span>
+                            </span>
+                          )}
+                        </div>
+
                         <button
                           type="button"
-                          disabled={loadingReceiptId === c.id}
-                          onClick={() => handlePrintProviderReceipt(c.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-bold border border-white/15 cursor-pointer shrink-0 disabled:opacity-50"
-                          style={cardStyle}
+                          disabled={loadingReceiptId === item.contract_id}
+                          onClick={() => handlePrintProviderReceipt(item.contract_id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors disabled:opacity-50"
                         >
                           <Printer size={12} className="text-emerald-400" />
-                          {loadingReceiptId === c.id ? '...' : 'Comprobante'}
+                          <span>{loadingReceiptId === item.contract_id ? '...' : 'Comprobante'}</span>
                         </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
 
-          {/* Grilla de historial de servicios y calificaciones cruzadas */}
-          {loadingReviews ? (
-            <p className="text-xs opacity-75 py-8 text-center">Cargando historial de servicios...</p>
-          ) : reviewContracts.length === 0 ? (
-            providerContracts.length === 0 ? (
-              <div
-                className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
-                style={innerStyle}
-              >
-                Aún no tenés contratos asignados en tu historial.
-              </div>
-            ) : null
-          ) : (
-            <div className={ITEMS_GRID_CLASS}>
-              {reviewContracts.map((item) => {
-                const ratingDraft = ownerRatingDrafts[item.contract_id] || 5;
-                const commentDraft = ownerCommentDrafts[item.contract_id] || '';
-                const alreadyRatedOwner = Boolean(item.owner_review_id);
-                const statusMeta = getUnifiedStatusMeta(
-                  item.contract_status || item.status,
-                  'contract'
-                );
-
-                return (
-                  <div
-                    key={item.contract_id}
-                    className={ITEM_CARD_CLASS}
-                    style={innerStyle}
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm">
-                          Contrato #{item.contract_id} ·{' '}
-                          {`${item.owner_first_name || ''} ${item.owner_last_name || ''}`.trim() ||
-                            item.owner_name ||
-                            'Residente Verificado'}
-                        </span>
-                      </div>
-                      <span
-                        className={`uppercase text-[10px] font-bold px-2.5 py-0.5 rounded-full border shrink-0 ${statusMeta.cls}`}
-                      >
-                        {statusMeta.label}
-                      </span>
-                    </div>
-
-                    <p className="opacity-85">{item.description}</p>
-
-                    {/* Reseña recibida del residente (si existe) y bloque de calificación al propietario */}
-                    {item.provider_review_rating && (
-                      <div className="rounded-lg p-2.5 bg-emerald-950/30 border border-emerald-800/40 text-xs">
-                        <span className="font-bold text-emerald-300">
-                          Reseña recibida del residente: ★ {item.provider_review_rating}/5
-                        </span>
-                        {item.provider_review_comment && (
-                          <p className="opacity-85 mt-0.5">
-                            &ldquo;{item.provider_review_comment}&rdquo;
-                          </p>
+                        {!alreadyRatedOwner ? (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReviewContractId(item.contract_id)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Star size={12} />
+                            <span>Calificar</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedReviewContractId(item.contract_id)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                          >
+                            Ver detalle
+                          </button>
                         )}
                       </div>
-                    )}
-
-                    {alreadyRatedOwner ? (
-                      <div
-                        className="p-3 rounded-lg border border-slate-700/80 text-xs"
-                        style={cardStyle}
-                      >
-                        Tu calificación al residente: ★ {item.owner_review_rating}/5
-                        {item.owner_review_comment ? ` — "${item.owner_review_comment}"` : ''}
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center pt-1">
-                        <select
-                          value={ratingDraft}
-                          onChange={(e) =>
-                            setOwnerRatingDrafts((prev) => ({
-                              ...prev,
-                              [item.contract_id]: Number(e.target.value),
-                            }))
-                          }
-                          className="sm:col-span-3 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                          style={cardStyle}
-                        >
-                          <option value={5}>★★★★★ (5/5)</option>
-                          <option value={4}>★★★★☆ (4/5)</option>
-                          <option value={3}>★★★☆☆ (3/5)</option>
-                          <option value={2}>★★☆☆☆ (2/5)</option>
-                          <option value={1}>★☆☆☆☆ (1/5)</option>
-                        </select>
-
-                        <input
-                          type="text"
-                          value={commentDraft}
-                          onChange={(e) =>
-                            setOwnerCommentDrafts((prev) => ({
-                              ...prev,
-                              [item.contract_id]: e.target.value,
-                            }))
-                          }
-                          placeholder="Comentario sobre el trato y acceso en el domicilio..."
-                          className="sm:col-span-6 px-3 py-2 rounded-xl text-xs border border-slate-700/80"
-                          style={cardStyle}
-                        />
-
-                        <button
-                          type="button"
-                          onClick={() => handleSubmitOwnerReview(item.contract_id)}
-                          disabled={submittingOwnerReviewId === item.contract_id}
-                          className="sm:col-span-3 py-2 px-3 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                          style={{ backgroundColor: primaryColor }}
-                        >
-                          <Send size={13} />
-                          {submittingOwnerReviewId === item.contract_id
-                            ? 'Enviando...'
-                            : 'Calificar Residente'}
-                        </button>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  </article>
                 );
               })}
             </div>
           )}
+
+          {/* Paginación estándar homologada (`6 / 12 / 24 / 50`) */}
+          {filteredReputationContracts.length > 0 && (
+            <AdminPaginationBar
+              page={safeReputationPage}
+              totalPages={totalReputationPages}
+              totalItems={filteredReputationContracts.length}
+              pageSize={reputationPageSize}
+              onPageChange={setReputationPage}
+              onPageSizeChange={(nextSize) => {
+                setReputationPageSize(nextSize);
+                setReputationPage(1);
+              }}
+              loading={loadingReviews}
+              itemLabel="servicios"
+              innerStyle={innerStyle}
+            />
+          )}
         </section>
       )}
+
+      {/* Modal: Detalle de Servicio y Calificación Cruzada al Residente (Divulgación progresiva) */}
+      {selectedReviewContract && (() => {
+        const item = selectedReviewContract;
+        const cid = item.contract_id;
+        const ratingDraft = ownerRatingDrafts[cid] || 5;
+        const commentDraft = ownerCommentDrafts[cid] || '';
+        const alreadyRatedOwner = Boolean(item.owner_review_id || item.owner_review_rating);
+        const statusMeta = getUnifiedStatusMeta(item.status, 'contract');
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4"
+            onClick={() => setSelectedReviewContractId(null)}
+          >
+            <div
+              className="w-full max-w-lg rounded-2xl border border-slate-700/80 shadow-2xl flex flex-col max-h-[88vh] overflow-hidden text-xs"
+              style={cardStyle}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-white/10 flex items-start justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-3 min-w-0">
+                  <ProviderAvatar name={item.owner_name} level={3} size="md" />
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-base font-black truncate">{item.description}</h3>
+                      {item.specialty && (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                          {item.specialty}
+                        </span>
+                      )}
+                      <span
+                        className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full border ${statusMeta.cls}`}
+                      >
+                        {statusMeta.label}
+                      </span>
+                    </div>
+                    <p className="text-[11px] opacity-75">
+                      Residente: <strong className="opacity-95">{item.owner_name}</strong> · Contrato #{cid}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewContractId(null)}
+                  aria-label="Cerrar detalle de servicio"
+                  className="p-1.5 rounded-lg opacity-75 hover:opacity-100 cursor-pointer shrink-0"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto tl-scroll space-y-4 flex-1">
+                {/* Resumen económico */}
+                <div
+                  className="rounded-xl p-3.5 border border-white/10 flex flex-wrap items-center justify-between gap-3"
+                  style={innerStyle}
+                >
+                  <div className="space-y-0.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider opacity-65">
+                      Tu ingreso neto (93%)
+                    </span>
+                    <p className="font-mono font-black text-lg text-emerald-300">
+                      ${item.provider_payout.toLocaleString('es-AR')}
+                    </p>
+                  </div>
+                  {item.agreed_amount > 0 && (
+                    <div className="text-right space-y-0.5 text-[11px] opacity-80">
+                      <p>
+                        Total acordado:{' '}
+                        <strong className="font-mono">
+                          ${item.agreed_amount.toLocaleString('es-AR')}
+                        </strong>
+                      </p>
+                      <p>
+                        Comisión (7%):{' '}
+                        <strong className="font-mono">
+                          ${Math.max(0, item.agreed_amount - item.provider_payout).toLocaleString('es-AR')}
+                        </strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Reseña recibida del residente */}
+                {item.provider_review_rating !== null ? (
+                  <div className="rounded-xl p-3.5 bg-emerald-950/25 border border-emerald-800/45 space-y-1.5">
+                    <span className="font-bold text-emerald-300 inline-flex items-center gap-1.5">
+                      <Star size={13} className="fill-amber-400 text-amber-400" />
+                      <span>Reseña recibida del residente: {item.provider_review_rating}/5</span>
+                    </span>
+                    {item.provider_review_comment && (
+                      <p className="opacity-90 italic leading-relaxed">
+                        “{item.provider_review_comment}”
+                      </p>
+                    )}
+                    {item.provider_review_tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {item.provider_review_tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/40 bg-emerald-500/15 text-emerald-200"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-xl p-3 border border-white/10 text-[11px] opacity-75"
+                    style={innerStyle}
+                  >
+                    El residente todavía no dejó una reseña sobre este trabajo.
+                  </div>
+                )}
+
+                {/* Calificación emitida o formulario de calificación al residente */}
+                {alreadyRatedOwner ? (
+                  <div className="rounded-xl p-3.5 bg-sky-950/25 border border-sky-800/45 space-y-1">
+                    <span className="font-bold text-sky-300 inline-flex items-center gap-1.5">
+                      <Star size={13} className="fill-amber-400 text-amber-400" />
+                      <span>Tu calificación al residente: {item.owner_review_rating}/5</span>
+                    </span>
+                    {item.owner_review_comment && (
+                      <p className="opacity-90 italic leading-relaxed">
+                        “{item.owner_review_comment}”
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    className="rounded-xl p-4 border border-amber-400/40 space-y-3"
+                    style={innerStyle}
+                  >
+                    <p className="font-bold text-amber-200 flex items-center gap-1.5">
+                      <Star size={13} className="fill-amber-400 text-amber-400" />
+                      <span>Calificá tu experiencia con {item.owner_name}</span>
+                    </p>
+                    <div className="space-y-2.5">
+                      <select
+                        value={ratingDraft}
+                        onChange={(e) =>
+                          setOwnerRatingDrafts((prev) => ({
+                            ...prev,
+                            [cid]: Number(e.target.value),
+                          }))
+                        }
+                        className="w-full px-3 py-2 rounded-xl text-xs border border-slate-700/80"
+                        style={cardStyle}
+                      >
+                        <option value={5}>★★★★★ (5/5 · Excelente trato y acceso)</option>
+                        <option value={4}>★★★★☆ (4/5 · Muy buena experiencia)</option>
+                        <option value={3}>★★★☆☆ (3/5 · Correcta)</option>
+                        <option value={2}>★★☆☆☆ (2/5 · Con inconvenientes)</option>
+                        <option value={1}>★☆☆☆☆ (1/5 · Mala experiencia)</option>
+                      </select>
+
+                      <input
+                        type="text"
+                        value={commentDraft}
+                        onChange={(e) =>
+                          setOwnerCommentDrafts((prev) => ({
+                            ...prev,
+                            [cid]: e.target.value,
+                          }))
+                        }
+                        placeholder="Comentario breve sobre el trato, puntualidad y acceso en el domicilio..."
+                        className={`w-full ${FIELD_INPUT_CLASS}`}
+                        style={cardStyle}
+                      />
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => handleSubmitOwnerReview(cid)}
+                          disabled={submittingOwnerReviewId === cid}
+                          className="inline-flex items-center gap-1.5 py-2 px-4 rounded-xl text-xs font-bold text-white cursor-pointer disabled:opacity-50"
+                          style={{ backgroundColor: primaryColor }}
+                        >
+                          <Send size={13} />
+                          <span>
+                            {submittingOwnerReviewId === cid
+                              ? 'Enviando...'
+                              : 'Enviar calificación'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div
+                className="px-5 py-3.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 shrink-0"
+                style={innerStyle}
+              >
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewContractId(null)}
+                  className="px-3.5 py-2 rounded-xl font-bold border border-white/15 cursor-pointer hover:opacity-90"
+                  style={cardStyle}
+                >
+                  Cerrar
+                </button>
+                <button
+                  type="button"
+                  disabled={loadingReceiptId === cid}
+                  onClick={() => handlePrintProviderReceipt(cid)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 cursor-pointer disabled:opacity-50"
+                >
+                  <Printer size={13} />
+                  <span>{loadingReceiptId === cid ? 'Cargando...' : 'Imprimir comprobante'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal: Detalle de Solicitud / Visita del Prestador (Divulgación progresiva simétrica a Mis Servicios) */}
       {selectedVisitDetail && (() => {
