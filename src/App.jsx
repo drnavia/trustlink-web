@@ -252,8 +252,8 @@ function MainAppContent() {
     specialties: [],
     refreshing: false,
   });
-  // Estado compartido con la Zona 2D del Portal Prestador (6 enlaces planos sincronizados)
-  const [providerTab, setProviderTab] = useState('credentials');
+  // Estado compartido con la Zona 2D del Portal Prestador (6 enlaces planos ordenados por frecuencia operativa)
+  const [providerTab, setProviderTab] = useState('visits');
   const [providerRefreshNonce, setProviderRefreshNonce] = useState(0);
   const [providerHeaderMeta, setProviderHeaderMeta] = useState({
     trustLevel: 0,
@@ -1377,7 +1377,13 @@ function MainAppContent() {
                 />
                 <span>Mi Reputación</span>
                 {Number(residentHeaderMeta.ownerRatingAvg || 0) > 0 ? (
-                  <span className="text-[10px] font-bold text-amber-300">
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
                     {Number(residentHeaderMeta.ownerRatingAvg).toFixed(1)}
                   </span>
                 ) : Number(residentHeaderMeta.unratedServicesCount || 0) > 0 ? (
@@ -1677,19 +1683,19 @@ function MainAppContent() {
               </span>
             </div>
 
-            {/* Derecha: 6 enlaces planos (Opción A) sin ceros innecesarios + refresco */}
+            {/* Derecha: 6 enlaces planos ordenados por frecuencia operativa (sin contadores pasivos) + refresco */}
             <nav
               aria-label="Navegación del Portal Prestador"
               className="flex items-center gap-4 sm:gap-5 overflow-x-auto flex-nowrap"
             >
               <button
                 type="button"
-                onClick={() => setProviderTab('credentials')}
-                className={subBarLinkClass(providerTab === 'credentials')}
+                onClick={() => setProviderTab('visits')}
+                className={subBarLinkClass(providerTab === 'visits')}
               >
-                <ShieldCheck size={13} className="shrink-0 opacity-85" />
-                <span>Credenciales</span>
-                {providerHeaderMeta.unansweredQaCount > 0 && (
+                <MessageSquare size={13} className="shrink-0 opacity-85" />
+                <span>Solicitudes</span>
+                {providerHeaderMeta.pendingVisitsCount > 0 && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
                       isDarkTheme
@@ -1697,21 +1703,7 @@ function MainAppContent() {
                         : 'bg-amber-100 text-amber-800 border border-amber-300'
                     }`}
                   >
-                    {providerHeaderMeta.unansweredQaCount}
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setProviderTab('vehicles')}
-                className={subBarLinkClass(providerTab === 'vehicles')}
-              >
-                <Car size={13} className="shrink-0 opacity-85" />
-                <span>Flota y Equipo</span>
-                {providerHeaderMeta.fleetCount > 0 && (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({providerHeaderMeta.fleetCount})
+                    {providerHeaderMeta.pendingVisitsCount}
                   </span>
                 )}
               </button>
@@ -1723,35 +1715,6 @@ function MainAppContent() {
               >
                 <Calendar size={13} className="shrink-0 opacity-85" />
                 <span>Agenda</span>
-                {providerHeaderMeta.scheduleCount > 0 && (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({providerHeaderMeta.scheduleCount})
-                  </span>
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setProviderTab('visits')}
-                className={subBarLinkClass(providerTab === 'visits')}
-              >
-                <MessageSquare size={13} className="shrink-0 opacity-85" />
-                <span>Solicitudes</span>
-                {providerHeaderMeta.pendingVisitsCount > 0 ? (
-                  <span
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
-                      isDarkTheme
-                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
-                        : 'bg-amber-100 text-amber-800 border border-amber-300'
-                    }`}
-                  >
-                    {providerHeaderMeta.pendingVisitsCount}
-                  </span>
-                ) : providerHeaderMeta.totalVisitsCount > 0 ? (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({providerHeaderMeta.totalVisitsCount})
-                  </span>
-                ) : null}
               </button>
 
               <button
@@ -1781,11 +1744,35 @@ function MainAppContent() {
               >
                 <Star size={13} className="shrink-0 opacity-85" />
                 <span>Reputación</span>
-                {providerHeaderMeta.reviewsCount > 0 && (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({providerHeaderMeta.reviewsCount})
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('credentials')}
+                className={subBarLinkClass(providerTab === 'credentials')}
+              >
+                <ShieldCheck size={13} className="shrink-0 opacity-85" />
+                <span>Credenciales</span>
+                {providerHeaderMeta.unansweredQaCount > 0 && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {providerHeaderMeta.unansweredQaCount}
                   </span>
                 )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setProviderTab('vehicles')}
+                className={subBarLinkClass(providerTab === 'vehicles')}
+              >
+                <Car size={13} className="shrink-0 opacity-85" />
+                <span>Flota</span>
               </button>
 
               <button

@@ -4582,7 +4582,7 @@ export default function ResidentDashboard({
       {activeStep === 'passes' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
           {/* Encabezado de Pases QR con buscador textual y filtro por estado */}
-          {/* Cabecera limpia de Mis Pases QR (paridad con Mis Servicios) */}
+          {/* Cabecera limpia de Mis Pases QR (paridad con Mis Servicios, sin botón Actualizar duplicado) */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
@@ -4593,16 +4593,18 @@ export default function ResidentDashboard({
                 Seguí tus autorizaciones de ingreso, compartí el QR vigente o gestioná pases pendientes en un solo lugar.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchMyPasses}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
-              style={innerStyle}
-              title="Actualizar pases QR"
-            >
-              <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} />
-              <span>Actualizar</span>
-            </button>
+            {!useGlobalHeader && (
+              <button
+                type="button"
+                onClick={fetchMyPasses}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
+                style={innerStyle}
+                title="Actualizar pases QR"
+              >
+                <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} />
+                <span>Actualizar</span>
+              </button>
+            )}
           </div>
 
           {/* Buscador full-width + chips de filtro homologados con Mis Servicios */}
@@ -4893,10 +4895,10 @@ export default function ResidentDashboard({
         </section>
       )}
 
-      {/* PASO 4: MI REPUTACIÓN (Reputación cruzada del residente con estética unificada de Mis Servicios) */}
+      {/* PASO 4: MI REPUTACIÓN (Minimalista: tira resumen compacta + filas de 2 líneas) */}
       {activeStep === 'reputation' && (
         <section className={SECTION_CARD_CLASS} style={cardStyle}>
-          {/* Cabecera */}
+          {/* Cabecera limpia + tira resumen inline */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
@@ -4904,88 +4906,65 @@ export default function ResidentDashboard({
                 <span>Mi Reputación</span>
               </h2>
               <p className="text-xs opacity-75">
-                Tu puntuación comunitaria según prestadores y el historial de reseñas cruzadas de tus servicios.
+                Tu puntuación comunitaria según prestadores y el historial de reseñas cruzadas.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchReviewsData}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
-              style={innerStyle}
-            >
-              <RefreshCw size={13} className={loadingReviews ? 'animate-spin' : ''} />
-              <span>Actualizar</span>
-            </button>
+            {residentPendingRateCount > 0 ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setReputationFilter('pending');
+                  setReputationPage(1);
+                }}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95 self-start sm:self-auto shrink-0"
+                style={{ backgroundColor: primaryColor }}
+              >
+                <Star size={13} />
+                <span>Calificar pendientes ({residentPendingRateCount})</span>
+              </button>
+            ) : !useGlobalHeader ? (
+              <button
+                type="button"
+                onClick={fetchReviewsData}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
+                style={innerStyle}
+              >
+                <RefreshCw size={13} className={loadingReviews ? 'animate-spin' : ''} />
+                <span>Actualizar</span>
+              </button>
+            ) : null}
           </div>
 
-          {/* Resumen superior de Reputación Cruzada del Residente */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <div
-              className="rounded-2xl p-4 border border-amber-400/35 flex items-center justify-between gap-3"
-              style={innerStyle}
-            >
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
-                  Tu puntuación como residente
+          {/* Tira compacta de resumen (libera espacio vertical y mantiene foco en el listado) */}
+          <div
+            className="rounded-2xl px-4 py-3 border border-amber-400/30 flex flex-wrap items-center justify-between gap-3 text-xs"
+            style={innerStyle}
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="inline-flex items-center gap-1.5 font-black text-sm text-amber-300">
+                <Star size={15} className="fill-amber-400 text-amber-400 shrink-0" />
+                <span>
+                  {residentReceivedCount > 0 ? `${residentRatingAvg.toFixed(1)} / 5` : 'Sin puntaje aún'}
                 </span>
-                <p className="text-lg font-black text-amber-300 flex items-center gap-1.5">
-                  <Star size={16} className="fill-amber-400 text-amber-400 shrink-0" />
-                  <span>
-                    {residentReceivedCount > 0 ? `${residentRatingAvg.toFixed(1)} / 5` : 'Sin puntaje'}
-                  </span>
-                </p>
-                <p className="text-[11px] opacity-80">{residentReputationLevel}</p>
-              </div>
-              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full border border-amber-400/40 bg-amber-500/15 text-amber-200 shrink-0">
+              </span>
+              <span className="font-bold opacity-90">{residentReputationLevel}</span>
+              <span className="opacity-45">·</span>
+              <span className="opacity-75">
                 {residentReceivedCount}{' '}
-                {residentReceivedCount === 1 ? 'reseña' : 'reseñas'}
+                {residentReceivedCount === 1 ? 'recibida de prestadores' : 'recibidas de prestadores'}
+              </span>
+              <span className="opacity-45">·</span>
+              <span className="opacity-75">
+                {residentGivenCount}{' '}
+                {residentGivenCount === 1 ? 'emitida por vos' : 'emitidas por vos'}
               </span>
             </div>
-
-            <div
-              className="rounded-2xl p-4 border border-white/10 flex items-center justify-between gap-3"
-              style={innerStyle}
-            >
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
-                  Reseñas que emitiste
-                </span>
-                <p className="text-lg font-black text-emerald-300">{residentGivenCount}</p>
-                <p className="text-[11px] opacity-75">Ayudan a otros vecinos a elegir mejor</p>
-              </div>
-            </div>
-
-            <div
-              className="rounded-2xl p-4 border border-white/10 flex items-center justify-between gap-3"
-              style={innerStyle}
-            >
-              <div className="space-y-0.5">
-                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
-                  Servicios por calificar
-                </span>
-                <p className="text-lg font-black">
-                  {residentPendingRateCount}
-                </p>
-                <p className="text-[11px] opacity-75">
-                  {residentPendingRateCount > 0
-                    ? 'Calificá para completar tu historial'
-                    : '¡Estás al día con tus reseñas!'}
-                </p>
-              </div>
-              {residentPendingRateCount > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setReputationFilter('pending');
-                    setReputationPage(1);
-                  }}
-                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-white cursor-pointer shrink-0"
-                  style={{ backgroundColor: primaryColor }}
-                >
-                  Calificar
-                </button>
-              )}
-            </div>
+            {residentPendingRateCount === 0 && (reviewContracts || []).length > 0 && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300">
+                <CheckCircle2 size={13} />
+                <span>Al día con tus reseñas</span>
+              </span>
+            )}
           </div>
 
           {/* Buscador + chips de filtro homologados */}
@@ -5011,8 +4990,8 @@ export default function ResidentDashboard({
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
               {[
                 { id: 'all', label: 'Todas', count: (reviewContracts || []).length },
-                { id: 'received', label: 'Recibidas de prestadores', count: residentReceivedCount },
-                { id: 'given', label: 'Emitidas por vos', count: residentGivenCount },
+                { id: 'received', label: 'Recibidas', count: residentReceivedCount },
+                { id: 'given', label: 'Emitidas', count: residentGivenCount },
                 ...(residentPendingRateCount > 0 || reputationFilter === 'pending'
                   ? [{ id: 'pending', label: 'Por calificar', count: residentPendingRateCount }]
                   : []),
@@ -5058,7 +5037,7 @@ export default function ResidentDashboard({
             </div>
           </div>
 
-          {/* Listado horizontal minimalista de reseñas cruzadas */}
+          {/* Listado horizontal minimalista (máx. 2 líneas por fila + ratings limpios a la derecha) */}
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando tu reputación...</p>
           ) : paginatedReputationItems.length === 0 ? (
@@ -5087,26 +5066,30 @@ export default function ResidentDashboard({
                       year: 'numeric',
                     })
                   : '';
+                const previewQuote =
+                  reputationFilter === 'given'
+                    ? item.givenComment
+                    : item.receivedComment || item.givenComment;
+
                 return (
                   <article
                     key={item.id}
                     className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${
-                      item.receivedRating !== null
-                        ? 'border-amber-400/35'
-                        : item.givenRating === null
-                          ? 'border-sky-400/40'
-                          : 'border-white/10 hover:border-white/20'
+                      item.givenRating === null
+                        ? 'border-amber-400/45'
+                        : 'border-white/10 hover:border-white/20'
                     }`}
                     style={innerStyle}
                   >
                     <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      {/* Izquierda (2 líneas limpias): Título + 1 chip Rubro -> Prestador · Fecha · 1 cita breve */}
                       <button
                         type="button"
                         onClick={() => setSelectedServiceKey(item.contractKey)}
-                        className="flex items-start gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                        className="flex items-center gap-3 min-w-0 flex-1 text-left cursor-pointer group"
                       >
                         <ProviderAvatar name={item.providerDisplay} level={3} size="md" />
-                        <div className="min-w-0 flex-1 space-y-1.5">
+                        <div className="min-w-0 flex-1 space-y-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
                               {item.description}
@@ -5116,58 +5099,58 @@ export default function ResidentDashboard({
                                 {item.specialty}
                               </span>
                             )}
-                            {item.receivedRating !== null && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-sky-400/40 bg-sky-500/15 text-sky-200 shrink-0">
-                                <Star size={10} className="fill-amber-400 text-amber-400" />
-                                <span>Te calificó {item.receivedRating}/5</span>
-                              </span>
-                            )}
-                            {item.givenRating !== null ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 shrink-0">
-                                <Star size={10} className="fill-amber-400 text-amber-400" />
-                                <span>Tu reseña {item.givenRating}/5</span>
-                              </span>
-                            ) : (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200 shrink-0">
-                                Por calificar
-                              </span>
-                            )}
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
-                            <span>
+                          <div className="flex items-center gap-x-2 text-[11px] opacity-75 min-w-0">
+                            <span className="shrink-0">
                               con <strong className="font-semibold opacity-95">{item.providerDisplay}</strong>
                             </span>
                             {dateShort && (
                               <>
-                                <span className="opacity-45">·</span>
-                                <span>{dateShort}</span>
+                                <span className="opacity-45 shrink-0">·</span>
+                                <span className="shrink-0">{dateShort}</span>
+                              </>
+                            )}
+                            {previewQuote && (
+                              <>
+                                <span className="opacity-45 shrink-0 hidden sm:inline">·</span>
+                                <span className="truncate italic opacity-85 hidden sm:inline">
+                                  “{previewQuote}”
+                                </span>
                               </>
                             )}
                           </div>
-
-                          {item.receivedComment && (
-                            <p className="text-[11px] text-sky-200/90 italic leading-relaxed">
-                              Prestador: “{item.receivedComment}”
-                            </p>
-                          )}
-                          {item.givenComment && (
-                            <p className="text-[11px] opacity-80 italic leading-relaxed">
-                              Vos: “{item.givenComment}”
-                            </p>
-                          )}
                         </div>
                       </button>
 
-                      <div className="flex items-center justify-end gap-2 shrink-0 pl-12 md:pl-0">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedServiceKey(item.contractKey)}
-                          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
-                        >
-                          Ver servicio
-                        </button>
-                        {item.givenRating === null && (
+                      {/* Derecha: Lectura limpia de ratings + 1 acción directa */}
+                      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between md:justify-end gap-3 shrink-0 pl-12 md:pl-0">
+                        <div className="flex items-center gap-3 text-[11px] font-bold whitespace-nowrap">
+                          {item.receivedRating !== null && (
+                            <span
+                              className="inline-flex items-center gap-1 text-sky-200"
+                              title="Calificación que recibiste del prestador"
+                            >
+                              <span className="opacity-70 font-semibold">Recibida</span>
+                              <Star size={11} className="fill-amber-400 text-amber-400" />
+                              <span>{item.receivedRating}/5</span>
+                            </span>
+                          )}
+                          {item.givenRating !== null ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-emerald-300"
+                              title="Calificación que le diste al prestador"
+                            >
+                              <span className="opacity-70 font-semibold">Tuya</span>
+                              <Star size={11} className="fill-amber-400 text-amber-400" />
+                              <span>{item.givenRating}/5</span>
+                            </span>
+                          ) : (
+                            <span className="text-amber-300">Por calificar</span>
+                          )}
+                        </div>
+
+                        {item.givenRating === null ? (
                           <button
                             type="button"
                             onClick={() => setSelectedServiceKey(item.contractKey)}
@@ -5176,6 +5159,14 @@ export default function ResidentDashboard({
                           >
                             <Star size={12} />
                             <span>Calificar</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedServiceKey(item.contractKey)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                          >
+                            Ver detalle
                           </button>
                         )}
                       </div>

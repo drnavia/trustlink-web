@@ -2550,49 +2550,49 @@ export default function ProviderDashboard({
   const rowActionBtnClass =
     'px-2.5 py-1.5 rounded-xl border border-slate-700/80 text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-opacity hover:opacity-90 shrink-0';
 
-  // Definición ordenada de los 6 pasos del Portal Prestador con iconos y contadores en vivo
+  // Definición ordenada de los 6 pasos del Portal Prestador (frecuencia operativa primero)
   const steps = [
     {
-      id: 'credentials',
-      stepNumber: 1,
-      label: 'Credenciales',
-      count: profileData.providers.length,
-      icon: ShieldCheck,
-    },
-    {
-      id: 'vehicles',
-      stepNumber: 2,
-      label: 'Flota y Equipo',
-      count: profileData.vehicles.length + profileData.employees.length,
-      icon: Car,
-    },
-    {
-      id: 'schedule',
-      stepNumber: 3,
-      label: 'Agenda',
-      count: scheduleBlocks.length,
-      icon: Calendar,
-    },
-    {
       id: 'visits',
-      stepNumber: 4,
+      stepNumber: 1,
       label: 'Solicitudes',
-      count: visitCounts.action || incomingVisits.length,
+      count: visitCounts.action,
       icon: MessageSquare,
     },
     {
+      id: 'schedule',
+      stepNumber: 2,
+      label: 'Agenda',
+      count: 0,
+      icon: Calendar,
+    },
+    {
       id: 'passes',
-      stepNumber: 5,
+      stepNumber: 3,
       label: 'Pases QR',
       count: activePassesCount,
       icon: QrCode,
     },
     {
       id: 'reviews',
-      stepNumber: 6,
+      stepNumber: 4,
       label: 'Reputación',
-      count: reviewContracts.length,
+      count: 0,
       icon: Star,
+    },
+    {
+      id: 'credentials',
+      stepNumber: 5,
+      label: 'Credenciales',
+      count: unansweredQaCount,
+      icon: ShieldCheck,
+    },
+    {
+      id: 'vehicles',
+      stepNumber: 6,
+      label: 'Flota',
+      count: 0,
+      icon: Car,
     },
   ];
 
@@ -2871,7 +2871,7 @@ export default function ProviderDashboard({
             onClick={() => setActiveStep('credentials')}
             className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-white/20 bg-black/30 hover:bg-black/50 cursor-pointer shrink-0"
           >
-            Completar en 1. Credenciales
+            Completar en Credenciales
           </button>
         </div>
       )}
@@ -5758,14 +5758,16 @@ export default function ProviderDashboard({
                 Seguí pedidos de residentes, confirmá horarios, enviá presupuestos y chateá en un solo lugar.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchIncomingVisits}
-              className={rowActionBtnClass}
-              style={innerStyle}
-            >
-              <RefreshCw size={13} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
-            </button>
+            {!useGlobalHeader && (
+              <button
+                type="button"
+                onClick={fetchIncomingVisits}
+                className={rowActionBtnClass}
+                style={innerStyle}
+              >
+                <RefreshCw size={13} className={loadingVisits ? 'animate-spin' : ''} /> Actualizar
+              </button>
+            )}
           </div>
 
           {/* Buscador + chips de filtro homologados con Mis Servicios */}
@@ -6140,15 +6142,17 @@ export default function ProviderDashboard({
                 Consultá tus autorizaciones vigentes para garita, destino, cuadrilla y código QR escaneable.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={fetchAssignedPasses}
-              className={rowActionBtnClass}
-              style={innerStyle}
-              title="Actualizar pases QR"
-            >
-              <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} /> Actualizar
-            </button>
+            {!useGlobalHeader && (
+              <button
+                type="button"
+                onClick={fetchAssignedPasses}
+                className={rowActionBtnClass}
+                style={innerStyle}
+                title="Actualizar pases QR"
+              >
+                <RefreshCw size={13} className={loadingPasses ? 'animate-spin' : ''} /> Actualizar
+              </button>
+            )}
           </div>
 
           {/* Buscador full-width + chips de filtro homologados */}
@@ -6519,12 +6523,14 @@ export default function ProviderDashboard({
           {loadingReviews ? (
             <p className="text-xs opacity-75 py-8 text-center">Cargando historial de servicios...</p>
           ) : reviewContracts.length === 0 ? (
-            <div
-              className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
-              style={innerStyle}
-            >
-              Aún no tenés contratos asignados en tu historial.
-            </div>
+            providerContracts.length === 0 ? (
+              <div
+                className="rounded-xl p-8 text-center text-xs opacity-75 border border-slate-800/70"
+                style={innerStyle}
+              >
+                Aún no tenés contratos asignados en tu historial.
+              </div>
+            ) : null
           ) : (
             <div className={ITEMS_GRID_CLASS}>
               {reviewContracts.map((item) => {
