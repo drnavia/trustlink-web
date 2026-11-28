@@ -2763,7 +2763,7 @@ export default function ResidentDashboard({
         id: 'active-passes',
         eyebrow: 'Accesos vigentes en garita',
         title: `${activePassesCount} ${activePassesCount === 1 ? 'Pase QR vigente' : 'Pases QR vigentes'}`,
-        cta: 'Ver Pases QR',
+        cta: 'Ver Mis Pases QR',
         tone: 'emerald',
         actionType: 'go_passes',
       });
@@ -2818,6 +2818,7 @@ export default function ResidentDashboard({
       providersCount: filteredProviders.length,
       servicesActionCount: servicesCounts.action,
       servicesTotalCount: servicesCounts.all,
+      activePassesCount: passCounts.pending,
       passesCount: myPasses.length,
       favoritesCount,
       specialties: availableSpecialtyEntries,
@@ -2828,6 +2829,7 @@ export default function ResidentDashboard({
     filteredProviders.length,
     servicesCounts.action,
     servicesCounts.all,
+    passCounts.pending,
     myPasses.length,
     favoritesCount,
     availableSpecialtyEntries,
@@ -2837,7 +2839,7 @@ export default function ResidentDashboard({
     loadingContracts,
   ]);
 
-  // Definición de la navegación simplificada en 3 pestañas (Opción A: Prestadores · Mis Servicios · Pases QR)
+  // Definición de la navegación simplificada en 3 pestañas (Prestadores · Mis Servicios · Mis Pases QR)
   const steps = [
     {
       id: 'providers',
@@ -2856,8 +2858,8 @@ export default function ResidentDashboard({
     {
       id: 'passes',
       stepNumber: 3,
-      label: 'Pases QR',
-      count: myPasses.length,
+      label: 'Mis Pases QR',
+      count: passCounts.pending,
       icon: QrCode,
     },
   ];
@@ -4471,7 +4473,7 @@ export default function ResidentDashboard({
             <div>
               <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <QrCode size={18} className="text-emerald-400 shrink-0" />
-                <span>Mis Pases QR Emitidos</span>
+                <span>Mis Pases QR</span>
               </h2>
               <p className="text-xs opacity-75">
                 Seguí tus autorizaciones de ingreso, compartí el QR vigente o gestioná pases pendientes en un solo lugar.
@@ -4611,7 +4613,7 @@ export default function ResidentDashboard({
                   item.visit_service_specialty || item.provider_specialty || '';
                 const passTitle =
                   String(item.visit_service_title || '').trim() ||
-                  (specialtyLabel ? `Pase #${item.id} · ${specialtyLabel}` : `Pase #${item.id} · ${providerDisplay}`);
+                  (specialtyLabel ? `Servicio de ${specialtyLabel}` : `Acceso · ${providerDisplay}`);
                 const addressLabel = formatVisitAddress(item.fraction_number, item.lot_number);
                 const accessLabel = item.vehicle_plate
                   ? `Patente ${item.vehicle_plate}`

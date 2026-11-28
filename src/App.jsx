@@ -1317,10 +1317,16 @@ function MainAppContent() {
                 className={subBarLinkClass(residentTab === 'passes')}
               >
                 <QrCode size={13} className="shrink-0 opacity-85" />
-                <span>Pases QR</span>
-                {residentHeaderMeta.passesCount > 0 && (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({residentHeaderMeta.passesCount})
+                <span>Mis Pases QR</span>
+                {residentHeaderMeta.activePassesCount > 0 && (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-emerald-400/20 text-emerald-200 border border-emerald-400/40'
+                        : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    }`}
+                  >
+                    {residentHeaderMeta.activePassesCount}
                   </span>
                 )}
               </button>
@@ -1696,7 +1702,7 @@ function MainAppContent() {
                 className={subBarLinkClass(providerTab === 'visits')}
               >
                 <MessageSquare size={13} className="shrink-0 opacity-85" />
-                <span>Visitas</span>
+                <span>Solicitudes</span>
                 {providerHeaderMeta.pendingVisitsCount > 0 ? (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
@@ -1721,7 +1727,7 @@ function MainAppContent() {
               >
                 <QrCode size={13} className="shrink-0 opacity-85" />
                 <span>Pases QR</span>
-                {providerHeaderMeta.activePassesCount > 0 ? (
+                {providerHeaderMeta.activePassesCount > 0 && (
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
                       isDarkTheme
@@ -1731,11 +1737,7 @@ function MainAppContent() {
                   >
                     {providerHeaderMeta.activePassesCount}
                   </span>
-                ) : providerHeaderMeta.totalPassesCount > 0 ? (
-                  <span className="text-[10px] opacity-65 font-semibold">
-                    ({providerHeaderMeta.totalPassesCount})
-                  </span>
-                ) : null}
+                )}
               </button>
 
               <button

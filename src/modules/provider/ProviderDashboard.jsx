@@ -2477,7 +2477,7 @@ export default function ProviderDashboard({
       scoring: headerScoring,
       fleetCount: profileData.vehicles.length + profileData.employees.length,
       scheduleCount: scheduleBlocks.length,
-      pendingVisitsCount,
+      pendingVisitsCount: visitCounts.action,
       totalVisitsCount: incomingVisits.length,
       activePassesCount,
       totalPassesCount: assignedPasses.length,
@@ -2493,7 +2493,7 @@ export default function ProviderDashboard({
     profileData.vehicles.length,
     profileData.employees.length,
     scheduleBlocks.length,
-    pendingVisitsCount,
+    visitCounts.action,
     incomingVisits.length,
     activePassesCount,
     assignedPasses.length,
@@ -2576,15 +2576,15 @@ export default function ProviderDashboard({
     {
       id: 'visits',
       stepNumber: 4,
-      label: 'Visitas',
-      count: pendingVisitsCount || incomingVisits.length,
+      label: 'Solicitudes',
+      count: visitCounts.action || incomingVisits.length,
       icon: MessageSquare,
     },
     {
       id: 'passes',
       stepNumber: 5,
       label: 'Pases QR',
-      count: activePassesCount || assignedPasses.length,
+      count: activePassesCount,
       icon: QrCode,
     },
     {
@@ -5752,7 +5752,7 @@ export default function ProviderDashboard({
             <div>
               <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <MessageSquare size={18} className="text-emerald-400 shrink-0" />
-                <span>Solicitudes y Confirmación de Visitas</span>
+                <span>Solicitudes y Visitas</span>
               </h2>
               <p className="text-xs opacity-75">
                 Seguí pedidos de residentes, confirmá horarios, enviá presupuestos y chateá en un solo lugar.
@@ -6120,7 +6120,7 @@ export default function ProviderDashboard({
             <div>
               <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
                 <QrCode size={18} className="text-emerald-400 shrink-0" />
-                <span>Pases QR Asignados para tu Ingreso</span>
+                <span>Pases QR</span>
               </h2>
               <p className="text-xs opacity-75">
                 Consultá tus autorizaciones vigentes para garita, destino, cuadrilla y código QR escaneable.
