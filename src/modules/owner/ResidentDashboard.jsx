@@ -493,10 +493,18 @@ export default function ResidentDashboard({
     }
   };
 
-  // Mapea pasos externos legados ('visits'|'payments'|'reviews') a la pestaña unificada 'services'
+  // Mapea pasos externos legados ('visits'|'payments'|'reviews') a las pestañas vigentes
   const resolveNormalizedStep = (rawStep) => {
-    if (rawStep === 'providers' || rawStep === 'passes' || rawStep === 'services') return rawStep;
-    if (rawStep === 'visits' || rawStep === 'payments' || rawStep === 'reviews') return 'services';
+    if (
+      rawStep === 'providers' ||
+      rawStep === 'passes' ||
+      rawStep === 'services' ||
+      rawStep === 'reputation'
+    ) {
+      return rawStep;
+    }
+    if (rawStep === 'reviews') return 'reputation';
+    if (rawStep === 'visits' || rawStep === 'payments') return 'services';
     return 'providers';
   };
 
@@ -692,6 +700,12 @@ export default function ResidentDashboard({
   const [respondingQuoteVisitId, setRespondingQuoteVisitId] = useState(null);
   const [requestingQuoteChangesId, setRequestingQuoteChangesId] = useState(null);
   const [quoteChangesDraft, setQuoteChangesDraft] = useState('');
+
+  // Mi Reputación (reputación cruzada del residente: recibidas de prestadores, emitidas y por calificar)
+  const [reputationFilter, setReputationFilter] = useState('all');
+  const [reputationSearch, setReputationSearch] = useState('');
+  const [reputationPage, setReputationPage] = useState(1);
+  const [reputationPageSize, setReputationPageSize] = useState(6);
 
   // Emisión de pase QR vinculado a un prestador (y opcionalmente a una visita)
   const [qrModalProvider, setQrModalProvider] = useState(null);
@@ -2811,6 +2825,92 @@ export default function ResidentDashboard({
     [providers]
   );
 
+  // Consolidación de "Mi Reputación" (calificaciones recibidas de prestadores + emitidas + pendientes)
+  const {
+    residentRatingAvg,
+    residentReceivedCount,
+    residentGivenCount,
+    residentPendingRateCount,
+    residentReputationLevel,
+    filteredReputationItems,
+  } = useMemo(() => {
+    const items = (reviewContracts || []).map((rc) => {
+      const cid = Number(rc.contract_id ?? rc.id);
+      const providerDisplay =
+        `${rc.provider_first_name || ''} ${rc.provider_last_name || ''}`.trim() ||
+        rc.provider_name ||
+        `Prestador #${rc.provider_id}`;
+      const receivedRating = rc.owner_review_rating ? Number(rc.owner_review_rating) : null;
+      const givenRating = rc.provider_review_rating ? Number(rc.provider_review_rating) : null;
+      return {
+        id: cid,
+        contractKey: `contract-${cid}`,
+        providerDisplay,
+        specialty: rc.specialty || '',
+        description: String(rc.description || '').trim() || `Servicio #${cid}`,
+        createdAt: rc.owner_review_created_at || rc.provider_review_created_at || rc.created_at,
+        receivedRating,
+        receivedComment: rc.owner_review_comment || '',
+        givenRating,
+        givenComment: rc.provider_review_comment || '',
+        givenTags: Array.isArray(rc.provider_review_tags) ? rc.provider_review_tags : [],
+      };
+    });
+
+    const received = items.filter((i) => i.receivedRating !== null);
+    const given = items.filter((i) => i.givenRating !== null);
+    const pending = items.filter((i) => i.givenRating === null);
+    const avg =
+      received.length > 0
+        ? Number(
+            (
+              received.reduce((sum, i) => sum + Number(i.receivedRating || 0), 0) / received.length
+            ).toFixed(2)
+          )
+        : 0;
+
+    const level =
+      received.length === 0
+        ? 'Sin calificaciones aún'
+        : avg >= 4.8 && received.length >= 2
+          ? 'Residente destacado'
+          : avg >= 4.0
+            ? 'Residente confiable'
+            : avg >= 3.0
+              ? 'Buena reputación'
+              : 'En evaluación';
+
+    const q = reputationSearch.trim().toLowerCase();
+    const filtered = items.filter((item) => {
+      if (reputationFilter === 'received' && item.receivedRating === null) return false;
+      if (reputationFilter === 'given' && item.givenRating === null) return false;
+      if (reputationFilter === 'pending' && item.givenRating !== null) return false;
+      if (q) {
+        const hay = `${item.id} ${item.providerDisplay} ${item.specialty} ${item.description} ${item.receivedComment} ${item.givenComment}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    return {
+      residentRatingAvg: avg,
+      residentReceivedCount: received.length,
+      residentGivenCount: given.length,
+      residentPendingRateCount: pending.length,
+      residentReputationLevel: level,
+      filteredReputationItems: filtered,
+    };
+  }, [reviewContracts, reputationFilter, reputationSearch]);
+
+  const {
+    pageItems: paginatedReputationItems,
+    safePage: safeReputationPage,
+    totalPages: totalReputationPages,
+  } = useMemo(
+    () => paginateItems(filteredReputationItems, reputationPage, reputationPageSize),
+    [filteredReputationItems, reputationPage, reputationPageSize]
+  );
+
   // Publica contadores vivos y rubros activos hacia la Zona 2 de la barra superior (App.jsx)
   useEffect(() => {
     if (typeof onHeaderMetaChange !== 'function') return;
@@ -2821,8 +2921,11 @@ export default function ResidentDashboard({
       activePassesCount: passCounts.pending,
       passesCount: myPasses.length,
       favoritesCount,
+      ownerRatingAvg: residentRatingAvg,
+      ownerReviewsCount: residentReceivedCount,
+      unratedServicesCount,
       specialties: availableSpecialtyEntries,
-      refreshing: loadingProviders || loadingVisits || loadingPasses || loadingContracts,
+      refreshing: loadingProviders || loadingVisits || loadingPasses || loadingContracts || loadingReviews,
     });
   }, [
     onHeaderMetaChange,
@@ -2832,14 +2935,18 @@ export default function ResidentDashboard({
     passCounts.pending,
     myPasses.length,
     favoritesCount,
+    residentRatingAvg,
+    residentReceivedCount,
+    unratedServicesCount,
     availableSpecialtyEntries,
     loadingProviders,
     loadingVisits,
     loadingPasses,
     loadingContracts,
+    loadingReviews,
   ]);
 
-  // Definición de la navegación simplificada en 3 pestañas (Prestadores · Mis Servicios · Mis Pases QR)
+  // Definición de la navegación en pestañas (Prestadores · Mis Servicios · Mis Pases QR · Mi Reputación)
   const steps = [
     {
       id: 'providers',
@@ -2861,6 +2968,13 @@ export default function ResidentDashboard({
       label: 'Mis Pases QR',
       count: passCounts.pending,
       icon: QrCode,
+    },
+    {
+      id: 'reputation',
+      stepNumber: 4,
+      label: 'Mi Reputación',
+      count: residentReceivedCount,
+      icon: Star,
     },
   ];
 
@@ -4773,6 +4887,319 @@ export default function ResidentDashboard({
               }}
               loading={loadingPasses}
               itemLabel="pases QR"
+              innerStyle={innerStyle}
+            />
+          )}
+        </section>
+      )}
+
+      {/* PASO 4: MI REPUTACIÓN (Reputación cruzada del residente con estética unificada de Mis Servicios) */}
+      {activeStep === 'reputation' && (
+        <section className={SECTION_CARD_CLASS} style={cardStyle}>
+          {/* Cabecera */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base sm:text-lg font-extrabold flex items-center gap-2">
+                <Star size={18} className="text-amber-400 fill-amber-400 shrink-0" />
+                <span>Mi Reputación</span>
+              </h2>
+              <p className="text-xs opacity-75">
+                Tu puntuación comunitaria según prestadores y el historial de reseñas cruzadas de tus servicios.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchReviewsData}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 hover:opacity-90 cursor-pointer self-start sm:self-auto shrink-0"
+              style={innerStyle}
+            >
+              <RefreshCw size={13} className={loadingReviews ? 'animate-spin' : ''} />
+              <span>Actualizar</span>
+            </button>
+          </div>
+
+          {/* Resumen superior de Reputación Cruzada del Residente */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+            <div
+              className="rounded-2xl p-4 border border-amber-400/35 flex items-center justify-between gap-3"
+              style={innerStyle}
+            >
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                  Tu puntuación como residente
+                </span>
+                <p className="text-lg font-black text-amber-300 flex items-center gap-1.5">
+                  <Star size={16} className="fill-amber-400 text-amber-400 shrink-0" />
+                  <span>
+                    {residentReceivedCount > 0 ? `${residentRatingAvg.toFixed(1)} / 5` : 'Sin puntaje'}
+                  </span>
+                </p>
+                <p className="text-[11px] opacity-80">{residentReputationLevel}</p>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full border border-amber-400/40 bg-amber-500/15 text-amber-200 shrink-0">
+                {residentReceivedCount}{' '}
+                {residentReceivedCount === 1 ? 'reseña' : 'reseñas'}
+              </span>
+            </div>
+
+            <div
+              className="rounded-2xl p-4 border border-white/10 flex items-center justify-between gap-3"
+              style={innerStyle}
+            >
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                  Reseñas que emitiste
+                </span>
+                <p className="text-lg font-black text-emerald-300">{residentGivenCount}</p>
+                <p className="text-[11px] opacity-75">Ayudan a otros vecinos a elegir mejor</p>
+              </div>
+            </div>
+
+            <div
+              className="rounded-2xl p-4 border border-white/10 flex items-center justify-between gap-3"
+              style={innerStyle}
+            >
+              <div className="space-y-0.5">
+                <span className="text-[10px] font-bold uppercase tracking-wider opacity-70">
+                  Servicios por calificar
+                </span>
+                <p className="text-lg font-black">
+                  {residentPendingRateCount}
+                </p>
+                <p className="text-[11px] opacity-75">
+                  {residentPendingRateCount > 0
+                    ? 'Calificá para completar tu historial'
+                    : '¡Estás al día con tus reseñas!'}
+                </p>
+              </div>
+              {residentPendingRateCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReputationFilter('pending');
+                    setReputationPage(1);
+                  }}
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-white cursor-pointer shrink-0"
+                  style={{ backgroundColor: primaryColor }}
+                >
+                  Calificar
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Buscador + chips de filtro homologados */}
+          <div className="space-y-2.5">
+            <div className="relative">
+              <Search
+                size={14}
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 opacity-55 pointer-events-none"
+              />
+              <input
+                type="text"
+                value={reputationSearch}
+                onChange={(e) => {
+                  setReputationSearch(e.target.value);
+                  setReputationPage(1);
+                }}
+                placeholder="Buscar por prestador, servicio, rubro o comentario..."
+                className={`w-full pl-9 pr-3 ${FIELD_INPUT_CLASS}`}
+                style={innerStyle}
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+              {[
+                { id: 'all', label: 'Todas', count: (reviewContracts || []).length },
+                { id: 'received', label: 'Recibidas de prestadores', count: residentReceivedCount },
+                { id: 'given', label: 'Emitidas por vos', count: residentGivenCount },
+                ...(residentPendingRateCount > 0 || reputationFilter === 'pending'
+                  ? [{ id: 'pending', label: 'Por calificar', count: residentPendingRateCount }]
+                  : []),
+              ].map((chip) => {
+                const active = reputationFilter === chip.id;
+                return (
+                  <button
+                    key={chip.id}
+                    type="button"
+                    onClick={() => {
+                      setReputationFilter(chip.id);
+                      setReputationPage(1);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-bold border transition-all cursor-pointer ${
+                      active
+                        ? 'text-white border-transparent shadow-sm'
+                        : 'border-white/15 opacity-80 hover:opacity-100'
+                    }`}
+                    style={active ? { backgroundColor: primaryColor } : innerStyle}
+                  >
+                    <span>{chip.label}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-black/25">
+                      {chip.count}
+                    </span>
+                  </button>
+                );
+              })}
+
+              {(reputationFilter !== 'all' || reputationSearch.trim()) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReputationFilter('all');
+                    setReputationSearch('');
+                    setReputationPage(1);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border border-rose-400/40 bg-rose-500/10 text-rose-200 hover:bg-rose-500/20 cursor-pointer"
+                >
+                  <RotateCcw size={11} />
+                  <span>Limpiar</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Listado horizontal minimalista de reseñas cruzadas */}
+          {loadingReviews ? (
+            <p className="text-xs opacity-75 py-8 text-center">Cargando tu reputación...</p>
+          ) : paginatedReputationItems.length === 0 ? (
+            <div
+              className="rounded-xl p-8 text-center text-xs opacity-80 border border-white/10 space-y-2"
+              style={innerStyle}
+            >
+              <p className="font-bold text-sm">
+                {(reviewContracts || []).length === 0
+                  ? 'Todavía no tenés servicios finalizados con reseñas.'
+                  : reputationFilter === 'received'
+                    ? 'Aún no recibiste calificaciones de prestadores.'
+                    : 'No hay reseñas que coincidan con el filtro actual.'}
+              </p>
+              <p className="opacity-75">
+                Cuando finalices un servicio, tanto vos como el prestador pueden calificarse mutuamente.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2.5">
+              {paginatedReputationItems.map((item) => {
+                const dateShort = item.createdAt
+                  ? new Date(item.createdAt).toLocaleDateString('es-AR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                    })
+                  : '';
+                return (
+                  <article
+                    key={item.id}
+                    className={`rounded-2xl border px-4 py-3.5 text-xs transition-colors ${
+                      item.receivedRating !== null
+                        ? 'border-amber-400/35'
+                        : item.givenRating === null
+                          ? 'border-sky-400/40'
+                          : 'border-white/10 hover:border-white/20'
+                    }`}
+                    style={innerStyle}
+                  >
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedServiceKey(item.contractKey)}
+                        className="flex items-start gap-3 min-w-0 flex-1 text-left cursor-pointer group"
+                      >
+                        <ProviderAvatar name={item.providerDisplay} level={3} size="md" />
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-extrabold truncate max-w-full sm:max-w-md group-hover:underline">
+                              {item.description}
+                            </h3>
+                            {item.specialty && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                {item.specialty}
+                              </span>
+                            )}
+                            {item.receivedRating !== null && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-sky-400/40 bg-sky-500/15 text-sky-200 shrink-0">
+                                <Star size={10} className="fill-amber-400 text-amber-400" />
+                                <span>Te calificó {item.receivedRating}/5</span>
+                              </span>
+                            )}
+                            {item.givenRating !== null ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-500/35 bg-emerald-500/10 text-emerald-300 shrink-0">
+                                <Star size={10} className="fill-amber-400 text-amber-400" />
+                                <span>Tu reseña {item.givenRating}/5</span>
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-400/45 bg-amber-500/15 text-amber-200 shrink-0">
+                                Por calificar
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
+                            <span>
+                              con <strong className="font-semibold opacity-95">{item.providerDisplay}</strong>
+                            </span>
+                            {dateShort && (
+                              <>
+                                <span className="opacity-45">·</span>
+                                <span>{dateShort}</span>
+                              </>
+                            )}
+                          </div>
+
+                          {item.receivedComment && (
+                            <p className="text-[11px] text-sky-200/90 italic leading-relaxed">
+                              Prestador: “{item.receivedComment}”
+                            </p>
+                          )}
+                          {item.givenComment && (
+                            <p className="text-[11px] opacity-80 italic leading-relaxed">
+                              Vos: “{item.givenComment}”
+                            </p>
+                          )}
+                        </div>
+                      </button>
+
+                      <div className="flex items-center justify-end gap-2 shrink-0 pl-12 md:pl-0">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedServiceKey(item.contractKey)}
+                          className="px-3 py-1.5 rounded-xl text-xs font-bold border border-white/15 bg-white/5 hover:bg-white/10 opacity-90 hover:opacity-100 cursor-pointer transition-colors"
+                        >
+                          Ver servicio
+                        </button>
+                        {item.givenRating === null && (
+                          <button
+                            type="button"
+                            onClick={() => setSelectedServiceKey(item.contractKey)}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold text-white cursor-pointer shadow-sm hover:opacity-95"
+                            style={{ backgroundColor: primaryColor }}
+                          >
+                            <Star size={12} />
+                            <span>Calificar</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Paginación estándar homologada */}
+          {filteredReputationItems.length > 0 && (
+            <AdminPaginationBar
+              page={safeReputationPage}
+              totalPages={totalReputationPages}
+              totalItems={filteredReputationItems.length}
+              pageSize={reputationPageSize}
+              onPageChange={setReputationPage}
+              onPageSizeChange={(nextSize) => {
+                setReputationPageSize(nextSize);
+                setReputationPage(1);
+              }}
+              loading={loadingReviews}
+              itemLabel="reseñas"
               innerStyle={innerStyle}
             />
           )}

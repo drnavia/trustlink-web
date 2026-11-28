@@ -5968,8 +5968,22 @@ export default function ProviderDashboard({
                           </div>
 
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] opacity-75">
-                            <span>
-                              de <strong className="font-semibold opacity-95">{ownerLabel}</strong>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span>
+                                de <strong className="font-semibold opacity-95">{ownerLabel}</strong>
+                              </span>
+                              {Number(visit.owner_reviews_count || 0) > 0 && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 font-bold text-amber-300 opacity-100"
+                                  title="Reputación cruzada del residente según prestadores"
+                                >
+                                  <Star size={10} className="fill-amber-400 text-amber-400" />
+                                  <span>{Number(visit.owner_rating_avg || 0).toFixed(1)}</span>
+                                  <span className="opacity-75 font-normal">
+                                    ({visit.owner_reviews_count})
+                                  </span>
+                                </span>
+                              )}
                             </span>
                             <span className="opacity-45">·</span>
                             <span>{addressLabel}</span>
@@ -6707,9 +6721,25 @@ export default function ProviderDashboard({
                         {badgeLabel}
                       </span>
                     </div>
-                    <p className="text-[11px] opacity-75">
-                      Residente: <strong className="opacity-95">{ownerLabel}</strong> · Visita #{visit.id} ·{' '}
-                      {addressLabel}
+                    <p className="text-[11px] opacity-75 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                      <span>
+                        Residente: <strong className="opacity-95">{ownerLabel}</strong>
+                      </span>
+                      {Number(visit.owner_reviews_count || 0) > 0 ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 font-bold text-amber-300 opacity-100"
+                          title="Reputación cruzada del residente según otros prestadores"
+                        >
+                          <Star size={10} className="fill-amber-400 text-amber-400" />
+                          <span>{Number(visit.owner_rating_avg || 0).toFixed(1)}</span>
+                          <span className="opacity-75 font-normal">
+                            ({visit.owner_reviews_count})
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="opacity-65">· Sin reseñas aún</span>
+                      )}
+                      <span>· Visita #{visit.id} · {addressLabel}</span>
                     </p>
                   </div>
                 </div>

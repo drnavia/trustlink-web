@@ -1361,6 +1361,40 @@ function MainAppContent() {
 
               <button
                 type="button"
+                onClick={() => {
+                  setResidentTab('reputation');
+                  setResidentFavoritesOnly(false);
+                }}
+                className={subBarLinkClass(residentTab === 'reputation')}
+              >
+                <Star
+                  size={13}
+                  className={`shrink-0 ${
+                    residentTab === 'reputation' || Number(residentHeaderMeta.ownerRatingAvg || 0) > 0
+                      ? 'text-amber-400 fill-amber-400'
+                      : 'opacity-85'
+                  }`}
+                />
+                <span>Mi Reputación</span>
+                {Number(residentHeaderMeta.ownerRatingAvg || 0) > 0 ? (
+                  <span className="text-[10px] font-bold text-amber-300">
+                    {Number(residentHeaderMeta.ownerRatingAvg).toFixed(1)}
+                  </span>
+                ) : Number(residentHeaderMeta.unratedServicesCount || 0) > 0 ? (
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                      isDarkTheme
+                        ? 'bg-amber-400/20 text-amber-200 border border-amber-400/40'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {residentHeaderMeta.unratedServicesCount}
+                  </span>
+                ) : null}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setResidentRefreshNonce((prev) => prev + 1)}
                 className="inline-flex items-center justify-center p-1.5 rounded-lg opacity-65 hover:opacity-100 cursor-pointer shrink-0 transition-opacity"
                 title="Actualizar información del portal"
